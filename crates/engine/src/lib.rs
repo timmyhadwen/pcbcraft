@@ -149,6 +149,22 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"id":id_schema(),"at":point_schema()}), &["id", "at"]),
         ),
         (
+            "wire.add_point",
+            "Insert a vertex into a drawn wire at any position along it, extending either end",
+            schema(
+                json!({"id":id_schema(),"index":{"type":"integer","minimum":0,"maximum":256,"description":"vertex position the new point takes"},"position":point_schema()}),
+                &["id", "index", "position"],
+            ),
+        ),
+        (
+            "wire.remove_point",
+            "Remove one vertex from a drawn wire, shortening it or straightening a corner",
+            schema(
+                json!({"id":id_schema(),"index":{"type":"integer","minimum":0,"maximum":255}}),
+                &["id", "index"],
+            ),
+        ),
+        (
             "graphic.add",
             "Add a free-standing schematic or board graphic: line, rect, circle, arc, polygon or text",
             schema(
@@ -765,6 +781,19 @@ struct StitchParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct AddPointParams {
+    id: Id,
+    index: u32,
+    position: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemovePointParams {
+    id: Id,
+    index: u32,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ChamferParams {
     a: Id,
     b: Id,
@@ -1346,6 +1375,61 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 points: tail,
             });
             Ok(json!({"id":id,"kept":a.id}))
+        }
+        "wire.add_point" => {
+            let a: AddPointParams = parse(params)?;
+            if !a.position.valid() {
+                return Err(Error::Invalid("vertex is out of range".into()));
+            }
+            let wire = p
+                .drawn_wires
+                .iter_mut()
+                .find(|w| w.id == a.id)
+                .ok_or_else(missing)?;
+            if wire.points.len() >= 256 {
+                return Err(Error::Invalid("wire has too many vertices".into()));
+            }
+            let at = usize::try_from(a.index).map_err(|_| missing())?;
+            if at > wire.points.len() {
+                return Err(Error::Invalid("insert index is out of range".into()));
+            }
+            let near = (at > 0 && wire.points[at - 1].distance(a.position) < 0.01)
+                || (at < wire.points.len() && wire.points[at].distance(a.position) < 0.01);
+            if near {
+                return Err(Error::Invalid(
+                    "vertex is too close to a neighbouring vertex".into(),
+                ));
+            }
+            wire.points.insert(at, a.position);
+            Ok(json!({"id": a.id, "index": at}))
+        }
+        "wire.remove_point" => {
+            let a: RemovePointParams = parse(params)?;
+            let wire = p
+                .drawn_wires
+                .iter_mut()
+                .find(|w| w.id == a.id)
+                .ok_or_else(missing)?;
+            if wire.points.len() <= 2 {
+                return Err(Error::Invalid(
+                    "a wire must keep at least two vertices".into(),
+                ));
+            }
+            let at = usize::try_from(a.index).map_err(|_| missing())?;
+            if at >= wire.points.len() {
+                return Err(Error::Invalid("vertex index is out of range".into()));
+            }
+            let removed = wire.points[at];
+            if p.labels
+                .iter()
+                .any(|l| l.kind == "junction" && wire.net == Some(l.net) && l.position == removed)
+            {
+                return Err(Error::Invalid(
+                    "a junction sits on this vertex; move the junction first".into(),
+                ));
+            }
+            wire.points.remove(at);
+            Ok(json!({"id": a.id}))
         }
         "graphic.add" => {
             let a: GraphicParams = parse(params)?;
@@ -3198,6 +3282,88 @@ mod tests {
                 .end,
             Point::new(10.0, 10.0)
         );
+        Ok(())
+    }
+    #[test]
+    fn wire_vertices_can_be_inserted_and_removed() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"N1"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let wire = s.execute(
+            "wire.draw",
+            json!({"net":net,"points":[{"x":10.0,"y":10.0},{"x":20.0,"y":10.0},{"x":20.0,"y":20.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn points(s: &Session) -> Vec<Point> {
+            s.project.drawn_wires[0].points.clone()
+        }
+        s.execute(
+            "wire.add_point",
+            json!({"id":wire,"index":1,"position":{"x":15.0,"y":12.0}}),
+            None,
+        )?;
+        assert_eq!(points(&s)[1], Point::new(15.0, 12.0));
+        s.execute(
+            "wire.add_point",
+            json!({"id":wire,"index":4,"position":{"x":25.0,"y":20.0}}),
+            None,
+        )?;
+        assert_eq!(points(&s).len(), 5);
+        assert_eq!(points(&s)[4], Point::new(25.0, 20.0));
+        s.execute(
+            "wire.add_point",
+            json!({"id":wire,"index":0,"position":{"x":5.0,"y":10.0}}),
+            None,
+        )?;
+        assert_eq!(points(&s)[0], Point::new(5.0, 10.0));
+        for params in [
+            json!({"id":wire,"index":9,"position":{"x":0.0,"y":0.0}}),
+            json!({"id":wire,"index":1,"position":{"x":5.0,"y":10.0}}),
+            json!({"id":wire,"index":3,"position":{"x":20.0,"y":10.0}}),
+            json!({"id":wire,"index":1,"position":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"index":0,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":wire,"index":0,"position":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("wire.add_point", params, None).is_err());
+        }
+        assert_eq!(points(&s).len(), 6);
+        s.execute(
+            "label.place",
+            json!({"kind":"junction","net":net,"position":{"x":20.0,"y":20.0}}),
+            None,
+        )?;
+        let before = points(&s);
+        assert!(
+            s.execute("wire.remove_point", json!({"id":wire,"index":4}), None)
+                .is_err()
+        );
+        s.execute("wire.remove_point", json!({"id":wire,"index":5}), None)?;
+        assert_eq!(
+            points(&s),
+            vec![before[0], before[1], before[2], before[3], before[4]]
+        );
+        s.execute("wire.remove_point", json!({"id":wire,"index":0}), None)?;
+        s.execute("wire.remove_point", json!({"id":wire,"index":1}), None)?;
+        s.execute("wire.remove_point", json!({"id":wire,"index":1}), None)?;
+        assert_eq!(points(&s).len(), 2);
+        assert!(s.project.validate().is_ok());
+        assert!(
+            s.execute("wire.remove_point", json!({"id":wire,"index":0}), None)
+                .is_err()
+        );
+        for params in [
+            json!({"id":wire,"index":9}),
+            json!({"id":9999,"index":0}),
+            json!({"id":wire,"index":0,"extra":1}),
+        ] {
+            assert!(s.execute("wire.remove_point", params, None).is_err());
+        }
+        assert_eq!(points(&s).len(), 2);
+        s.undo()?;
+        assert_eq!(points(&s).len(), 3);
         Ok(())
     }
     #[test]
