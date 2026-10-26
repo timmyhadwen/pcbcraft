@@ -59,6 +59,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"name":{"type":"string"}}), &["name"]),
         ),
         (
+            "project.replace",
+            "Find text across the project and replace it in one call: component references, values and fields, net names, free board and schematic text, and graphic text; a dry run reports every hit without changing anything",
+            schema(
+                json!({"search":{"type":"string","minLength":1,"maxLength":256},"replace":{"type":"string","maxLength":256},"scope":{"type":"string","enum":["all","components","nets","text"],"default":"all"},"dry_run":{"type":"boolean","default":false}}),
+                &["search", "replace"],
+            ),
+        ),
+        (
             "component.add",
             "Place an original built-in symbol: resistor, capacitor, led or connector",
             schema(
@@ -866,7 +874,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1091,6 +1099,19 @@ struct ValueParams {
 #[serde(deny_unknown_fields)]
 struct Name {
     name: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReplaceParams {
+    search: String,
+    replace: String,
+    #[serde(default = "replace_all_scope")]
+    scope: String,
+    #[serde(default)]
+    dry_run: bool,
+}
+fn replace_all_scope() -> String {
+    "all".into()
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1950,6 +1971,176 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let a: Name = parse(params)?;
             p.name = a.name;
             Ok(json!({"name":p.name}))
+        }
+        "project.replace" => {
+            let a: ReplaceParams = parse(params)?;
+            if !["all", "components", "nets", "text"].contains(&a.scope.as_str()) {
+                return Err(Error::Invalid("unknown replace scope".into()));
+            }
+            if a.search == a.replace {
+                return Err(Error::Invalid(
+                    "the replacement is the same as the search text".into(),
+                ));
+            }
+            let all = a.scope == "all";
+            let wants_components = all || a.scope == "components";
+            let wants_nets = all || a.scope == "nets";
+            let wants_text = all || a.scope == "text";
+            let mut hits: Vec<(Id, &str, usize)> = Vec::new();
+            let mut new_refs: Vec<(Id, String)> = Vec::new();
+            let mut new_names: Vec<(Id, String)> = Vec::new();
+            if wants_components {
+                for c in &p.components {
+                    if c.reference.contains(&a.search) {
+                        let next = c.reference.replace(&a.search, &a.replace);
+                        if next.is_empty() || next.len() > 64 {
+                            return Err(Error::Invalid(
+                                "a replaced reference would be empty or over 64 characters".into(),
+                            ));
+                        }
+                        new_refs.push((c.id, next));
+                        hits.push((c.id, "reference", 1));
+                    }
+                    if c.value.contains(&a.search) {
+                        let matches = c.value.matches(&a.search as &str).count();
+                        let grown = a.replace.len() as isize - a.search.len() as isize;
+                        if grown > 0 && c.value.len() + matches * grown as usize > 256 {
+                            return Err(Error::Invalid(
+                                "a replaced value would be over 256 characters".into(),
+                            ));
+                        }
+                        hits.push((c.id, "value", matches));
+                    }
+                    for f in &c.fields {
+                        if f.value.contains(&a.search) {
+                            let matches = f.value.matches(&a.search as &str).count();
+                            let grown = a.replace.len() as isize - a.search.len() as isize;
+                            if grown > 0 && f.value.len() + matches * grown as usize > 256 {
+                                return Err(Error::Invalid(
+                                    "a replaced field value would be over 256 characters".into(),
+                                ));
+                            }
+                            hits.push((c.id, "field", matches));
+                        }
+                    }
+                }
+                let mut seen: Vec<&str> = new_refs.iter().map(|(_, r)| r.as_str()).collect();
+                let before = seen.len();
+                seen.sort();
+                seen.dedup();
+                if seen.len() != before {
+                    return Err(Error::Invalid(
+                        "the replacements would collide on one component reference".into(),
+                    ));
+                }
+                if p.components.iter().any(|c| {
+                    !new_refs.iter().any(|(id, _)| *id == c.id)
+                        && seen.contains(&c.reference.as_str())
+                }) {
+                    return Err(Error::Invalid(
+                        "a replaced reference is already used by another component".into(),
+                    ));
+                }
+            }
+            if wants_nets {
+                for n in &p.nets {
+                    if n.name.contains(&a.search) {
+                        let next = n.name.replace(&a.search, &a.replace);
+                        if next.is_empty() || next.len() > 128 {
+                            return Err(Error::Invalid(
+                                "a replaced net name would be empty or over 128 characters".into(),
+                            ));
+                        }
+                        new_names.push((n.id, next));
+                        hits.push((n.id, "net", 1));
+                    }
+                }
+                let mut seen: Vec<&str> = new_names.iter().map(|(_, r)| r.as_str()).collect();
+                let before = seen.len();
+                seen.sort();
+                seen.dedup();
+                if seen.len() != before {
+                    return Err(Error::Invalid(
+                        "the replacements would collide on one net name".into(),
+                    ));
+                }
+                if p.nets.iter().any(|n| {
+                    !new_names.iter().any(|(id, _)| *id == n.id) && seen.contains(&n.name.as_str())
+                }) {
+                    return Err(Error::Invalid(
+                        "a replaced net name is already used by another net".into(),
+                    ));
+                }
+            }
+            if wants_text {
+                for t in &p.board.texts {
+                    if t.text.contains(&a.search) {
+                        let matches = t.text.matches(&a.search as &str).count();
+                        let grown = a.replace.len() as isize - a.search.len() as isize;
+                        if grown > 0 && t.text.len() + matches * grown as usize > 128 {
+                            return Err(Error::Invalid(
+                                "a replaced board text would be over 128 characters".into(),
+                            ));
+                        }
+                        hits.push((t.id, "text", matches));
+                    }
+                }
+                for g in &p.graphics {
+                    if g.text.contains(&a.search) {
+                        let matches = g.text.matches(&a.search as &str).count();
+                        let grown = a.replace.len() as isize - a.search.len() as isize;
+                        if grown > 0 && g.text.len() + matches * grown as usize > 1_024 {
+                            return Err(Error::Invalid(
+                                "a replaced graphic text would be over 1024 characters".into(),
+                            ));
+                        }
+                        hits.push((g.id, "graphic", matches));
+                    }
+                }
+            }
+            let total: usize = hits.iter().map(|(_, _, n)| n).sum();
+            if total == 0 {
+                return Err(Error::Invalid(format!(
+                    "no project text matches \"{}\" in scope \"{}\"",
+                    a.search, a.scope
+                )));
+            }
+            let changes: Vec<Value> = hits
+                .iter()
+                .map(|(id, field, count)| json!({"id": id, "field": field, "matches": count}))
+                .collect();
+            if a.dry_run {
+                return Ok(json!({"dry_run": true, "count": total, "changes": changes}));
+            }
+            for c in &mut p.components {
+                if let Some((_, next)) = new_refs.iter().find(|(id, _)| *id == c.id) {
+                    c.reference = next.clone();
+                }
+                if c.value.contains(&a.search) {
+                    c.value = c.value.replace(&a.search, &a.replace);
+                }
+                for f in &mut c.fields {
+                    if f.value.contains(&a.search) {
+                        f.value = f.value.replace(&a.search, &a.replace);
+                    }
+                }
+            }
+            for n in &mut p.nets {
+                if let Some((_, next)) = new_names.iter().find(|(id, _)| *id == n.id) {
+                    n.name = next.clone();
+                }
+            }
+            for t in &mut p.board.texts {
+                if t.text.contains(&a.search) {
+                    t.text = t.text.replace(&a.search, &a.replace);
+                }
+            }
+            for g in &mut p.graphics {
+                if g.text.contains(&a.search) {
+                    g.text = g.text.replace(&a.search, &a.replace);
+                }
+            }
+            Ok(json!({"dry_run": false, "count": total, "changes": changes}))
         }
         "component.add" => {
             let a: Add = parse(params)?;
@@ -6340,6 +6531,140 @@ mod tests {
             "the junction would be left off the wire"
         );
         assert_eq!(s.inspect()["project"], before, "rejections change nothing");
+        Ok(())
+    }
+    #[test]
+    fn project_wide_find_and_replace_updates_every_text_field() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"VCC_MAIN"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let other = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"VCC resistor","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","value":"10 k","position":{"x":20.0,"y":10.0}}),
+            None,
+        )?;
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"note","value":"to VCC rail"}),
+            None,
+        )?;
+        s.execute(
+            "text.place",
+            json!({"text":"VCC testpoint","position":{"x":1.0,"y":1.0}}),
+            None,
+        )?;
+        s.execute(
+            "graphic.add",
+            json!({"layer":"schematic","shape":"text","points":[{"x":2.0,"y":2.0}],"width":1.5,"text":"VCC note"}),
+            None,
+        )?;
+        let probe = json!({"search":"VCC","replace":"3V3"});
+        let dry = s.execute(
+            "project.replace",
+            json!({"search":"VCC","replace":"3V3","dry_run":true}),
+            None,
+        )?["result"]
+            .clone();
+        assert!(dry["dry_run"].as_bool().is_some_and(|b| b));
+        assert_eq!(
+            dry["count"], 5,
+            "net, value, field, board text and graphic text"
+        );
+        let before = s.inspect()["project"].clone();
+        assert!(
+            s.execute(
+                "project.replace",
+                json!({"search":"VCC","replace":"3V3","dry_run":true}),
+                None
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "a dry run must not touch the project"
+        );
+        let done = s.execute("project.replace", probe.clone(), None)?["result"].clone();
+        assert_eq!(done["count"], 5);
+        assert_eq!(
+            s.project
+                .nets
+                .iter()
+                .find(|n| n.id == net)
+                .map(|n| n.name.as_str())
+                .unwrap_or_default(),
+            "3V3_MAIN"
+        );
+        assert_eq!(
+            s.project.component(r1).ok_or_else(missing)?.value,
+            "3V3 resistor"
+        );
+        assert_eq!(
+            s.project.component(r1).ok_or_else(missing)?.field("note"),
+            Some("to 3V3 rail")
+        );
+        assert_eq!(s.project.board.texts[0].text, "3V3 testpoint");
+        assert_eq!(s.project.graphics[0].text, "3V3 note");
+        assert_eq!(
+            s.project
+                .nets
+                .iter()
+                .find(|n| n.id == other)
+                .map(|n| n.name.as_str())
+                .unwrap_or_default(),
+            "GND"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project
+                .nets
+                .iter()
+                .find(|n| n.id == net)
+                .map(|n| n.name.as_str())
+                .unwrap_or_default(),
+            "VCC_MAIN",
+            "one undo reverses the whole replace"
+        );
+        s.execute("project.replace", probe.clone(), None)?;
+        assert!(
+            s.execute(
+                "project.replace",
+                json!({"search":"VCC","replace":"3V3","scope":"components"}),
+                None,
+            )
+            .is_err(),
+            "the components scope has no VCC left"
+        );
+        let before = s.inspect()["project"].clone();
+        for params in [
+            json!({"search":"VCC","replace":"VCC"}),
+            json!({"search":"NOPE","replace":"x"}),
+            json!({"search":"GND","replace":"x","scope":"text"}),
+            json!({"search":"GND","replace":"x","scope":"nope"}),
+            json!({"search":"1","replace":"2"}),
+            json!({"search":"R1","replace":"R2"}),
+            json!({"search":"GND","replace":"3V3_MAIN"}),
+            json!({"search":"VCC"}),
+            json!({"search":"VCC","replace":"x","extra":1}),
+        ] {
+            assert!(s.execute("project.replace", params.clone(), None).is_err());
+        }
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "rejections and collisions change nothing"
+        );
         Ok(())
     }
     #[test]

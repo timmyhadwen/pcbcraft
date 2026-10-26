@@ -36,7 +36,10 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   carry named properties (datasheet, manufacturer, custom notes) that are set,
   replaced or cleared one at a time and travel with a duplicate, and a bill of
   materials groups the design by value, kind and footprint with any requested
-  properties as extra grouping columns. Routed copper length is reported per
+  properties as extra grouping columns. One find-and-replace call sweeps any
+  text across the whole project at once (references, values, properties, net
+  names, board and graphic text), with a dry run that lists every hit first
+  and refusals when a rename would collide or run out of room. Routed copper length is reported per
   net, with via counts and a list of nets that have no copper at all; a net
   class can demand a target routed length within a tolerance, and member nets
   outside that window are reported by the checks. A single net can also carry
@@ -122,9 +125,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 99 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 100 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 118 MCP tools: every engine command plus library discovery/search/inspection,
+- 119 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
