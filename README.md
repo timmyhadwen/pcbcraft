@@ -133,8 +133,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - One-call fabrication output: write RS-274X Gerber front and back copper
   layers, a board outline layer with circular cutouts, and an Excellon drill
   map into any directory. Poured zones, tracks, vias and pads flash with their
-  real shapes and drills, and the export never edits the project. Solder mask,
-  silkscreen and paste layers and oval drill tooling are not generated yet.
+  real shapes and drills, and the export never edits the project. Oval holes
+  are written as spanned slot hits that follow pad and footprint rotation.
+  Solder mask, silkscreen and paste layers are not generated yet.
 - Net chain tracing: start at any pin and follow the series path through
   two-pin parts, reporting each hop's component, reference, pin and net, and
   why the walk stopped - an open end, a branching net, a many-pin part or a

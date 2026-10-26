@@ -309,8 +309,9 @@ fn preview_bounds(p: &Project, view: &str) -> (Point, Point) {
 /// RS-274X copper/outline layers plus an Excellon drill file, as filename to
 /// text. Copper layers carry zones, tracks, via and pad copper; the outline
 /// layer carries the board edge and circular cutouts; the drill file carries
-/// every plated and unplated hole. Back-copper coordinates are mirrored
-/// about x=0 as fabrication houses expect for bottom-side films.
+/// every plated and unplated hole, round holes as single hits and oval holes
+/// as G85 spans along the rotated long axis. Back-copper coordinates are
+/// mirrored about x=0 as fabrication houses expect for bottom-side films.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     const MAX_OPS: usize = 100_000;
@@ -545,16 +546,20 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             0.0
         ));
     }
-    let mut drills: BTreeMap<u64, Vec<(f64, f64)>> = BTreeMap::new();
-    let mut add_hole = |d: u64, x: f64, y: f64| {
-        drills.entry(d).or_default().push((x, y));
+    type DrillHit = (f64, f64, f64, f64);
+    let mut drills: BTreeMap<(u64, u64), Vec<DrillHit>> = BTreeMap::new();
+    let mut add_hole = |d: u64, span: u64, x: f64, y: f64, ux: f64, uy: f64| {
+        drills.entry((d, span)).or_default().push((x, y, ux, uy));
     };
     for v in &p.board.vias {
         if v.drill > 0.0 {
             add_hole(
                 (v.drill * 1_000.0).round() as u64,
+                0,
                 v.position.x,
                 v.position.y,
+                0.0,
+                0.0,
             );
         }
     }
@@ -566,13 +571,29 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             let Some(drill) = g.drill.as_ref() else {
                 continue;
             };
-            let d = (drill.size.x.min(drill.size.y) * 1_000.0).round() as u64;
+            let (wide, narrow) = (
+                drill.size.x.max(drill.size.y),
+                drill.size.x.min(drill.size.y),
+            );
+            let d = (narrow * 1_000.0).round() as u64;
             if d == 0 {
                 continue;
             }
+            let span = ((wide - narrow) * 1_000.0).round() as u64;
             let local = pad.offset.offset(drill.offset.rotate(-g.rotation));
             let world = f.position.offset(local.rotate(-f.rotation));
-            add_hole(d, world.x, world.y);
+            let (ux, uy) = if span == 0 {
+                (0.0, 0.0)
+            } else {
+                let axis = if drill.size.x >= drill.size.y {
+                    Point::new((wide - narrow) / 2.0, 0.0)
+                } else {
+                    Point::new(0.0, (wide - narrow) / 2.0)
+                };
+                let dir = axis.rotate(-(g.rotation + f.rotation));
+                (dir.x, dir.y)
+            };
+            add_hole(d, span, world.x, world.y, ux, uy);
         }
     }
     let total: usize = drills.values().map(|v| v.len()).sum();
@@ -580,14 +601,24 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         return Err("gerber export exceeds the drill hit limit".into());
     }
     let mut drill = String::from("M48\nFMAT,2\nMETRIC,TZ\n");
-    for (n, d) in drills.keys().enumerate() {
+    for (n, (d, _)) in drills.keys().enumerate() {
         drill.push_str(&format!("T{}C{:.3}\n", n + 1, *d as f64 / 1000.0));
     }
     drill.push_str("%\nG90\nG05\n");
     for (n, holes) in drills.values().enumerate() {
         drill.push_str(&format!("T{}\n", n + 1));
-        for (x, y) in holes {
-            drill.push_str(&format!("X{:.3}Y{:.3}\n", x, y));
+        for (x, y, ux, uy) in holes {
+            if *ux == 0.0 && *uy == 0.0 {
+                drill.push_str(&format!("X{:.3}Y{:.3}\n", x, y));
+            } else {
+                drill.push_str(&format!(
+                    "X{:.3}Y{:.3}G85X{:.3}Y{:.3}\n",
+                    x - ux,
+                    y - uy,
+                    x + ux,
+                    y + uy
+                ));
+            }
         }
     }
     drill.push_str("M30\n");
@@ -1808,6 +1839,94 @@ mod tests {
         assert!(drill.contains("T2C0.800\n"), "pad drill tool");
         assert!(drill.contains("T1\nX30.000Y10.000\n"), "via hole hit");
         assert!(drill.contains("T2\nX0.000Y0.000\n"), "pad hole hit");
+        assert!(drill.ends_with("M30\n"));
+        Ok(())
+    }
+    #[test]
+    fn oval_drills_export_as_spanned_slots_following_pad_rotation() -> Result<(), String> {
+        let mut project = Project::default();
+        let oval_geometry = || pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "oval".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.5),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            raw_source: String::new(),
+        };
+        let oval_pad = |component: u64| pcbcraft_doc::Footprint {
+            id: 10 + component,
+            component,
+            position: if component == 1 {
+                Point::new(10.0, 10.0)
+            } else {
+                Point::new(30.0, 10.0)
+            },
+            rotation: if component == 1 { 0.0 } else { 90.0 },
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::new(0.0, 0.0),
+                diameter: 1.6,
+                net: None,
+                geometry: Some(oval_geometry()),
+            }],
+        };
+        for id in 1..=2u64 {
+            project.components.push(pcbcraft_doc::Component {
+                id,
+                reference: format!("J{id}"),
+                value: "slot".into(),
+                kind: "connector".into(),
+                position: Point::new(10.0, 30.0),
+                rotation: 0.0,
+                pins: vec![pcbcraft_doc::Pin {
+                    number: "1".into(),
+                    name: String::new(),
+                    offset: Point::new(0.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                }],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                    library: "Slots".into(),
+                    definition: pcbcraft_library::FootprintDefinition {
+                        name: "SLOT-1".into(),
+                        description: String::new(),
+                        keywords: String::new(),
+                        pads: vec![oval_geometry()],
+                        graphics: vec![],
+                        raw_source: String::new(),
+                        unsupported: vec![],
+                    },
+                }),
+                fields: vec![],
+            });
+            project.board.footprints.push(oval_pad(id));
+        }
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        let drill = &files["pcb-Drill.drl"];
+        assert!(
+            drill.contains("T1C0.500\n"),
+            "one narrow tool carries both slots"
+        );
+        assert!(
+            drill.contains("X9.850Y10.000G85X10.150Y10.000\n"),
+            "an unrotated oval spans along x"
+        );
+        assert!(
+            drill.contains("X30.000Y10.150G85X30.000Y9.850\n"),
+            "a rotated footprint rotates its slot"
+        );
         assert!(drill.ends_with("M30\n"));
         Ok(())
     }
