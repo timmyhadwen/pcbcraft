@@ -697,6 +697,20 @@ pub struct BoardText {
     #[serde(default)]
     pub rotation: f64,
 }
+/// An unplated through hole: a drill that passes through the board without
+/// plating or a net.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Hole {
+    pub id: Id,
+    pub position: Point,
+    /// Drill diameter in millimetres.
+    pub diameter: f64,
+}
+impl Hole {
+    fn valid(&self) -> bool {
+        self.position.valid() && (0.05..=25.0).contains(&self.diameter)
+    }
+}
 /// One named board layer record, kept for fabrication notes: a layer's role
 /// and thickness as stated by the stackup the design was built against.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -789,6 +803,10 @@ pub struct Board {
     /// Plated through-hole vias joining front and back copper.
     #[serde(default)]
     pub vias: Vec<Via>,
+    /// Unplated through holes drilled for mounting or clearance; they carry
+    /// no copper and belong to no net.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holes: Vec<Hole>,
     /// Poured copper zones, one polygon per zone on a single layer.
     #[serde(default)]
     pub zones: Vec<CopperZone>,
@@ -1038,6 +1056,7 @@ impl Default for Project {
                 footprints: vec![],
                 tracks: vec![],
                 vias: vec![],
+                holes: vec![],
                 zones: vec![],
                 cutouts: vec![],
                 texts: vec![],
@@ -1311,6 +1330,7 @@ impl Project {
             .chain(self.board.vias.iter().map(|x| x.id))
             .chain(self.board.zones.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
+            .chain(self.board.holes.iter().map(|x| x.id))
             .chain(self.board.rule_areas.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
     }
@@ -1408,6 +1428,14 @@ impl Project {
         }
         if self.board.rule_areas.len() > 64 {
             return Err("a board carries at most 64 rule areas".into());
+        }
+        if self.board.holes.len() > 512 {
+            return Err("a board carries at most 512 unplated holes".into());
+        }
+        for h in &self.board.holes {
+            if !h.valid() {
+                return Err("unplated holes need a sane position and a 0.05 to 25 mm drill".into());
+            }
         }
         for r in &self.board.rule_areas {
             if !r.valid() || r.net.is_some_and(|n| !nets.contains(&n)) {

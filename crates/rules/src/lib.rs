@@ -183,6 +183,31 @@ fn copper(project: &Project) -> Vec<Copper> {
         result.push(back);
         result.push(item);
     }
+    for h in &project.board.holes {
+        // An unplated drill is a keep-out circle on every layer: copper may
+        // not enter the drilled annulus and the hole must clear the edge.
+        let item = Copper {
+            id: h.id,
+            net: 0,
+            start: h.position,
+            end: h.position,
+            radius: h.diameter / 2.0,
+            contact_radius: h.diameter / 2.0,
+            conservative: false,
+            outline: None,
+            outline_error: 0.0,
+            layer: Layer::Front,
+            pad: false,
+            clearance: None,
+            bridge: None,
+            hole: None,
+            cutouts: vec![],
+        };
+        let mut back = item.clone();
+        back.layer = Layer::Back;
+        result.push(back);
+        result.push(item);
+    }
     for z in &project.board.zones {
         if !z.filled {
             continue;

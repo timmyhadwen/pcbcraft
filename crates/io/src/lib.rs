@@ -645,6 +645,16 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             );
         }
     }
+    for h in &p.board.holes {
+        add_hole(
+            (h.diameter * 1_000.0).round() as u64,
+            0,
+            h.position.x,
+            h.position.y,
+            0.0,
+            0.0,
+        );
+    }
     for f in &p.board.footprints {
         for pad in &f.pads {
             let Some(g) = pad.geometry.as_ref() else {
