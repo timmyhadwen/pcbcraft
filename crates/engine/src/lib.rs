@@ -168,6 +168,19 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "net.disconnect",
+            "Take component pins out of a net, clearing their placed pads as well",
+            schema(
+                json!({"net":id_schema(),"pins":{"type":"array","items":pin_schema(),"minItems":1,"maxItems":128}}),
+                &["net", "pins"],
+            ),
+        ),
+        (
+            "copper.set_net",
+            "Move an existing track, via or copper zone onto a different net",
+            schema(json!({"id":id_schema(),"net":id_schema()}), &["id", "net"]),
+        ),
+        (
             "netclass.add",
             "Create a net class with a clearance requirement, a default track width and optional member nets",
             schema(
@@ -704,7 +717,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement, poured copper zones with cutouts, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, poured copper zones with cutouts, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -925,6 +938,12 @@ struct Name {
 struct Connect {
     net: Id,
     pins: Vec<PinRef>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CopperNetParams {
+    id: Id,
+    net: Id,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1986,6 +2005,80 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let a: Connect = parse(params)?;
             assign(p, a.net, &a.pins)?;
             Ok(json!({"net":a.net,"pins":a.pins.len()}))
+        }
+        "net.disconnect" => {
+            let a: Connect = parse(params)?;
+            if a.pins.is_empty() || a.pins.len() > 128 {
+                return Err(Error::Invalid("invalid pin list or unknown net".into()));
+            }
+            if !p.nets.iter().any(|n| n.id == a.net) {
+                return Err(Error::Invalid("invalid pin list or unknown net".into()));
+            }
+            for r in &a.pins {
+                let pin = p
+                    .components
+                    .iter()
+                    .find(|c| c.id == r.component)
+                    .and_then(|c| c.pins.iter().find(|pin| pin.number == r.pin))
+                    .ok_or_else(missing)?;
+                if pin.net != Some(a.net) {
+                    return Err(Error::Invalid(format!(
+                        "pin {} of component {} is not on that net",
+                        r.pin, r.component
+                    )));
+                }
+            }
+            let mut released = 0;
+            for r in &a.pins {
+                for c in p.components.iter_mut().filter(|c| c.id == r.component) {
+                    for pin in c.pins.iter_mut().filter(|pin| pin.number == r.pin) {
+                        pin.net = None;
+                        released += 1;
+                    }
+                }
+                for f in p
+                    .board
+                    .footprints
+                    .iter_mut()
+                    .filter(|f| f.component == r.component)
+                {
+                    for pad in f.pads.iter_mut().filter(|pad| pad.number == r.pin) {
+                        pad.net = None;
+                    }
+                }
+            }
+            Ok(json!({"net":a.net,"released":released}))
+        }
+        "copper.set_net" => {
+            let a: CopperNetParams = parse(params)?;
+            if !p.nets.iter().any(|n| n.id == a.net) {
+                return Err(Error::Invalid("unknown net".into()));
+            }
+            let already = || Error::Invalid("that copper is already on the net".into());
+            if let Some(i) = p.board.tracks.iter().position(|t| t.id == a.id) {
+                let track = p.board.tracks.get_mut(i).ok_or_else(missing)?;
+                if track.net == a.net {
+                    return Err(already());
+                }
+                track.net = a.net;
+            } else if let Some(i) = p.board.vias.iter().position(|v| v.id == a.id) {
+                let via = p.board.vias.get_mut(i).ok_or_else(missing)?;
+                if via.net == a.net {
+                    return Err(already());
+                }
+                via.net = a.net;
+            } else if let Some(i) = p.board.zones.iter().position(|z| z.id == a.id) {
+                let zone = p.board.zones.get_mut(i).ok_or_else(missing)?;
+                if zone.net == a.net {
+                    return Err(already());
+                }
+                zone.net = a.net;
+            } else {
+                return Err(Error::Invalid(
+                    "id is not a placed track, via or copper zone".into(),
+                ));
+            }
+            Ok(json!({"id":a.id,"net":a.net}))
         }
         "netclass.add" => {
             let a: NetClassParams = parse(params)?;
@@ -6990,6 +7083,138 @@ mod tests {
             assert!(s.execute("component.add", params, None).is_err());
             assert_eq!(s.inspect(), before);
         }
+    }
+    #[test]
+    fn pins_leave_a_net_and_placed_copper_can_switch_nets() -> Result<(), Error> {
+        let mut s = Session::default();
+        let one = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let two = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let v1 = s.execute("net.create", json!({"name":"V1"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let v2 = s.execute("net.create", json!({"name":"V2"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":v1,"pins":[{"component":one,"pin":"1"},{"component":two,"pin":"1"}]}),
+            None,
+        )?;
+        s.execute(
+            "footprint.assign",
+            json!({"id":one,"path":library_fixture("R_0805_2012Metric.kicad_mod")}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        assert_eq!(
+            s.project.board.footprints[0]
+                .pads
+                .iter()
+                .find(|pad| pad.number == "1")
+                .and_then(|pad| pad.net),
+            Some(v1),
+            "the placed pad carries the net its pin was given"
+        );
+        let track = s.execute(
+            "track.add",
+            json!({"net":v1,"start":{"x":8.0,"y":20.0},"end":{"x":20.0,"y":20.0},"width":0.25}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":v1,"position":{"x":25.0,"y":20.0},"diameter":0.7,"drill":0.35}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":v1,"layer":"B.Cu","outline":[{"x":5.0,"y":25.0},{"x":25.0,"y":25.0},{"x":25.0,"y":35.0},{"x":5.0,"y":35.0},{"x":5.0,"y":25.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute(
+            "net.disconnect",
+            json!({"net":v1,"pins":[{"component":one,"pin":"1"}]}),
+            None,
+        )?;
+        assert_eq!(out["result"]["released"].as_u64(), Some(1));
+        assert_eq!(
+            s.project
+                .components
+                .iter()
+                .find(|c| c.id == one)
+                .and_then(|c| c.pins.iter().find(|pin| pin.number == "1"))
+                .and_then(|pin| pin.net),
+            None,
+            "the symbol pin is free again"
+        );
+        assert_eq!(
+            s.project.board.footprints[0]
+                .pads
+                .iter()
+                .find(|pad| pad.number == "1")
+                .and_then(|pad| pad.net),
+            None,
+            "its placed pad is cleared too"
+        );
+        assert_eq!(
+            s.project
+                .components
+                .iter()
+                .find(|c| c.id == two)
+                .and_then(|c| c.pins.iter().find(|pin| pin.number == "1"))
+                .and_then(|pin| pin.net),
+            Some(v1),
+            "the other pin keeps its assignment"
+        );
+        for id in [track, via, zone] {
+            s.execute("copper.set_net", json!({"id":id,"net":v2}), None)?;
+        }
+        assert_eq!(s.project.board.tracks[0].net, v2);
+        assert_eq!(s.project.board.vias[0].net, v2);
+        assert_eq!(s.project.board.zones[0].net, v2);
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        for params in [
+            json!({"net":999,"pins":[{"component":one,"pin":"1"}]}),
+            json!({"net":v1,"pins":[{"component":one,"pin":"2"}]}),
+            json!({"net":v1,"pins":[{"component":999,"pin":"1"}]}),
+            json!({"net":v1,"pins":[]}),
+            json!({"net":v1}),
+            json!({"net":v1,"pins":[{"component":one,"pin":"1"}],"extra":1}),
+        ] {
+            assert!(s.execute("net.disconnect", params, None).is_err());
+        }
+        for params in [
+            json!({"id":track,"net":999}),
+            json!({"id":track,"net":v2}),
+            json!({"id":one,"net":v1}),
+            json!({"id":999,"net":v1}),
+            json!({"id":track}),
+            json!({"id":track,"net":v1,"layer":"B.Cu"}),
+        ] {
+            assert!(s.execute("copper.set_net", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.undo()?;
+        assert_eq!(s.project.board.zones[0].net, v1);
+        Ok(())
     }
     #[test]
     fn board_cutouts_move_and_resize_within_the_outline() -> Result<(), Error> {
