@@ -300,6 +300,7 @@ impl App {
                     offset: p.position,
                     diameter: p.size.x.min(p.size.y),
                     net: None,
+                    castellated: None,
                     geometry: Some(p.clone()),
                 }
                 .outline_points()
@@ -310,6 +311,7 @@ impl App {
                     offset: p.position,
                     diameter: p.size.x.min(p.size.y),
                     net: None,
+                    castellated: None,
                     geometry: Some(p.clone()),
                 }
                 .drill_outline_points()

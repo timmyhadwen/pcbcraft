@@ -649,6 +649,7 @@ mod tests {
                     offset: Point::default(),
                     diameter: 1.0,
                     net: Some(1),
+                    castellated: None,
                     geometry: None,
                 }],
             });
@@ -1045,6 +1046,7 @@ mod tests {
                 offset: Point::default(),
                 diameter: 1.6,
                 net: Some(1),
+                castellated: None,
                 geometry: Some(g),
             }],
         });
@@ -1144,6 +1146,7 @@ mod tests {
                 offset: g.position,
                 diameter: g.size.x.min(g.size.y),
                 net: Some(2 + i as u64),
+                castellated: None,
                 geometry: Some(g.clone()),
             })
             .collect();

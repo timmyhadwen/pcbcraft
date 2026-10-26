@@ -1650,6 +1650,7 @@ mod tests {
                 offset: p.position,
                 diameter: p.size.x.min(p.size.y),
                 net: None,
+                castellated: None,
                 geometry: Some(p.clone()),
             })
             .collect();
@@ -1770,6 +1771,7 @@ mod tests {
                 offset: p.position,
                 diameter: p.size.x.min(p.size.y),
                 net: None,
+                castellated: None,
                 geometry: Some(p.clone()),
             })
             .collect();
@@ -2122,6 +2124,7 @@ mod tests {
             offset: Point::new(0.0, 0.0),
             diameter: 1.6,
             net: None,
+            castellated: None,
             geometry: Some(pcbcraft_library::FootprintPad {
                 number: "1".into(),
                 pad_type: "thru_hole".into(),
@@ -2301,6 +2304,7 @@ mod tests {
                 offset: Point::new(0.0, 0.0),
                 diameter: 1.6,
                 net: None,
+                castellated: None,
                 geometry: Some(oval_geometry()),
             }],
         };
@@ -2441,6 +2445,7 @@ mod tests {
                         offset: Point::new(-1.0, 0.0),
                         diameter: 1.0,
                         net: None,
+                        castellated: None,
                         geometry: Some(geometry("1", -1.0, back)),
                     },
                     pcbcraft_doc::Pad {
@@ -2448,6 +2453,7 @@ mod tests {
                         offset: Point::new(1.0, 0.0),
                         diameter: 1.0,
                         net: None,
+                        castellated: None,
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],

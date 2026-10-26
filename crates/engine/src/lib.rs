@@ -566,6 +566,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "footprint.set_castellated",
+            "Flag one placed footprint pad castellated - plated and cut at a board edge so another board can be soldered onto it - or clear the flag",
+            schema(
+                json!({"id":id_schema(),"pad":{"type":"string","description":"pad number, exactly as listed by pad.table"},"on":{"type":"boolean"}}),
+                &["id", "pad", "on"],
+            ),
+        ),
+        (
             "footprint.array",
             "Step-and-repeat: clone a placed footprint and its component into a rectangular grid of copies at fixed column and row spacing; every copy gets fresh IDs and a numbered reference, the clones must stay within the project object limit, and one undo removes the whole array",
             schema(
@@ -1058,7 +1066,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1179,6 +1187,13 @@ struct PadSetParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PadCastellateParams {
+    id: Id,
+    pad: String,
+    on: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AssignFootprint {
     id: Id,
     path: String,
@@ -1204,6 +1219,7 @@ fn component_pads(c: &Component) -> Vec<Pad> {
                     .iter()
                     .find(|p| p.number == pad.number)
                     .and_then(|p| p.net),
+                castellated: None,
                 geometry: Some(pad.clone()),
             })
             .collect()
@@ -1216,6 +1232,7 @@ fn component_pads(c: &Component) -> Vec<Pad> {
                 offset: Point::new(if i == 0 { -2.5 } else { 2.5 }, 0.0),
                 diameter: 1.6,
                 net: pin.net,
+                castellated: None,
                 geometry: None,
             })
             .collect()
@@ -4443,6 +4460,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                             "shape": shape,
                             "size": size,
                             "drill": drill,
+                            "castellated": pad.castellated.unwrap_or(false),
                         }),
                     ));
                 }
@@ -5872,6 +5890,21 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 pad.diameter = diameter;
             }
             Ok(json!({"id": a.id, "pad": a.pad}))
+        }
+        "footprint.set_castellated" => {
+            let a: PadCastellateParams = parse(params)?;
+            if a.pad.is_empty() || a.pad.len() > 32 {
+                return Err(Error::Invalid("pad number must be 1 to 32 bytes".into()));
+            }
+            let pad = p
+                .board
+                .footprints
+                .iter_mut()
+                .find(|f| f.id == a.id)
+                .and_then(|f| f.pads.iter_mut().find(|pd| pd.number == a.pad))
+                .ok_or_else(missing)?;
+            pad.castellated = a.on.then_some(true);
+            Ok(json!({"id": a.id, "pad": a.pad, "castellated": a.on}))
         }
         "footprint.array" => {
             let a: ArrayParams = parse(params)?;
@@ -9143,6 +9176,75 @@ mod tests {
                 .map_or(0, |a| a.len()),
             2,
             "the clear undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn castellated_flags_mark_pads_reportedly_and_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","position":[10,10],"reference":"J1","value":"edge"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.inspect()["project"]["board"]["footprints"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let on = s.execute(
+            "footprint.set_castellated",
+            json!({"id":fp,"pad":"1","on":true}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(on["castellated"], true, "the flag is reported");
+        let pads = s.execute("pad.table", json!({}), None)?["result"]["pads"].clone();
+        let first = pads
+            .as_array()
+            .and_then(|rows| rows.iter().find(|r| r["pad"] == "1"))
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(first["castellated"], true, "the pad table shows the flag");
+        let second = pads
+            .as_array()
+            .and_then(|rows| rows.iter().find(|r| r["pad"] == "2"))
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(second["castellated"], false, "other pads stay plain");
+        s.execute(
+            "footprint.set_castellated",
+            json!({"id":fp,"pad":"1","on":false}),
+            None,
+        )?;
+        assert!(
+            s.inspect()["project"]["board"]["footprints"][0]["pads"][0]
+                .get("castellated")
+                .is_none(),
+            "clearing the flag drops the field"
+        );
+        for bad in [
+            json!({"id":999,"pad":"1","on":true}),
+            json!({"id":fp,"pad":"9","on":true}),
+            json!({"id":fp,"pad":"","on":true}),
+            json!({"id":fp,"pad":"1"}),
+            json!({"id":fp,"pad":"1","on":true,"nope":1}),
+        ] {
+            assert!(
+                s.execute("footprint.set_castellated", bad, None).is_err(),
+                "bad castellated requests are refused"
+            );
+        }
+        s.execute(
+            "footprint.set_castellated",
+            json!({"id":fp,"pad":"1","on":true}),
+            None,
+        )?;
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["board"]["footprints"][0]["pads"][0]
+                .get("castellated")
+                .is_none(),
+            "the flag undoes"
         );
         Ok(())
     }

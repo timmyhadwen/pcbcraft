@@ -404,6 +404,10 @@ pub struct Pad {
     pub offset: Point,
     pub diameter: f64,
     pub net: Option<Id>,
+    /// True when this pad is castellated: plated and cut at a board edge so
+    /// another board can be soldered onto it. Absent means not castellated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub castellated: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geometry: Option<pcbcraft_library::FootprintPad>,
 }
@@ -423,6 +427,7 @@ impl Pad {
             offset: hole.position,
             diameter: drill.size.x.min(drill.size.y),
             net: None,
+            castellated: None,
             geometry: Some(hole),
         }
         .outline_points()
