@@ -20,6 +20,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.save","description":"Atomically save the editable project library to a .pcbcraft-lib collection","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"gerber.export","description":"Write fabrication outputs (Gerber RS-274X front and back copper, board outline, Excellon drill map) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"netlist.write","description":"Write a plain-text netlist, one line per net with its component pins, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed KiCad symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a KiCad symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
@@ -56,6 +57,20 @@ fn string<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
         .and_then(Value::as_str)
         .ok_or_else(|| format!("missing string parameter: {key}"))
+}
+fn strings(args: &Value, key: &str) -> Result<Vec<String>, String> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| format!("{key} entries must be strings"))
+            })
+            .collect(),
+        _ => Err(format!("{key} must be an array of strings")),
+    }
 }
 fn revision(args: &Value) -> Result<Option<u64>, String> {
     args.get("expected_revision")
@@ -133,6 +148,13 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                 text.as_bytes(),
             )?;
             json!({"directory":directory,"files":["pcb-netlist.net"]})
+        }
+        "bom.write" => {
+            let directory = string(args, "path")?;
+            let fields = strings(args, "fields")?;
+            let text = pcbcraft_io::bom_csv(&s.project, &fields)?;
+            pcbcraft_io::atomic_write(&Path::new(directory).join("bom.csv"), text.as_bytes())?;
+            json!({"directory":directory,"files":["bom.csv"]})
         }
         "list_commands" => {
             json!({"commands":pcbcraft_engine::commands(),"units":"millimetres and degrees"})
@@ -631,6 +653,66 @@ mod tests {
         assert!(
             text.contains("SIG R1.1 R2.1\n"),
             "the exported netlist should carry the connected pins"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "the export must not edit the design"
+        );
+        Ok(())
+    }
+    #[test]
+    fn bom_write_collapses_identical_parts_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        for reference in ["R1", "R2", "C1"] {
+            call_tool(
+                &session,
+                "execute",
+                &json!({"command":"component.add","params":{"kind":"resistor","reference":reference,"value":if reference == "C1" {"100n"} else {"10k"},"position":[10.0,10.0]}}),
+            );
+        }
+        let id = {
+            let guard = session.lock().map_err(|_| "session unavailable")?;
+            guard.inspect()["project"]["components"][0]["id"]
+                .as_u64()
+                .ok_or("missing component id")?
+        };
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"component.field","params":{"id":id,"key":"Tolerance","value":"1%"}}),
+        );
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(
+            &session,
+            "bom.write",
+            &json!({"path":directory.path(),"fields":["Tolerance"]}),
+        );
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text =
+            std::fs::read_to_string(directory.path().join("bom.csv")).map_err(|e| e.to_string())?;
+        assert_eq!(
+            text.lines().next(),
+            Some("quantity,references,value,kind,footprint,Tolerance"),
+            "the requested property becomes a column"
+        );
+        assert!(
+            text.contains("1,R2,10k,resistor,starter pads,"),
+            "a part with no property value gets an empty column"
+        );
+        assert!(
+            text.contains("1,R1,10k,resistor,starter pads,1%"),
+            "the property column carries the set value"
+        );
+        let bare = call_tool(&session, "bom.write", &json!({"path":directory.path()}));
+        assert_eq!(bare.get("isError"), Some(&json!(false)));
+        let plain =
+            std::fs::read_to_string(directory.path().join("bom.csv")).map_err(|e| e.to_string())?;
+        assert_eq!(
+            plain.lines().next(),
+            Some("quantity,references,value,kind,footprint"),
+            "fields are optional"
         );
         assert_eq!(
             session.lock().map_err(|_| "session unavailable")?.inspect(),

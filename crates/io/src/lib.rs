@@ -638,6 +638,63 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     files.insert("pcb-Drill.drl".into(), drill);
     Ok(files)
 }
+/// Bill of materials as CSV: identical parts collapsed into one row with a
+/// sorted, quoted reference list. Requested property keys become extra columns.
+pub fn bom_csv(p: &Project, fields: &[String]) -> Result<String, String> {
+    p.validate()?;
+    if fields.len() > 16 {
+        return Err("a bill of materials lists at most 16 properties".into());
+    }
+    for key in fields {
+        if key.is_empty() || key.len() > 64 {
+            return Err("property names must be 1 to 64 bytes".into());
+        }
+    }
+    let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
+    for c in &p.components {
+        let footprint = match &c.library_footprint {
+            Some(footprint) => format!("{}:{}", footprint.library, footprint.definition.name),
+            None => "starter pads".into(),
+        };
+        let values: Vec<String> = fields
+            .iter()
+            .map(|key| c.field(key).unwrap_or("").to_string())
+            .collect();
+        groups
+            .entry((c.value.clone(), c.kind.clone(), footprint, values))
+            .or_default()
+            .push(c.reference.clone());
+    }
+    let mut out = String::from("quantity,references,value,kind,footprint");
+    for key in fields {
+        out.push(',');
+        out.push_str(&csv_cell(key));
+    }
+    out.push('\n');
+    for ((value, kind, footprint, values), mut references) in groups {
+        references.sort();
+        let joined = references.join(",");
+        out.push_str(&references.len().to_string());
+        for cell in [joined, value, kind, footprint] {
+            out.push(',');
+            out.push_str(&csv_cell(&cell));
+        }
+        for value in values {
+            out.push(',');
+            out.push_str(&csv_cell(&value));
+        }
+        out.push('\n');
+    }
+    Ok(out)
+}
+/// Quote a CSV cell only when it needs it: commas, quotes or newlines.
+fn csv_cell(text: &str) -> String {
+    if text.contains([',', '"', '\n']) {
+        format!("\"{}\"", text.replace('"', "\"\""))
+    } else {
+        text.to_string()
+    }
+}
 /// Plain-text netlist: one line per connected net, listing the component
 /// pins it carries as `REFERENCE.PIN`, sorted by net name and reference.
 pub fn netlist_text(p: &Project) -> Result<String, String> {
@@ -1973,6 +2030,103 @@ mod tests {
             "a rotated footprint rotates its slot"
         );
         assert!(drill.ends_with("M30\n"));
+        Ok(())
+    }
+    #[test]
+    fn bom_csv_groups_identical_parts_and_quotes_tricky_cells() -> Result<(), String> {
+        let mut project = Project::default();
+        for (id, reference, value) in [
+            (1, "R3", "10k"),
+            (2, "R1", "10k"),
+            (3, "R2", "10,000"),
+            (4, "C1", "100n"),
+        ] {
+            project.components.push(pcbcraft_doc::Component {
+                id,
+                reference: reference.into(),
+                value: value.into(),
+                kind: if value == "100n" {
+                    "capacitor"
+                } else {
+                    "resistor"
+                }
+                .into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: vec![
+                    pcbcraft_doc::Pin {
+                        number: "1".into(),
+                        name: String::new(),
+                        offset: Point::new(-1.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                    pcbcraft_doc::Pin {
+                        number: "2".into(),
+                        name: String::new(),
+                        offset: Point::new(1.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                ],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: None,
+                fields: vec![pcbcraft_doc::ComponentField {
+                    key: "Tolerance".into(),
+                    value: if reference == "C1" {
+                        "10%".into()
+                    } else {
+                        "".into()
+                    },
+                }],
+            });
+        }
+        project.validate()?;
+        let fields = ["Tolerance".to_string()];
+        let text = bom_csv(&project, &fields)?;
+        assert_eq!(
+            text.lines().next(),
+            Some("quantity,references,value,kind,footprint,Tolerance"),
+            "requested properties become extra columns"
+        );
+        assert_eq!(
+            text.lines().nth(1),
+            Some("1,R2,\"10,000\",resistor,starter pads,"),
+            "rows sort by value, kind and footprint"
+        );
+        assert_eq!(
+            text.lines().nth(2),
+            Some("1,C1,100n,capacitor,starter pads,10%"),
+            "the property column follows the requested key"
+        );
+        assert_eq!(
+            text.lines().nth(3),
+            Some("2,\"R1,R3\",10k,resistor,starter pads,"),
+            "identical parts collapse into one sorted reference list"
+        );
+        assert_eq!(
+            bom_csv(&project, &[])?.lines().count(),
+            4,
+            "no extra columns, same three groups"
+        );
+        assert!(bom_csv(&project, &["".to_string()]).is_err(), "empty key");
+        assert!(
+            bom_csv(&project, &["x".repeat(65)]).is_err(),
+            "overlong key"
+        );
+        assert!(
+            bom_csv(
+                &project,
+                &(1..=17).map(|i| format!("f{i}")).collect::<Vec<String>>()
+            )
+            .is_err(),
+            "too many properties"
+        );
         Ok(())
     }
     #[test]
