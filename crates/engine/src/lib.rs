@@ -200,6 +200,19 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netclass.clearance",
+            "Change the clearance a net class requires between its copper and everything else",
+            schema(
+                json!({"class":id_schema(),"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum copper separation in millimetres"}}),
+                &["class", "clearance"],
+            ),
+        ),
+        (
+            "netclass.remove",
+            "Delete a net class and return its nets to the board default rules",
+            schema(json!({"class":id_schema()}), &["class"]),
+        ),
+        (
             "netclass.assign_pattern",
             "Move every net whose name matches a wildcard pattern into a net class in one step; * matches any run of characters and ? matches one",
             schema(
@@ -675,7 +688,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement, poured copper zones with cutouts, rectangular outline and circular cutouts, free text labels on either copper side, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement, poured copper zones with cutouts, rectangular outline and circular cutouts, free text labels on either copper side, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1032,6 +1045,17 @@ struct LengthRulesParams {
     target_length: Option<f64>,
     #[serde(default)]
     length_tolerance: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClassClearanceParams {
+    class: Id,
+    clearance: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClassRemoveParams {
+    class: Id,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2086,6 +2110,31 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 "target_length": class.target_length,
                 "length_tolerance": class.length_tolerance,
             }))
+        }
+        "netclass.clearance" => {
+            let a: ClassClearanceParams = parse(params)?;
+            if !a.clearance.is_finite() || a.clearance <= 0.0 || a.clearance > 100.0 {
+                return Err(Error::Invalid(
+                    "clearance must be between 0 and 100 millimetres".into(),
+                ));
+            }
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            class.clearance = a.clearance;
+            Ok(json!({"class":a.class,"clearance":class.clearance,"nets":class.nets.len()}))
+        }
+        "netclass.remove" => {
+            let a: ClassRemoveParams = parse(params)?;
+            let index = p
+                .net_classes
+                .iter()
+                .position(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            let freed = p.net_classes.remove(index).nets.len();
+            Ok(json!({"removed":a.class,"nets_released":freed}))
         }
         "netclass.assign_pattern" => {
             let a: NetClassPatternParams = parse(params)?;
@@ -6865,6 +6914,103 @@ mod tests {
             assert!(s.execute("component.add", params, None).is_err());
             assert_eq!(s.inspect(), before);
         }
+    }
+    #[test]
+    fn net_classes_can_be_retuned_and_removed_releasing_their_nets() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (net, y) in [(a, 10.0), (b, 10.5)] {
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":30.0,"y":y},"width":0.2}),
+                None,
+            )?;
+        }
+        fn tight(s: &Session) -> Result<usize, Error> {
+            Ok(s.checks()["drc"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .filter(|f| f["code"] == json!("clearance"))
+                .count())
+        }
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.5,"width":0.4,"nets":[a]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(tight(&s)?, 1, "the class raises the requirement");
+        s.execute(
+            "netclass.clearance",
+            json!({"class":class,"clearance":0.25}),
+            None,
+        )?;
+        assert_eq!(
+            tight(&s)?,
+            0,
+            "relaxing the class clears the finding at once"
+        );
+        s.execute(
+            "netclass.clearance",
+            json!({"class":class,"clearance":0.45}),
+            None,
+        )?;
+        assert!(
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .any(|f| f["code"] == json!("clearance")
+                    && f["message"]
+                        .as_str()
+                        .is_some_and(|m| m.contains("0.450 mm required"))),
+            "the new clearance is the one reported"
+        );
+        let removed = s.execute("netclass.remove", json!({"class":class}), None)?;
+        assert_eq!(removed["result"]["nets_released"].as_u64(), Some(1));
+        assert!(s.project.net_classes.is_empty());
+        assert!(
+            s.project.net_class(a).is_none(),
+            "the freed net falls back to the board default"
+        );
+        assert_eq!(tight(&s)?, 0, "the board default is looser than the class");
+        s.undo()?;
+        assert_eq!(s.project.net_classes.len(), 1);
+        assert_eq!(s.project.net_classes[0].clearance, 0.45);
+        assert_eq!(s.project.net_classes[0].nets, vec![a]);
+        let before = s.inspect();
+        for params in [
+            json!({"class":class,"clearance":0.0}),
+            json!({"class":class,"clearance":-0.1}),
+            json!({"class":class,"clearance":100.5}),
+            json!({"class":class,"clearance":null}),
+            json!({"class":class}),
+            json!({"class":999,"clearance":0.3}),
+            json!({"class":class,"clearance":0.3,"width":0.9}),
+        ] {
+            assert!(s.execute("netclass.clearance", params, None).is_err());
+        }
+        for params in [
+            json!({"class":999}),
+            json!({"class":999,"extra":1}),
+            json!({"class":null}),
+        ] {
+            assert!(s.execute("netclass.remove", params, None).is_err());
+        }
+        assert_eq!(
+            s.inspect(),
+            before,
+            "rejections change nothing and undo stays put"
+        );
+        Ok(())
     }
     #[test]
     fn copper_sizes_can_be_edited_after_placement() -> Result<(), Error> {
