@@ -372,6 +372,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "schematic.table",
+            "Draw a parts table on the schematic at a position: one row per component sorted by reference, one column per property key (reference and value by default), as ordinary graphics that capture the design as it stands now",
+            schema(
+                json!({"position":point_schema(),"fields":{"type":"array","items":{"type":"string","minLength":1,"maxLength":32},"maxItems":3},"max_rows":{"type":"integer","minimum":1,"maximum":200}}),
+                &["position"],
+            ),
+        ),
+        (
             "label.place",
             "Place a local, global, hierarchical or power label, or a junction, naming an existing net",
             schema(
@@ -1066,7 +1074,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1374,6 +1382,15 @@ struct BarcodeParams {
     module: Option<f64>,
     #[serde(default)]
     layer: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SchematicTableParams {
+    position: Point,
+    #[serde(default)]
+    fields: Vec<String>,
+    #[serde(default)]
+    max_rows: Option<usize>,
 }
 /// Code 39 element patterns: five bars and four spaces per symbol, three of
 /// the nine elements wide, bars at even indices.
@@ -3979,6 +3996,138 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 count += 1;
             }
             Ok(json!({"count": count, "width": x - module}))
+        }
+        "schematic.table" => {
+            let a: SchematicTableParams = parse(params)?;
+            if !a.position.valid() {
+                return Err(Error::Invalid("table position is out of range".into()));
+            }
+            if a.fields.len() > 3 {
+                return Err(Error::Invalid("a table takes at most 3 columns".into()));
+            }
+            for key in &a.fields {
+                if key.is_empty() || key.len() > 32 {
+                    return Err(Error::Invalid("table columns must be 1 to 32 bytes".into()));
+                }
+            }
+            if a.max_rows.is_some_and(|n| n == 0 || n > 200) {
+                return Err(Error::Invalid(
+                    "row counts must be between 1 and 200".into(),
+                ));
+            }
+            let fields: Vec<String> = if a.fields.is_empty() {
+                vec!["reference".into(), "value".into()]
+            } else {
+                a.fields.clone()
+            };
+            let max_rows = a.max_rows.unwrap_or(64).clamp(1, 200);
+            let cell = |c: &pcbcraft_doc::Component, key: &str| -> String {
+                match key {
+                    "reference" => c.reference.clone(),
+                    "value" => c.value.clone(),
+                    other => c.field(other).unwrap_or("").to_string(),
+                }
+            };
+            let mut rows: Vec<Vec<String>> = p
+                .components
+                .iter()
+                .map(|c| fields.iter().map(|key| cell(c, key)).collect())
+                .collect();
+            rows.sort_by(|x, y| x.first().cmp(&y.first()));
+            let truncated = rows.len() > max_rows;
+            rows.truncate(max_rows);
+            let (col_w, row_h, text_size) = (15.0, 4.0, 2.5);
+            let width = col_w * fields.len() as f64;
+            let height = row_h * (rows.len() + 1) as f64;
+            if !Point::new(a.position.x + width, a.position.y - height).valid() {
+                return Err(Error::Invalid("the table extends out of range".into()));
+            }
+            let lines = (rows.len() + 2) + (fields.len() + 1);
+            let texts = rows.iter().fold(1usize, |n, r| {
+                n + r.iter().filter(|t| !t.is_empty()).count()
+            });
+            if p.graphics.len() + lines + texts > 4096 {
+                return Err(Error::Invalid(
+                    "the drawing holds at most 4096 graphics".into(),
+                ));
+            }
+            let add = |shape: &str,
+                       points: Vec<Point>,
+                       width: f64,
+                       text: String,
+                       p: &mut pcbcraft_doc::Project,
+                       next: &mut Id|
+             -> Result<(), Error> {
+                let id = allocate(next)?;
+                p.graphics.push(pcbcraft_doc::Graphic {
+                    id,
+                    layer: "schematic".into(),
+                    shape: shape.into(),
+                    points,
+                    width,
+                    text,
+                });
+                Ok(())
+            };
+            for r in 0..=rows.len() + 1 {
+                let y = a.position.y - row_h * r as f64;
+                add(
+                    "line",
+                    vec![
+                        Point::new(a.position.x, y),
+                        Point::new(a.position.x + width, y),
+                    ],
+                    0.15,
+                    String::new(),
+                    p,
+                    next,
+                )?;
+            }
+            for c in 0..=fields.len() {
+                let x = a.position.x + col_w * c as f64;
+                add(
+                    "line",
+                    vec![
+                        Point::new(x, a.position.y),
+                        Point::new(x, a.position.y - height),
+                    ],
+                    0.15,
+                    String::new(),
+                    p,
+                    next,
+                )?;
+            }
+            for (r, row) in std::iter::once(None)
+                .chain(rows.iter().map(Some))
+                .enumerate()
+            {
+                for (i, key) in fields.iter().enumerate() {
+                    let text = match row {
+                        None => key.clone(),
+                        Some(values) => values[i].clone(),
+                    };
+                    if text.is_empty() {
+                        continue;
+                    }
+                    add(
+                        "text",
+                        vec![Point::new(
+                            a.position.x + col_w * i as f64 + 1.0,
+                            a.position.y - row_h * r as f64 - 2.8,
+                        )],
+                        text_size,
+                        text,
+                        p,
+                        next,
+                    )?;
+                }
+            }
+            Ok(json!({
+                "rows": rows.len(),
+                "columns": fields.len(),
+                "truncated": truncated,
+                "graphics": lines + texts,
+            }))
         }
         "label.place" => {
             let a: LabelParams = parse(params)?;
@@ -9177,6 +9326,72 @@ mod tests {
             2,
             "the clear undoes"
         );
+        Ok(())
+    }
+    #[test]
+    fn schematic_table_draws_sorted_rows_and_refuses_bad_requests() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R2","value":"10k"}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[20,20],"reference":"R1","value":"1k"}),
+            None,
+        )?;
+        let count = |s: &Session| -> Result<usize, Error> {
+            Ok(s.inspect()["project"]["graphics"]
+                .as_array()
+                .ok_or_else(missing)?
+                .len())
+        };
+        let before = count(&s)?;
+        let out = s.execute(
+            "schematic.table",
+            json!({"position":[0,60],"max_rows":1}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["rows"], 1, "row cap honoured");
+        assert_eq!(out["columns"], 2, "reference and value by default");
+        assert_eq!(out["truncated"], true, "truncation is reported");
+        let graphics = s.inspect()["project"]["graphics"].clone();
+        let rows = graphics.as_array().ok_or_else(missing)?;
+        assert_eq!(rows.len() - before, 10, "grid lines plus text");
+        let texts: Vec<&str> = rows
+            .iter()
+            .filter(|g| g["shape"] == "text")
+            .map(|g| g["text"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(
+            texts,
+            vec!["reference", "value", "R1", "1k"],
+            "header then the first sorted row"
+        );
+        s.undo()?;
+        assert_eq!(count(&s)?, before, "the whole table undoes as one step");
+        let out = s.execute(
+            "schematic.table",
+            json!({"position":[0,60],"fields":["reference"]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["columns"], 1, "one requested column");
+        assert_eq!(out["rows"], 2, "both sorted rows");
+        for bad in [
+            json!({"position":[0,60],"fields":[""]}),
+            json!({"position":[0,60],"fields":["a","b","c","d"]}),
+            json!({"position":[0,60],"max_rows":0}),
+            json!({"position":[99_990,0]}),
+            json!({"position":[0,60],"nope":1}),
+        ] {
+            assert!(
+                s.execute("schematic.table", bad, None).is_err(),
+                "bad table requests are refused"
+            );
+        }
         Ok(())
     }
     #[test]
