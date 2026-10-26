@@ -115,9 +115,25 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "component.reference",
+            "Rename a component's reference designator; the new name must be unique",
+            schema(
+                json!({"id":id_schema(),"reference":{"type":"string"}}),
+                &["id", "reference"],
+            ),
+        ),
+        (
             "net.create",
             "Create a named logical net",
             schema(json!({"name":{"type":"string"}}), &["name"]),
+        ),
+        (
+            "net.rename",
+            "Rename an existing net; the new name must be unique",
+            schema(
+                json!({"id":id_schema(),"name":{"type":"string"}}),
+                &["id", "name"],
+            ),
         ),
         (
             "net.connect",
@@ -797,6 +813,18 @@ struct StitchParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ReferenceParams {
+    id: Id,
+    reference: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenameParams {
+    id: Id,
+    name: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct GraphicRotateParams {
     id: Id,
     degrees: f64,
@@ -1303,11 +1331,46 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .value = a.value;
             Ok(json!({"id":a.id}))
         }
+        "component.reference" => {
+            let a: ReferenceParams = parse(params)?;
+            if a.reference.is_empty() || a.reference.len() > 64 {
+                return Err(Error::Invalid("reference must be 1 to 64 bytes".into()));
+            }
+            if p.components
+                .iter()
+                .any(|c| c.id != a.id && c.reference == a.reference)
+            {
+                return Err(Error::Invalid("reference already in use".into()));
+            }
+            let c = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            c.reference = a.reference;
+            Ok(json!({"id": a.id}))
+        }
         "net.create" => {
             let a: Name = parse(params)?;
             let id = allocate(next)?;
             p.nets.push(Net { id, name: a.name });
             Ok(json!({"id":id}))
+        }
+        "net.rename" => {
+            let a: RenameParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid("net name must be 1 to 128 bytes".into()));
+            }
+            if p.nets.iter().any(|n| n.id != a.id && n.name == a.name) {
+                return Err(Error::Invalid("net name already in use".into()));
+            }
+            let net = p
+                .nets
+                .iter_mut()
+                .find(|n| n.id == a.id)
+                .ok_or_else(missing)?;
+            net.name = a.name;
+            Ok(json!({"id": a.id}))
         }
         "net.connect" => {
             let a: Connect = parse(params)?;
@@ -3538,6 +3601,79 @@ mod tests {
         }
         s.undo()?;
         assert_eq!(s.project.labels[0].rotation, 45.0);
+        Ok(())
+    }
+    #[test]
+    fn renaming_references_and_nets_is_validated_unique() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "component.reference",
+            json!({"id":r1,"reference":"RV1"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.component(r1).ok_or_else(missing)?.reference,
+            "RV1"
+        );
+        assert_eq!(s.project.component(r2).ok_or_else(missing)?.reference, "R2");
+        assert!(s.project.validate().is_ok());
+        let long = "R".repeat(65);
+        for params in [
+            json!({"id":r1,"reference":"R2"}),
+            json!({"id":r1,"reference":""}),
+            json!({"id":r1,"reference":long}),
+            json!({"id":9999,"reference":"R9"}),
+            json!({"id":r1,"reference":"R9","extra":1}),
+        ] {
+            assert!(s.execute("component.reference", params, None).is_err());
+        }
+        assert_eq!(
+            s.project.component(r1).ok_or_else(missing)?.reference,
+            "RV1"
+        );
+        s.execute(
+            "component.reference",
+            json!({"id":r1,"reference":"R1"}),
+            None,
+        )?;
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("net.rename", json!({"id":a,"name":"VCC"}), None)?;
+        assert_eq!(s.project.nets[0].name, "VCC");
+        assert_eq!(s.project.nets[1].name, "B");
+        assert!(s.project.validate().is_ok());
+        let long = "N".repeat(129);
+        for params in [
+            json!({"id":a,"name":"B"}),
+            json!({"id":a,"name":""}),
+            json!({"id":a,"name":long}),
+            json!({"id":9999,"name":"Z"}),
+            json!({"id":a,"name":"Z","extra":1}),
+        ] {
+            assert!(s.execute("net.rename", params, None).is_err());
+        }
+        assert_eq!(s.project.nets[0].name, "VCC");
+        assert_eq!(b, a + 1);
+        s.undo()?;
+        assert_eq!(s.project.nets[0].name, "A");
         Ok(())
     }
     #[test]
