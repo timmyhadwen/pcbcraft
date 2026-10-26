@@ -671,6 +671,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"net":id_schema()}), &[]),
         ),
         (
+            "net.chain",
+            "Trace a net chain from a starting pin through two-pin parts in series, reporting each hop's component, reference, pin and net, and how the walk ended: open, branch, multi or loop",
+            schema(
+                json!({"component":id_schema(),"pin":{"type":"string","minLength":1,"maxLength":16}}),
+                &["component", "pin"],
+            ),
+        ),
+        (
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
@@ -903,7 +911,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1388,6 +1396,12 @@ struct RuleRegionLiftParams {
 struct NetLengthsParams {
     #[serde(default)]
     net: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetChainParams {
+    component: Id,
+    pin: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4201,6 +4215,90 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 "unrouted": unrouted,
                 "total": total,
             }))
+        }
+        "net.chain" => {
+            let a: NetChainParams = parse(params)?;
+            if a.pin.len() > 16 {
+                return Err(Error::Invalid("pin must be at most 16 bytes".into()));
+            }
+            let net_name = |id: Option<Id>| -> Option<String> {
+                id.and_then(|id| p.nets.iter().find(|n| n.id == id).map(|n| n.name.clone()))
+            };
+            let mut steps: Vec<Value> = vec![];
+            let mut visited: Vec<(Id, String)> = vec![];
+            let mut current = (a.component, a.pin.clone());
+            let terminated = loop {
+                let comp = p
+                    .components
+                    .iter()
+                    .find(|c| c.id == current.0)
+                    .ok_or_else(missing)?;
+                let here = comp
+                    .pins
+                    .iter()
+                    .find(|q| q.number == current.1)
+                    .ok_or_else(missing)?;
+                visited.push(current.clone());
+                steps.push(json!({
+                    "component": comp.id,
+                    "reference": comp.reference,
+                    "pin": here.number,
+                    "net": here.net,
+                    "net_name": net_name(here.net),
+                }));
+                let Some(net) = here.net else {
+                    break "open";
+                };
+                let others: Vec<(Id, String)> = p
+                    .components
+                    .iter()
+                    .flat_map(|c| c.pins.iter().map(move |q| (c, q)))
+                    .filter(|(c, q)| {
+                        q.net == Some(net) && !(c.id == comp.id && q.number == here.number)
+                    })
+                    .map(|(c, q)| (c.id, q.number.clone()))
+                    .collect();
+                if others.is_empty() {
+                    break "open";
+                }
+                if others.len() > 1 {
+                    break "branch";
+                }
+                let (next_id, next_pin) = others[0].clone();
+                let next = p
+                    .components
+                    .iter()
+                    .find(|c| c.id == next_id)
+                    .ok_or_else(missing)?;
+                if next.pins.len() != 2 {
+                    let arrival = next
+                        .pins
+                        .iter()
+                        .find(|q| q.number == next_pin)
+                        .ok_or_else(missing)?;
+                    steps.push(json!({
+                        "component": next.id,
+                        "reference": next.reference,
+                        "pin": arrival.number,
+                        "net": arrival.net,
+                        "net_name": net_name(arrival.net),
+                    }));
+                    break "multi";
+                }
+                let onward = next
+                    .pins
+                    .iter()
+                    .find(|q| q.number != next_pin)
+                    .ok_or_else(missing)?;
+                if visited.contains(&(next.id, onward.number.clone())) {
+                    break "loop";
+                }
+                if steps.len() >= 2048 {
+                    return Err(Error::Invalid("chain too long".into()));
+                }
+                current = (next.id, onward.number.clone());
+            };
+            Ok(json!({"steps": steps, "parts": steps.len(), "terminated": terminated}))
         }
         "rules.severity" => {
             let a: RuleSeverityParams = parse(params)?;
@@ -7592,6 +7690,101 @@ mod tests {
             1
         );
         assert_eq!(back["components"].as_array().ok_or_else(missing)?.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn net_chains_walk_series_parts_and_report_how_the_walk_ends() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut ids = vec![];
+        for r in ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9"] {
+            ids.push(
+                s.execute(
+                    "component.add",
+                    json!({"kind":"resistor","reference":r,"position":{"x":10.0,"y":10.0}}),
+                    None,
+                )?["result"]["id"]
+                    .as_u64()
+                    .ok_or_else(missing)?,
+            );
+        }
+        s.execute(
+            "netlist.import",
+            json!({"nets":[
+                {"name":"A","pins":[{"reference":"R1","pin":"2"},{"reference":"R2","pin":"1"}]},
+                {"name":"B","pins":[{"reference":"R2","pin":"2"},{"reference":"R3","pin":"1"}]},
+                {"name":"C","pins":[{"reference":"R3","pin":"2"},{"reference":"R4","pin":"1"},{"reference":"R5","pin":"1"}]},
+                {"name":"D","pins":[{"reference":"R4","pin":"2"}]},
+                {"name":"L1","pins":[{"reference":"R6","pin":"1"},{"reference":"R7","pin":"2"}]},
+                {"name":"L2","pins":[{"reference":"R7","pin":"1"},{"reference":"R8","pin":"2"}]},
+                {"name":"L3","pins":[{"reference":"R8","pin":"1"},{"reference":"R6","pin":"2"}]},
+            ]}),
+            None,
+        )?;
+        let chain = |s: &mut Session, component: Id, pin: &str| -> Result<Value, Error> {
+            Ok(
+                s.execute("net.chain", json!({"component":component,"pin":pin}), None)?["result"]
+                    .clone(),
+            )
+        };
+        let open = chain(&mut s, ids[0], "1")?;
+        assert_eq!(open["terminated"], "open", "a pin with no net ends at once");
+        assert_eq!(open["parts"], 1);
+        assert!(open["steps"][0]["net"].is_null());
+        let branch = chain(&mut s, ids[0], "2")?;
+        assert_eq!(branch["parts"], 3, "R1 through R2 into R3");
+        assert_eq!(branch["terminated"], "branch", "two ways forward at R3");
+        let refs: Vec<&str> = branch["steps"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .map(|q| q["reference"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(refs, ["R1", "R2", "R3"]);
+        assert_eq!(branch["steps"][2]["net_name"], "C");
+        let back = chain(&mut s, ids[2], "1")?;
+        assert_eq!(
+            back["terminated"], "open",
+            "the chain walks both directions"
+        );
+        assert_eq!(back["parts"], 3);
+        assert_eq!(back["steps"][2]["pin"], "1");
+        let start_branch = chain(&mut s, ids[3], "1")?;
+        assert_eq!(start_branch["parts"], 1);
+        assert_eq!(start_branch["terminated"], "branch");
+        let cycle = chain(&mut s, ids[5], "1")?;
+        assert_eq!(
+            cycle["terminated"], "loop",
+            "a ring of series parts is detected"
+        );
+        assert_eq!(
+            cycle["parts"], 3,
+            "each ring part is listed once before the walk notices the close"
+        );
+        s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","reference":"U1","position":{"x":40.0,"y":10.0}}),
+            None,
+        )?;
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"M","pins":[{"reference":"U1","pin":"1"},{"reference":"R9","pin":"1"}]}]}),
+            None,
+        )?;
+        let multi = chain(&mut s, ids[8], "1")?;
+        assert_eq!(
+            multi["terminated"], "multi",
+            "a many-pin part stops the chain"
+        );
+        assert_eq!(multi["parts"], 2);
+        assert_eq!(multi["steps"][1]["reference"], "U1");
+        for bad in [
+            json!({"component":9999,"pin":"1"}),
+            json!({"component":ids[0],"pin":"9"}),
+            json!({"component":ids[0],"pin":"12345678901234567"}),
+            json!({"component":ids[0]}),
+        ] {
+            assert!(s.execute("net.chain", bad, None).is_err());
+        }
         Ok(())
     }
     #[test]
