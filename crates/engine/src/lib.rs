@@ -977,6 +977,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "variant.set_footprint",
+            "Record that an assembly variant populates one component with a different footprint, replacing any earlier swap for that component; a variant bill of materials prints these swaps",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"component":id_schema(),"footprint":{"type":"string","minLength":1,"maxLength":128,"description":"package this build uses in place of the placed footprint"}}),
+                &["name", "component", "footprint"],
+            ),
+        ),
+        (
+            "variant.clear_footprint",
+            "Remove an assembly variant's footprint swap for one component, restoring the footprint the design places",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"component":id_schema()}),
+                &["name", "component"],
+            ),
+        ),
+        (
             "variant.remove",
             "Delete an assembly variant by name",
             schema(
@@ -986,9 +1002,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "bom.export",
-            "Export a bill of materials: components grouped by value, kind, footprint and requested properties",
+            "Export a bill of materials: components grouped by value, kind, footprint and requested properties; with a variant name, that build's unpopulated parts are skipped and its footprint swaps printed",
             schema(
-                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16}}),
+                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),
                 &[],
             ),
         ),
@@ -1177,7 +1193,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1752,6 +1768,8 @@ struct NetClassAssignParams {
 struct BomParams {
     #[serde(default)]
     fields: Vec<String>,
+    #[serde(default)]
+    variant: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1880,6 +1898,14 @@ struct VariantDnpParams {
     ids: Vec<Id>,
     #[serde(default)]
     dnp: Option<bool>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VariantFootprintParams {
+    name: String,
+    component: Id,
+    #[serde(default)]
+    footprint: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -6263,6 +6289,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 name: name.clone(),
                 note: a.note,
                 dnp,
+                footprints: vec![],
             });
             p.variants.sort_by(|x, y| x.name.cmp(&y.name));
             Ok(json!({"name": name, "count": p.variants.len()}))
@@ -6298,6 +6325,72 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             Ok(json!({"name": name, "dnp": v.dnp.len()}))
         }
+        "variant.set_footprint" => {
+            let a: VariantFootprintParams = parse(params)?;
+            let name = a.name.trim();
+            let Some(raw) = a.footprint.as_deref().map(str::trim) else {
+                return Err(Error::Invalid(
+                    "variant.set_footprint needs a footprint name".into(),
+                ));
+            };
+            if name.is_empty() || name.len() > 64 {
+                return Err(Error::Invalid("variant names must be 1 to 64 bytes".into()));
+            }
+            if raw.is_empty() || raw.len() > 128 {
+                return Err(Error::Invalid(
+                    "footprint names must be 1 to 128 bytes".into(),
+                ));
+            }
+            if !p.components.iter().any(|c| c.id == a.component) {
+                return Err(Error::Invalid(format!(
+                    "no component has id {}",
+                    a.component
+                )));
+            }
+            let Some(v) = p.variants.iter_mut().find(|v| v.name == name) else {
+                return Err(Error::Invalid(format!("no variant named {name}")));
+            };
+            if let Some(existing) = v.footprints.iter_mut().find(|o| o.component == a.component) {
+                existing.footprint = raw.to_string();
+            } else {
+                if v.footprints.len() >= 512 {
+                    return Err(Error::Invalid(
+                        "a variant swaps at most 512 footprints".into(),
+                    ));
+                }
+                v.footprints.push(pcbcraft_doc::FootprintOverride {
+                    component: a.component,
+                    footprint: raw.to_string(),
+                });
+                v.footprints.sort_by_key(|o| o.component);
+            }
+            Ok(json!({"name": name, "component": a.component, "footprint": raw}))
+        }
+        "variant.clear_footprint" => {
+            let a: VariantFootprintParams = parse(params)?;
+            if a.footprint.is_some() {
+                return Err(Error::Invalid(
+                    "variant.clear_footprint takes a variant name and a component id only".into(),
+                ));
+            }
+            let name = a.name.trim();
+            let Some(v) = p.variants.iter_mut().find(|v| v.name == name) else {
+                return Err(Error::Invalid(format!("no variant named {name}")));
+            };
+            let before = v.footprints.len();
+            v.footprints.retain(|o| o.component != a.component);
+            if v.footprints.len() == before {
+                return Err(Error::Invalid(format!(
+                    "variant {name} does not swap the footprint of component {}",
+                    a.component
+                )));
+            }
+            Ok(json!({
+                "name": name,
+                "component": a.component,
+                "swaps": v.footprints.len(),
+            }))
+        }
         "variant.remove" => {
             let a: VariantNameParams = parse(params)?;
             let name = a.name.trim();
@@ -6327,17 +6420,35 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             } else {
                 a.fields.clone()
             };
+            let variant = match a.variant.as_deref().map(str::trim) {
+                None | Some("") => None,
+                Some(name) => Some(
+                    p.variants
+                        .iter()
+                        .find(|v| v.name == name)
+                        .ok_or_else(|| Error::Invalid(format!("no variant named {name}")))?,
+                ),
+            };
             let mut groups: std::collections::BTreeMap<
                 (String, String, String, Vec<String>),
                 Vec<String>,
             > = std::collections::BTreeMap::new();
+            let mut populated = 0usize;
             for c in &p.components {
-                let footprint = match &c.library_footprint {
-                    Some(footprint) => {
-                        format!("{}:{}", footprint.library, footprint.definition.name)
-                    }
-                    None => "starter pads".into(),
-                };
+                if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
+                    continue;
+                }
+                populated += 1;
+                let footprint =
+                    match variant.and_then(|v| v.footprints.iter().find(|o| o.component == c.id)) {
+                        Some(swap) => swap.footprint.clone(),
+                        None => match &c.library_footprint {
+                            Some(footprint) => {
+                                format!("{}:{}", footprint.library, footprint.definition.name)
+                            }
+                            None => "starter pads".into(),
+                        },
+                    };
                 let values: Vec<String> = keys
                     .iter()
                     .map(|key| c.field(key).unwrap_or("").to_string())
@@ -6366,11 +6477,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     })
                 })
                 .collect();
-            let components = p.components.len();
             Ok(json!({
                 "items": items,
                 "groups": items.len(),
-                "components": components,
+                "components": populated,
+                "variant": variant.map(|v| v.name.clone()),
             }))
         }
         "board.sync" => {
@@ -10912,6 +11023,133 @@ mod tests {
             s.execute("variant.create", json!({"name":"v15"}), None)
                 .is_err(),
             "a seventeenth variant is refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn variant_footprint_swaps_reach_a_variant_bill_of_materials() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s
+            .execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s
+            .execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R2","value":"22k","position":{"x":20.0,"y":10.0}}),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("variant.create", json!({"name":"Slim"}), None)?;
+        let swap = s.execute(
+            "variant.set_footprint",
+            json!({"name":"Slim","component":r1,"footprint":"R_0603"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(swap["footprint"], "R_0603", "the swap is echoed");
+        let plain = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(plain["components"], 2, "the plain bill counts both parts");
+        assert_eq!(plain["items"][0]["footprint"], "starter pads");
+        let slim = s.execute("bom.export", json!({"variant":"Slim"}), None)?["result"].clone();
+        assert_eq!(
+            slim["variant"], "Slim",
+            "the bill reports the build it prints"
+        );
+        assert_eq!(slim["components"], 2);
+        assert_eq!(
+            slim["items"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .find(|item| item["references"][0] == "R1")
+                .ok_or_else(missing)?["footprint"],
+            "R_0603",
+            "the variant bill prints the swap"
+        );
+        s.execute("variant.set_dnp", json!({"name":"Slim","ids":[r2]}), None)?;
+        let slim = s.execute("bom.export", json!({"variant":"Slim"}), None)?["result"].clone();
+        assert_eq!(slim["components"], 1, "the unpopulated part is skipped");
+        assert_eq!(slim["groups"], 1);
+        let plain = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(plain["components"], 2, "the plain bill is untouched");
+        s.execute(
+            "variant.set_footprint",
+            json!({"name":"Slim","component":r1,"footprint":"R_0402"}),
+            None,
+        )?;
+        let swaps = s.inspect()["project"]["variants"][0]["footprints"]
+            .as_array()
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(swaps.len(), 1, "re-swapping one part replaces its entry");
+        assert_eq!(swaps[0]["footprint"], "R_0402");
+        let cleared = s.execute(
+            "variant.clear_footprint",
+            json!({"name":"Slim","component":r1}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(cleared["swaps"], 0);
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["variants"][0]["footprints"]
+                .as_array()
+                .ok_or_else(missing)?
+                .len(),
+            1,
+            "undoing the clear restores the swap"
+        );
+        s.redo()?;
+        assert!(
+            s.inspect()["project"]["variants"][0]
+                .get("footprints")
+                .is_none(),
+            "redoing the clear strips the swap again"
+        );
+        let slim = s.execute("bom.export", json!({"variant":"Slim"}), None)?["result"].clone();
+        assert_eq!(
+            slim["items"][0]["footprint"], "starter pads",
+            "clearing restores the placed footprint"
+        );
+        for bad in [
+            json!({"name":"Ghost","component":r1,"footprint":"X"}),
+            json!({"name":"Slim","component":999,"footprint":"X"}),
+            json!({"name":"Slim","component":r1,"footprint":"   "}),
+            json!({"name":"Slim","component":r1,"footprint":"x".repeat(129)}),
+        ] {
+            assert!(
+                s.execute("variant.set_footprint", bad, None).is_err(),
+                "malformed swaps are refused"
+            );
+        }
+        assert!(
+            s.execute(
+                "variant.clear_footprint",
+                json!({"name":"Slim","component":r1}),
+                None
+            )
+            .is_err(),
+            "clearing an absent swap is refused"
+        );
+        assert!(
+            s.execute(
+                "variant.clear_footprint",
+                json!({"name":"Slim","component":r1,"footprint":"X"}),
+                None,
+            )
+            .is_err(),
+            "the clear command rejects a stray footprint"
+        );
+        assert!(
+            s.execute("bom.export", json!({"variant":"Ghost"}), None)
+                .is_err(),
+            "a bill for an unknown variant is refused"
         );
         Ok(())
     }

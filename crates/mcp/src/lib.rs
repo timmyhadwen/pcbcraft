@@ -20,7 +20,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.save","description":"Atomically save the editable project library to a .pcbcraft-lib collection","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"gerber.export","description":"Write fabrication outputs (Gerber RS-274X front and back copper, board outline, Excellon drill map) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"netlist.write","description":"Write a plain-text netlist, one line per net with its component pins, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"}}),&["path"])}),
+        json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),&["path"])}),
         json!({"name":"dxf.export","description":"Write the board drawing as an ASCII DXF file (copper tracks, vias, pads, zones, board graphics, outline and labels) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"placement.write","description":"Write a pick-and-place centroid file (reference, position, rotation, side, package per placed part) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed KiCad symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
@@ -154,7 +154,11 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
         "bom.write" => {
             let directory = string(args, "path")?;
             let fields = strings(args, "fields")?;
-            let text = pcbcraft_io::bom_csv(&s.project, &fields)?;
+            let variant = args
+                .get("variant")
+                .map(|v| v.as_str().ok_or("variant must be a string"))
+                .transpose()?;
+            let text = pcbcraft_io::bom_csv(&s.project, &fields, variant)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("bom.csv"), text.as_bytes())?;
             json!({"directory":directory,"files":["bom.csv"]})
         }

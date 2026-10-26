@@ -155,7 +155,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Assembly variants: define named alternate builds of the design, each with an
   optional note and a do-not-populate set of components; ids join or leave the
   set on request, an empty list clears it, and up to 16 variants travel with
-  the saved project.
+  the saved project. A variant can also swap in a different footprint for any
+  component, and a bill of materials printed for a variant skips its
+  do-not-populate parts and shows those swaps in the footprint column.
 - Net-pair clearances: require a minimum copper gap between two named nets,
   stricter than either class or the board default when larger; the same pair
   replaces its rule, one call removes it, and the clearance check honours it
@@ -223,9 +225,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 142 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 144 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 167 MCP tools: every engine command plus library discovery/search/inspection,
+- 169 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

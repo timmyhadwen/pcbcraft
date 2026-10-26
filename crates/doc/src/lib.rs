@@ -801,6 +801,11 @@ pub struct Variant {
     /// Ids of components this variant leaves unpopulated.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dnp: Vec<Id>,
+    /// Components this variant populates with a different package, ordered by
+    /// component id. A variant bill of materials skips unpopulated parts and
+    /// prints these swaps in place of the footprints the design places.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub footprints: Vec<FootprintOverride>,
 }
 impl Variant {
     fn valid(&self) -> bool {
@@ -808,7 +813,19 @@ impl Variant {
             && self.name.len() <= 64
             && self.note.as_ref().is_none_or(|n| n.len() <= 256)
             && self.dnp.len() <= 2048
+            && self.footprints.len() <= 512
+            && self.footprints.iter().all(|o| {
+                !o.footprint.trim().is_empty() && o.footprint.len() <= 128 && o.component != 0
+            })
     }
+}
+/// One component's package swap inside an assembly variant: this build
+/// populates that component position with the named footprint instead of the
+/// one the design places.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct FootprintOverride {
+    pub component: Id,
+    pub footprint: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
@@ -1369,7 +1386,11 @@ impl Project {
         let mut variant_names = BTreeSet::new();
         for v in &self.variants {
             if !v.valid() || !variant_names.insert(&v.name) {
-                return Err("variants need unique short names and 2048 flags or less".into());
+                return Err(
+                    "variants need unique short names, 2048 flags or less and 512 footprint \
+                     swaps or less"
+                        .into(),
+                );
             }
         }
         if self.rule_severity.len() > 64 {

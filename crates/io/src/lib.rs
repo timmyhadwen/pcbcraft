@@ -700,7 +700,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 /// sorted, quoted reference list. Requested property keys become extra
 /// columns; with no request, the columns the project itself defines are
 /// printed under their labels.
-pub fn bom_csv(p: &Project, fields: &[String]) -> Result<String, String> {
+pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<String, String> {
     p.validate()?;
     if fields.len() > 16 {
         return Err("a bill of materials lists at most 16 properties".into());
@@ -710,6 +710,15 @@ pub fn bom_csv(p: &Project, fields: &[String]) -> Result<String, String> {
             return Err("property names must be 1 to 64 bytes".into());
         }
     }
+    let variant = match variant.map(str::trim) {
+        None | Some("") => None,
+        Some(name) => Some(
+            p.variants
+                .iter()
+                .find(|v| v.name == name)
+                .ok_or_else(|| format!("no variant named {name}"))?,
+        ),
+    };
     // Columns come from the caller's list, or from the columns the project
     // itself defines when the caller asks for none.
     let columns: Vec<(String, String)> = if fields.is_empty() {
@@ -734,9 +743,17 @@ pub fn bom_csv(p: &Project, fields: &[String]) -> Result<String, String> {
     };
     let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
     for c in &p.components {
-        let footprint = match &c.library_footprint {
-            Some(footprint) => format!("{}:{}", footprint.library, footprint.definition.name),
-            None => "starter pads".into(),
+        if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
+            continue;
+        }
+        let footprint = match variant
+            .and_then(|v| v.footprints.iter().find(|o| o.component == c.id))
+        {
+            Some(swap) => swap.footprint.clone(),
+            None => match &c.library_footprint {
+                Some(footprint) => format!("{}:{}", footprint.library, footprint.definition.name),
+                None => "starter pads".into(),
+            },
         };
         let values: Vec<String> = columns
             .iter()
@@ -2900,7 +2917,7 @@ mod tests {
         }
         project.validate()?;
         let fields = ["Tolerance".to_string()];
-        let text = bom_csv(&project, &fields)?;
+        let text = bom_csv(&project, &fields, None)?;
         assert_eq!(
             text.lines().next(),
             Some("quantity,references,value,kind,footprint,Tolerance"),
@@ -2922,19 +2939,23 @@ mod tests {
             "identical parts collapse into one sorted reference list"
         );
         assert_eq!(
-            bom_csv(&project, &[])?.lines().count(),
+            bom_csv(&project, &[], None)?.lines().count(),
             4,
             "no extra columns, same three groups"
         );
-        assert!(bom_csv(&project, &["".to_string()]).is_err(), "empty key");
         assert!(
-            bom_csv(&project, &["x".repeat(65)]).is_err(),
+            bom_csv(&project, &["".to_string()], None).is_err(),
+            "empty key"
+        );
+        assert!(
+            bom_csv(&project, &["x".repeat(65)], None).is_err(),
             "overlong key"
         );
         assert!(
             bom_csv(
                 &project,
-                &(1..=17).map(|i| format!("f{i}")).collect::<Vec<String>>()
+                &(1..=17).map(|i| format!("f{i}")).collect::<Vec<String>>(),
+                None,
             )
             .is_err(),
             "too many properties"
@@ -2996,7 +3017,7 @@ mod tests {
             },
         ];
         project.validate()?;
-        let text = bom_csv(&project, &[])?;
+        let text = bom_csv(&project, &[], None)?;
         assert!(
             text.starts_with("quantity,references,value,kind,footprint,Manufacturer part,Rating\n"),
             "recorded columns print under their labels, falling back to the key"
@@ -3005,7 +3026,7 @@ mod tests {
             text.contains("RC0603-10K,0.1W"),
             "recorded columns read the matching component properties"
         );
-        let explicit = bom_csv(&project, &["MPN".to_string()])?;
+        let explicit = bom_csv(&project, &["MPN".to_string()], None)?;
         assert!(
             explicit.lines().next().is_some_and(|l| l.ends_with(",MPN")),
             "an explicit request overrides the recorded columns"
@@ -3015,8 +3036,66 @@ mod tests {
             label: String::new(),
         });
         assert!(
-            bom_csv(&project, &[]).is_err(),
+            bom_csv(&project, &[], None).is_err(),
             "duplicate recorded keys are refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn bom_csv_follows_a_variants_skips_and_footprint_swaps() -> Result<(), String> {
+        let mut project = Project::default();
+        for (id, reference) in [(1, "R1"), (2, "R2")] {
+            project.components.push(pcbcraft_doc::Component {
+                id,
+                reference: reference.into(),
+                value: "10k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: [(-1.0, "1"), (1.0, "2")]
+                    .map(|(x, number)| pcbcraft_doc::Pin {
+                        number: number.into(),
+                        name: String::new(),
+                        offset: Point::new(x, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    })
+                    .to_vec(),
+                units: vec![],
+                library_symbol: None,
+                library_footprint: None,
+                fields: vec![],
+            });
+        }
+        project.variants.push(pcbcraft_doc::Variant {
+            name: "Slim".into(),
+            note: None,
+            dnp: vec![2],
+            footprints: vec![pcbcraft_doc::FootprintOverride {
+                component: 1,
+                footprint: "R_0603".into(),
+            }],
+        });
+        project.validate()?;
+        let plain = bom_csv(&project, &[], None)?;
+        assert!(
+            plain.contains("starter pads") && plain.contains("R1,R2") && !plain.contains("R_0603"),
+            "the plain bill lists both parts with the placed footprint"
+        );
+        let slim = bom_csv(&project, &[], Some("Slim"))?;
+        assert!(
+            slim.contains("R_0603") && !slim.contains("R2"),
+            "the variant bill swaps the package and skips the unpopulated part"
+        );
+        assert!(
+            bom_csv(&project, &[], Some("Ghost")).is_err(),
+            "an unknown variant name is refused"
+        );
+        assert!(
+            bom_csv(&project, &[], Some("")).is_ok(),
+            "a blank variant name prints the plain bill"
         );
         Ok(())
     }
