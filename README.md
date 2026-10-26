@@ -142,7 +142,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   netlist, one line per net with its component pins, and a
   bill-of-materials CSV with identical parts collapsed into one row export
   the same way, alongside an ASCII DXF drawing of copper, pads, zones,
-  graphics and labels on named layers. Solder mask, silkscreen and paste
+  graphics and labels on named layers and a pick-and-place centroid file that
+  lists every placed part by reference with position, rotation, side and
+  package. Solder mask, silkscreen and paste
   layers are not generated yet.
 - Net chain tracing: start at any pin and follow the series path through
   two-pin parts, reporting each hop's component, reference, pin and net, and
@@ -160,7 +162,7 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   board default rules.
 - 111 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 135 MCP tools: every engine command plus library discovery/search/inspection,
+- 136 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

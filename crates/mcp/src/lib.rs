@@ -22,6 +22,7 @@ pub fn tool_list() -> Value {
         json!({"name":"netlist.write","description":"Write a plain-text netlist, one line per net with its component pins, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"}}),&["path"])}),
         json!({"name":"dxf.export","description":"Write the board drawing as an ASCII DXF file (copper tracks, vias, pads, zones, board graphics, outline and labels) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"placement.write","description":"Write a pick-and-place centroid file (reference, position, rotation, side, package per placed part) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed KiCad symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a KiCad symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
@@ -162,6 +163,15 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             let text = pcbcraft_io::dxf_board(&s.project)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("pcb.dxf"), text.as_bytes())?;
             json!({"directory":directory,"files":["pcb.dxf"]})
+        }
+        "placement.write" => {
+            let directory = string(args, "path")?;
+            let text = pcbcraft_io::placement_text(&s.project)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("placement.txt"),
+                text.as_bytes(),
+            )?;
+            json!({"directory":directory,"files":["placement.txt"]})
         }
         "list_commands" => {
             json!({"commands":pcbcraft_engine::commands(),"units":"millimetres and degrees"})
@@ -774,6 +784,48 @@ mod tests {
         assert!(
             text.contains("8\nEdge\n0\nLWPOLYLINE\n90\n4\n70\n1\n"),
             "the board outline should be a closed polyline"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "the export must not edit the design"
+        );
+        Ok(())
+    }
+    #[test]
+    fn placement_write_lists_placed_parts_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        call_tool(&session, "sample_design", &json!({}));
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(
+            &session,
+            "placement.write",
+            &json!({"path":directory.path()}),
+        );
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(directory.path().join("placement.txt"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            text.starts_with("File Format,ASCII,\n"),
+            "a centroid file starts with its format line"
+        );
+        assert!(
+            text.contains("SMT,THT,X,Y,Rotation,Side,Package\n"),
+            "the column header names the fields"
+        );
+        let rows: Vec<&str> = text
+            .lines()
+            .filter(|l| l.starts_with("SMT,\"") || l.starts_with("THT,\""))
+            .collect();
+        assert_eq!(rows.len(), 3, "one row per placed part");
+        let mut sorted = rows.clone();
+        sorted.sort_by_key(|row| row.split('"').nth(1).unwrap_or("").to_string());
+        assert_eq!(rows, sorted, "rows are listed in reference order");
+        assert!(
+            rows.iter()
+                .any(|row| row.contains(",\"D1\",") && row.contains(",44.000,20.000,")),
+            "placed positions appear in the file"
         );
         assert_eq!(
             session.lock().map_err(|_| "session unavailable")?.inspect(),

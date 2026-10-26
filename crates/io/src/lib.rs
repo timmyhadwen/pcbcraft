@@ -742,6 +742,61 @@ pub fn netlist_text(p: &Project) -> Result<String, String> {
     }
     Ok(out)
 }
+/// Pick-and-place placement file: one row per placed footprint in the classic
+/// centroid format (`SMT|THT,reference,X,Y,rotation,side,package`), sorted by
+/// reference. Side comes from the pad layers; height is unknown to this tool.
+pub fn placement_text(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_PLACED: usize = 5_000;
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+    if p.board.footprints.len() > MAX_PLACED {
+        return Err("placement file exceeds the placed-object limit".into());
+    }
+    let mut rows: Vec<String> = Vec::new();
+    for f in &p.board.footprints {
+        let c = refs
+            .get(&f.component)
+            .ok_or("footprint references an unknown component")?;
+        let back = f.pads.iter().any(|pad| {
+            pad.geometry.as_ref().is_some_and(|g| {
+                g.pad_type == "smd"
+                    && !g.layers.is_empty()
+                    && !g.layers.iter().any(|l| l.starts_with("F."))
+            })
+        });
+        let tht = f.pads.iter().any(|pad| {
+            pad.geometry
+                .as_ref()
+                .is_some_and(|g| g.pad_type == "thru_hole")
+        });
+        let package = match &c.library_footprint {
+            Some(footprint) => footprint.definition.name.clone(),
+            None => c.kind.clone(),
+        };
+        rows.push(format!(
+            "{},\"{}\",{:.3},{:.3},{:.1},{},\"{}\"",
+            if tht { "THT" } else { "SMT" },
+            c.reference,
+            f.position.x,
+            f.position.y,
+            f.rotation.rem_euclid(360.0),
+            if back { "B" } else { "T" },
+            package
+        ));
+    }
+    rows.sort_by(|a, b| {
+        a.split('"')
+            .nth(1)
+            .unwrap_or("")
+            .cmp(b.split('"').nth(1).unwrap_or(""))
+    });
+    Ok(format!(
+        "File Format,ASCII,\n#\n#\tPick and Place File\t{}\n#\nSMT,THT,X,Y,Rotation,Side,Package\n{}\n",
+        p.name,
+        rows.join("\n")
+    ))
+}
 /// Board drawing as an ASCII DXF (R12 entities): tracks become lines, vias
 /// and round pads circles, oval and rectangular pads closed polylines, zones
 /// and board-layer graphics outlines, arcs three-point arcs, labels text.
@@ -2276,6 +2331,139 @@ mod tests {
             "a rotated footprint rotates its slot"
         );
         assert!(drill.ends_with("M30\n"));
+        Ok(())
+    }
+    #[test]
+    fn placement_text_lists_placed_parts_by_reference_with_side_and_rotation() -> Result<(), String>
+    {
+        let mut project = Project::default();
+        let geometry = |number: &str, x: f64, back: bool| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: if back { "thru_hole" } else { "smd" }.into(),
+            shape: "rect".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: if back {
+                vec![
+                    "F.Cu".into(),
+                    "B.Cu".into(),
+                    "F.Mask".into(),
+                    "B.Mask".into(),
+                ]
+            } else {
+                vec!["F.Cu".into(), "F.Mask".into()]
+            },
+            drill: back.then(|| pcbcraft_library::Drill {
+                size: Point::new(0.5, 0.5),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            raw_source: String::new(),
+        };
+        let component =
+            |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                id,
+                reference: reference.into(),
+                value: "1k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: vec![
+                    pcbcraft_doc::Pin {
+                        number: "1".into(),
+                        name: String::new(),
+                        offset: Point::new(-1.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                    pcbcraft_doc::Pin {
+                        number: "2".into(),
+                        name: String::new(),
+                        offset: Point::new(1.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                ],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                    library: "Test".into(),
+                    definition: pcbcraft_library::FootprintDefinition {
+                        name: definition.into(),
+                        description: String::new(),
+                        keywords: String::new(),
+                        pads: vec![geometry("1", -1.0, back), geometry("2", 1.0, back)],
+                        graphics: vec![],
+                        raw_source: String::new(),
+                        unsupported: vec![],
+                    },
+                }),
+                fields: vec![],
+            };
+        let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
+            pcbcraft_doc::Footprint {
+                id,
+                component,
+                position: Point::new(x, y),
+                rotation,
+                pads: vec![
+                    pcbcraft_doc::Pad {
+                        number: "1".into(),
+                        offset: Point::new(-1.0, 0.0),
+                        diameter: 1.0,
+                        net: None,
+                        geometry: Some(geometry("1", -1.0, back)),
+                    },
+                    pcbcraft_doc::Pad {
+                        number: "2".into(),
+                        offset: Point::new(1.0, 0.0),
+                        diameter: 1.0,
+                        net: None,
+                        geometry: Some(geometry("2", 1.0, back)),
+                    },
+                ],
+            }
+        };
+        project.components.push(component(1, "R5", "R0603", false));
+        project.components.push(component(2, "U1", "SOIC-2", true));
+        project
+            .board
+            .footprints
+            .push(footprint(10, 1, 12.0, 8.0, 90.0, false));
+        project
+            .board
+            .footprints
+            .push(footprint(11, 2, 20.0, 15.0, -45.0, true));
+        project.validate()?;
+        let text = placement_text(&project)?;
+        assert!(
+            text.starts_with("File Format,ASCII,\n"),
+            "a centroid file starts with its format line"
+        );
+        assert!(
+            text.contains("SMT,THT,X,Y,Rotation,Side,Package\n"),
+            "the column header names the fields"
+        );
+        let rows: Vec<&str> = text
+            .lines()
+            .filter(|l| l.starts_with("SMT,\"") || l.starts_with("THT,\""))
+            .collect();
+        assert_eq!(
+            rows.first(),
+            Some(&"SMT,\"R5\",12.000,8.000,90.0,T,\"R0603\""),
+            "front parts carry their position, rotation and package"
+        );
+        assert_eq!(
+            rows.last(),
+            Some(&"THT,\"U1\",20.000,15.000,315.0,T,\"SOIC-2\""),
+            "plated through-hole pads are listed as THT and the rotation wraps positive"
+        );
+        assert_eq!(rows.len(), 2, "one row per placed part");
         Ok(())
     }
     #[test]
