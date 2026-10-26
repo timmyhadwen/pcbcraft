@@ -539,12 +539,25 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         *lengths.entry(track.net).or_insert(0.0) +=
             ((track.end.x - track.start.x).powi(2) + (track.end.y - track.start.y).powi(2)).sqrt();
     }
+    let classified: BTreeSet<Id> = project
+        .net_classes
+        .iter()
+        .flat_map(|c| c.nets.clone())
+        .collect();
     for class in &project.net_classes {
         let Some(target) = class.target_length else {
             continue;
         };
         let tolerance = class.length_tolerance.unwrap_or(0.0);
         for net in &class.nets {
+            let own = project
+                .nets
+                .iter()
+                .any(|n| n.id == *net && n.target_length.is_some());
+            if own {
+                // A net with its own target is judged against that, not the class.
+                continue;
+            }
             let Some(length) = lengths.get(net) else {
                 continue;
             };
@@ -566,6 +579,29 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             });
         }
     }
+    for net in &project.nets {
+        let Some(target) = net.target_length else {
+            continue;
+        };
+        if classified.contains(&net.id) {
+            // A classified net without its own target already followed its class.
+            continue;
+        }
+        let tolerance = net.length_tolerance.unwrap_or(0.0);
+        let length = lengths.get(&net.id).copied().unwrap_or(0.0);
+        if (length - target).abs() <= tolerance + 1e-9 {
+            continue;
+        }
+        result.push(Finding {
+            code: "track_length",
+            severity: project.rule_severity("track_length", "error"),
+            message: format!(
+                "{} routed to {:.3} mm, {} targets {:.3} mm within {:.3} mm",
+                net.name, length, net.name, target, tolerance
+            ),
+            objects: vec![net.id],
+        });
+    }
     result.retain(|f| !project.rule_disabled(f.code) && !project.rule_excluded(f.code, &f.objects));
     result
 }
@@ -581,6 +617,7 @@ mod tests {
         p.nets.push(Net {
             id: 1,
             name: "signal".into(),
+            ..Default::default()
         });
         for (id, x) in [(2, 10.0), (3, 30.0)] {
             if let Some(mut c) =
@@ -631,6 +668,7 @@ mod tests {
         p.nets.push(Net {
             id: 1,
             name: "signal".into(),
+            ..Default::default()
         });
         let mut c = component_template("resistor", 2, "R2".into(), Point::new(10.0, 10.0))
             .ok_or("resistor template missing")?;
@@ -656,6 +694,7 @@ mod tests {
         p.nets.push(Net {
             id: 1,
             name: "signal".into(),
+            ..Default::default()
         });
         p.board.tracks.push(Track {
             id: 2,
@@ -718,10 +757,12 @@ mod tests {
         p.nets.push(Net {
             id: 1,
             name: "GND".into(),
+            ..Default::default()
         });
         p.nets.push(Net {
             id: 2,
             name: "other".into(),
+            ..Default::default()
         });
         let square = vec![
             Point::new(0.0, 0.0),
@@ -828,6 +869,7 @@ mod tests {
         p.nets.push(Net {
             id: 1,
             name: "GND".into(),
+            ..Default::default()
         });
         p.board.tracks.push(Track {
             id: 2,
@@ -886,6 +928,7 @@ mod tests {
         p.nets.push(Net {
             id: 1,
             name: "SIG".into(),
+            ..Default::default()
         });
         p.board.tracks.push(Track {
             id: 2,
@@ -1072,10 +1115,12 @@ mod tests {
             Net {
                 id: 2,
                 name: "IN".into(),
+                ..Default::default()
             },
             Net {
                 id: 3,
                 name: "OUT".into(),
+                ..Default::default()
             },
         ];
         let pads = definition
@@ -1144,6 +1189,7 @@ mod tests {
         p.nets.push(Net {
             id: 4,
             name: "gnd".into(),
+            ..Default::default()
         });
         p.board.tracks.push(Track {
             id: 20,

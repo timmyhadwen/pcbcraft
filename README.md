@@ -39,7 +39,8 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   properties as extra grouping columns. Routed copper length is reported per
   net, with via counts and a list of nets that have no copper at all; a net
   class can demand a target routed length within a tolerance, and member nets
-  outside that window are reported by the checks. Any
+  outside that window are reported by the checks. A single net can also carry
+  its own target and tolerance, which take priority over any class target. Any
   check code can be re-levelled between error and warning, or silenced
   entirely, when its findings are normal for a particular design; individual
   objects can also be excluded per code, so one accepted clearance silences
@@ -99,9 +100,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 82 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 83 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 100 MCP tools: every engine command plus library discovery/search/inspection,
+- 101 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

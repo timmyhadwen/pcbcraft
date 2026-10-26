@@ -1213,6 +1213,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 1,
             name: "GND".into(),
+            ..Default::default()
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 2,
@@ -1271,6 +1272,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 1,
             name: "GND".into(),
+            ..Default::default()
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 2,
@@ -1297,6 +1299,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 1,
             name: "VCC".into(),
+            ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
             id: 3,

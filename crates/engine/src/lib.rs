@@ -160,6 +160,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "net.set_length",
+            "Set a target routed length and tolerance for one net, or clear the target by omitting it; nets in a class follow their own target when they have one",
+            schema(
+                json!({"id":id_schema(),"target":{"type":["number","null"],"exclusiveMinimum":0,"maximum":100000},"tolerance":{"type":["number","null"],"minimum":0,"maximum":100000}}),
+                &["id"],
+            ),
+        ),
+        (
             "net.connect",
             "Assign unassigned or same-net component pins to a net",
             schema(
@@ -733,7 +741,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, poured copper zones with cutouts, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, poured copper zones with cutouts, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1125,6 +1133,15 @@ struct ClassClearanceParams {
 #[serde(deny_unknown_fields)]
 struct ClassRemoveParams {
     class: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetLengthParams {
+    id: Id,
+    #[serde(default)]
+    target: Option<f64>,
+    #[serde(default)]
+    tolerance: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2016,7 +2033,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         "net.create" => {
             let a: Name = parse(params)?;
             let id = allocate(next)?;
-            p.nets.push(Net { id, name: a.name });
+            p.nets.push(Net {
+                id,
+                name: a.name,
+                ..Default::default()
+            });
             Ok(json!({"id":id}))
         }
         "net.rename" => {
@@ -2034,6 +2055,44 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .ok_or_else(missing)?;
             net.name = a.name;
             Ok(json!({"id": a.id}))
+        }
+        "net.set_length" => {
+            let a: NetLengthParams = parse(params)?;
+            if a.target
+                .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 100_000.0)
+            {
+                return Err(Error::Invalid(
+                    "length target must be between 0 and 100000 millimetres".into(),
+                ));
+            }
+            if a.tolerance
+                .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
+            {
+                return Err(Error::Invalid(
+                    "length tolerance must be between 0 and 100000 millimetres".into(),
+                ));
+            }
+            if a.target.is_none() && a.tolerance.is_some() {
+                return Err(Error::Invalid(
+                    "a length tolerance needs a length target".into(),
+                ));
+            }
+            let net = p
+                .nets
+                .iter_mut()
+                .find(|n| n.id == a.id)
+                .ok_or_else(missing)?;
+            net.target_length = a.target;
+            net.length_tolerance = if a.target.is_some() {
+                a.tolerance
+            } else {
+                None
+            };
+            Ok(json!({
+                "id":a.id,
+                "target":net.target_length,
+                "tolerance":net.length_tolerance.unwrap_or(0.0),
+            }))
         }
         "net.connect" => {
             let a: Connect = parse(params)?;
@@ -2419,6 +2478,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         p.nets.push(Net {
                             id,
                             name: (*name).to_string(),
+                            ..Default::default()
                         });
                         created += 1;
                         id
@@ -2503,6 +2563,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 p.nets.push(Net {
                     id,
                     name: format!("N${index}"),
+                    ..Default::default()
                 });
                 id
             };
@@ -3179,16 +3240,21 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 match rows.get(&net.id) {
                     Some(row) => {
                         let class = p.net_class(net.id);
+                        let own = net.target_length.is_some();
                         nets.push(json!({
                             "id": net.id,
                             "name": net.name,
                             "segments": row.segments,
                             "vias": row.vias,
                             "length": row.length,
-                            "target_length": class.and_then(|k| k.target_length),
-                            "length_tolerance": class
-                                .filter(|k| k.target_length.is_some())
-                                .and_then(|k| k.length_tolerance),
+                            "target_length": net.target_length.or(class.and_then(|k| k.target_length)),
+                            "length_tolerance": if own {
+                                net.length_tolerance
+                            } else {
+                                class
+                                    .filter(|k| k.target_length.is_some())
+                                    .and_then(|k| k.length_tolerance)
+                            },
                         }))
                     }
                     None => unrouted.push(json!({"id": net.id, "name": net.name})),
@@ -5888,6 +5954,122 @@ mod tests {
         assert_eq!(s.inspect(), before);
         assert!(s.project.validate().is_ok());
         assert!(thin > 0 && wide > 0 && loose > 0);
+        Ok(())
+    }
+    #[test]
+    fn a_single_net_can_carry_its_own_length_target() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let diff = s.execute("net.create", json!({"name":"DIFF"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn flagged(s: &Session, net: u64) -> Vec<String> {
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "track_length" && f["objects"][0] == net)
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+        }
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":10.0,"y":10.0},"end":{"x":18.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        assert!(
+            flagged(&s, sig).is_empty(),
+            "an untargeted net is never a length finding"
+        );
+        let out = s.execute(
+            "net.set_length",
+            json!({"id":sig,"target":12.0,"tolerance":0.5}),
+            None,
+        )?;
+        assert_eq!(out["result"]["target"], 12.0);
+        let messages = flagged(&s, sig);
+        assert_eq!(messages.len(), 1, "8 mm misses a 12 mm target");
+        assert!(
+            messages[0].contains("8.000 mm") && messages[0].contains("targets 12.000 mm"),
+            "the message names the routed length and the net's own target"
+        );
+        s.execute(
+            "net.set_length",
+            json!({"id":sig,"target":12.0,"tolerance":8.0}),
+            None,
+        )?;
+        assert!(
+            flagged(&s, sig).is_empty(),
+            "a wider tolerance closes the gap"
+        );
+        let rows = s.execute("net.lengths", json!({"net":sig}), None)?["result"]["nets"]
+            .as_array()
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(
+            rows[0]["target_length"], 12.0,
+            "lengths show the net target"
+        );
+        assert_eq!(rows[0]["length_tolerance"], 8.0);
+        s.execute("net.set_length", json!({"id":sig}), None)?;
+        assert!(
+            flagged(&s, sig).is_empty(),
+            "clearing the target stops the findings"
+        );
+        assert!(
+            s.project
+                .nets
+                .iter()
+                .any(|n| n.id == sig && n.target_length.is_none() && n.length_tolerance.is_none()),
+            "clearing also drops the tolerance"
+        );
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[diff]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"target_length":20.0}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":diff,"start":{"x":30.0,"y":10.0},"end":{"x":45.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        assert_eq!(
+            flagged(&s, diff).len(),
+            1,
+            "the class target still applies on its own"
+        );
+        s.execute("net.set_length", json!({"id":diff,"target":15.0}), None)?;
+        assert!(
+            flagged(&s, diff).is_empty(),
+            "the net's own target wins over the class target"
+        );
+        let before = s.inspect();
+        for params in [
+            json!({"id":sig,"target":0.0}),
+            json!({"id":sig,"target":-4.0}),
+            json!({"id":sig,"target":1e9}),
+            json!({"id":sig,"target":null,"tolerance":1.0}),
+            json!({"id":sig,"tolerance":-1.0}),
+            json!({"id":999,"target":12.0}),
+            json!({"id":sig,"target":12.0,"extra":1}),
+        ] {
+            assert!(s.execute("net.set_length", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.undo()?;
+        assert_eq!(
+            flagged(&s, diff).len(),
+            1,
+            "undo hands the net back to its class target"
+        );
         Ok(())
     }
     #[test]

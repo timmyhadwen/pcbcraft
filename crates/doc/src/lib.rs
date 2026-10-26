@@ -147,10 +147,19 @@ impl Component {
         })
     }
 }
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Net {
     pub id: Id,
     pub name: String,
+    /// Target total routed length for this net, in millimetres. Only checked
+    /// when the net belongs to no net class; classified nets follow their
+    /// class target.
+    #[serde(default)]
+    pub target_length: Option<f64>,
+    /// How far this net may deviate from its target length, in millimetres.
+    /// Defaults to zero, and requires a target.
+    #[serde(default)]
+    pub length_tolerance: Option<f64>,
 }
 /// A named group of nets sharing one clearance requirement and one default
 /// track width. A net belongs to at most one class; nets in no class follow
@@ -928,6 +937,14 @@ impl Project {
         for n in &self.nets {
             if n.name.is_empty() || n.name.len() > 128 || !names.insert(&n.name) {
                 return Err("invalid or duplicate net name".into());
+            }
+            if n.target_length
+                .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 100_000.0)
+                || n.length_tolerance
+                    .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
+                || (n.length_tolerance.is_some() && n.target_length.is_none())
+            {
+                return Err("invalid net length target or tolerance".into());
             }
         }
         if self.net_classes.len() > 64 {
@@ -1710,6 +1727,7 @@ mod drill_tests {
         project.nets.push(Net {
             id: 2,
             name: "signal".into(),
+            ..Default::default()
         });
         let wire = Wire {
             id: 3,
