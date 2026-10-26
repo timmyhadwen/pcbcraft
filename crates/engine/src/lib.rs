@@ -425,6 +425,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "track.set_width",
+            "Change the width of an existing track segment",
+            schema(
+                json!({"id":id_schema(),"width":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"copper width in millimetres"}}),
+                &["id", "width"],
+            ),
+        ),
+        (
+            "via.set_size",
+            "Change the pad and drill diameters of an existing via",
+            schema(
+                json!({"id":id_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"outer copper pad diameter in millimetres"},"drill":{"type":"number","minimum":0,"description":"drilled hole diameter in millimetres; keeps the current drill when omitted"}}),
+                &["id", "diameter"],
+            ),
+        ),
+        (
             "track.move",
             "Translate an existing copper segment by a delta; both ends move together",
             schema(
@@ -659,7 +675,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, free text labels on either copper side, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement, poured copper zones with cutouts, rectangular outline and circular cutouts, free text labels on either copper side, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1149,6 +1165,20 @@ struct ChamferParams {
     a: Id,
     b: Id,
     size: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrackWidthParams {
+    id: Id,
+    width: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaSizeParams {
+    id: Id,
+    diameter: f64,
+    #[serde(default)]
+    drill: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3706,6 +3736,43 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.board.cutouts.retain(|c| c.id != a.id);
             p.board.texts.retain(|t| t.id != a.id);
             Ok(json!({"deleted":a.id}))
+        }
+        "track.set_width" => {
+            let a: TrackWidthParams = parse(params)?;
+            if !positive(a.width) || a.width > 100.0 {
+                return Err(Error::Invalid("width must be within 0 to 100 mm".into()));
+            }
+            let track = p
+                .board
+                .tracks
+                .iter_mut()
+                .find(|t| t.id == a.id)
+                .ok_or_else(missing)?;
+            track.width = a.width;
+            Ok(json!({"id":a.id,"width":a.width}))
+        }
+        "via.set_size" => {
+            let a: ViaSizeParams = parse(params)?;
+            if !a.diameter.is_finite() || a.diameter <= 0.0 || a.diameter > 100.0 {
+                return Err(Error::Invalid(
+                    "via diameter must be within 0 to 100 mm".into(),
+                ));
+            }
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
+            let drill = a.drill.unwrap_or(via.drill);
+            if !drill.is_finite() || drill < 0.0 || drill >= a.diameter {
+                return Err(Error::Invalid(
+                    "via drill must be smaller than its pad".into(),
+                ));
+            }
+            via.diameter = a.diameter;
+            via.drill = drill;
+            Ok(json!({"id":a.id,"diameter":via.diameter,"drill":via.drill}))
         }
         "text.place" => {
             let a: TextPlaceParams = parse(params)?;
@@ -6798,6 +6865,104 @@ mod tests {
             assert!(s.execute("component.add", params, None).is_err());
             assert_eq!(s.inspect(), before);
         }
+    }
+    #[test]
+    fn copper_sizes_can_be_edited_after_placement() -> Result<(), Error> {
+        let mut s = Session::default();
+        let power = s.execute("net.create", json!({"name":"PWR"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.3,"width":0.6,"nets":[power]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let track = s.execute(
+            "track.add",
+            json!({"net":power,"start":{"x":5.0,"y":5.0},"end":{"x":40.0,"y":5.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":power,"position":{"x":40.0,"y":5.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn thin_tracks(s: &Session) -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| f["code"] == json!("track_width"))
+                .count()
+        }
+        s.execute(
+            "netclass.width_rules",
+            json!({"class":class,"min_width":0.4}),
+            None,
+        )?;
+        assert_eq!(
+            thin_tracks(&s),
+            1,
+            "the thin track sits below the class floor"
+        );
+        let out = s.execute("track.set_width", json!({"id":track,"width":0.7}), None)?;
+        assert_eq!(out["result"]["width"].as_f64(), Some(0.7));
+        assert_eq!(
+            thin_tracks(&s),
+            0,
+            "resizing the track clears the finding at once"
+        );
+        s.execute("via.set_size", json!({"id":via,"diameter":1.2}), None)?;
+        assert_eq!(s.project.board.vias[0].diameter, 1.2);
+        assert_eq!(
+            s.project.board.vias[0].drill, 0.3,
+            "an omitted drill keeps the size it was placed with"
+        );
+        s.execute(
+            "via.set_size",
+            json!({"id":via,"diameter":0.8,"drill":0.4}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias[0].diameter, 0.8);
+        assert_eq!(s.project.board.vias[0].drill, 0.4);
+        let before = s.inspect();
+        for params in [
+            json!({"id":track,"width":0.0}),
+            json!({"id":track,"width":-0.2}),
+            json!({"id":track,"width":120.0}),
+            json!({"id":track,"width":null}),
+            json!({"id":track}),
+            json!({"id":999,"width":0.5}),
+            json!({"id":track,"width":0.5,"layer":"B.Cu"}),
+        ] {
+            assert!(s.execute("track.set_width", params, None).is_err());
+        }
+        for params in [
+            json!({"id":via,"diameter":0.0}),
+            json!({"id":via,"diameter":120.0}),
+            json!({"id":via,"diameter":1.0,"drill":1.0}),
+            json!({"id":via,"diameter":1.0,"drill":-0.1}),
+            json!({"id":via,"diameter":0.3}),
+            json!({"id":via,"diameter":1.0,"extra":1}),
+            json!({"id":via}),
+            json!({"id":999,"diameter":1.0}),
+        ] {
+            assert!(s.execute("via.set_size", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.execute("track.set_width", json!({"id":track,"width":0.3}), None)?;
+        assert_eq!(s.project.board.tracks[0].width, 0.3);
+        s.undo()?;
+        assert_eq!(s.project.board.tracks[0].width, 0.7);
+        assert_eq!(s.inspect()["project"], before["project"]);
+        Ok(())
     }
     #[test]
     fn board_text_labels_place_move_edit_and_delete_with_one_undo() -> Result<(), Error> {

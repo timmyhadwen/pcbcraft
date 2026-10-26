@@ -78,6 +78,8 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   circular/oval offset drills, plus generic starter pads;
   straight or two-segment orthogonal tracks;
   airwires from actual same-layer copper connectivity.
+- Copper sizes stay editable after placement: change a track's width or a via's
+  pad and drill, and the clearance and width-bound findings follow immediately.
 - Editable rectangular board width/height and dimensioned circular cutouts,
   exported as Edge.Cuts. Constrained/parametric outline sketches are planned.
 - Free text labels on either copper side with a glyph height in millimetres,
@@ -88,9 +90,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Named net classes: group nets once and every clearance check between their
   copper uses the strictest requirement involved, while new tracks and routes
   on a classified net start at that class's width unless a width is given.
-- 72 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 74 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 90 MCP tools: every engine command plus library discovery/search/inspection,
+- 92 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
