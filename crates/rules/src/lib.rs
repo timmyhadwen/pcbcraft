@@ -534,6 +534,38 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             });
         }
     }
+    let mut lengths: BTreeMap<Id, f64> = BTreeMap::new();
+    for track in &board.tracks {
+        *lengths.entry(track.net).or_insert(0.0) +=
+            ((track.end.x - track.start.x).powi(2) + (track.end.y - track.start.y).powi(2)).sqrt();
+    }
+    for class in &project.net_classes {
+        let Some(target) = class.target_length else {
+            continue;
+        };
+        let tolerance = class.length_tolerance.unwrap_or(0.0);
+        for net in &class.nets {
+            let Some(length) = lengths.get(net) else {
+                continue;
+            };
+            if (length - target).abs() <= tolerance + 1e-9 {
+                continue;
+            }
+            result.push(Finding {
+                code: "track_length",
+                severity: project.rule_severity("track_length", "error"),
+                message: format!(
+                    "{} routed to {:.3} mm, {} targets {:.3} mm within {:.3} mm",
+                    project.net_name(*net),
+                    length,
+                    class.name,
+                    target,
+                    tolerance
+                ),
+                objects: vec![*net],
+            });
+        }
+    }
     result.retain(|f| !project.rule_disabled(f.code) && !project.rule_excluded(f.code, &f.objects));
     result
 }

@@ -171,6 +171,15 @@ pub struct NetClass {
     /// Largest track width this class allows, in millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_width: Option<f64>,
+    /// Target total routed length for member nets, in millimetres. Nets in
+    /// this class whose copper totals fall outside target ± tolerance are
+    /// reported as length findings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_length: Option<f64>,
+    /// How far a member net may deviate from the target length, in
+    /// millimetres. Defaults to zero, an exact match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length_tolerance: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -926,6 +935,11 @@ impl Project {
                 || c.min_width
                     .zip(c.max_width)
                     .is_some_and(|(min, max)| min > max)
+                || c.target_length
+                    .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 10_000.0)
+                || c.length_tolerance
+                    .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
+                || (c.length_tolerance.is_some() && c.target_length.is_none())
             {
                 return Err("invalid net class".into());
             }

@@ -184,6 +184,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netclass.length_rules",
+            "Set the target routed length and tolerance a net class demands; omitted values stay as they were",
+            schema(
+                json!({"class":id_schema(),"target_length":{"type":["number","null"],"exclusiveMinimum":0,"maximum":10000},"length_tolerance":{"type":["number","null"],"minimum":0,"maximum":1000}}),
+                &["class"],
+            ),
+        ),
+        (
             "netclass.assign_pattern",
             "Move every net whose name matches a wildcard pattern into a net class in one step; * matches any run of characters and ? matches one",
             schema(
@@ -446,7 +454,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, unrouted, missing_footprint"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, unrouted, missing_footprint"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
             ),
         ),
@@ -619,7 +627,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -961,6 +969,15 @@ struct WidthRulesParams {
     min_width: Option<f64>,
     #[serde(default)]
     max_width: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LengthRulesParams {
+    class: Id,
+    #[serde(default)]
+    target_length: Option<f64>,
+    #[serde(default)]
+    length_tolerance: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1796,6 +1813,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 width: a.width,
                 min_width: None,
                 max_width: None,
+                target_length: None,
+                length_tolerance: None,
                 nets: a.nets,
             });
             Ok(json!({"id": id}))
@@ -1863,6 +1882,45 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 "class": a.class,
                 "min_width": class.min_width,
                 "max_width": class.max_width,
+            }))
+        }
+        "netclass.length_rules" => {
+            let a: LengthRulesParams = parse(params)?;
+            if a.target_length
+                .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 10_000.0)
+            {
+                return Err(Error::Invalid(
+                    "target length must be above 0 and at most 10000 mm".into(),
+                ));
+            }
+            if a.length_tolerance
+                .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
+            {
+                return Err(Error::Invalid(
+                    "length tolerance must be between 0 and 1000 mm".into(),
+                ));
+            }
+            if a.target_length.is_none() && a.length_tolerance.is_none() {
+                return Err(Error::Invalid("give a target length or a tolerance".into()));
+            }
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            let target_length = a.target_length.or(class.target_length);
+            let length_tolerance = a.length_tolerance.or(class.length_tolerance);
+            if length_tolerance.is_some() && target_length.is_none() {
+                return Err(Error::Invalid(
+                    "a length tolerance needs a target length".into(),
+                ));
+            }
+            class.target_length = target_length;
+            class.length_tolerance = length_tolerance;
+            Ok(json!({
+                "class": a.class,
+                "target_length": class.target_length,
+                "length_tolerance": class.length_tolerance,
             }))
         }
         "netclass.assign_pattern" => {
@@ -2681,13 +2739,20 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     continue;
                 }
                 match rows.get(&net.id) {
-                    Some(row) => nets.push(json!({
-                        "id": net.id,
-                        "name": net.name,
-                        "segments": row.segments,
-                        "vias": row.vias,
-                        "length": row.length,
-                    })),
+                    Some(row) => {
+                        let class = p.net_class(net.id);
+                        nets.push(json!({
+                            "id": net.id,
+                            "name": net.name,
+                            "segments": row.segments,
+                            "vias": row.vias,
+                            "length": row.length,
+                            "target_length": class.and_then(|k| k.target_length),
+                            "length_tolerance": class
+                                .filter(|k| k.target_length.is_some())
+                                .and_then(|k| k.length_tolerance),
+                        }))
+                    }
                     None => unrouted.push(json!({"id": net.id, "name": net.name})),
                 }
             }
@@ -5220,6 +5285,120 @@ mod tests {
         assert_eq!(s.inspect(), before);
         assert!(s.project.validate().is_ok());
         assert!(thin > 0 && wide > 0 && loose > 0);
+        Ok(())
+    }
+    #[test]
+    fn net_class_length_targets_flag_member_nets_outside_the_window() -> Result<(), Error> {
+        let mut s = Session::default();
+        let power = s.execute("net.create", json!({"name":"PWR"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[power]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn flagged(s: &Session) -> Vec<String> {
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "track_length")
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+        }
+        for (start, end) in [
+            (json!({"x":10.0,"y":10.0}), json!({"x":20.0,"y":10.0})),
+            (json!({"x":20.0,"y":10.0}), json!({"x":20.0,"y":14.0})),
+        ] {
+            s.execute(
+                "track.add",
+                json!({"net":power,"start":start,"end":end,"width":0.3}),
+                None,
+            )?;
+        }
+        s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"target_length":16.0,"length_tolerance":1.0}),
+            None,
+        )?;
+        let messages = flagged(&s);
+        assert_eq!(messages.len(), 1, "14 mm misses a 16 mm target");
+        assert!(
+            messages[0].contains("14.000 mm") && messages[0].contains("targets 16.000 mm"),
+            "the message names the routed length and the target"
+        );
+        s.execute(
+            "track.add",
+            json!({"net":power,"start":{"x":20.0,"y":14.0},"end":{"x":22.0,"y":14.0},"width":0.3}),
+            None,
+        )?;
+        assert!(flagged(&s).is_empty(), "16 mm lands inside the window");
+        s.undo()?;
+        assert_eq!(flagged(&s).len(), 1, "undo reopens the gap");
+        s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"length_tolerance":2.0}),
+            None,
+        )?;
+        assert!(
+            flagged(&s).is_empty(),
+            "a wider tolerance keeps the stored target"
+        );
+        s.execute("netclass.assign", json!({"net":sig,"class":class}), None)?;
+        s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"length_tolerance":0.5}),
+            None,
+        )?;
+        let messages = flagged(&s);
+        assert_eq!(
+            messages.len(),
+            1,
+            "an unrouted member is not a length finding"
+        );
+        assert!(messages[0].contains("PWR"));
+        let rows = s.execute("net.lengths", json!({}), None)?["result"]["nets"]
+            .as_array()
+            .ok_or_else(missing)?
+            .clone();
+        let row = rows.iter().find(|n| n["id"] == power).ok_or_else(missing)?;
+        assert_eq!(row["target_length"], 16.0, "lengths name the target");
+        assert_eq!(row["length_tolerance"], 0.5);
+        for params in [
+            json!({"class":class,"target_length":0.0}),
+            json!({"class":class,"target_length":10001.0}),
+            json!({"class":class,"length_tolerance":-0.1}),
+            json!({"class":class,"length_tolerance":1001.0}),
+            json!({"class":class}),
+            json!({"class":999,"target_length":5.0}),
+            json!({"class":class,"target_length":5.0,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.length_rules", params, None).is_err());
+        }
+        let plain = s.execute(
+            "netclass.add",
+            json!({"name":"OTHER","clearance":0.2,"width":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute(
+                "netclass.length_rules",
+                json!({"class":plain,"length_tolerance":1.0}),
+                None
+            )
+            .is_err(),
+            "a tolerance needs a target"
+        );
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        assert_eq!(s.inspect(), before, "rejections change nothing");
         Ok(())
     }
     #[test]
