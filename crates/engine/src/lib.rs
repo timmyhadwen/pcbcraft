@@ -67,6 +67,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "project.set_meta",
+            "Record a project metadata entry such as title, revision, company or notes, keyed by 1 to 32 lowercase alphanumeric bytes; recording the same value again is refused",
+            schema(
+                json!({"key":{"type":"string","minLength":1,"maxLength":32},"value":{"type":"string","maxLength":4096}}),
+                &["key", "value"],
+            ),
+        ),
+        (
+            "project.clear_meta",
+            "Remove one project metadata entry by key",
+            schema(
+                json!({"key":{"type":"string","minLength":1,"maxLength":32}}),
+                &["key"],
+            ),
+        ),
+        (
             "component.add",
             "Place an original built-in symbol: resistor, capacitor, led or connector",
             schema(
@@ -1111,7 +1127,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1388,6 +1404,17 @@ struct ValueParams {
 #[serde(deny_unknown_fields)]
 struct Name {
     name: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MetaParams {
+    key: String,
+    value: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MetaKeyParams {
+    key: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2661,6 +2688,42 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
             }
             Ok(json!({"dry_run": false, "count": total, "changes": changes}))
+        }
+        "project.set_meta" => {
+            let a: MetaParams = parse(params)?;
+            if a.key.is_empty()
+                || a.key.len() > 32
+                || !a
+                    .key
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+            {
+                return Err(Error::Invalid(
+                    "metadata keys are 1 to 32 lowercase alphanumeric bytes".into(),
+                ));
+            }
+            if a.value.len() > 4096 {
+                return Err(Error::Invalid("metadata values fit 4 KiB".into()));
+            }
+            if p.meta.get(&a.key).is_some_and(|v| v == &a.value) {
+                return Err(Error::Invalid(
+                    "that metadata entry already holds that value".into(),
+                ));
+            }
+            if !p.meta.contains_key(&a.key) && p.meta.len() >= 16 {
+                return Err(Error::Invalid(
+                    "a project records at most 16 metadata entries".into(),
+                ));
+            }
+            p.meta.insert(a.key.clone(), a.value.clone());
+            Ok(json!({"key": a.key, "value": a.value}))
+        }
+        "project.clear_meta" => {
+            let a: MetaKeyParams = parse(params)?;
+            if p.meta.remove(&a.key).is_none() {
+                return Err(missing());
+            }
+            Ok(json!({"key": a.key}))
         }
         "component.add" => {
             let a: Add = parse(params)?;
@@ -9568,6 +9631,77 @@ mod tests {
                 .map_or(0, |a| a.len()),
             2,
             "the clear undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn project_metadata_records_replaces_clears_and_refuses_bad_keys() -> Result<(), Error> {
+        let mut s = Session::default();
+        let out = s.execute(
+            "project.set_meta",
+            json!({"key":"title","value":"Sensor Board"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["value"], "Sensor Board", "the value is reported");
+        s.execute(
+            "project.set_meta",
+            json!({"key":"revision","value":"2.1"}),
+            None,
+        )?;
+        let meta = s.inspect()["project"]["meta"].clone();
+        assert_eq!(meta["title"], "Sensor Board", "metadata is stored");
+        assert_eq!(meta["revision"], "2.1", "entries accumulate");
+        s.execute(
+            "project.set_meta",
+            json!({"key":"title","value":"Sensor Board Rev A"}),
+            None,
+        )?;
+        for bad in [
+            json!({"key":"","value":"x"}),
+            json!({"key":"Title","value":"x"}),
+            json!({"key":"a-b","value":"x"}),
+            json!({"key":"title","value":"same","again":1}),
+        ] {
+            assert!(
+                s.execute("project.set_meta", bad, None).is_err(),
+                "bad metadata requests are refused"
+            );
+        }
+        assert!(
+            s.execute(
+                "project.set_meta",
+                json!({"key":"title","value":"Sensor Board Rev A"}),
+                None,
+            )
+            .is_err(),
+            "recording the same value again is refused"
+        );
+        s.execute("project.clear_meta", json!({"key":"revision"}), None)?;
+        assert!(
+            s.inspect()["project"]["meta"].get("revision").is_none(),
+            "clearing removes the entry"
+        );
+        assert!(
+            s.execute("project.clear_meta", json!({"key":"revision"}), None)
+                .is_err(),
+            "clearing an absent entry is refused"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["meta"]["revision"],
+            "2.1",
+            "clearing undoes"
+        );
+        s.execute(
+            "project.set_meta",
+            json!({"key":"company","value":"Quasar"}),
+            None,
+        )?;
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["meta"].get("company").is_none(),
+            "recording undoes"
         );
         Ok(())
     }

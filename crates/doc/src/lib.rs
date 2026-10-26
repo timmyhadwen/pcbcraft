@@ -813,6 +813,10 @@ pub struct Project {
     /// Groups of drawn graphics that translate together, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub graphic_groups: Vec<GraphicGroup>,
+    /// Free-form project metadata such as title, revision, company or notes,
+    /// keyed by lower-case name and carried with the saved design.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub meta: BTreeMap<String, String>,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -909,6 +913,7 @@ impl Default for Project {
             files: vec![],
             variants: vec![],
             graphic_groups: vec![],
+            meta: Default::default(),
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
@@ -1303,6 +1308,23 @@ impl Project {
                 return Err(
                     "graphic groups need two to 512 distinct existing graphics, each in at \
                      most one group"
+                        .into(),
+                );
+            }
+        }
+        if self.meta.len() > 16 {
+            return Err("a project records at most 16 metadata entries".into());
+        }
+        for (key, value) in &self.meta {
+            if key.is_empty()
+                || key.len() > 32
+                || !key
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+                || value.len() > 4096
+            {
+                return Err(
+                    "metadata keys are 1 to 32 lowercase alphanumeric bytes and values fit 4 KiB"
                         .into(),
                 );
             }

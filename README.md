@@ -178,6 +178,10 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   whole group by an offset in a single undoable step; dissolving a group
   leaves its graphics exactly where they are, and each graphic belongs to at
   most one group.
+- Project metadata: record title, revision, company, notes or any other
+  lower-case-keyed entry on the project, replace and clear them by key, and
+  carry them with the saved design so exported documentation and handoff
+  packets agree with the drawing.
 - Design queries: report the bounding box of all placed copper per side
   (tracks by width, via and pad extents, zone outlines), and list object
   IDs by kind with optional net and copper-side filters.
@@ -208,9 +212,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 133 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 135 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 158 MCP tools: every engine command plus library discovery/search/inspection,
+- 160 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
