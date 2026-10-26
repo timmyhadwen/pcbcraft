@@ -79,7 +79,7 @@ fn project_graphic_svg(g: &pcbcraft_doc::Graphic) -> String {
         g.width.min(0.4)
     )
 }
-/// Text drawn for a label, with the punctuation KiCad uses for each kind.
+/// Text drawn for a label, with per-kind punctuation.
 fn label_text(l: &pcbcraft_doc::Label, net_name: &str) -> String {
     match l.kind.as_str() {
         "global" => format!("{{{net_name}}}"),
@@ -323,6 +323,17 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
         for t in &p.board.tracks {
             s.push_str(&format!("<path d=\"M {} {} L {} {}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" stroke-linecap=\"round\"/>",t.start.x,t.start.y,t.end.x,t.end.y,if t.layer==pcbcraft_doc::Layer::Front {"#f58d79"} else {"#74a7ec"},t.width));
         }
+        for v in &p.board.vias {
+            s.push_str(&format!("<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#f58d79\" stroke=\"#f58d79\" stroke-width=\"0.05\"/>",v.position.x,v.position.y,v.diameter/2.0));
+            if v.drill > 0.0 {
+                s.push_str(&format!(
+                    "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#131c29\"/>",
+                    v.position.x,
+                    v.position.y,
+                    v.drill / 2.0
+                ));
+            }
+        }
         for g in p.graphics.iter().filter(|g| g.layer == "board") {
             s.push_str(&project_graphic_svg(g));
         }
@@ -516,6 +527,27 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
                     [116, 167, 236]
                 },
             );
+        }
+        for v in &p.board.vias {
+            let point = to_pixel(v.position);
+            let radius = (v.diameter / 2.0 * scale).max(1.0);
+            line(
+                &mut image,
+                Point::new(point.x - radius, point.y),
+                Point::new(point.x + radius, point.y),
+                radius * 2.0,
+                [245, 141, 121],
+            );
+            if v.drill > 0.0 {
+                let hole = (v.drill / 2.0 * scale).max(0.5);
+                line(
+                    &mut image,
+                    Point::new(point.x - hole, point.y),
+                    Point::new(point.x + hole, point.y),
+                    hole * 2.0,
+                    [19, 28, 41],
+                );
+            }
         }
         for g in p.graphics.iter().filter(|g| g.layer == "board") {
             for pair in g.outline().unwrap_or_default().windows(2) {
@@ -1076,6 +1108,32 @@ mod tests {
         assert!(
             schematic.contains("points=\"10,10 20,10 20,20\""),
             "drawn wire vertices must render in order"
+        );
+        Ok(())
+    }
+    #[test]
+    fn vias_render_pad_and_drill_in_the_pcb_preview() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 2,
+            net: 1,
+            position: Point::new(30.0, 20.0),
+            diameter: 1.4,
+            drill: 0.8,
+        });
+        project.validate()?;
+        let pcb = svg(&project, "pcb")?;
+        assert!(
+            pcb.contains("<circle cx=\"30\" cy=\"20\" r=\"0.7\""),
+            "the via pad must render at half its diameter"
+        );
+        assert!(
+            pcb.contains("<circle cx=\"30\" cy=\"20\" r=\"0.4\" fill=\"#131c29\""),
+            "the drilled hole must render as board interior"
         );
         Ok(())
     }

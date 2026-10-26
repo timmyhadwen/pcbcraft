@@ -157,6 +157,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"pin":pin_schema()}), &["pin"]),
         ),
         (
+            "via.place",
+            "Place a plated through-hole via joining front and back copper on an existing net",
+            schema(
+                json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"}}),
+                &["net", "position", "diameter"],
+            ),
+        ),
+        (
             "board.sync",
             "Reconcile schematic components and pin nets into PCB footprints; retain placements and report unassigned library symbols",
             schema(json!({}), &[]),
@@ -338,10 +346,10 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, vias, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -590,6 +598,15 @@ struct LabelParams {
 #[serde(deny_unknown_fields)]
 struct NoConnectParams {
     pin: PinRef,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaParams {
+    net: Id,
+    position: Point,
+    diameter: f64,
+    #[serde(default)]
+    drill: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -995,6 +1012,32 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .push(pcbcraft_doc::NoConnectFlag { id, pin: a.pin });
             Ok(json!({"id":id}))
         }
+        "via.place" => {
+            let a: ViaParams = parse(params)?;
+            if !p.nets.iter().any(|n| n.id == a.net) {
+                return Err(missing());
+            }
+            if !a.position.valid() {
+                return Err(Error::Invalid("via position is out of range".into()));
+            }
+            if !a.diameter.is_finite() || a.diameter <= 0.0 || a.diameter > 100.0 {
+                return Err(Error::Invalid("via diameter must be within 0–100mm".into()));
+            }
+            if !a.drill.is_finite() || a.drill < 0.0 || a.drill >= a.diameter {
+                return Err(Error::Invalid(
+                    "via drill must be smaller than its pad".into(),
+                ));
+            }
+            let id = allocate(next)?;
+            p.board.vias.push(pcbcraft_doc::Via {
+                id,
+                net: a.net,
+                position: a.position,
+                diameter: a.diameter,
+                drill: a.drill,
+            });
+            Ok(json!({"id":id}))
+        }
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
@@ -1147,7 +1190,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.board
                 .footprints
                 .retain(|f| f.id != a.id && f.component != a.id);
-            p.board.tracks.retain(|t| t.id != a.id);
+            p.board.tracks.retain(|t| t.id != a.id && t.net != a.id);
+            p.board.vias.retain(|v| v.id != a.id && v.net != a.id);
             p.board.cutouts.retain(|c| c.id != a.id);
             Ok(json!({"deleted":a.id}))
         }
@@ -1334,6 +1378,44 @@ mod tests {
         s.undo()?;
         assert_eq!(s.project.labels.len(), 5);
         assert_eq!(s.project.no_connects.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn via_place_validates_binds_to_nets_and_undoes_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":1.4,"drill":0.4}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":12.0,"y":10.0},"diameter":1.0}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias.len(), 2);
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"net":9999,"position":{"x":10.0,"y":10.0},"diameter":1.4}),
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":0.0}),
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":1.4,"drill":1.4}),
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":1.4,"drill":-0.1}),
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":101.0}),
+        ] {
+            assert!(s.execute("via.place", params, None).is_err());
+        }
+        assert_eq!(s.project.board.vias.len(), 2);
+        let via = s.project.board.vias[0].id;
+        s.execute("object.delete", json!({"id":via}), None)?;
+        assert_eq!(s.project.board.vias.len(), 1);
+        // Deleting the net removes the vias that carry it.
+        s.execute("object.delete", json!({"id":net}), None)?;
+        assert!(s.project.board.vias.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.vias.len(), 1);
         Ok(())
     }
     #[test]

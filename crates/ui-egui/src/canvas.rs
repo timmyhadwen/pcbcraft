@@ -933,6 +933,26 @@ impl App {
                 ),
             );
         }
+        for v in &p.board.vias {
+            let at = camera.screen(v.position, rect);
+            let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
+            painter.circle_filled(
+                at,
+                radius,
+                if self.selected == Some(v.id) {
+                    self.accent()
+                } else {
+                    Color32::from_rgb(245, 141, 121)
+                },
+            );
+            if v.drill > 0.0 {
+                painter.circle_filled(
+                    at,
+                    (v.drill as f32 / 2.0 * camera.zoom).max(1.0),
+                    Color32::from_rgb(19, 28, 41),
+                );
+            }
+        }
         for f in &p.board.footprints {
             let points = f
                 .drawing_points(p)

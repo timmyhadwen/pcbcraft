@@ -126,6 +126,32 @@ fn copper(project: &Project) -> Vec<Copper> {
             hole: None,
         });
     }
+    for v in &project.board.vias {
+        let hole = (v.drill > 0.0).then(|| Hole {
+            start: v.position,
+            end: v.position,
+            radius: v.drill / 2.0,
+        });
+        let item = Copper {
+            id: v.id,
+            net: v.net,
+            start: v.position,
+            end: v.position,
+            radius: v.diameter / 2.0,
+            contact_radius: v.diameter / 2.0,
+            conservative: false,
+            outline: None,
+            outline_error: 0.0,
+            layer: Layer::Front,
+            pad: true,
+            bridge: Some((v.id, "via".into())),
+            hole,
+        };
+        let mut back = item.clone();
+        back.layer = Layer::Back;
+        result.push(back);
+        result.push(item);
+    }
     result
 }
 fn hole_contains(hole: &Hole, other: &Copper) -> bool {
@@ -426,7 +452,9 @@ pub fn drc(project: &Project) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Footprint, Net, NoConnectFlag, Pad, PinRef, Track, component_template};
+    use pcbcraft_doc::{
+        Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
+    };
     fn fixture() -> Project {
         let mut p = Project::default();
         p.nets.push(Net {
@@ -498,6 +526,68 @@ mod tests {
         });
         p.validate()?;
         assert!(!erc(&p).iter().any(|f| f.code == "unassigned_pin"));
+        Ok(())
+    }
+    #[test]
+    fn vias_join_front_and_back_copper_of_their_net() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "signal".into(),
+        });
+        p.board.tracks.push(Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(12.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+        });
+        p.board.tracks.push(Track {
+            id: 3,
+            net: 1,
+            start: Point::new(12.2, 10.0),
+            end: Point::new(14.0, 10.0),
+            width: 0.25,
+            layer: Layer::Back,
+        });
+        p.board.vias.push(Via {
+            id: 4,
+            net: 1,
+            position: Point::new(12.1, 10.0),
+            diameter: 1.4,
+            drill: 0.4,
+        });
+        p.validate()?;
+        let items = copper(&p);
+        let front = items
+            .iter()
+            .find(|c| c.id == 4 && c.layer == Layer::Front)
+            .ok_or("front via copper missing")?;
+        let back = items
+            .iter()
+            .find(|c| c.id == 4 && c.layer == Layer::Back)
+            .ok_or("back via copper missing")?;
+        assert!(
+            touching(front, back),
+            "a plated via conducts on both layers"
+        );
+        let front_track = items
+            .iter()
+            .find(|c| c.id == 2)
+            .ok_or("front track missing")?;
+        assert!(
+            touching(front, front_track),
+            "the via pad must touch front copper it overlaps"
+        );
+        let back_track = items
+            .iter()
+            .find(|c| c.id == 3)
+            .ok_or("back track missing")?;
+        assert!(
+            touching(back, back_track),
+            "the via pad must touch back copper it overlaps"
+        );
         Ok(())
     }
     #[test]

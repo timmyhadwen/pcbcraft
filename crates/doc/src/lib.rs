@@ -146,8 +146,8 @@ pub struct Wire {
     pub from: PinRef,
     pub to: PinRef,
 }
-/// A named annotation attached to a logical net, as KiCad places local, global,
-/// hierarchical and power labels. Connectivity stays explicit: the label names a
+/// A named annotation attached to a logical net: a local, global,
+/// hierarchical or power label. Connectivity stays explicit: the label names a
 /// net that a command already assigned; it never creates a net by matching names.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Label {
@@ -164,14 +164,14 @@ pub struct Label {
 impl Label {
     pub const KINDS: [&'static str; 5] = ["label", "global", "hierarchical", "power", "junction"];
 }
-/// A flag marking a pin intentionally unconnected, as KiCad's no-connect flag
+/// A flag marking a pin intentionally unconnected, that
 /// suppresses its unconnected-pin violation.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct NoConnectFlag {
     pub id: Id,
     pub pin: PinRef,
 }
-/// Free-form schematic wire drawn by the user with explicit vertices, as in KiCad.
+/// Free-form schematic wire drawn by the user with explicit vertices.
 /// Connectivity stays explicit: `net` is assigned by a command, never inferred from crossings.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DrawnWire {
@@ -181,8 +181,8 @@ pub struct DrawnWire {
     /// Vertices in draw order, in millimetres.
     pub points: Vec<Point>,
 }
-/// A free-standing drawing primitive, as KiCad draws schematic annotations and
-/// board graphics. Shapes are explicit; nothing is inferred from geometry.
+/// A free-standing drawing primitive for schematic annotations and board
+/// graphics. Shapes are explicit; nothing is inferred from geometry.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Graphic {
     pub id: Id,
@@ -479,6 +479,19 @@ pub struct Track {
     pub width: f64,
     pub layer: Layer,
 }
+/// A plated through-hole via joining the front and back copper layers. A via
+/// is one physical pad plated through the board, so it conducts on both layers.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Via {
+    pub id: Id,
+    pub net: Id,
+    /// Centre position in millimetres.
+    pub position: Point,
+    /// Outer copper pad diameter in millimetres.
+    pub diameter: f64,
+    /// Drilled hole diameter in millimetres; zero keeps an unplated blind hole.
+    pub drill: f64,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Cutout {
     pub id: Id,
@@ -493,6 +506,9 @@ pub struct Board {
     pub clearance: f64,
     pub footprints: Vec<Footprint>,
     pub tracks: Vec<Track>,
+    /// Plated through-hole vias joining front and back copper.
+    #[serde(default)]
+    pub vias: Vec<Via>,
     pub cutouts: Vec<Cutout>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -505,7 +521,7 @@ pub struct Project {
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub drawn_wires: Vec<DrawnWire>,
-    /// Free-standing drawing primitives, as in KiCad schematic and board graphics.
+    /// Free-standing drawing primitives for schematic and board graphics.
     #[serde(default)]
     pub graphics: Vec<Graphic>,
     /// Named net annotations placed on the schematic.
@@ -572,6 +588,7 @@ impl Default for Project {
                 clearance: 0.2,
                 footprints: vec![],
                 tracks: vec![],
+                vias: vec![],
                 cutouts: vec![],
             },
         }
@@ -702,6 +719,7 @@ impl Project {
             .chain(self.no_connects.iter().map(|x| x.id))
             .chain(self.board.footprints.iter().map(|x| x.id))
             .chain(self.board.tracks.iter().map(|x| x.id))
+            .chain(self.board.vias.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
     }
     pub fn validate(&self) -> Result<(), String> {
@@ -1033,6 +1051,17 @@ impl Project {
                 || t.start.distance(t.end) < 1e-6
             {
                 return Err("invalid track geometry or net".into());
+            }
+        }
+        for v in &b.vias {
+            if !nets.contains(&v.net)
+                || !v.position.valid()
+                || !positive(v.diameter)
+                || v.diameter > 100.0
+                || v.drill < 0.0
+                || v.drill >= v.diameter
+            {
+                return Err("invalid via geometry or net".into());
             }
         }
         for c in &b.cutouts {
