@@ -80,14 +80,17 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   airwires from actual same-layer copper connectivity.
 - Editable rectangular board width/height and dimensioned circular cutouts,
   exported as Edge.Cuts. Constrained/parametric outline sketches are planned.
+- Free text labels on either copper side with a glyph height in millimetres,
+  for assembly notes and markings; move, re-edit, and delete them like any
+  other object, and they appear in previews and saved projects.
 - Initial pin assignment/net-population checks and copper short, clearance,
   board-edge, cutout and unrouted checks with affected object IDs.
 - Named net classes: group nets once and every clearance check between their
   copper uses the strictest requirement involved, while new tracks and routes
   on a classified net start at that class's width unless a width is given.
-- 69 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 72 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 87 MCP tools: every engine command plus library discovery/search/inspection,
+- 90 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

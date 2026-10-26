@@ -519,6 +519,30 @@ pub fn commands() -> Vec<CommandSpec> {
             "Delete a component, wire, track, via, zone, footprint, cutout or unused net by stable ID",
             schema(json!({"id":id_schema()}), &["id"]),
         ),
+        (
+            "text.place",
+            "Place a text label on the board with a size in millimetres and a layer",
+            schema(
+                json!({"text":{"type":"string","minLength":1,"maxLength":128},"position":point_schema(),"size":{"type":"number","minimum":0.1,"maximum":50,"description":"glyph height in millimetres, default 1.0"},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                &["text", "position"],
+            ),
+        ),
+        (
+            "text.move",
+            "Move a board text label to a new position",
+            schema(
+                json!({"id":id_schema(),"position":point_schema()}),
+                &["id", "position"],
+            ),
+        ),
+        (
+            "text.set",
+            "Change a board text label's string, size, or layer",
+            schema(
+                json!({"id":id_schema(),"text":{"type":"string","minLength":1,"maxLength":128},"size":{"type":"number","minimum":0.1,"maximum":50},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                &["id"],
+            ),
+        ),
     ];
     entries
         .into_iter()
@@ -635,7 +659,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, free text labels on either copper side, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1250,6 +1274,36 @@ struct LabelMoveParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct TextPlaceParams {
+    text: String,
+    position: Point,
+    #[serde(default = "text_size")]
+    size: f64,
+    #[serde(default = "front")]
+    layer: Layer,
+}
+fn text_size() -> f64 {
+    1.0
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextMoveParams {
+    id: Id,
+    position: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextSetParams {
+    id: Id,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    size: Option<f64>,
+    #[serde(default)]
+    layer: Option<Layer>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SnapParams {
     ids: Vec<Id>,
     grid: f64,
@@ -1355,6 +1409,7 @@ fn object_exists(p: &Project, id: Id) -> bool {
         || p.board.vias.iter().any(|v| v.id == id)
         || p.board.zones.iter().any(|z| z.id == id)
         || p.board.cutouts.iter().any(|c| c.id == id)
+        || p.board.texts.iter().any(|t| t.id == id)
 }
 fn align_center(item: (Id, bool, f64, f64, f64, f64), axis_x: bool) -> f64 {
     if axis_x {
@@ -3649,7 +3704,87 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.board.vias.retain(|v| v.id != a.id && v.net != a.id);
             p.board.zones.retain(|z| z.id != a.id && z.net != a.id);
             p.board.cutouts.retain(|c| c.id != a.id);
+            p.board.texts.retain(|t| t.id != a.id);
             Ok(json!({"deleted":a.id}))
+        }
+        "text.place" => {
+            let a: TextPlaceParams = parse(params)?;
+            if a.text.is_empty() || a.text.len() > 128 {
+                return Err(Error::Invalid("text must be 1 to 128 bytes".into()));
+            }
+            if !a.position.x.is_finite() || !a.position.y.is_finite() {
+                return Err(Error::Invalid("text position must be finite".into()));
+            }
+            if !a.size.is_finite() || a.size < 0.1 || a.size > 50.0 {
+                return Err(Error::Invalid(
+                    "text size must be between 0.1 and 50 mm".into(),
+                ));
+            }
+            if p.board.texts.len() >= 256 {
+                return Err(Error::Invalid(
+                    "a board carries at most 256 text labels".into(),
+                ));
+            }
+            let id = allocate(next)?;
+            p.board.texts.push(pcbcraft_doc::BoardText {
+                id,
+                text: a.text,
+                position: a.position,
+                size: a.size,
+                layer: a.layer,
+            });
+            Ok(json!({"id":id}))
+        }
+        "text.move" => {
+            let a: TextMoveParams = parse(params)?;
+            if !a.position.x.is_finite() || !a.position.y.is_finite() {
+                return Err(Error::Invalid("text position must be finite".into()));
+            }
+            let text = p
+                .board
+                .texts
+                .iter_mut()
+                .find(|t| t.id == a.id)
+                .ok_or_else(missing)?;
+            text.position = a.position;
+            Ok(json!({"id":a.id,"position":a.position}))
+        }
+        "text.set" => {
+            let a: TextSetParams = parse(params)?;
+            if a.text.is_none() && a.size.is_none() && a.layer.is_none() {
+                return Err(Error::Invalid(
+                    "provide a text, size, or layer to change".into(),
+                ));
+            }
+            if a.text
+                .as_ref()
+                .is_some_and(|t| t.is_empty() || t.len() > 128)
+            {
+                return Err(Error::Invalid("text must be 1 to 128 bytes".into()));
+            }
+            if a.size
+                .is_some_and(|s| !s.is_finite() || s < 0.1 || s > 50.0)
+            {
+                return Err(Error::Invalid(
+                    "text size must be between 0.1 and 50 mm".into(),
+                ));
+            }
+            let text = p
+                .board
+                .texts
+                .iter_mut()
+                .find(|t| t.id == a.id)
+                .ok_or_else(missing)?;
+            if let Some(new) = a.text {
+                text.text = new;
+            }
+            if let Some(size) = a.size {
+                text.size = size;
+            }
+            if let Some(layer) = a.layer {
+                text.layer = layer;
+            }
+            Ok(json!({"id":text.id,"text":text.text,"size":text.size,"layer":text.layer}))
         }
         _ => Err(Error::Invalid(format!("unknown command: {command}"))),
     }
@@ -6663,5 +6798,68 @@ mod tests {
             assert!(s.execute("component.add", params, None).is_err());
             assert_eq!(s.inspect(), before);
         }
+    }
+    #[test]
+    fn board_text_labels_place_move_edit_and_delete_with_one_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let placed = s.execute(
+            "text.place",
+            json!({"text":"Acme Labs","position":{"x":10.0,"y":5.0}}),
+            None,
+        )?;
+        let id = placed["result"]["id"].as_u64().ok_or_else(missing)?;
+        assert_eq!(s.project.board.texts.len(), 1);
+        assert_eq!(s.project.board.texts[0].size, 1.0);
+        assert_eq!(
+            s.project.board.texts[0].layer,
+            pcbcraft_doc::Layer::Front,
+            "labels default to the front copper side"
+        );
+        s.execute(
+            "text.move",
+            json!({"id":id,"position":{"x":12.0,"y":6.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.texts[0].position.x, 12.0);
+        s.execute(
+            "text.set",
+            json!({"id":id,"text":"Acme 2026","size":2.5,"layer":"B.Cu"}),
+            None,
+        )?;
+        assert_eq!(s.project.board.texts[0].text, "Acme 2026");
+        assert_eq!(s.project.board.texts[0].size, 2.5);
+        assert_eq!(s.project.board.texts[0].layer, pcbcraft_doc::Layer::Back);
+        for params in [
+            json!({"text":"","position":{"x":1.0,"y":1.0}}),
+            json!({"text":"x".repeat(200),"position":{"x":1.0,"y":1.0}}),
+            json!({"text":"x","position":{"x":null,"y":1.0}}),
+            json!({"text":"x","position":{"x":1.0,"y":1.0},"size":0.01}),
+            json!({"text":"x","position":{"x":1.0,"y":1.0},"size":90.0}),
+            json!({"text":"x","position":{"x":1.0,"y":1.0},"layer":"C.Cu"}),
+            json!({"text":"x","position":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("text.place", params, None).is_err());
+        }
+        assert_eq!(s.project.board.texts[0].text, "Acme 2026");
+        assert!(
+            s.execute(
+                "text.move",
+                json!({"id":id + 7,"position":{"x":1.0,"y":1.0}}),
+                None
+            )
+            .is_err()
+        );
+        assert!(s.execute("text.set", json!({"id":id}), None).is_err());
+        assert!(
+            s.execute("text.set", json!({"id":id,"size":0.02}), None)
+                .is_err()
+        );
+        assert_eq!(s.project.board.texts[0].size, 2.5);
+        s.execute("object.delete", json!({"id":id}), None)?;
+        assert!(s.project.board.texts.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.texts.len(), 1);
+        assert_eq!(s.project.board.texts[0].text, "Acme 2026");
+        Ok(())
     }
 }

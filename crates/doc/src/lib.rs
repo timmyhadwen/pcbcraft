@@ -564,6 +564,19 @@ pub struct Cutout {
     pub center: Point,
     pub radius: f64,
 }
+/// A text label drawn on the board, such as an assembly note or a marking.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct BoardText {
+    pub id: Id,
+    /// The exact string to draw.
+    pub text: String,
+    /// Anchor position in millimetres: the lower-left of the first glyph.
+    pub position: Point,
+    /// Glyph height in millimetres.
+    pub size: f64,
+    /// Board side the label belongs to.
+    pub layer: Layer,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Board {
     pub width: f64,
@@ -579,6 +592,9 @@ pub struct Board {
     #[serde(default)]
     pub zones: Vec<CopperZone>,
     pub cutouts: Vec<Cutout>,
+    /// Text labels drawn on the board.
+    #[serde(default)]
+    pub texts: Vec<BoardText>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
@@ -695,6 +711,7 @@ impl Default for Project {
                 vias: vec![],
                 zones: vec![],
                 cutouts: vec![],
+                texts: vec![],
             },
         }
     }
@@ -867,6 +884,7 @@ impl Project {
             .chain(self.board.vias.iter().map(|x| x.id))
             .chain(self.board.zones.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
+            .chain(self.board.texts.iter().map(|x| x.id))
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
@@ -1300,6 +1318,20 @@ impl Project {
                 || c.center.y + c.radius >= b.height
             {
                 return Err("cutout must be strictly inside the board".into());
+            }
+        }
+        if b.texts.len() > 256 {
+            return Err("a board carries at most 256 text labels".into());
+        }
+        for t in &b.texts {
+            if t.text.is_empty()
+                || t.text.len() > 128
+                || !t.position.valid()
+                || !t.size.is_finite()
+                || t.size < 0.1
+                || t.size > 50.0
+            {
+                return Err("board text must be 1 to 128 bytes with a finite position and a size between 0.1 and 50 mm".into());
             }
         }
         Ok(())

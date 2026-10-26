@@ -264,6 +264,11 @@ fn preview_bounds(p: &Project, view: &str) -> (Point, Point) {
                 extend(&mut min, &mut max, point);
             }
         }
+        for t in &p.board.texts {
+            if t.position.x.is_finite() && t.position.y.is_finite() {
+                extend(&mut min, &mut max, t.position);
+            }
+        }
         if min.x.is_finite() && max.x.is_finite() {
             return (
                 Point::new(min.x.min(0.0), min.y.min(0.0)),
@@ -357,6 +362,20 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                     v.drill / 2.0
                 ));
             }
+        }
+        for t in &p.board.texts {
+            s.push_str(&format!(
+                "<text x=\"{}\" y=\"{}\" font-size=\"{}\" fill=\"{}\">{}</text>",
+                t.position.x,
+                t.position.y,
+                t.size,
+                if t.layer == pcbcraft_doc::Layer::Front {
+                    "#dbe7f2"
+                } else {
+                    "#9ec5ff"
+                },
+                escape(&t.text)
+            ));
         }
         for g in p.graphics.iter().filter(|g| g.layer == "board") {
             s.push_str(&project_graphic_svg(g));

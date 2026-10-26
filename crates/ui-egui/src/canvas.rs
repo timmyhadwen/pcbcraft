@@ -1120,6 +1120,21 @@ impl App {
                 );
             }
         }
+        for t in &p.board.texts {
+            let at = camera.screen(t.position, rect);
+            let color = if t.layer == pcbcraft_doc::Layer::Front {
+                self.ink()
+            } else {
+                self.ink().gamma_multiply(0.75)
+            };
+            painter.text(
+                at,
+                Align2::LEFT_BOTTOM,
+                &t.text,
+                FontId::proportional((t.size as f32 * camera.zoom).max(1.0)),
+                color,
+            );
+        }
         painter.text(
             board.left_bottom() + Vec2::new(0.0, 18.0),
             Align2::LEFT_TOP,
