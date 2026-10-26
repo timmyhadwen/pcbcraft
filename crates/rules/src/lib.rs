@@ -397,7 +397,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             });
         }
     }
-    result.retain(|f| !project.rule_disabled(f.code));
+    result.retain(|f| !project.rule_disabled(f.code) && !project.rule_excluded(f.code, &f.objects));
     result
 }
 pub fn drc(project: &Project) -> Vec<Finding> {
@@ -534,7 +534,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             });
         }
     }
-    result.retain(|f| !project.rule_disabled(f.code));
+    result.retain(|f| !project.rule_disabled(f.code) && !project.rule_excluded(f.code, &f.objects));
     result
 }
 

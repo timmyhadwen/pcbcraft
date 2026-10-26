@@ -585,6 +585,10 @@ pub struct Project {
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_severity: BTreeMap<String, String>,
+    /// Per-check-code object exclusions: a finding for one of these codes is
+    /// dropped when every object it names is on that code's exclusion list.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub rule_exclusions: BTreeMap<String, Vec<Id>>,
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub drawn_wires: Vec<DrawnWire>,
@@ -666,6 +670,7 @@ impl Default for Project {
             nets: vec![],
             net_classes: vec![],
             rule_severity: Default::default(),
+            rule_exclusions: Default::default(),
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -815,6 +820,15 @@ impl Project {
     pub fn rule_disabled(&self, code: &str) -> bool {
         self.rule_severity.get(code).is_some_and(|s| s == "off")
     }
+    /// True when a finding for `code` naming exactly these objects has been
+    /// excluded: every named object must sit on that code's exclusion list.
+    pub fn rule_excluded(&self, code: &str, objects: &[Id]) -> bool {
+        !objects.is_empty()
+            && self
+                .rule_exclusions
+                .get(code)
+                .is_some_and(|ids| objects.iter().all(|o| ids.contains(o)))
+    }
     /// Minimum clearance required between copper on `a` and copper on `b`:
     /// the board default, raised by the class of either net when classified.
     pub fn required_clearance(&self, a: Id, b: Id) -> f64 {
@@ -930,6 +944,17 @@ impl Project {
                 || !matches!(severity.as_str(), "error" | "warning" | "off")
             {
                 return Err("invalid severity override".into());
+            }
+        }
+        if self.rule_exclusions.len() > 64 {
+            return Err("exclusions cover at most 64 check codes".into());
+        }
+        for (code, ids) in &self.rule_exclusions {
+            if code.is_empty() || code.len() > 32 {
+                return Err("invalid exclusion check code".into());
+            }
+            if ids.len() > 256 {
+                return Err("a check code excludes at most 256 objects".into());
             }
         }
         let mut refs = BTreeSet::new();

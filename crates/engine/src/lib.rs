@@ -451,6 +451,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "rules.exclude",
+            "Silence one check code for particular design objects; a finding drops when every object it names is excluded",
+            schema(
+                json!({"code":{"type":"string","description":"check code, as listed by rules.severity"},"ids":{"type":"array","items":id_schema(),"minItems":1,"maxItems":256,"description":"component, net, track, via, zone, cutout, wire or footprint ids to exempt"}}),
+                &["code", "ids"],
+            ),
+        ),
+        (
+            "rules.include",
+            "Lift object exclusions for one check code; omit ids to lift every exclusion of that code",
+            schema(
+                json!({"code":{"type":"string"},"ids":{"type":"array","items":id_schema(),"maxItems":256}}),
+                &["code"],
+            ),
+        ),
+        (
             "bom.export",
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties",
             schema(
@@ -603,7 +619,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -974,6 +990,19 @@ struct RuleSeverityParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RuleExcludeParams {
+    code: String,
+    ids: Vec<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuleIncludeParams {
+    code: String,
+    #[serde(default)]
+    ids: Option<Vec<Id>>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct NetLengthsParams {
     #[serde(default)]
     net: Option<Id>,
@@ -1283,6 +1312,19 @@ fn filter_matches(filter: &ComponentFilter, c: &Component) -> bool {
         && filter.kind.as_deref().is_none_or(|k| c.kind == k)
 }
 /// Center of an align item's bounding box on the requested axis.
+/// True when any design object (component, net, wire, footprint, track, via,
+/// zone or cutout) carries this id, so exclusions cannot name thin air.
+fn object_exists(p: &Project, id: Id) -> bool {
+    p.components.iter().any(|c| c.id == id)
+        || p.nets.iter().any(|n| n.id == id)
+        || p.wires.iter().any(|w| w.id == id)
+        || p.drawn_wires.iter().any(|w| w.id == id)
+        || p.board.footprints.iter().any(|f| f.id == id)
+        || p.board.tracks.iter().any(|t| t.id == id)
+        || p.board.vias.iter().any(|v| v.id == id)
+        || p.board.zones.iter().any(|z| z.id == id)
+        || p.board.cutouts.iter().any(|c| c.id == id)
+}
 fn align_center(item: (Id, bool, f64, f64, f64, f64), axis_x: bool) -> f64 {
     if axis_x {
         (item.2 + item.4) / 2.0
@@ -2699,6 +2741,87 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
             };
             Ok(json!({"code": a.code, "set": set}))
+        }
+        "rules.exclude" => {
+            let a: RuleExcludeParams = parse(params)?;
+            if a.code.is_empty() || a.code.len() > 32 {
+                return Err(Error::Invalid("check code must be 1 to 32 bytes".into()));
+            }
+            if a.ids.len() > 256 {
+                return Err(Error::Invalid(
+                    "a check code excludes at most 256 objects".into(),
+                ));
+            }
+            for id in &a.ids {
+                if !object_exists(p, *id) {
+                    return Err(Error::Invalid(format!("no design object with id {id}")));
+                }
+            }
+            let existing = p.rule_exclusions.get(&a.code).cloned().unwrap_or_default();
+            if existing.is_empty() && p.rule_exclusions.len() >= 64 {
+                return Err(Error::Invalid(
+                    "exclusions cover at most 64 check codes".into(),
+                ));
+            }
+            let mut merged = existing;
+            let mut added = 0usize;
+            for id in &a.ids {
+                if !merged.contains(id) {
+                    merged.push(*id);
+                    added += 1;
+                }
+            }
+            if added == 0 {
+                return Err(Error::Invalid(
+                    "those objects are already excluded for that code".into(),
+                ));
+            }
+            merged.sort_unstable();
+            p.rule_exclusions.insert(a.code.clone(), merged);
+            Ok(json!({"code": a.code, "added": added}))
+        }
+        "rules.include" => {
+            let a: RuleIncludeParams = parse(params)?;
+            if a.code.is_empty() || a.code.len() > 32 {
+                return Err(Error::Invalid("check code must be 1 to 32 bytes".into()));
+            }
+            if a.ids
+                .as_ref()
+                .is_some_and(|v| v.is_empty() || v.len() > 256)
+            {
+                return Err(Error::Invalid(
+                    "ids must hold between 1 and 256 entries".into(),
+                ));
+            }
+            match a.ids {
+                None => {
+                    let Some(list) = p.rule_exclusions.remove(&a.code) else {
+                        return Err(Error::Invalid(
+                            "that check code has no object exclusions".into(),
+                        ));
+                    };
+                    Ok(json!({"code": a.code, "removed": list.len()}))
+                }
+                Some(ids) => {
+                    let Some(list) = p.rule_exclusions.get_mut(&a.code) else {
+                        return Err(Error::Invalid(
+                            "that check code has no object exclusions".into(),
+                        ));
+                    };
+                    let before = list.len();
+                    list.retain(|x| !ids.contains(x));
+                    let removed = before - list.len();
+                    if removed == 0 {
+                        return Err(Error::Invalid(
+                            "none of those objects are excluded for that code".into(),
+                        ));
+                    }
+                    if list.is_empty() {
+                        p.rule_exclusions.remove(&a.code);
+                    }
+                    Ok(json!({"code": a.code, "removed": removed}))
+                }
+            }
         }
         "bom.export" => {
             let a: BomParams = parse(params)?;
@@ -5297,6 +5420,104 @@ mod tests {
         assert_eq!(s.inspect(), before);
         assert!(s.project.validate().is_ok());
         assert!(a > 0 && b > 0);
+        Ok(())
+    }
+    #[test]
+    fn check_findings_can_be_excluded_per_object_and_restored() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.5,"width":0.6,"nets":[a]}),
+            None,
+        )?;
+        let mut track_ids = vec![];
+        for (net, y) in [(a, 10.0), (b, 10.5)] {
+            let out = s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":30.0,"y":y},"width":0.2}),
+                None,
+            )?;
+            track_ids.push(out["result"]["id"].as_u64().ok_or_else(missing)?);
+        }
+        fn clearance(s: &Session) -> Result<usize, Error> {
+            Ok(s.checks()["drc"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .filter(|f| f["code"] == "clearance")
+                .count())
+        }
+        assert_eq!(clearance(&s)?, 1);
+        s.execute(
+            "rules.exclude",
+            json!({"code":"clearance","ids":[track_ids[0]]}),
+            None,
+        )?;
+        assert_eq!(clearance(&s)?, 1, "one of two objects is not enough");
+        s.execute(
+            "rules.exclude",
+            json!({"code":"clearance","ids":[track_ids[1]]}),
+            None,
+        )?;
+        assert_eq!(clearance(&s)?, 0, "every named object excluded");
+        s.undo()?;
+        assert_eq!(clearance(&s)?, 1, "undo brings the finding back");
+        s.redo()?;
+        assert_eq!(clearance(&s)?, 0);
+        s.execute(
+            "rules.include",
+            json!({"code":"clearance","ids":[track_ids[1]]}),
+            None,
+        )?;
+        assert_eq!(clearance(&s)?, 1);
+        s.execute(
+            "rules.exclude",
+            json!({"code":"clearance","ids":[track_ids[1]]}),
+            None,
+        )?;
+        assert_eq!(clearance(&s)?, 0);
+        s.execute("rules.include", json!({"code":"clearance"}), None)?;
+        assert_eq!(
+            clearance(&s)?,
+            1,
+            "lifting every exclusion restores the finding"
+        );
+        assert!(s.project.rule_exclusions.is_empty());
+        s.execute(
+            "rules.exclude",
+            json!({"code":"clearance","ids":[track_ids[0]]}),
+            None,
+        )?;
+        let before = s.inspect();
+        for params in [
+            json!({"code":"","ids":[track_ids[1]]}),
+            json!({"code":"clearance","ids":[]}),
+            json!({"code":"clearance","ids":[9999]}),
+            json!({"code":"clearance","ids":[track_ids[0]]}),
+            json!({"code":"clearance","ids":[track_ids[1]],"extra":1}),
+            json!({"code":"clearance"}),
+        ] {
+            assert!(s.execute("rules.exclude", params, None).is_err());
+        }
+        for params in [
+            json!({"code":"clearance","ids":[track_ids[1]]}),
+            json!({"code":"nothing_here"}),
+            json!({"code":""}),
+            json!({"code":"clearance","ids":[]}),
+            json!({"code":"clearance","extra":1}),
+        ] {
+            assert!(s.execute("rules.include", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert!(s.project.rule_exclusions.is_empty());
         Ok(())
     }
     #[test]
