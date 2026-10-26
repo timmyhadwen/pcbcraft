@@ -685,6 +685,18 @@ impl BomField {
         !self.key.trim().is_empty() && self.key.len() <= 64 && self.label.len() <= 64
     }
 }
+/// A text file attached to the project, for example a licence note or a
+/// datasheet excerpt, stored verbatim so it travels with the design.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct EmbeddedFile {
+    pub name: String,
+    pub data: String,
+}
+impl EmbeddedFile {
+    fn valid(&self) -> bool {
+        !self.name.trim().is_empty() && self.name.len() <= 128 && self.data.len() <= 262_144
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -698,6 +710,9 @@ pub struct Project {
     /// Extra bill-of-materials columns, in print order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bom_fields: Vec<BomField>,
+    /// Text files attached to the project, ordered by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<EmbeddedFile>,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -791,6 +806,7 @@ impl Default for Project {
             nets: vec![],
             net_classes: vec![],
             bom_fields: vec![],
+            files: vec![],
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
@@ -1136,6 +1152,15 @@ impl Project {
         for f in &self.bom_fields {
             if !f.valid() || !bom_keys.insert(&f.key) {
                 return Err("bill-of-materials fields need unique short keys".into());
+            }
+        }
+        if self.files.len() > 32 {
+            return Err("a project attaches at most 32 files".into());
+        }
+        let mut file_names = BTreeSet::new();
+        for f in &self.files {
+            if !f.valid() || !file_names.insert(&f.name) {
+                return Err("attached files need unique short names and 256 KiB or less".into());
             }
         }
         if self.rule_severity.len() > 64 {

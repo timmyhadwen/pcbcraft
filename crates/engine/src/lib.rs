@@ -781,6 +781,22 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({}), &[]),
         ),
         (
+            "file.attach",
+            "Attach a text file to the project (licence note, datasheet excerpt); attaching an existing name replaces its contents, at most 32 files of 256 KiB each",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":128},"data":{"type":"string","maxLength":262144}}),
+                &["name", "data"],
+            ),
+        ),
+        (
+            "file.remove",
+            "Detach an attached text file by name",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":128}}),
+                &["name"],
+            ),
+        ),
+        (
             "bom.export",
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties",
             schema(
@@ -973,7 +989,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1521,6 +1537,13 @@ struct LayerRecordParams {
 #[serde(deny_unknown_fields)]
 struct BomFieldsParams {
     fields: Vec<pcbcraft_doc::BomField>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileParams {
+    name: String,
+    #[serde(default)]
+    data: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4997,6 +5020,44 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let removed = p.bom_fields.len();
             p.bom_fields.clear();
             Ok(json!({"removed": removed}))
+        }
+        "file.attach" => {
+            let a: FileParams = parse(params)?;
+            let name = a.name.trim().to_string();
+            if name.is_empty() || name.len() > 128 {
+                return Err(Error::Invalid(
+                    "attached file names must be 1 to 128 bytes".into(),
+                ));
+            }
+            if a.data.len() > 262_144 {
+                return Err(Error::Invalid(
+                    "an attached file holds at most 256 KiB of text".into(),
+                ));
+            }
+            let files = &mut p.files;
+            if let Some(existing) = files.iter_mut().find(|f| f.name == name) {
+                existing.data = a.data;
+            } else {
+                if files.len() >= 32 {
+                    return Err(Error::Invalid("a project attaches at most 32 files".into()));
+                }
+                files.push(pcbcraft_doc::EmbeddedFile {
+                    name: name.clone(),
+                    data: a.data,
+                });
+                files.sort_by(|x, y| x.name.cmp(&y.name));
+            }
+            Ok(json!({"name": name, "count": p.files.len()}))
+        }
+        "file.remove" => {
+            let a: FileParams = parse(params)?;
+            let name = a.name.trim();
+            let files = &mut p.files;
+            let Some(index) = files.iter().position(|f| f.name == name) else {
+                return Err(Error::Invalid(format!("no attached file named {name}")));
+            };
+            files.remove(index);
+            Ok(json!({"name": name, "count": files.len()}))
         }
         "bom.export" => {
             let a: BomParams = parse(params)?;
@@ -8512,6 +8573,68 @@ mod tests {
                 .map_or(0, |a| a.len()),
             2,
             "the clear undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn attached_files_are_named_replaced_ordered_removed_and_undone() -> Result<(), Error> {
+        let mut s = Session::default();
+        let first = s.execute(
+            "file.attach",
+            json!({"name":"notes.txt","data":"built to house style"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(first["count"], 1, "the first file attaches");
+        s.execute("file.attach", json!({"name":"LICENCE","data":"MIT"}), None)?;
+        let replaced = s.execute(
+            "file.attach",
+            json!({"name":"notes.txt","data":"revised house style"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(replaced["count"], 2, "a repeated name replaces contents");
+        let files = s.inspect()["project"]["files"].clone();
+        assert_eq!(files[0]["name"], "LICENCE");
+        assert_eq!(files[1]["name"], "notes.txt", "files stay ordered by name");
+        assert_eq!(files[1]["data"], "revised house style");
+        for bad in [
+            json!({"name":"  ","data":"x"}),
+            json!({"name":"x".repeat(129),"data":"x"}),
+            json!({"name":"big","data":"x".repeat(262_145)}),
+            json!({"data":"x"}),
+        ] {
+            assert!(
+                s.execute("file.attach", bad, None).is_err(),
+                "bad attachments are refused"
+            );
+        }
+        assert!(
+            s.execute("file.remove", json!({"name":"absent"}), None)
+                .is_err(),
+            "removing an absent file is refused"
+        );
+        let removed =
+            s.execute("file.remove", json!({"name":"notes.txt"}), None)?["result"].clone();
+        assert_eq!(removed["count"], 1, "the removal reports what remains");
+        assert_eq!(
+            s.inspect()["project"]["files"][0]["name"],
+            "LICENCE",
+            "the right file went"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["files"]
+                .as_array()
+                .map_or(0, |f| f.len()),
+            2,
+            "the removal undoes"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["files"][1]["data"],
+            "built to house style",
+            "a replace undoes to the previous contents"
         );
         Ok(())
     }
