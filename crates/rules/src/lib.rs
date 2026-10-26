@@ -481,6 +481,38 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             }
         }
     }
+    for track in &board.tracks {
+        if let Some(class) = project.net_class(track.net) {
+            if let Some(min) = class.min_width.filter(|min| track.width < *min) {
+                result.push(Finding {
+                    code: "track_width",
+                    severity: project.rule_severity("track_width", "error"),
+                    message: format!(
+                        "{} track is {:.3} mm wide, {} allows at least {:.3} mm",
+                        project.net_name(track.net),
+                        track.width,
+                        class.name,
+                        min
+                    ),
+                    objects: vec![track.id],
+                });
+            }
+            if let Some(max) = class.max_width.filter(|max| track.width > *max) {
+                result.push(Finding {
+                    code: "track_width",
+                    severity: project.rule_severity("track_width", "error"),
+                    message: format!(
+                        "{} track is {:.3} mm wide, {} allows at most {:.3} mm",
+                        project.net_name(track.net),
+                        track.width,
+                        class.name,
+                        max
+                    ),
+                    objects: vec![track.id],
+                });
+            }
+        }
+    }
     for wire in airwires(project) {
         result.push(Finding {
             code: "unrouted",

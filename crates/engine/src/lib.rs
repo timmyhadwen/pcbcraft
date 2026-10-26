@@ -168,6 +168,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netclass.width_rules",
+            "Set the smallest and largest track width a net class allows; omitted bounds stay as they were",
+            schema(
+                json!({"class":id_schema(),"min_width":{"type":["number","null"],"exclusiveMinimum":0,"maximum":100},"max_width":{"type":["number","null"],"exclusiveMinimum":0,"maximum":100}}),
+                &["class"],
+            ),
+        ),
+        (
             "netclass.assign_pattern",
             "Move every net whose name matches a wildcard pattern into a net class in one step; * matches any run of characters and ? matches one",
             schema(
@@ -430,7 +438,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, unrouted, missing_footprint"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, unrouted, missing_footprint"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
             ),
         ),
@@ -590,7 +598,7 @@ impl Session {
         json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -920,6 +928,15 @@ fn class_pattern_matches(pattern: &str, name: &str) -> bool {
         p += 1;
     }
     p == pattern.len()
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WidthRulesParams {
+    class: Id,
+    #[serde(default)]
+    min_width: Option<f64>,
+    #[serde(default)]
+    max_width: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1646,6 +1663,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 name: a.name,
                 clearance: a.clearance,
                 width: a.width,
+                min_width: None,
+                max_width: None,
                 nets: a.nets,
             });
             Ok(json!({"id": id}))
@@ -1674,6 +1693,46 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 target.nets.push(a.net);
             }
             Ok(json!({"net": a.net, "class": a.class}))
+        }
+        "netclass.width_rules" => {
+            let a: WidthRulesParams = parse(params)?;
+            for bound in [a.min_width, a.max_width] {
+                if bound.is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 100.0) {
+                    return Err(Error::Invalid(
+                        "width bounds must be above 0 and at most 100 mm".into(),
+                    ));
+                }
+            }
+            if a.min_width
+                .zip(a.max_width)
+                .is_some_and(|(min, max)| min > max)
+            {
+                return Err(Error::Invalid(
+                    "the minimum width cannot exceed the maximum".into(),
+                ));
+            }
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            if a.min_width.is_none() && a.max_width.is_none() {
+                return Err(Error::Invalid("give at least one width bound".into()));
+            }
+            let min_width = a.min_width.or(class.min_width);
+            let max_width = a.max_width.or(class.max_width);
+            if min_width.zip(max_width).is_some_and(|(min, max)| min > max) {
+                return Err(Error::Invalid(
+                    "the new bounds disagree with the bound being kept".into(),
+                ));
+            }
+            class.min_width = min_width;
+            class.max_width = max_width;
+            Ok(json!({
+                "class": a.class,
+                "min_width": class.min_width,
+                "max_width": class.max_width,
+            }))
         }
         "netclass.assign_pattern" => {
             let a: NetClassPatternParams = parse(params)?;
@@ -4707,6 +4766,150 @@ mod tests {
         s.execute("net.lengths", json!({"net": pwr}), None)?;
         assert_eq!(s.project, unchanged);
         assert!(r1 > 0 && r2 > 0);
+        Ok(())
+    }
+    #[test]
+    fn net_class_width_bounds_flag_member_tracks_only() -> Result<(), Error> {
+        let mut s = Session::default();
+        let power = s.execute("net.create", json!({"name":"PWR"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let free = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.3,"width":0.6,"nets":[power]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn widths(s: &Session) -> Vec<String> {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| f["code"] == json!("track_width"))
+                .map(|f| f["message"].as_str().unwrap_or_default().to_string())
+                .collect()
+        }
+        let thin = s.execute(
+            "track.add",
+            json!({"net":power,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let wide = s.execute(
+            "track.add",
+            json!({"net":power,"start":{"x":0.0,"y":5.0},"end":{"x":10.0,"y":5.0},"width":0.9}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let loose = s.execute(
+            "track.add",
+            json!({"net":free,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.05}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            widths(&s).is_empty(),
+            "a class without width bounds flags nothing"
+        );
+        s.execute(
+            "netclass.width_rules",
+            json!({"class":class,"min_width":0.4,"max_width":0.8}),
+            None,
+        )?;
+        let flagged = widths(&s);
+        assert_eq!(flagged.len(), 2);
+        assert!(
+            flagged
+                .iter()
+                .any(|m| m.contains("at least 0.400 mm") && m.contains("PWR"))
+        );
+        assert!(
+            flagged
+                .iter()
+                .any(|m| m.contains("at most 0.800 mm") && m.contains("PWR"))
+        );
+        assert!(
+            !flagged.iter().any(|m| m.contains("SIG")),
+            "unclassified nets keep their old behaviour"
+        );
+        s.execute(
+            "track.move",
+            json!({"id":thin,"delta":{"x":0.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":power,"start":{"x":0.0,"y":30.0},"end":{"x":10.0,"y":30.0},"width":0.5}),
+            None,
+        )?;
+        let flagged = widths(&s);
+        assert_eq!(flagged.len(), 2, "in-bounds copper stays quiet");
+        s.execute(
+            "netclass.width_rules",
+            json!({"class":class,"min_width":0.1}),
+            None,
+        )?;
+        let flagged = widths(&s);
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].contains("at most 0.800 mm"));
+        s.execute(
+            "rules.severity",
+            json!({"code":"track_width","severity":"off"}),
+            None,
+        )?;
+        assert!(widths(&s).is_empty(), "the new code is silenceable");
+        s.execute(
+            "rules.severity",
+            json!({"code":"track_width","severity":"warning"}),
+            None,
+        )?;
+        let downgraded = s.checks()["drc"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .filter(|f| f["code"] == json!("track_width"))
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(downgraded.len(), 1);
+        assert_eq!(downgraded[0]["severity"], "warning");
+        assert!(s.project.validate().is_ok());
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert_eq!(loaded, s.project);
+        s.undo()?;
+        s.undo()?;
+        s.undo()?;
+        assert_eq!(
+            s.project.net_classes.first().ok_or_else(missing)?.min_width,
+            Some(0.4)
+        );
+        assert!(!s.project.rule_severity.contains_key("track_width"));
+        for params in [
+            json!({"class":9999,"min_width":0.4}),
+            json!({"class":class,"min_width":0.0}),
+            json!({"class":class,"max_width":101.0}),
+            json!({"class":class,"min_width":0.9,"max_width":0.3}),
+            json!({"class":class,"min_width":0.7,"max_width":0.6}),
+            json!({"class":class}),
+            json!({"class":class,"min_width":0.4,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.width_rules", params, None).is_err());
+        }
+        let before = s.inspect();
+        assert_eq!(s.inspect(), before);
+        assert!(s.project.validate().is_ok());
+        assert!(thin > 0 && wide > 0 && loose > 0);
         Ok(())
     }
     #[test]

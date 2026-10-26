@@ -164,6 +164,13 @@ pub struct NetClass {
     pub clearance: f64,
     /// Default track width for members of this class, in millimetres.
     pub width: f64,
+    /// Smallest track width this class allows, in millimetres. Set to turn
+    /// narrower member tracks into a design rule finding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_width: Option<f64>,
+    /// Largest track width this class allows, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_width: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -898,6 +905,13 @@ impl Project {
                 || !c.width.is_finite()
                 || c.width <= 0.0
                 || c.width > 100.0
+                || c.min_width
+                    .is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 100.0)
+                || c.max_width
+                    .is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 100.0)
+                || c.min_width
+                    .zip(c.max_width)
+                    .is_some_and(|(min, max)| min > max)
             {
                 return Err("invalid net class".into());
             }
