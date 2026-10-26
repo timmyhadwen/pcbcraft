@@ -23,6 +23,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.search","description":"Search a KiCad symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
         json!({"name":"library.inspect_footprint","description":"Read footprint graphics/pads/drills; include_source preserves up to 512KiB of original nodes","inputSchema":object(json!({"path":{"type":"string"},"include_source":{"type":"boolean"}}),&["path"])}),
+        json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
         json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs","inputSchema":object(json!({}),&[])}),
@@ -90,6 +91,7 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
         "library.search",
         "library.inspect_symbol",
         "library.inspect_footprint",
+        "library.compare",
     ]
     .contains(&name)
     {
@@ -619,6 +621,60 @@ mod tests {
             .get("isError"),
             Some(&json!(true))
         );
+        Ok(())
+    }
+    #[test]
+    fn library_parts_can_be_compared_side_by_side_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        let device = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../library/tests/fixtures/device.kicad_sym");
+        let result = call_tool(
+            &session,
+            "library.compare",
+            &json!({"path_a":device,"path_b":device,"kind":"symbol","name_a":"R","name_b":"R"}),
+        );
+        assert_eq!(result.get("isError"), Some(&json!(false)));
+        assert_eq!(
+            result.pointer("/structuredContent/shared_pins"),
+            Some(&json!(2))
+        );
+        assert_eq!(
+            result.pointer("/structuredContent/pins_only_in_a"),
+            Some(&json!([]))
+        );
+        let resistor = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../library/tests/fixtures/R_0805_2012Metric.kicad_mod");
+        let chip = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../library/tests/fixtures/DIP-8_W7.62mm.kicad_mod");
+        let result = call_tool(
+            &session,
+            "library.compare",
+            &json!({"path_a":resistor,"path_b":chip,"kind":"footprint"}),
+        );
+        assert_eq!(result.get("isError"), Some(&json!(false)));
+        assert_eq!(
+            result.pointer("/structuredContent/shared_pads"),
+            Some(&json!(2))
+        );
+        assert_eq!(
+            result
+                .pointer("/structuredContent/pads_only_in_b")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(6)
+        );
+        assert_eq!(
+            call_tool(
+                &session,
+                "library.compare",
+                &json!({"path_a":device,"path_b":chip,"kind":"module"})
+            )
+            .get("isError"),
+            Some(&json!(true))
+        );
+        let locked = session.lock().map_err(|_| "session unavailable")?;
+        assert_eq!(locked.revision, 0);
+        assert!(locked.project.components.is_empty());
         Ok(())
     }
     #[test]

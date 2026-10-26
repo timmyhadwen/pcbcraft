@@ -251,6 +251,87 @@ pub fn search(path: &Path, kind: &str, query: &str, limit: usize) -> Result<Valu
         json!({"entries":entries,"total":total,"limit":limit,"truncated":total>limit||scan_truncated,"scan_truncated":scan_truncated}),
     )
 }
+/// Compare two library parts of the same kind and report what differs.
+pub fn compare(
+    path_a: &Path,
+    path_b: &Path,
+    kind: &str,
+    name_a: &str,
+    name_b: &str,
+) -> Result<Value, String> {
+    match kind {
+        "symbol" => {
+            let a = symbol(path_a, name_a)?;
+            let b = symbol(path_b, name_b)?;
+            let pins = |s: &SymbolDefinition| -> Vec<String> {
+                s.pins.iter().map(|p| p.number.clone()).collect()
+            };
+            let (pa, pb) = (pins(&a), pins(&b));
+            let only = |x: &[String], y: &[String]| -> Vec<String> {
+                x.iter().filter(|n| !y.contains(n)).cloned().collect()
+            };
+            let units =
+                |s: &SymbolDefinition| -> u32 { s.pins.iter().map(|p| p.unit).max().unwrap_or(1) };
+            Ok(json!({
+                "kind": "symbol",
+                "a": {
+                    "name": a.name,
+                    "path": path_a.to_string_lossy(),
+                    "pins": pa.len(),
+                    "units": units(&a),
+                    "reference_prefix": a.reference,
+                    "default_value": a.value,
+                    "footprint": a.footprint,
+                },
+                "b": {
+                    "name": b.name,
+                    "path": path_b.to_string_lossy(),
+                    "pins": pb.len(),
+                    "units": units(&b),
+                    "reference_prefix": b.reference,
+                    "default_value": b.value,
+                    "footprint": b.footprint,
+                },
+                "shared_pins": pa.iter().filter(|n| pb.contains(n)).count(),
+                "pins_only_in_a": only(&pa, &pb),
+                "pins_only_in_b": only(&pb, &pa),
+                "same_footprint_recommendation": a.footprint == b.footprint,
+                "same_reference_prefix": a.reference == b.reference,
+            }))
+        }
+        "footprint" => {
+            let a = footprint(path_a)?;
+            let b = footprint(path_b)?;
+            let pads = |f: &FootprintDefinition| -> Vec<String> {
+                f.pads.iter().map(|p| p.number.clone()).collect()
+            };
+            let (pa, pb) = (pads(&a), pads(&b));
+            let only = |x: &[String], y: &[String]| -> Vec<String> {
+                x.iter().filter(|n| !y.contains(n)).cloned().collect()
+            };
+            Ok(json!({
+                "kind": "footprint",
+                "a": {
+                    "name": a.name,
+                    "path": path_a.to_string_lossy(),
+                    "pads": pa.len(),
+                    "graphics": a.graphics.len(),
+                },
+                "b": {
+                    "name": b.name,
+                    "path": path_b.to_string_lossy(),
+                    "pads": pb.len(),
+                    "graphics": b.graphics.len(),
+                },
+                "shared_pads": pa.iter().filter(|n| pb.contains(n)).count(),
+                "pads_only_in_a": only(&pa, &pb),
+                "pads_only_in_b": only(&pb, &pa),
+                "same_pad_count": pa.len() == pb.len(),
+            }))
+        }
+        _ => Err("kind must be symbol or footprint".into()),
+    }
+}
 pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     let text = |key: &str| {
         args.get(key)
@@ -312,6 +393,24 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
             }
             Ok(
                 json!({"definition":definition,"kind":"footprint","path":text("path")?,"source_truncated":truncated}),
+            )
+        }
+        "library.compare" => {
+            let optional = |key: &str| -> Result<String, String> {
+                match args.get(key) {
+                    None => Ok(String::new()),
+                    Some(v) => v
+                        .as_str()
+                        .map(str::to_string)
+                        .ok_or(format!("{key} must be a string")),
+                }
+            };
+            compare(
+                Path::new(text("path_a")?),
+                Path::new(text("path_b")?),
+                text("kind")?,
+                &optional("name_a")?,
+                &optional("name_b")?,
             )
         }
         _ => Err("unknown library query".into()),
