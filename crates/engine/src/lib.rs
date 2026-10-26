@@ -499,6 +499,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "track.set_layer",
+            "Move an existing track segment to the other copper layer without moving its ends",
+            schema(
+                json!({"id":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                &["id", "layer"],
+            ),
+        ),
+        (
             "via.set_size",
             "Change the pad and drill diameters of an existing via",
             schema(
@@ -749,7 +757,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, poured copper zones with cutouts, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers, poured copper zones with cutouts, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1289,6 +1297,12 @@ struct ChamferParams {
 struct TrackWidthParams {
     id: Id,
     width: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrackLayerParams {
+    id: Id,
+    layer: Layer,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4154,6 +4168,20 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .ok_or_else(missing)?;
             track.width = a.width;
             Ok(json!({"id":a.id,"width":a.width}))
+        }
+        "track.set_layer" => {
+            let a: TrackLayerParams = parse(params)?;
+            let track = p
+                .board
+                .tracks
+                .iter_mut()
+                .find(|t| t.id == a.id)
+                .ok_or_else(missing)?;
+            if track.layer == a.layer {
+                return Err(Error::Invalid("that track is already on the layer".into()));
+            }
+            track.layer = a.layer;
+            Ok(json!({"id":a.id,"layer":track.layer}))
         }
         "via.set_size" => {
             let a: ViaSizeParams = parse(params)?;
@@ -7927,7 +7955,74 @@ mod tests {
         assert_eq!(s.project.board.tracks[0].width, 0.3);
         s.undo()?;
         assert_eq!(s.project.board.tracks[0].width, 0.7);
-        assert_eq!(s.inspect()["project"], before["project"]);
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let near = s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":5.0,"y":5.1},"end":{"x":40.0,"y":5.1},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let touching = |s: &Session| -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| {
+                    (f["code"] == json!("copper_short") || f["code"] == json!("clearance"))
+                        && f["objects"]
+                            .as_array()
+                            .is_some_and(|o| o.contains(&json!(track)) && o.contains(&json!(near)))
+                })
+                .count()
+        };
+        assert_eq!(
+            touching(&s),
+            1,
+            "two nets overlapping on the same layer touch"
+        );
+        let moved = s.execute("track.set_layer", json!({"id":near,"layer":"B.Cu"}), None)?;
+        assert_eq!(moved["result"]["layer"], json!("B.Cu"));
+        assert_eq!(
+            s.project
+                .board
+                .tracks
+                .iter()
+                .find(|t| t.id == near)
+                .map(|t| t.layer),
+            Some(pcbcraft_doc::Layer::Back),
+            "the segment keeps its ends and only changes layer"
+        );
+        assert_eq!(
+            touching(&s),
+            0,
+            "copper on opposite layers no longer touches"
+        );
+        for params in [
+            json!({"id":near,"layer":"C.Cu"}),
+            json!({"id":near,"layer":"B.Cu"}),
+            json!({"id":near,"layer":null}),
+            json!({"id":near,"layer":"B.Cu","extra":1}),
+            json!({"id":999,"layer":"B.Cu"}),
+            json!({"id":near}),
+        ] {
+            assert!(s.execute("track.set_layer", params, None).is_err());
+        }
+        s.undo()?;
+        assert_eq!(
+            s.project
+                .board
+                .tracks
+                .iter()
+                .find(|t| t.id == near)
+                .map(|t| t.layer),
+            Some(pcbcraft_doc::Layer::Front),
+            "undo brings the segment back to the front"
+        );
+        assert_eq!(touching(&s), 1, "and the touch reappears");
         Ok(())
     }
     #[test]
