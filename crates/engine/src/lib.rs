@@ -292,6 +292,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "wire.move",
+            "Slide a drawn wire by a distance; junctions sitting on its vertices travel with it",
+            schema(
+                json!({"id":id_schema(),"delta":point_schema()}),
+                &["id", "delta"],
+            ),
+        ),
+        (
+            "wire.set_point",
+            "Drag one vertex of a drawn wire to a new position, bending or straightening it; refused if a junction would be left off the wire",
+            schema(
+                json!({"id":id_schema(),"index":{"type":"integer","minimum":0,"maximum":255},"position":point_schema()}),
+                &["id", "index", "position"],
+            ),
+        ),
+        (
             "graphic.add",
             "Add a free-standing schematic or board graphic: line, rect, circle, arc, polygon or text",
             schema(
@@ -850,7 +866,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1412,6 +1428,19 @@ struct AddPointParams {
 struct RemovePointParams {
     id: Id,
     index: u32,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireMoveParams {
+    id: Id,
+    delta: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WirePointParams {
+    id: Id,
+    index: u32,
+    position: Point,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2907,6 +2936,95 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             wire.points.remove(at);
             Ok(json!({"id": a.id}))
+        }
+        "wire.move" => {
+            let a: WireMoveParams = parse(params)?;
+            if !a.delta.valid() {
+                return Err(Error::Invalid("wire move is out of range".into()));
+            }
+            let wire = p
+                .drawn_wires
+                .iter()
+                .find(|w| w.id == a.id)
+                .ok_or_else(missing)?;
+            let moved: Vec<Point> = wire
+                .points
+                .iter()
+                .map(|point| Point::new(point.x + a.delta.x, point.y + a.delta.y))
+                .collect();
+            if !moved.iter().all(|point| point.valid()) {
+                return Err(Error::Invalid("wire vertex is out of range".into()));
+            }
+            if moved == wire.points {
+                return Err(Error::Invalid("wire move is a no-op".into()));
+            }
+            let old = wire.points.clone();
+            let net = wire.net;
+            let wire = p
+                .drawn_wires
+                .iter_mut()
+                .find(|w| w.id == a.id)
+                .ok_or_else(missing)?;
+            wire.points = moved;
+            for label in &mut p.labels {
+                if label.kind != "junction"
+                    || !net.is_some_and(|n| label.net == n)
+                    || !old.contains(&label.position)
+                {
+                    continue;
+                }
+                label.position =
+                    Point::new(label.position.x + a.delta.x, label.position.y + a.delta.y);
+            }
+            Ok(json!({"id": a.id}))
+        }
+        "wire.set_point" => {
+            let a: WirePointParams = parse(params)?;
+            if !a.position.valid() {
+                return Err(Error::Invalid("wire vertex is out of range".into()));
+            }
+            let wire = p
+                .drawn_wires
+                .iter()
+                .find(|w| w.id == a.id)
+                .ok_or_else(missing)?;
+            let at = usize::try_from(a.index).map_err(|_| missing())?;
+            if at >= wire.points.len() {
+                return Err(Error::Invalid("vertex index is out of range".into()));
+            }
+            let old = wire.points[at];
+            if old == a.position {
+                return Err(Error::Invalid("vertex is already there".into()));
+            }
+            if wire.points[..at].last().is_some_and(|p| *p == a.position)
+                || wire.points[at + 1..]
+                    .first()
+                    .is_some_and(|p| *p == a.position)
+            {
+                return Err(Error::Invalid(
+                    "the neighbouring vertex is already there; the segment would collapse".into(),
+                ));
+            }
+            let mut moved = wire.points.clone();
+            moved[at] = a.position;
+            for label in p
+                .labels
+                .iter()
+                .filter(|l| l.kind == "junction" && wire.net == Some(l.net))
+            {
+                if label.position == old && !moved.contains(&label.position) {
+                    return Err(Error::Invalid(
+                        "a junction sits on this vertex; move the junction first".into(),
+                    ));
+                }
+            }
+            let wire = p
+                .drawn_wires
+                .iter_mut()
+                .find(|w| w.id == a.id)
+                .ok_or_else(missing)?;
+            wire.points = moved;
+            Ok(json!({"id":a.id,"index":a.index,"position":a.position}))
         }
         "graphic.add" => {
             let a: GraphicParams = parse(params)?;
@@ -6137,6 +6255,91 @@ mod tests {
         assert_eq!(points(&s).len(), 2);
         s.undo()?;
         assert_eq!(points(&s).len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn drawn_wires_slide_and_bend_with_their_junctions() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"N1"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let wire = s.execute(
+            "wire.draw",
+            json!({"net":net,"points":[{"x":10.0,"y":10.0},{"x":20.0,"y":10.0},{"x":20.0,"y":20.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let junction = s.execute(
+            "label.place",
+            json!({"kind":"junction","net":net,"position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "wire.move",
+            json!({"id":wire,"delta":{"x":5.0,"y":-2.0}}),
+            None,
+        )?;
+        let points = s.project.drawn_wires[0].points.clone();
+        assert_eq!(points[0], Point::new(15.0, 8.0));
+        assert_eq!(points[2], Point::new(25.0, 18.0));
+        let junction_position = |s: &Session| -> Point {
+            s.project
+                .labels
+                .iter()
+                .find(|l| l.id == junction)
+                .map(|l| l.position)
+                .unwrap_or(Point::new(-1.0, -1.0))
+        };
+        assert_eq!(junction_position(&s), Point::new(25.0, 8.0));
+        s.undo()?;
+        let points = s.project.drawn_wires[0].points.clone();
+        assert_eq!(points[0], Point::new(10.0, 10.0));
+        assert_eq!(junction_position(&s), Point::new(20.0, 10.0));
+        s.execute(
+            "wire.set_point",
+            json!({"id":wire,"index":0,"position":{"x":10.0,"y":15.0}}),
+            None,
+        )?;
+        let points = s.project.drawn_wires[0].points.clone();
+        assert_eq!(points[0], Point::new(10.0, 15.0));
+        assert_eq!(
+            junction_position(&s),
+            Point::new(20.0, 10.0),
+            "the junction stays where it is when its vertex does not move"
+        );
+        let before = s.inspect()["project"].clone();
+        for params in [
+            json!({"id":wire,"delta":{"x":0.0,"y":0.0}}),
+            json!({"id":wire,"delta":{"x":900000.0,"y":0.0}}),
+            json!({"id":9999,"delta":{"x":1.0,"y":0.0}}),
+            json!({"id":wire,"delta":{"x":1.0,"y":0.0},"extra":1}),
+            json!({"id":wire,"delta":{"x":f64::NAN,"y":0.0}}),
+        ] {
+            assert!(s.execute("wire.move", params.clone(), None).is_err());
+        }
+        for params in [
+            json!({"id":wire,"index":3,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":wire,"index":1,"position":{"x":20.0,"y":10.0}}),
+            json!({"id":wire,"index":1,"position":{"x":10.0,"y":10.0}}),
+            json!({"id":wire,"index":1,"position":{"x":1e6,"y":0.0}}),
+            json!({"id":wire,"index":0,"position":{"x":10.0,"y":15.0}}),
+            json!({"id":9999,"index":0,"position":{"x":1.0,"y":1.0}}),
+        ] {
+            assert!(s.execute("wire.set_point", params.clone(), None).is_err());
+        }
+        assert!(
+            s.execute(
+                "wire.set_point",
+                json!({"id":wire,"index":1,"position":{"x":15.0,"y":5.0}}),
+                None,
+            )
+            .is_err(),
+            "the junction would be left off the wire"
+        );
+        assert_eq!(s.inspect()["project"], before, "rejections change nothing");
         Ok(())
     }
     #[test]
