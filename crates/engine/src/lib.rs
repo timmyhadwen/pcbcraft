@@ -268,6 +268,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "object.duplicate",
+            "Duplicate components at an offset, each with a fresh reference and ids, bringing its footprint when one exists",
+            schema(
+                json!({"ids":{"type":"array","minItems":1,"maxItems":64,"items":id_schema()},"offset":point_schema()}),
+                &["ids", "offset"],
+            ),
+        ),
+        (
             "object.delete",
             "Delete a component, wire, track, via, zone, footprint, cutout or unused net by stable ID",
             schema(json!({"id":id_schema()}), &["id"]),
@@ -682,6 +690,31 @@ struct StitchParams {
     drill: f64,
     #[serde(default = "default_stitch_spacing")]
     spacing: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DuplicateParams {
+    ids: Vec<Id>,
+    offset: Point,
+}
+/// A reference label that no component in the project already carries.
+fn unique_reference(p: &Project, base: &str) -> String {
+    let base: String = base.chars().take(50).collect();
+    let mut n = 2;
+    loop {
+        let candidate = if n == 2 {
+            format!("{base} copy")
+        } else {
+            format!("{base} copy {n}")
+        };
+        if !p.components.iter().any(|c| c.reference == candidate) {
+            return candidate;
+        }
+        n += 1;
+        if n > 4096 {
+            return format!("{base} {}", p.components.len() + 1);
+        }
+    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1559,6 +1592,64 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             Ok(json!({"aligned": seen.len(), "mode": mode}))
         }
+        "object.duplicate" => {
+            let a: DuplicateParams = parse(params)?;
+            if a.ids.is_empty() || a.ids.len() > 64 {
+                return Err(Error::Invalid("duplicate accepts 1–64 items".into()));
+            }
+            let mut seen: Vec<Id> = vec![];
+            let mut clones: Vec<(Component, Option<Footprint>)> = vec![];
+            for id in &a.ids {
+                if seen.contains(id) {
+                    continue;
+                }
+                seen.push(*id);
+                let mut c = p.component(*id).ok_or_else(missing)?.clone();
+                c.position = Point::new(c.position.x + a.offset.x, c.position.y + a.offset.y);
+                if !c.position.valid() {
+                    return Err(Error::Invalid("duplicate position is out of range".into()));
+                }
+                for unit in &mut c.units {
+                    unit.position =
+                        Point::new(unit.position.x + a.offset.x, unit.position.y + a.offset.y);
+                    if !unit.position.valid() {
+                        return Err(Error::Invalid("duplicate position is out of range".into()));
+                    }
+                }
+                let footprint = p
+                    .board
+                    .footprints
+                    .iter()
+                    .find(|f| f.component == *id)
+                    .cloned()
+                    .map(|mut f| {
+                        f.position =
+                            Point::new(f.position.x + a.offset.x, f.position.y + a.offset.y);
+                        f
+                    });
+                if footprint.as_ref().is_some_and(|f| !f.position.valid()) {
+                    return Err(Error::Invalid("duplicate position is out of range".into()));
+                }
+                clones.push((c, footprint));
+            }
+            let mut duplicates = vec![];
+            for (mut c, footprint) in clones {
+                c.id = allocate(next)?;
+                c.reference = unique_reference(p, &c.reference);
+                let component = c.id;
+                let mut entry = serde_json::Map::new();
+                entry.insert("component".into(), json!(component));
+                p.components.push(c);
+                if let Some(mut f) = footprint {
+                    f.id = allocate(next)?;
+                    f.component = component;
+                    entry.insert("footprint".into(), json!(f.id));
+                    p.board.footprints.push(f);
+                }
+                duplicates.push(Value::Object(entry));
+            }
+            Ok(json!({"count": duplicates.len(), "duplicates": duplicates}))
+        }
         "object.delete" => {
             let a: Object = parse(params)?;
             if !p.ids().any(|id| id == a.id) {
@@ -1996,6 +2087,81 @@ mod tests {
         s.undo()?;
         assert_eq!(s.project.drawn_wires.len(), 1);
         assert_eq!(s.project.drawn_wires[0].points.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn duplicating_components_renews_references_and_brings_footprints() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "component.add",
+            json!({"kind":"capacitor","position":{"x":30.0,"y":10.0},"reference":"C1"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let out = s.execute(
+            "object.duplicate",
+            json!({"ids":[r1],"offset":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        let new_id = out["result"]["duplicates"][0]["component"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let new_fp = out["result"]["duplicates"][0]["footprint"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.components.len(), 3);
+        let dup = s.project.component(new_id).ok_or_else(missing)?.clone();
+        assert_eq!(dup.reference, "R1 copy");
+        assert_eq!(dup.position, Point::new(15.0, 15.0));
+        assert_eq!(dup.kind, "resistor");
+        let fp = s.project.footprint(new_fp).ok_or_else(missing)?.clone();
+        assert_eq!(fp.component, new_id);
+        let original = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == r1)
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            fp.position,
+            Point::new(original.position.x + 5.0, original.position.y + 5.0)
+        );
+        assert_eq!(fp.pads, original.pads);
+        assert!(s.project.validate().is_ok());
+        s.execute(
+            "object.duplicate",
+            json!({"ids":[r1],"offset":{"x":0.0,"y":10.0}}),
+            None,
+        )?;
+        let references: Vec<String> = s
+            .project
+            .components
+            .iter()
+            .map(|c| c.reference.clone())
+            .collect();
+        assert_eq!(references, vec!["R1", "C1", "R1 copy", "R1 copy 3"]);
+        for params in [
+            json!({"ids":[9999],"offset":{"x":1.0,"y":1.0}}),
+            json!({"ids":[],"offset":{"x":1.0,"y":1.0}}),
+            json!({"ids":[r1],"offset":{"x":1e6,"y":0.0}}),
+            json!({"ids":[r1],"offset":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("object.duplicate", params, None).is_err());
+        }
+        assert_eq!(s.project.components.len(), 4);
+        assert_eq!(s.project.board.footprints.len(), 4);
+        s.undo()?;
+        assert_eq!(s.project.components.len(), 3);
+        assert_eq!(s.project.board.footprints.len(), 3);
         Ok(())
     }
     #[test]
