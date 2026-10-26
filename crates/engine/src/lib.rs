@@ -441,6 +441,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "zone.set_fill",
+            "Pour a zone's copper back in, or take it out to a bare outline that carries no copper and reports no findings",
+            schema(
+                json!({"id":id_schema(),"filled":{"type":"boolean","description":"true pours the copper, false leaves only the outline"}}),
+                &["id", "filled"],
+            ),
+        ),
+        (
             "zone.cutout",
             "Add a closed cutout outline that removes copper from an existing zone",
             schema(
@@ -821,7 +829,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1445,6 +1453,12 @@ struct ZoneRemoveParams {
     #[serde(default)]
     cutout: Option<usize>,
     index: usize,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZoneFillParams {
+    id: Id,
+    filled: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3294,6 +3308,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 layer: a.layer,
                 outline: a.outline,
                 cutouts: vec![],
+                filled: true,
             });
             Ok(json!({"id":id}))
         }
@@ -3433,6 +3448,24 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             outline[last] = outline[0];
             validate_closed_outline(outline).map_err(Error::Invalid)?;
             Ok(json!({"id":a.id,"cutout":a.cutout,"index":a.index}))
+        }
+        "zone.set_fill" => {
+            let a: ZoneFillParams = parse(params)?;
+            let zone = p
+                .board
+                .zones
+                .iter_mut()
+                .find(|z| z.id == a.id)
+                .ok_or_else(missing)?;
+            if zone.filled == a.filled {
+                return Err(Error::Invalid(if a.filled {
+                    "that zone is already filled".into()
+                } else {
+                    "that zone is already an outline only".into()
+                }));
+            }
+            zone.filled = a.filled;
+            Ok(json!({"id": a.id, "filled": a.filled}))
         }
         "zone.cutout" => {
             let a: ZoneCutoutParams = parse(params)?;
@@ -9124,6 +9157,74 @@ mod tests {
             6,
             "undo brings the removed corner back"
         );
+        Ok(())
+    }
+    #[test]
+    fn zone_copper_can_be_taken_out_and_poured_back_in() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":a,"outline":[{"x":10.0,"y":10.0},{"x":30.0,"y":10.0},{"x":30.0,"y":30.0},{"x":10.0,"y":30.0},{"x":10.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let track = s.execute(
+            "track.add",
+            json!({"net":b,"start":{"x":10.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let pairs = |s: &Session| -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| {
+                    f["objects"]
+                        .as_array()
+                        .is_some_and(|o| o.contains(&json!(zone)) && o.contains(&json!(track)))
+                })
+                .count()
+        };
+        assert!(pairs(&s) >= 1, "the track rides the filled zone edge");
+        s.execute("zone.set_fill", json!({"id":zone,"filled":false}), None)?;
+        assert_eq!(pairs(&s), 0, "an unfilled zone carries no copper");
+        assert!(!s.project.board.zones[0].filled);
+        s.execute("zone.set_fill", json!({"id":zone,"filled":true}), None)?;
+        assert!(pairs(&s) >= 1, "pouring it back restores the finding");
+        s.execute("zone.set_fill", json!({"id":zone,"filled":false}), None)?;
+        let before = s.inspect();
+        for params in [
+            json!({"id":zone,"filled":false}),
+            json!({"id":zone,"filled":true,"extra":1}),
+            json!({"id":zone}),
+            json!({"id":zone,"filled":"yes"}),
+            json!({"id":zone,"filled":null}),
+            json!({"id":9999,"filled":true}),
+        ] {
+            assert!(
+                s.execute("zone.set_fill", params.clone(), None).is_err(),
+                "{params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.execute("zone.set_fill", json!({"id":zone,"filled":true}), None)?;
+        assert!(pairs(&s) >= 1);
+        s.undo()?;
+        assert!(
+            !s.project.board.zones[0].filled,
+            "undo takes the copper out again"
+        );
+        assert_eq!(pairs(&s), 0, "and the finding falls silent");
         Ok(())
     }
     #[test]

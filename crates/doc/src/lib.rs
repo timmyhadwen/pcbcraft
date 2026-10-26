@@ -22,6 +22,9 @@ pub struct Pin {
 fn first_unit() -> u32 {
     1
 }
+fn poured() -> bool {
+    true
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct SymbolUnitPlacement {
     pub unit: u32,
@@ -566,6 +569,11 @@ pub struct CopperZone {
     /// board, inside a cutout never conducts through the zone.
     #[serde(default)]
     pub cutouts: Vec<Vec<Point>>,
+    /// Whether the zone is poured. An unfilled zone is drawn as a bare
+    /// outline and carries no copper: it neither conducts to net copper
+    /// inside it nor demands clearance from it until it is filled again.
+    #[serde(default = "poured")]
+    pub filled: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Cutout {

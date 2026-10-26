@@ -955,11 +955,13 @@ impl App {
             } else {
                 Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(0.3)
             };
-            painter.add(egui::Shape::convex_polygon(
-                screen.clone(),
-                fill,
-                Stroke::NONE,
-            ));
+            if z.filled || self.selected == Some(z.id) {
+                painter.add(egui::Shape::convex_polygon(
+                    screen.clone(),
+                    fill,
+                    Stroke::NONE,
+                ));
+            }
             painter.add(egui::Shape::closed_line(
                 screen.clone(),
                 Stroke::new(1.0, Color32::from_rgb(rgb[0], rgb[1], rgb[2])),

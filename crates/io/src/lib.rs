@@ -337,8 +337,10 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                 .map(|pt| format!("{} {}", pt.x, pt.y))
                 .collect();
             s.push_str(&format!(
-                "<polygon points=\"{}\" fill=\"{color}\" fill-opacity=\"0.3\" stroke=\"{color}\" stroke-width=\"0.1\"/>",
-                points.join(" ")
+                "<polygon points=\"{}\" fill=\"{color}\" fill-opacity=\"{}\" stroke=\"{color}\" stroke-width=\"0.1\"{} />",
+                points.join(" "),
+                if z.filled { "0.3" } else { "0" },
+                if z.filled { "" } else { " stroke-dasharray=\"0.6 0.4\"" },
             ));
             for cut in &z.cutouts {
                 let cut_points: Vec<String> =
@@ -574,7 +576,13 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
                 [116, 167, 236]
             };
             let points: Vec<Point> = z.outline.iter().map(|pt| to_pixel(*pt)).collect();
-            fill_polygon(&mut image, &points, color);
+            if z.filled {
+                fill_polygon(&mut image, &points, color);
+            } else {
+                for w in points.windows(2) {
+                    line(&mut image, w[0], w[1], 0.6, color);
+                }
+            }
             for cut in &z.cutouts {
                 let points: Vec<Point> = cut.iter().map(|pt| to_pixel(*pt)).collect();
                 fill_polygon(&mut image, &points, [25, 58, 54]);
@@ -1273,6 +1281,7 @@ mod tests {
                 Point::new(30.0, 20.0),
                 Point::new(30.0, 15.0),
             ]],
+            filled: true,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;

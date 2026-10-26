@@ -158,6 +158,9 @@ fn copper(project: &Project) -> Vec<Copper> {
         result.push(item);
     }
     for z in &project.board.zones {
+        if !z.filled {
+            continue;
+        }
         let Some(&first) = z.outline.first() else {
             continue;
         };
@@ -785,6 +788,7 @@ mod tests {
             layer: Layer::Front,
             outline: square,
             cutouts: vec![],
+            filled: true,
         });
         p.board.tracks.push(Track {
             id: 5,

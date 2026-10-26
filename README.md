@@ -72,7 +72,10 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   every cutout together, a poured zone can be switched to the other copper
   layer without moving a single vertex, any single corner of a zone or of
   one of its cutouts can be retargeted by index while the outline stays
-  closed, and corners can be inserted or removed one at a time.
+  closed, and corners can be inserted or removed one at a time. A zone can
+  also be taken out of the copper: an unfilled zone renders as a bare dashed
+  outline, conducts to nothing and demands nothing, and pouring it back in
+  brings its findings straight with it.
 - Connectivity stays editable: pins can be taken back out of a net, which clears
   the matching placed pads too, and a placed track, via or copper zone can be
   switched to another net without deleting and redrawing it.
@@ -111,9 +114,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 93 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 94 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 112 MCP tools: every engine command plus library discovery/search/inspection,
+- 113 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
