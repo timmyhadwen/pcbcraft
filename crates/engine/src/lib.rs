@@ -120,6 +120,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "dimension.add",
+            "Draw a linear dimension between two points: witness lines, the dimension line offset to one side, and the measured distance in millimetres as text; the pieces are grouped so the whole annotation moves as one unit",
+            schema(
+                json!({"start":point_schema(),"end":point_schema(),"layer":{"type":"string","enum":["schematic","board"]},"offset":{"type":"number","minimum":-100,"maximum":100}}),
+                &["start", "end", "layer"],
+            ),
+        ),
+        (
             "footprint.assign",
             "Assign a KiCad front SMD or plated through-hole footprint with matching physical pins",
             schema(
@@ -1127,7 +1135,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -2176,6 +2184,15 @@ struct GraphicGroupIdParams {
 struct GraphicTranslateParams {
     id: Id,
     delta: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DimensionParams {
+    start: Point,
+    end: Point,
+    layer: String,
+    #[serde(default)]
+    offset: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4009,6 +4026,83 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
             }
             Ok(json!({"id": a.id, "moved": members.len()}))
+        }
+        "dimension.add" => {
+            let a: DimensionParams = parse(params)?;
+            if a.layer != "schematic" && a.layer != "board" {
+                return Err(Error::Invalid(
+                    "dimension layer must be schematic or board".into(),
+                ));
+            }
+            if !a.start.valid() || !a.end.valid() || a.start == a.end {
+                return Err(Error::Invalid(
+                    "dimension ends must be distinct points in range".into(),
+                ));
+            }
+            let offset = a.offset.unwrap_or(2.0);
+            if !offset.is_finite() || offset.abs() > 100.0 {
+                return Err(Error::Invalid(
+                    "dimension offset must be within 100mm".into(),
+                ));
+            }
+            if p.graphics.len() + 6 > 4096 || p.graphic_groups.len() >= 256 {
+                return Err(Error::Invalid(
+                    "the drawing has no room for another dimension".into(),
+                ));
+            }
+            let dx = a.end.x - a.start.x;
+            let dy = a.end.y - a.start.y;
+            let distance = dx.hypot(dy);
+            let (ux, uy) = (dx / distance, dy / distance);
+            let (nx, ny) = (-uy, ux);
+            let witness =
+                |p: Point, reach: f64| vec![p, Point::new(p.x + nx * reach, p.y + ny * reach)];
+            let line_at = |p: Point| Point::new(p.x + nx * offset, p.y + ny * offset);
+            let reach = offset + 0.5;
+            let pieces: [(&str, Vec<Point>, f64, String); 4] = [
+                ("line", witness(a.start, reach), 0.15, String::new()),
+                ("line", witness(a.end, reach), 0.15, String::new()),
+                (
+                    "line",
+                    vec![line_at(a.start), line_at(a.end)],
+                    0.15,
+                    String::new(),
+                ),
+                (
+                    "text",
+                    vec![Point::new(
+                        (a.start.x + a.end.x) / 2.0 + nx * (offset + 0.8),
+                        (a.start.y + a.end.y) / 2.0 + ny * (offset + 0.8),
+                    )],
+                    2.5,
+                    format!("{distance:.2}"),
+                ),
+            ];
+            let mut ids = Vec::new();
+            for (shape, points, width, text) in pieces {
+                if !points.iter().all(|point| point.valid()) {
+                    return Err(Error::Invalid("dimension vertex is out of range".into()));
+                }
+                let id = allocate(next)?;
+                p.graphics.push(pcbcraft_doc::Graphic {
+                    id,
+                    layer: a.layer.clone(),
+                    shape: shape.into(),
+                    points,
+                    width,
+                    text,
+                });
+                ids.push(id);
+            }
+            let group = allocate(next)?;
+            p.graphic_groups.push(pcbcraft_doc::GraphicGroup {
+                id: group,
+                graphics: ids,
+            });
+            Ok(json!({
+                "id": group,
+                "distance": (distance * 100.0).round() / 100.0,
+            }))
         }
         "graphic.rotate" => {
             let a: GraphicRotateParams = parse(params)?;
@@ -9703,6 +9797,82 @@ mod tests {
             s.inspect()["project"]["meta"].get("company").is_none(),
             "recording undoes"
         );
+        Ok(())
+    }
+    #[test]
+    fn dimensions_measure_group_and_undo_in_one_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let out = s.execute(
+            "dimension.add",
+            json!({"start":[0.0,0.0],"end":[30.0,0.0],"layer":"schematic"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["distance"], 30.0, "the distance is reported");
+        let gid = out["id"].as_u64().ok_or_else(missing)?;
+        let groups = s.inspect()["project"]["graphic_groups"].clone();
+        let group = groups
+            .as_array()
+            .and_then(|g| g.iter().find(|g| g["id"] == gid))
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            group["graphics"].as_array().ok_or_else(missing)?.len(),
+            4,
+            "witness lines, dimension line and text are grouped"
+        );
+        let graphics = s.inspect()["project"]["graphics"].clone();
+        let rows = graphics.as_array().ok_or_else(missing)?;
+        let measured = rows
+            .iter()
+            .find(|g| g["shape"] == "text")
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(measured["text"], "30.00", "the text states the span");
+        s.execute(
+            "graphic.translate",
+            json!({"id":gid,"delta":[0.0,10.0]}),
+            None,
+        )?;
+        let moved = s.inspect()["project"]["graphics"].clone();
+        let moved_rows = moved.as_array().ok_or_else(missing)?;
+        let first = moved_rows
+            .iter()
+            .find(|g| g["shape"] == "text")
+            .cloned()
+            .ok_or_else(missing)?;
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(
+            near(first["points"][0]["y"].as_f64().unwrap_or(0.0), 12.8),
+            "the whole dimension shifts together"
+        );
+        s.undo()?;
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["graphics"]
+                .as_array()
+                .is_some_and(|r| r.is_empty())
+                && s.inspect()["project"].get("graphic_groups").is_none(),
+            "the dimension undoes as one step"
+        );
+        let out = s.execute(
+            "dimension.add",
+            json!({"start":[0.0,0.0],"end":[3.0,4.0],"layer":"board","offset":-3.0}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["distance"], 5.0, "diagonal spans measure exactly");
+        for bad in [
+            json!({"start":[0.0,0.0],"end":[0.0,0.0],"layer":"schematic"}),
+            json!({"start":[0.0,0.0],"end":[1.0,0.0],"layer":"paste"}),
+            json!({"start":[0.0,0.0],"end":[1.0,0.0],"layer":"schematic","offset":200.0}),
+            json!({"start":[0.0,0.0],"end":[1.0,0.0],"layer":"schematic","nope":1}),
+        ] {
+            assert!(
+                s.execute("dimension.add", bad, None).is_err(),
+                "bad dimension requests are refused"
+            );
+        }
         Ok(())
     }
     #[test]
