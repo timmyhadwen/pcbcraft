@@ -777,6 +777,19 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({}), &[]),
         ),
         (
+            "board.set_outline",
+            "Trace a free-form closed board outline of 3 to 64 distinct vertices; the rectangular width and height follow the outline's bounding box, and fabrication layers cut the board to the traced shape",
+            schema(
+                json!({"points":{"type":"array","items":point_schema(),"minItems":3,"maxItems":64}}),
+                &["points"],
+            ),
+        ),
+        (
+            "board.clear_outline",
+            "Drop the traced board outline and return to the plain rectangular board",
+            schema(json!({}), &[]),
+        ),
+        (
             "board.set_layer_record",
             "Record or replace one board layer note: its name, role (copper, core, prepreg, soldermask, silkscreen, paste or custom) and thickness in millimetres; at most 32 notes per board",
             schema(
@@ -1135,10 +1148,10 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -1779,6 +1792,11 @@ struct NetImpedanceParams {
 #[serde(deny_unknown_fields)]
 struct DrillOriginParams {
     position: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutlineParams {
+    points: Vec<Point>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5329,7 +5347,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 "cutouts": p.board.cutouts.len(),
                 "texts": p.board.texts.len(),
                 "drilled_holes": holes,
-                "board_area": p.board.width * p.board.height,
+                "board_area": p.board.outline.as_ref().map_or_else(
+                    || p.board.width * p.board.height,
+                    |o| pcbcraft_doc::outline_area(o),
+                ),
                 "finish": p.board.finish
             }))
         }
@@ -5380,6 +5401,63 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             p.board.drill_origin = pcbcraft_geom::Point::default();
             Ok(json!({"drill_origin": p.board.drill_origin}))
+        }
+        "board.set_outline" => {
+            let a: OutlineParams = parse(params)?;
+            if a.points.len() < 3 || a.points.len() > 64 {
+                return Err(Error::Invalid("an outline needs 3 to 64 vertices".into()));
+            }
+            let distinct: std::collections::BTreeSet<(u64, u64)> = a
+                .points
+                .iter()
+                .map(|p| (p.x.to_bits(), p.y.to_bits()))
+                .collect();
+            if distinct.len() != a.points.len() {
+                return Err(Error::Invalid("outline vertices must be distinct".into()));
+            }
+            if !a
+                .points
+                .iter()
+                .all(|p| p.valid() && p.x >= 0.0 && p.y >= 0.0)
+            {
+                return Err(Error::Invalid(
+                    "outline vertices must be in range and inside the first quadrant".into(),
+                ));
+            }
+            if pcbcraft_doc::outline_area(&a.points) < 0.01 {
+                return Err(Error::Invalid("the traced outline has no area".into()));
+            }
+            let min_x = a.points.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
+            let min_y = a.points.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
+            let max_x = a.points.iter().map(|p| p.x).fold(0.0, f64::max);
+            let max_y = a.points.iter().map(|p| p.y).fold(0.0, f64::max);
+            let shifted: Vec<Point> = a
+                .points
+                .iter()
+                .map(|p| Point::new(p.x - min_x, p.y - min_y))
+                .collect();
+            let area = (pcbcraft_doc::outline_area(&shifted) * 100.0).round() / 100.0;
+            let vertices = shifted.len();
+            p.board.outline = Some(shifted);
+            p.board.width = max_x - min_x;
+            p.board.height = max_y - min_y;
+            Ok(json!({
+                "vertices": vertices,
+                "width": p.board.width,
+                "height": p.board.height,
+                "area": area,
+            }))
+        }
+        "board.clear_outline" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "board.clear_outline takes an empty object".into(),
+                ));
+            }
+            if p.board.outline.take().is_none() {
+                return Err(missing());
+            }
+            Ok(json!({"width": p.board.width, "height": p.board.height}))
         }
         "board.set_layer_record" => {
             let a: LayerRecordParams = parse(params)?;
@@ -9876,112 +9954,80 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn graphic_groups_translate_together_and_refuse_bad_requests() -> Result<(), Error> {
+    fn board_outline_reshapes_the_board_and_its_edge_checks() -> Result<(), Error> {
         let mut s = Session::default();
-        for points in [
-            json!([[0.0, 0.0], [10.0, 0.0]]),
-            json!([[0.0, 5.0], [10.0, 5.0]]),
-            json!([[0.0, 20.0], [10.0, 20.0]]),
-        ] {
-            s.execute(
-                "graphic.add",
-                json!({"layer":"schematic","shape":"line","points":points,"width":0.2}),
-                None,
-            )?;
-        }
-        let grouped = s.execute("graphic.group", json!({"graphics":[1,2]}), None)?;
-        let gid = grouped["result"]["id"].as_u64().ok_or_else(missing)?;
-        assert_eq!(grouped["result"]["count"], 2, "both graphics joined");
+        let r = s.execute(
+            "board.set_outline",
+            json!({"points":[[0.0,0.0],[60.0,0.0],[60.0,40.0],[30.0,40.0],[30.0,20.0],[0.0,20.0]]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(r["vertices"], 6);
+        assert_eq!(r["area"], 1800.0);
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
         assert_eq!(
-            s.inspect()["project"]["graphic_groups"]
-                .as_array()
-                .ok_or_else(missing)?
-                .len(),
-            1,
-            "the group is stored"
+            stats["board_area"], 1800.0,
+            "statistics count the traced shape, not the bounding box"
         );
-        let moved = s.execute(
-            "graphic.translate",
-            json!({"id":gid,"delta":[5.0,5.0]}),
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":a,"start":{"x":5.0,"y":30.0},"end":{"x":10.0,"y":30.0},"width":0.2}),
             None,
         )?;
-        assert_eq!(moved["result"]["moved"], 2, "both graphics moved");
-        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
-        let first_x = |s: &Session, id: u64| -> Result<f64, Error> {
-            let graphics = s.inspect()["project"]["graphics"].clone();
-            let row = graphics
+        assert!(
+            s.checks()["drc"]
                 .as_array()
-                .and_then(|rows| rows.iter().find(|g| g["id"] == id))
-                .cloned()
-                .ok_or_else(missing)?;
-            row["points"][0]["x"].as_f64().ok_or_else(missing)
-        };
-        assert!(
-            near(first_x(&s, 1)?, 5.0) && near(first_x(&s, 2)?, 5.0),
-            "grouped graphics shifted together"
+                .ok_or_else(missing)?
+                .iter()
+                .any(|f| f["code"] == "board_edge"),
+            "copper in the cut-away corner sits outside the traced outline"
         );
-        assert!(near(first_x(&s, 3)?, 0.0), "outside graphics stay put");
         s.undo()?;
+        s.execute(
+            "track.add",
+            json!({"net":a,"start":{"x":40.0,"y":30.0},"end":{"x":50.0,"y":30.0},"width":0.2}),
+            None,
+        )?;
         assert!(
-            near(first_x(&s, 1)?, 0.0),
-            "the whole group move undoes as one step"
+            s.checks()["drc"].as_array().ok_or_else(missing)?.is_empty(),
+            "the same copper inside the traced outline is clean"
         );
+        s.undo()?;
         for bad in [
-            json!({"graphics":[2,3]}),
-            json!({"graphics":[1,99]}),
-            json!({"graphics":[1]}),
-            json!({"graphics":[1,1]}),
-            json!({"graphics":[1,2],"nope":1}),
+            json!({"points":[[0.0,0.0],[10.0,0.0]]}),
+            json!({"points":[[0.0,0.0],[10.0,0.0],[10.0,0.0]]}),
+            json!({"points":[[1.0,1.0],[2.0,1.0],[1.5,1.0]]}),
+            json!({"points":[[-1.0,0.0],[10.0,0.0],[10.0,10.0]]}),
         ] {
             assert!(
-                s.execute("graphic.group", bad, None).is_err(),
-                "bad group requests are refused"
+                s.execute("board.set_outline", bad, None).is_err(),
+                "degenerate outlines are refused"
             );
         }
-        s.execute("graphic.ungroup", json!({"id":gid}), None)?;
-        assert!(
-            s.inspect()["project"].get("graphic_groups").is_none()
-                || s.inspect()["project"]["graphic_groups"]
-                    .as_array()
-                    .is_some_and(|g| g.is_empty()),
-            "the group is gone"
-        );
-        assert!(
-            s.execute(
-                "graphic.translate",
-                json!({"id":gid,"delta":[1.0,0.0]}),
-                None
-            )
-            .is_err(),
-            "translating a dissolved group is refused"
-        );
-        assert!(
-            s.execute("graphic.ungroup", json!({"id":gid}), None)
-                .is_err(),
-            "dissolving twice is refused"
-        );
+        s.execute(
+            "board.set_outline",
+            json!({"points":[[10.0,10.0],[30.0,10.0],[30.0,30.0]]}),
+            None,
+        )?;
+        s.execute("board.clear_outline", json!({}), None)?;
         s.undo()?;
         assert_eq!(
-            s.inspect()["project"]["graphic_groups"]
-                .as_array()
-                .ok_or_else(missing)?
-                .len(),
-            1,
-            "dissolving undoes"
+            s.project.board.outline.as_ref().map_or(0, |o| o.len()),
+            3,
+            "one undo restores the traced outline"
         );
-        s.execute("object.delete", json!({"id":1}), None)?;
-        assert!(
-            s.inspect()["project"].get("graphic_groups").is_none(),
-            "deleting a grouped graphic dissolves the leftover group"
-        );
-        s.undo()?;
+        s.execute("board.clear_outline", json!({}), None)?;
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
         assert_eq!(
-            s.inspect()["project"]["graphic_groups"]
-                .as_array()
-                .ok_or_else(missing)?
-                .len(),
-            1,
-            "the deletion and its group pruning undo together"
+            stats["board_area"], 400.0,
+            "the rectangle keeps the outline's bounding box size"
+        );
+        assert!(
+            s.execute("board.clear_outline", json!({}), None).is_err(),
+            "clearing twice is a missing outline"
         );
         Ok(())
     }

@@ -111,8 +111,10 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   clearance and width-bound findings follow immediately. Any placed board
   object (track, via, footprint, zone with its cutouts, circular cutout or
   text label) can also be slid by a plain dx/dy distance in one call.
-- Editable rectangular board width/height and dimensioned circular cutouts,
-  exported as Edge.Cuts. Cutouts can be nudged and resized afterwards as long as
+- Editable rectangular board width/height, or a free-form closed outline traced
+  from 3 to 64 vertices with the rectangle sized to its bounding box, and
+  dimensioned circular cutouts, exported as Edge.Cuts. Cutouts can be nudged and
+  resized afterwards as long as
   they stay inside the outline, and the copper-to-cutout checks follow.
   Constrained/parametric outline sketches are planned.
 - Free text labels on either copper side with a glyph height in millimetres,
@@ -216,9 +218,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 136 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 138 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 161 MCP tools: every engine command plus library discovery/search/inspection,
+- 163 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

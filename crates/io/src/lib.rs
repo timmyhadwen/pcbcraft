@@ -231,7 +231,18 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
             uuid(t.id, 1)
         ));
     }
-    s.push_str(&format!(" (gr_rect (start 0 0) (end {} {}) (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\"))\n",b.width,b.height));
+    match &b.outline {
+        Some(o) => {
+            s.push_str(" (gr_poly (pts");
+            for pt in o {
+                s.push_str(&format!(" (start {} {})", pt.x, pt.y));
+            }
+            s.push_str(
+                ") (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\"))\n",
+            );
+        }
+        None => s.push_str(&format!(" (gr_rect (start 0 0) (end {} {}) (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\"))\n",b.width,b.height)),
+    }
     for c in &b.cutouts {
         s.push_str(&format!(" (gr_circle (center {} {}) (end {} {}) (stroke (width 0.05) (type solid)) (fill none) (layer \"Edge.Cuts\") (uuid {}))\n",c.center.x,c.center.y,c.center.x+c.radius,c.center.y,uuid(c.id,1)));
     }
@@ -306,6 +317,20 @@ fn preview_bounds(p: &Project, view: &str) -> (Point, Point) {
     }
     (min, max)
 }
+/// Edge.Cuts corner or vertex list for fabrication output: the traced
+/// outline when the board has one, the plain rectangle otherwise.
+fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
+    match &p.board.outline {
+        Some(o) => o.iter().map(|pt| (pt.x, pt.y)).collect(),
+        None => vec![
+            (0.0, 0.0),
+            (p.board.width, 0.0),
+            (p.board.width, p.board.height),
+            (0.0, p.board.height),
+        ],
+    }
+}
+
 /// RS-274X copper/outline layers plus an Excellon drill file, as filename to
 /// text. Copper layers carry zones, tracks, via and pad copper; the outline
 /// layer carries the board edge and circular cutouts; the drill file carries
@@ -523,16 +548,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     }
     let mut outline = LayerFile::new();
     let edge_code = outline.code(Ap::Circle(100))?;
-    outline.stroke(
-        edge_code,
-        &[
-            (0.0, 0.0),
-            (p.board.width, 0.0),
-            (p.board.width, p.board.height),
-            (0.0, p.board.height),
-        ],
-        true,
-    )?;
+    outline.stroke(edge_code, &board_edge_points(p), true)?;
     for c in &p.board.cutouts {
         outline.ops += 1;
         if outline.ops > MAX_OPS {
@@ -926,12 +942,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         max_x: 0.0,
         max_y: 0.0,
     };
-    let corners = [
-        (0.0, 0.0),
-        (p.board.width, 0.0),
-        (p.board.width, p.board.height),
-        (0.0, p.board.height),
-    ];
+    let corners = board_edge_points(p);
     w.polyline("Edge", &corners, true)?;
     for c in &p.board.cutouts {
         w.circle("Edge", c.center.x, c.center.y, c.radius)?;
@@ -1081,7 +1092,16 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
         min.y - 8.0
     );
     if view == "pcb" {
-        s.push_str(&format!("<rect width=\"{}\" height=\"{}\" rx=\"0.4\" fill=\"#193a36\" stroke=\"#5ae0bc\" stroke-width=\"0.15\"/>",p.board.width,p.board.height));
+        match &p.board.outline {
+            Some(o) => {
+                s.push_str("<polygon points=\"");
+                for pt in o {
+                    s.push_str(&format!("{},{} ", pt.x, pt.y));
+                }
+                s.push_str("\" fill=\"#193a36\" stroke=\"#5ae0bc\" stroke-width=\"0.15\"/>");
+            }
+            None => s.push_str(&format!("<rect width=\"{}\" height=\"{}\" rx=\"0.4\" fill=\"#193a36\" stroke=\"#5ae0bc\" stroke-width=\"0.15\"/>",p.board.width,p.board.height)),
+        }
         for c in &p.board.cutouts {
             s.push_str(&format!("<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#131c29\" stroke=\"#5ae0bc\" stroke-width=\"0.1\"/>",c.center.x,c.center.y,c.radius));
         }
@@ -2537,6 +2557,42 @@ mod tests {
         assert!(
             files["pcb-Drill.drl"].contains("X35.000Y20.000\n"),
             "a negative origin shifts the other way"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_traced_board_outline_replaces_the_rectangle_in_fabrication_output() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.outline = Some(vec![
+            Point::new(0.0, 0.0),
+            Point::new(60.0, 0.0),
+            Point::new(60.0, 40.0),
+            Point::new(30.0, 40.0),
+            Point::new(30.0, 20.0),
+            Point::new(0.0, 20.0),
+        ]);
+        project.validate()?;
+        let board = kicad_board(&project)?;
+        assert!(
+            board.contains("gr_poly") && !board.contains("gr_rect"),
+            "the outline exports as one polygon, not a rectangle"
+        );
+        let files = gerber_files(&project)?;
+        let outline = &files["pcb-Edge.gbr"];
+        assert!(
+            outline.contains("X30.000000Y40.000000D01*")
+                && outline.contains("X30.000000Y20.000000D01*"),
+            "the gerber edge layer traces every vertex"
+        );
+        let drawing = svg(&project, "pcb")?;
+        assert!(
+            drawing.contains("<polygon") && !drawing.contains("<rect width=\"60\""),
+            "the preview draws the traced shape"
+        );
+        let dxf = dxf_board(&project)?;
+        assert!(
+            dxf.contains("30.0") && dxf.contains("40.0"),
+            "the DXF edge polyline carries the outline vertices"
         );
         Ok(())
     }

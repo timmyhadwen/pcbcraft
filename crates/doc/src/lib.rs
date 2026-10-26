@@ -715,6 +715,10 @@ pub struct Board {
     /// Clearance rules between specific pairs of nets, ordered by net ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pair_rules: Vec<NetPairRule>,
+    /// Free-form closed board outline in millimetres, ordered around the
+    /// perimeter and implicitly closed. Absent means the plain rectangle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<Vec<Point>>,
     pub footprints: Vec<Footprint>,
     pub tracks: Vec<Track>,
     /// Plated through-hole vias joining front and back copper.
@@ -880,6 +884,20 @@ impl ProjectLibrary {
 }
 /// A closed polygon outline: 3-256 distinct vertices, the first repeated last,
 /// finite in-range coordinates and nonzero enclosed area.
+/// Area in square millimetres of an implicitly closed polygon, by the
+/// shoelace formula; zero for polygons with fewer than three vertices.
+pub fn outline_area(points: &[Point]) -> f64 {
+    if points.len() < 3 {
+        return 0.0;
+    }
+    let mut area = 0.0;
+    for (i, a) in points.iter().enumerate() {
+        let b = points[(i + 1) % points.len()];
+        area += a.x * b.y - b.x * a.y;
+    }
+    (area / 2.0).abs()
+}
+
 pub fn validate_closed_outline(outline: &[Point]) -> Result<(), String> {
     if outline.len() < 4 || outline.len() > 257 {
         return Err("a zone outline needs 3 to 256 vertices".into());
@@ -933,6 +951,7 @@ impl Default for Project {
                 layer_records: vec![],
                 machining: None,
                 pair_rules: vec![],
+                outline: None,
                 footprints: vec![],
                 tracks: vec![],
                 vias: vec![],
@@ -1611,6 +1630,25 @@ impl Project {
             || b.machining.as_ref().is_some_and(|m| !m.valid())
         {
             return Err("invalid board dimensions/rules".into());
+        }
+        if let Some(points) = &b.outline {
+            let distinct: BTreeSet<(u64, u64)> = points
+                .iter()
+                .map(|p| (p.x.to_bits(), p.y.to_bits()))
+                .collect();
+            let inside = points.iter().all(|p| {
+                p.valid() && p.x >= 0.0 && p.x <= b.width && p.y >= 0.0 && p.y <= b.height
+            });
+            if points.len() < 3
+                || points.len() > 64
+                || distinct.len() != points.len()
+                || !inside
+                || outline_area(points) < 0.01
+            {
+                return Err(
+                    "a board outline needs 3 to 64 distinct vertices inside the board".into(),
+                );
+            }
         }
         let mut placed = BTreeSet::new();
         for f in &b.footprints {

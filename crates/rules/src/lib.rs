@@ -1,5 +1,5 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
-use pcbcraft_doc::{Id, Layer, Project};
+use pcbcraft_doc::{Board, Id, Layer, Project};
 use pcbcraft_geom::{Point, point_segment, segment_distance};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -407,6 +407,53 @@ pub fn erc(project: &Project) -> Vec<Finding> {
     });
     result
 }
+/// True when a point is inside an implicitly closed polygon.
+fn point_in_polygon(p: Point, polygon: &[Point]) -> bool {
+    let mut inside = false;
+    let edges = polygon
+        .iter()
+        .zip(polygon.iter().skip(1))
+        .chain(std::iter::once((&polygon[polygon.len() - 1], &polygon[0])));
+    for (a, b) in edges {
+        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+            inside = !inside;
+        }
+    }
+    inside
+}
+/// Signed clearance from a copper segment to the board edge: positive when
+/// both ends are inside, measured to the traced outline when one is set and
+/// to the plain rectangle otherwise.
+fn board_edge_distance(board: &Board, a: Point, b: Point) -> f64 {
+    let Some(polygon) = &board.outline else {
+        return [
+            a.x,
+            b.x,
+            a.y,
+            b.y,
+            board.width - a.x,
+            board.width - b.x,
+            board.height - a.y,
+            board.height - b.y,
+        ]
+        .into_iter()
+        .fold(f64::INFINITY, f64::min);
+    };
+    let distance = polygon
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let q = polygon[(i + 1) % polygon.len()];
+            segment_distance(a, b, *p, q)
+        })
+        .fold(f64::INFINITY, f64::min);
+    if point_in_polygon(a, polygon) && point_in_polygon(b, polygon) {
+        distance
+    } else {
+        -distance
+    }
+}
+
 pub fn drc(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
     let items = copper(project);
@@ -446,23 +493,15 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         let edge = if let Some(points) = &a.outline {
             points
                 .iter()
-                .map(|p| p.x.min(p.y).min(board.width - p.x).min(board.height - p.y))
+                .enumerate()
+                .map(|(i, p)| {
+                    let q = points[(i + 1) % points.len()];
+                    board_edge_distance(board, *p, q)
+                })
                 .fold(f64::INFINITY, f64::min)
                 - a.outline_error
         } else {
-            [
-                a.start.x,
-                a.end.x,
-                a.start.y,
-                a.end.y,
-                board.width - a.start.x,
-                board.width - a.end.x,
-                board.height - a.start.y,
-                board.height - a.end.y,
-            ]
-            .into_iter()
-            .fold(f64::INFINITY, f64::min)
-                - a.radius
+            board_edge_distance(board, a.start, a.end) - a.radius
         };
         if edge + 1e-6 < board.clearance {
             result.push(Finding {
