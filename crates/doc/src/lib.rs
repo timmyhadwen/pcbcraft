@@ -569,6 +569,21 @@ pub struct Track {
     pub end: Point,
     pub width: f64,
     pub layer: Layer,
+    /// Midpoint of a circular arc through start and end; absent means a
+    /// straight segment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arc: Option<Point>,
+}
+impl Track {
+    /// The circular arc if the track stores a usable midpoint.
+    pub fn curve(&self) -> Option<pcbcraft_geom::Arc> {
+        pcbcraft_geom::arc_through(self.start, self.arc?, self.end)
+    }
+    /// Routed length in millimetres: the arc if curved, the chord otherwise.
+    pub fn length(&self) -> f64 {
+        self.curve()
+            .map_or_else(|| self.start.distance(self.end), |arc| arc.length())
+    }
 }
 /// A plated through-hole via joining the front and back copper layers. A via
 /// is one physical pad plated through the board, so it conducts on both layers.
@@ -1731,6 +1746,9 @@ impl Project {
                 || !t.end.valid()
                 || !positive(t.width)
                 || t.start.distance(t.end) < 1e-6
+                || t.arc.is_some_and(|m| !m.valid())
+                || t.arc
+                    .is_some_and(|m| pcbcraft_geom::arc_through(t.start, m, t.end).is_none())
             {
                 return Err("invalid track geometry or net".into());
             }

@@ -219,17 +219,32 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
         s.push_str(" )\n");
     }
     for t in &b.tracks {
-        s.push_str(&format!(
-            " (segment (start {} {}) (end {} {}) (width {}) (layer {}) (net {}) (uuid {}))\n",
-            t.start.x,
-            t.start.y,
-            t.end.x,
-            t.end.y,
-            t.width,
-            quote(t.layer.name()),
-            ordinal(Some(t.net)),
-            uuid(t.id, 1)
-        ));
+        match t.arc {
+            Some(mid) => s.push_str(&format!(
+                " (arc (start {} {}) (mid {} {}) (end {} {}) (width {}) (layer {}) (net {}) (uuid {}))\n",
+                t.start.x,
+                t.start.y,
+                mid.x,
+                mid.y,
+                t.end.x,
+                t.end.y,
+                t.width,
+                quote(t.layer.name()),
+                ordinal(Some(t.net)),
+                uuid(t.id, 1)
+            )),
+            None => s.push_str(&format!(
+                " (segment (start {} {}) (end {} {}) (width {}) (layer {}) (net {}) (uuid {}))\n",
+                t.start.x,
+                t.start.y,
+                t.end.x,
+                t.end.y,
+                t.width,
+                quote(t.layer.name()),
+                ordinal(Some(t.net)),
+                uuid(t.id, 1)
+            )),
+        }
     }
     match &b.outline {
         Some(o) => {
@@ -482,14 +497,39 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         let file = if is_back { &mut back } else { &mut front };
         let w = (t.width * 1_000.0).round() as u64;
         let code = file.code(Ap::Circle(w.max(1)))?;
-        file.stroke(
-            code,
-            &[
-                mirror(t.start.x, t.start.y, is_back),
-                mirror(t.end.x, t.end.y, is_back),
-            ],
-            false,
-        )?;
+        if let Some(arc) = t.curve() {
+            file.ops += 1;
+            if file.ops > MAX_OPS {
+                return Err("gerber export exceeds the object limit".into());
+            }
+            let (sx, sy) = mirror(t.start.x, t.start.y, is_back);
+            let (ex, ey) = mirror(t.end.x, t.end.y, is_back);
+            let (cx, cy) = mirror(arc.center.x, arc.center.y, is_back);
+            let clockwise = if is_back {
+                arc.sweep > 0.0
+            } else {
+                arc.sweep < 0.0
+            };
+            file.body.push_str(&format!(
+                "D{code}D02*\nX{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\n",
+                sx,
+                sy,
+                ex,
+                ey,
+                cx - sx,
+                cy - sy,
+                if clockwise { 2 } else { 3 }
+            ));
+        } else {
+            file.stroke(
+                code,
+                &[
+                    mirror(t.start.x, t.start.y, is_back),
+                    mirror(t.end.x, t.end.y, is_back),
+                ],
+                false,
+            )?;
+        }
     }
     for f in &p.board.footprints {
         for pad in &f.pads {
@@ -888,6 +928,24 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
                 ),
             )
         }
+        fn arc(
+            &mut self,
+            layer: &str,
+            c: (f64, f64),
+            r: f64,
+            from_deg: f64,
+            to_deg: f64,
+        ) -> Result<(), String> {
+            self.follow(c.0 - r, c.1 - r);
+            self.follow(c.0 + r, c.1 + r);
+            self.keep(
+                layer,
+                format!(
+                    "0\nARC\n10\n{:.3}\n20\n{:.3}\n40\n{:.3}\n50\n{:.6}\n51\n{:.6}\n",
+                    c.0, c.1, r, from_deg, to_deg
+                ),
+            )
+        }
         fn circle(&mut self, layer: &str, x: f64, y: f64, r: f64) -> Result<(), String> {
             self.follow(x - r, y - r);
             self.follow(x + r, y + r);
@@ -953,7 +1011,25 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         } else {
             "F_Cu"
         };
-        w.line(layer, xy(&t.start), xy(&t.end))?;
+        match t.curve() {
+            Some(arc) => {
+                let deg = |a: f64| {
+                    let mut d = a.to_degrees() % 360.0;
+                    if d < 0.0 {
+                        d += 360.0;
+                    }
+                    d
+                };
+                let end_angle = arc.start_angle + arc.sweep;
+                let (from, to) = if arc.sweep >= 0.0 {
+                    (arc.start_angle, end_angle)
+                } else {
+                    (end_angle, arc.start_angle)
+                };
+                w.arc(layer, xy(&arc.center), arc.radius, deg(from), deg(to))?;
+            }
+            None => w.line(layer, xy(&t.start), xy(&t.end))?,
+        }
     }
     for v in &p.board.vias {
         w.circle("Via", v.position.x, v.position.y, v.diameter / 2.0)?;
@@ -1132,7 +1208,26 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
             }
         }
         for t in &p.board.tracks {
-            s.push_str(&format!("<path d=\"M {} {} L {} {}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" stroke-linecap=\"round\"/>",t.start.x,t.start.y,t.end.x,t.end.y,if t.layer==pcbcraft_doc::Layer::Front {"#f58d79"} else {"#74a7ec"},t.width));
+            let color = if t.layer == pcbcraft_doc::Layer::Front {
+                "#f58d79"
+            } else {
+                "#74a7ec"
+            };
+            let d = match t.curve() {
+                Some(arc) => format!(
+                    "M {} {} A {:.6} {:.6} 0 {} {} {} {}",
+                    t.start.x,
+                    t.start.y,
+                    arc.radius,
+                    arc.radius,
+                    usize::from(arc.sweep.abs() > std::f64::consts::PI),
+                    usize::from(arc.sweep < 0.0),
+                    t.end.x,
+                    t.end.y
+                ),
+                None => format!("M {} {} L {} {}", t.start.x, t.start.y, t.end.x, t.end.y),
+            };
+            s.push_str(&format!("<path d=\"{d}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"{}\" stroke-linecap=\"round\"/>",t.width));
         }
         for v in &p.board.vias {
             s.push_str(&format!("<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#f58d79\" stroke=\"#f58d79\" stroke-width=\"0.05\"/>",v.position.x,v.position.y,v.diameter/2.0));
@@ -1369,17 +1464,30 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
             }
         }
         for t in &p.board.tracks {
-            line(
-                &mut image,
-                to_pixel(t.start),
-                to_pixel(t.end),
-                t.width * scale / 2.0,
-                if t.layer == pcbcraft_doc::Layer::Front {
-                    [245, 141, 121]
-                } else {
-                    [116, 167, 236]
-                },
-            );
+            let color = if t.layer == pcbcraft_doc::Layer::Front {
+                [245, 141, 121]
+            } else {
+                [116, 167, 236]
+            };
+            match t.curve() {
+                Some(arc) => {
+                    let steps = 16;
+                    for i in 0..steps {
+                        let a = to_pixel(arc.point_at(i as f64 / steps as f64));
+                        let b = to_pixel(arc.point_at((i + 1) as f64 / steps as f64));
+                        line(&mut image, a, b, t.width * scale / 2.0, color);
+                    }
+                }
+                None => {
+                    line(
+                        &mut image,
+                        to_pixel(t.start),
+                        to_pixel(t.end),
+                        t.width * scale / 2.0,
+                        color,
+                    );
+                }
+            }
         }
         for v in &p.board.vias {
             let point = to_pixel(v.position);
@@ -2113,6 +2221,7 @@ mod tests {
             end: Point::new(30.0, 10.0),
             width: 0.3,
             layer: pcbcraft_doc::Layer::Back,
+            arc: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 4,
@@ -2597,6 +2706,47 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn curved_tracks_export_as_true_arcs_in_every_format() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "A".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: Some(Point::new(15.0, 12.0)),
+        });
+        project.validate()?;
+        let board = kicad_board(&project)?;
+        assert!(
+            board.contains("(arc (start 10 10) (mid 15 12) (end 20 10)"),
+            "the board export keeps the curve as an arc, not a segment"
+        );
+        let files = gerber_files(&project)?;
+        let copper = &files["pcb-F.Cu.gbr"];
+        assert!(
+            copper.contains("G02*") && copper.contains("J-5.250000"),
+            "the gerber draws a clockwise arc to the computed centre"
+        );
+        let drawing = svg(&project, "pcb")?;
+        assert!(
+            drawing.contains("A 7.250000 7.250000 0 0 1 20 10"),
+            "the preview arc uses the true radius and flags"
+        );
+        let dxf = dxf_board(&project)?;
+        assert!(
+            dxf.contains("0\nARC") && dxf.contains("40\n7.250"),
+            "the DXF drawing carries an ARC entity"
+        );
+        Ok(())
+    }
+    #[test]
     fn dxf_board_draws_tracks_vias_arcs_and_labels_as_entities() -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
@@ -2611,6 +2761,7 @@ mod tests {
             end: Point::new(30.0, 10.0),
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
+            arc: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 11,

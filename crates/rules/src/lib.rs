@@ -113,13 +113,13 @@ fn copper(project: &Project) -> Vec<Copper> {
         }
     }
     for t in &project.board.tracks {
-        result.push(Copper {
+        let straight = |a: Point, b: Point, radius: f64| Copper {
             id: t.id,
             net: t.net,
-            start: t.start,
-            end: t.end,
-            radius: t.width / 2.0,
-            contact_radius: t.width / 2.0,
+            start: a,
+            end: b,
+            radius,
+            contact_radius: radius,
             conservative: false,
             outline: None,
             outline_error: 0.0,
@@ -128,7 +128,22 @@ fn copper(project: &Project) -> Vec<Copper> {
             bridge: None,
             hole: None,
             cutouts: vec![],
-        });
+        };
+        match t.curve() {
+            None => result.push(straight(t.start, t.end, t.width / 2.0)),
+            Some(arc) => {
+                // Sample the arc as chords, each capsule grown by the sagitta
+                // so the sampled copper covers the swept band.
+                let chords = 16;
+                let sagitta = arc.radius * (1.0 - (arc.sweep.abs() / (chords as f64 * 2.0)).cos());
+                let radius = t.width / 2.0 + sagitta;
+                for i in 0..chords {
+                    let a = arc.point_at(i as f64 / chords as f64);
+                    let b = arc.point_at((i + 1) as f64 / chords as f64);
+                    result.push(straight(a, b, radius));
+                }
+            }
+        }
     }
     for v in &project.board.vias {
         let hole = (v.drill > 0.0).then(|| Hole {
@@ -582,8 +597,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     }
     let mut lengths: BTreeMap<Id, f64> = BTreeMap::new();
     for track in &board.tracks {
-        *lengths.entry(track.net).or_insert(0.0) +=
-            ((track.end.x - track.start.x).powi(2) + (track.end.y - track.start.y).powi(2)).sqrt();
+        *lengths.entry(track.net).or_insert(0.0) += track.length();
     }
     let classified: BTreeSet<Id> = project
         .net_classes
@@ -755,6 +769,7 @@ mod tests {
             end: Point::new(12.0, 10.0),
             width: 0.25,
             layer: Layer::Front,
+            arc: None,
         });
         p.board.tracks.push(Track {
             id: 3,
@@ -763,6 +778,7 @@ mod tests {
             end: Point::new(14.0, 10.0),
             width: 0.25,
             layer: Layer::Back,
+            arc: None,
         });
         p.board.vias.push(Via {
             id: 4,
@@ -838,6 +854,7 @@ mod tests {
             end: Point::new(20.0, 10.0),
             width: 0.25,
             layer: Layer::Front,
+            arc: None,
         });
         p.board.tracks.push(Track {
             id: 6,
@@ -846,6 +863,7 @@ mod tests {
             end: Point::new(20.0, 10.0),
             width: 0.25,
             layer: Layer::Back,
+            arc: None,
         });
         p.board.tracks.push(Track {
             id: 7,
@@ -854,6 +872,7 @@ mod tests {
             end: Point::new(40.0, 20.0),
             width: 0.25,
             layer: Layer::Front,
+            arc: None,
         });
         p.validate()?;
         let items = copper(&p);
@@ -899,6 +918,7 @@ mod tests {
             end: Point::new(40.0, 10.0),
             width: 0.25,
             layer: Layer::Front,
+            arc: None,
         });
         p.validate()?;
         let items = copper(&p);
@@ -931,6 +951,7 @@ mod tests {
             end: Point::new(12.0, 10.0),
             width: 0.25,
             layer: Layer::Front,
+            arc: None,
         });
         p.board.tracks.push(Track {
             id: 3,
@@ -939,6 +960,7 @@ mod tests {
             end: Point::new(14.0, 10.0),
             width: 0.25,
             layer: Layer::Back,
+            arc: None,
         });
         p.validate()?;
         for column in 0..5 {
@@ -990,6 +1012,7 @@ mod tests {
             end: Point::new(15.0, 10.0),
             width: 0.25,
             layer: Layer::Front,
+            arc: None,
         });
         p.board.tracks.push(Track {
             id: 3,
@@ -998,6 +1021,7 @@ mod tests {
             end: Point::new(20.0, 10.0),
             width: 0.25,
             layer: Layer::Front,
+            arc: None,
         });
         p.validate()?;
         let items = copper(&p);
@@ -1120,6 +1144,7 @@ mod tests {
                 end,
                 width: 0.2,
                 layer,
+                arc: None,
             });
         }
         // Make the far endpoint a plated pad as well, so its back approach
@@ -1214,6 +1239,7 @@ mod tests {
             end: Point::new(20.9125, 20.0),
             width: 0.25,
             layer: Layer::Front,
+            arc: None,
         });
         assert!(
             drc(&p)
@@ -1233,6 +1259,7 @@ mod tests {
             end: Point::new(30.0, 10.0),
             width: 0.25,
             layer: Layer::Back,
+            arc: None,
         });
         assert_eq!(airwires(&p).len(), 1);
         if let Some(t) = p.board.tracks.first_mut() {
@@ -1255,6 +1282,7 @@ mod tests {
             end: Point::new(30.0, 10.0),
             width: 0.25,
             layer: Layer::Front,
+            arc: None,
         });
         p.board.tracks.push(Track {
             id: 21,
@@ -1263,6 +1291,7 @@ mod tests {
             end: Point::new(20.0, 15.0),
             width: 0.25,
             layer: Layer::Front,
+            arc: None,
         });
         assert!(drc(&p).iter().any(|f| f.code == "copper_short"));
     }
