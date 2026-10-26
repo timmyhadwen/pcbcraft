@@ -156,6 +156,141 @@ pub struct DrawnWire {
     /// Vertices in draw order, in millimetres.
     pub points: Vec<Point>,
 }
+/// A free-standing drawing primitive, as KiCad draws schematic annotations and
+/// board graphics. Shapes are explicit; nothing is inferred from geometry.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Graphic {
+    pub id: Id,
+    /// `schematic` or `board`.
+    pub layer: String,
+    /// `line`, `rect`, `circle`, `arc`, `polygon` or `text`.
+    pub shape: String,
+    /// Vertices in draw order, in millimetres. A circle stores its centre first,
+    /// an arc stores start, middle and end, and text stores its anchor.
+    pub points: Vec<Point>,
+    /// Stroke width in millimetres, circle and arc radius, or text size.
+    pub width: f64,
+    /// Text content for the text shape, empty for every other shape.
+    pub text: String,
+}
+impl Graphic {
+    /// Required vertex count for each shape, or none for an unknown shape.
+    pub fn vertex_rule(shape: &str) -> Option<(usize, usize)> {
+        match shape {
+            "line" | "rect" => Some((2, 2)),
+            "arc" => Some((3, 3)),
+            "circle" | "text" => Some((1, 1)),
+            "polygon" => Some((3, 256)),
+            _ => None,
+        }
+    }
+    /// Polyline used to render the shape, or none for text.
+    pub fn outline(&self) -> Option<Vec<Point>> {
+        let (min, _) = Self::vertex_rule(self.shape.as_str())?;
+        if self.points.len() < min {
+            return None;
+        }
+        let first = self.points.first().copied()?;
+        match self.shape.as_str() {
+            "line" => Some(self.points.clone()),
+            "rect" => {
+                let opposite = self.points.get(1).copied()?;
+                Some(vec![
+                    first,
+                    Point::new(opposite.x, first.y),
+                    opposite,
+                    Point::new(first.x, opposite.y),
+                    first,
+                ])
+            }
+            "polygon" => {
+                let mut points = self.points.clone();
+                points.push(first);
+                Some(points)
+            }
+            "circle" => {
+                let start = Point::new(first.x + self.width, first.y);
+                Some(self.arc_points(first, start, start, self.width, 0.0, 360.0))
+            }
+            "arc" => {
+                let middle = self.points.get(1).copied()?;
+                let last = self.points.get(2).copied()?;
+                let (centre, radius) = circle_through(first, middle, last)?;
+                let angle = |p: Point| (p.y - centre.y).atan2(p.x - centre.x).to_degrees();
+                let (start, mid, end) = (angle(first), angle(middle), angle(last));
+                // The middle point decides which way the arc sweeps.
+                let counter_clockwise = on_arc(start, end, mid);
+                let sweep = if counter_clockwise {
+                    wrap_360(end - start)
+                } else {
+                    wrap_360(end - start) - 360.0
+                };
+                Some(self.arc_points(centre, first, last, radius, start, sweep))
+            }
+            _ => None,
+        }
+    }
+    /// Samples a circular path without any trigonometric discontinuity at the ends:
+    /// the first and last samples are the exact supplied endpoints.
+    fn arc_points(
+        &self,
+        centre: Point,
+        start: Point,
+        end: Point,
+        radius: f64,
+        start_degrees: f64,
+        sweep_degrees: f64,
+    ) -> Vec<Point> {
+        if !radius.is_finite() || radius <= 0.0 || !sweep_degrees.is_finite() {
+            return vec![start];
+        }
+        let steps = (sweep_degrees.abs() / 15.0).ceil() as usize;
+        let steps = steps.clamp(1, 256);
+        let mut points = Vec::with_capacity(steps + 1);
+        points.push(start);
+        for step in 1..steps {
+            let angle = start_degrees + sweep_degrees * step as f64 / steps as f64;
+            let (sin, cos) = angle.to_radians().sin_cos();
+            points.push(Point::new(centre.x + radius * cos, centre.y + radius * sin));
+        }
+        points.push(end);
+        points
+    }
+}
+/// Centre and radius of the unique circle through three points, or none when the
+/// points are collinear.
+pub fn circle_through(a: Point, b: Point, c: Point) -> Option<(Point, f64)> {
+    let d = 2.0 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+    if !d.is_finite() || d.abs() < 1e-9 {
+        return None;
+    }
+    let (a2, b2, c2) = (
+        a.x * a.x + a.y * a.y,
+        b.x * b.x + b.y * b.y,
+        c.x * c.x + c.y * c.y,
+    );
+    let centre = Point::new(
+        (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d,
+        (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d,
+    );
+    if !centre.valid() {
+        return None;
+    }
+    let radius = centre.distance(a);
+    if !positive(radius) {
+        return None;
+    }
+    Some((centre, radius))
+}
+/// Wraps degrees into 0..360 so a sweep length can be computed.
+fn wrap_360(degrees: f64) -> f64 {
+    let value = degrees % 360.0;
+    if value < 0.0 { value + 360.0 } else { value }
+}
+/// Whether an angle lies on the counter-clockwise arc from start to end.
+fn on_arc(start: f64, end: f64, test: f64) -> bool {
+    wrap_360(test - start) <= wrap_360(end - start)
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Pad {
     pub number: String,
@@ -345,6 +480,9 @@ pub struct Project {
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub drawn_wires: Vec<DrawnWire>,
+    /// Free-standing drawing primitives, as in KiCad schematic and board graphics.
+    #[serde(default)]
+    pub graphics: Vec<Graphic>,
     pub board: Board,
     #[serde(default)]
     pub library: ProjectLibrary,
@@ -393,6 +531,7 @@ impl Default for Project {
             nets: vec![],
             wires: vec![],
             drawn_wires: vec![],
+            graphics: vec![],
             board: Board {
                 width: 60.0,
                 height: 40.0,
@@ -525,6 +664,7 @@ impl Project {
             .chain(self.nets.iter().map(|x| x.id))
             .chain(self.wires.iter().map(|x| x.id))
             .chain(self.drawn_wires.iter().map(|x| x.id))
+            .chain(self.graphics.iter().map(|x| x.id))
             .chain(self.board.footprints.iter().map(|x| x.id))
             .chain(self.board.tracks.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
@@ -689,6 +829,46 @@ impl Project {
             }
             if w.points.windows(2).any(|p| p[0] == p[1]) {
                 return Err("drawn wire repeats a vertex".into());
+            }
+        }
+        for g in &self.graphics {
+            if g.layer != "schematic" && g.layer != "board" {
+                return Err("graphic layer must be schematic or board".into());
+            }
+            let (min, max) = match Graphic::vertex_rule(&g.shape) {
+                Some(rule) => rule,
+                None => return Err("unknown graphic shape".into()),
+            };
+            if g.points.len() < min || g.points.len() > max {
+                return Err("graphic has the wrong number of vertices for its shape".into());
+            }
+            if !g.points.iter().all(|p| p.valid()) {
+                return Err("graphic has an out-of-range vertex".into());
+            }
+            if !positive(g.width) {
+                return Err("graphic width, radius or text size must be positive".into());
+            }
+            if g.text.len() > 1024 {
+                return Err("graphic text is too long".into());
+            }
+            if (g.shape == "text") != !g.text.is_empty() {
+                return Err("only text graphics may carry text".into());
+            }
+            if g.shape == "line" && g.points[0] == g.points[1] {
+                return Err("line graphic has no length".into());
+            }
+            if g.shape == "rect"
+                && (g.points[0].x == g.points[1].x || g.points[0].y == g.points[1].y)
+            {
+                return Err("rect graphic has no area".into());
+            }
+            if g.shape == "arc" && circle_through(g.points[0], g.points[1], g.points[2]).is_none() {
+                return Err("arc graphic vertices are collinear".into());
+            }
+            if g.shape == "circle"
+                && g.points[0] == Point::new(g.points[0].x + g.width, g.points[0].y)
+            {
+                return Err("circle graphic has zero radius".into());
             }
         }
         let b = &self.board;

@@ -136,6 +136,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "graphic.add",
+            "Add a free-standing schematic or board graphic: line, rect, circle, arc, polygon or text",
+            schema(
+                json!({"layer":{"type":"string","enum":["schematic","board"]},"shape":{"type":"string","enum":["line","rect","circle","arc","polygon","text"]},"points":{"type":"array","items":point_schema(),"minItems":1,"maxItems":256},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"text":{"type":"string","maxLength":1024}}),
+                &["layer", "shape", "points", "width"],
+            ),
+        ),
+        (
             "board.sync",
             "Reconcile schematic components and pin nets into PCB footprints; retain placements and report unassigned library symbols",
             schema(json!({}), &[]),
@@ -548,6 +556,16 @@ struct DrawnWireParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct GraphicParams {
+    layer: String,
+    shape: String,
+    points: Vec<Point>,
+    width: f64,
+    #[serde(default)]
+    text: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Resize {
     width: f64,
     height: f64,
@@ -845,6 +863,47 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             });
             Ok(json!({"id":id,"vertices":vertices}))
         }
+        "graphic.add" => {
+            let a: GraphicParams = parse(params)?;
+            if a.layer != "schematic" && a.layer != "board" {
+                return Err(Error::Invalid(
+                    "graphic layer must be schematic or board".into(),
+                ));
+            }
+            let (min, max) = match pcbcraft_doc::Graphic::vertex_rule(&a.shape) {
+                Some(rule) => rule,
+                None => return Err(Error::Invalid("unknown graphic shape".into())),
+            };
+            if a.points.len() < min || a.points.len() > max {
+                return Err(Error::Invalid(
+                    "graphic has the wrong number of vertices for its shape".into(),
+                ));
+            }
+            if !a.points.iter().all(|p| p.valid()) {
+                return Err(Error::Invalid("graphic vertex is out of range".into()));
+            }
+            if !a.width.is_finite() || a.width <= 0.0 || a.width > 1_000.0 {
+                return Err(Error::Invalid(
+                    "graphic width, radius or text size must be within 0–1000mm".into(),
+                ));
+            }
+            if a.text.len() > 1024 {
+                return Err(Error::Invalid("graphic text is too long".into()));
+            }
+            if (a.shape == "text") != !a.text.is_empty() {
+                return Err(Error::Invalid("only text graphics may carry text".into()));
+            }
+            let id = allocate(next)?;
+            p.graphics.push(pcbcraft_doc::Graphic {
+                id,
+                layer: a.layer,
+                shape: a.shape,
+                points: a.points,
+                width: a.width,
+                text: a.text,
+            });
+            Ok(json!({"id":id}))
+        }
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
@@ -990,6 +1049,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .retain(|w| w.id != a.id && w.from.component != a.id && w.to.component != a.id);
             p.drawn_wires
                 .retain(|w| w.id != a.id && w.net.is_none_or(|n| n != a.id));
+            p.graphics.retain(|g| g.id != a.id);
             p.board
                 .footprints
                 .retain(|f| f.id != a.id && f.component != a.id);
@@ -1056,6 +1116,50 @@ mod tests {
         assert_eq!(s.project.drawn_wires.len(), 1);
         s.undo()?;
         assert_eq!(s.project.drawn_wires.len(), 2);
+        Ok(())
+    }
+    #[test]
+    fn graphic_add_validates_each_shape_and_deletes_and_undoes_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        for params in [
+            json!({"layer":"schematic","shape":"line","points":[{"x":1.0,"y":1.0},{"x":10.0,"y":1.0}],"width":0.2}),
+            json!({"layer":"schematic","shape":"rect","points":[{"x":0.0,"y":0.0},{"x":5.0,"y":3.0}],"width":0.2}),
+            json!({"layer":"board","shape":"circle","points":[{"x":10.0,"y":10.0}],"width":2.0}),
+            json!({"layer":"board","shape":"arc","points":[{"x":0.0,"y":0.0},{"x":5.0,"y":7.0},{"x":10.0,"y":0.0}],"width":0.2}),
+            json!({"layer":"board","shape":"polygon","points":[{"x":0.0,"y":0.0},{"x":4.0,"y":0.0},{"x":2.0,"y":3.0}],"width":0.1}),
+            json!({"layer":"schematic","shape":"text","points":[{"x":2.0,"y":2.0}],"width":1.5,"text":"REV B"}),
+        ] {
+            s.execute("graphic.add", params, None)?;
+        }
+        assert_eq!(s.project.graphics.len(), 6);
+        assert!(s.project.validate().is_ok());
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .filter(|g| g.shape == "circle")
+                .flat_map(|g| g.outline().unwrap_or_default())
+                .count(),
+            25
+        );
+        // Unknown shapes, wrong vertex counts and misuse of text are rejected
+        // without touching state.
+        for params in [
+            json!({"layer":"schematic","shape":"spline","points":[{"x":1.0,"y":1.0}],"width":0.2}),
+            json!({"layer":"schematic","shape":"line","points":[{"x":1.0,"y":1.0}],"width":0.2}),
+            json!({"layer":"schematic","shape":"text","points":[{"x":1.0,"y":1.0}],"width":1.0}),
+            json!({"layer":"schematic","shape":"line","points":[{"x":1.0,"y":1.0},{"x":2.0,"y":1.0}],"width":0.2,"text":"oops"}),
+            json!({"layer":"copper","shape":"line","points":[{"x":1.0,"y":1.0},{"x":2.0,"y":1.0}],"width":0.2}),
+            json!({"layer":"schematic","shape":"line","points":[{"x":1.0,"y":1.0},{"x":2.0,"y":1.0}],"width":0.0}),
+        ] {
+            assert!(s.execute("graphic.add", params, None).is_err());
+        }
+        assert_eq!(s.project.graphics.len(), 6);
+        let graphic = s.project.graphics[2].id;
+        s.execute("object.delete", json!({"id":graphic}), None)?;
+        assert_eq!(s.project.graphics.len(), 5);
+        s.undo()?;
+        assert_eq!(s.project.graphics.len(), 6);
         Ok(())
     }
     #[test]

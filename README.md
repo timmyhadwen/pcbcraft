@@ -18,7 +18,8 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Periodic project recovery and recovery on normal close, using application storage.
 - Original resistor, capacitor, LED and two-pin connector symbols; explicit
   logical nets, pin-to-pin orthogonal wire presentations and free-form drawn
-  wires with explicit vertices that may be bound to a net.
+  wires with explicit vertices that may be bound to a net, and free-standing
+  schematic/board graphics (lines, rectangles, circles, arcs, polygons and text).
 - Background search and geometry previews of installed KiCad symbol/footprint
   libraries, including inherited definitions. Place supported symbols with
   independently movable schematic units within one physical package, assign
@@ -35,9 +36,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   exported as Edge.Cuts. Constrained/parametric outline sketches are planned.
 - Initial pin assignment/net-population checks and copper short, clearance,
   board-edge, cutout and unrouted checks with affected object IDs.
-- 27 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 28 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 45 MCP tools: every engine command plus library discovery/search/inspection,
+- 46 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

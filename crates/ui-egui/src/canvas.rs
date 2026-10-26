@@ -628,6 +628,25 @@ impl App {
                 Stroke::new(1.8, self.accent()),
             ));
         }
+        for g in p.graphics.iter().filter(|g| g.layer == "schematic") {
+            if let Some(outline) = g.outline() {
+                painter.add(egui::Shape::line(
+                    outline
+                        .iter()
+                        .map(|point| camera.screen(*point, rect))
+                        .collect(),
+                    Stroke::new(1.6, self.accent()),
+                ));
+            } else if let Some(anchor) = g.points.first() {
+                painter.text(
+                    camera.screen(*anchor, rect),
+                    Align2::LEFT_TOP,
+                    &g.text,
+                    FontId::proportional(g.width as f32),
+                    self.accent(),
+                );
+            }
+        }
         for c in p.components.iter().flat_map(|c| c.schematic_views()) {
             self.symbol(
                 painter,
