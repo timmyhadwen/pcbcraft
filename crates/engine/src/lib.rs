@@ -414,6 +414,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"component":id_schema()}), &[]),
         ),
         (
+            "bom.export",
+            "Export a bill of materials: components grouped by value, kind, footprint and requested properties",
+            schema(
+                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16}}),
+                &[],
+            ),
+        ),
+        (
             "align.distribute",
             "Align or evenly distribute components or board footprints along an axis",
             schema(
@@ -558,7 +566,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -868,6 +876,12 @@ struct NetClassAssignParams {
     net: Id,
     #[serde(default)]
     class: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BomParams {
+    #[serde(default)]
+    fields: Vec<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2316,6 +2330,67 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let pads: Vec<Value> = rows.into_iter().map(|(_, _, row)| row).collect();
             let count = pads.len();
             Ok(json!({"pads": pads, "count": count, "unassigned": unassigned}))
+        }
+        "bom.export" => {
+            let a: BomParams = parse(params)?;
+            if a.fields.len() > 16 {
+                return Err(Error::Invalid(
+                    "a bill of materials lists at most 16 properties".into(),
+                ));
+            }
+            for key in &a.fields {
+                if key.is_empty() || key.len() > 64 {
+                    return Err(Error::Invalid(
+                        "property names must be 1 to 64 bytes".into(),
+                    ));
+                }
+            }
+            let mut groups: std::collections::BTreeMap<
+                (String, String, String, Vec<String>),
+                Vec<String>,
+            > = std::collections::BTreeMap::new();
+            for c in &p.components {
+                let footprint = match &c.library_footprint {
+                    Some(footprint) => {
+                        format!("{}:{}", footprint.library, footprint.definition.name)
+                    }
+                    None => "starter pads".into(),
+                };
+                let values: Vec<String> = a
+                    .fields
+                    .iter()
+                    .map(|key| c.field(key).unwrap_or("").to_string())
+                    .collect();
+                groups
+                    .entry((c.value.clone(), c.kind.clone(), footprint, values))
+                    .or_default()
+                    .push(c.reference.clone());
+            }
+            let items: Vec<Value> = groups
+                .into_iter()
+                .map(|((value, kind, footprint, values), mut references)| {
+                    references.sort();
+                    let columns = a.fields.clone();
+                    let mut fields = serde_json::Map::new();
+                    for (key, value) in columns.into_iter().zip(values) {
+                        fields.insert(key, json!(value));
+                    }
+                    json!({
+                        "quantity": references.len(),
+                        "references": references,
+                        "value": value,
+                        "kind": kind,
+                        "footprint": footprint,
+                        "fields": Value::Object(fields),
+                    })
+                })
+                .collect();
+            let components = p.components.len();
+            Ok(json!({
+                "items": items,
+                "groups": items.len(),
+                "components": components,
+            }))
         }
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
@@ -4524,6 +4599,117 @@ mod tests {
             serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         loaded.validate()?;
         assert_eq!(loaded, s.project);
+        Ok(())
+    }
+    #[test]
+    fn bills_of_materials_group_by_value_footprint_and_properties() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let c1 = s.execute(
+            "component.add",
+            json!({"kind":"capacitor","position":{"x":50.0,"y":10.0},"reference":"C1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (id, value) in [(r1, "1k"), (r2, "1k"), (c1, "100n")] {
+            s.execute("component.value", json!({"id": id, "value": value}), None)?;
+        }
+        for id in [r1, r2] {
+            s.execute(
+                "component.field",
+                json!({"id":id,"key":"Datasheet","value":"dsA.pdf"}),
+                None,
+            )?;
+        }
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Manufacturer","value":"Acme"}),
+            None,
+        )?;
+        fn row_in(table: &Value, reference: &str) -> Result<Value, Error> {
+            table["items"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .find(|i| {
+                    i["references"]
+                        .as_array()
+                        .is_some_and(|r| r.contains(&json!(reference)))
+                })
+                .cloned()
+                .ok_or_else(missing)
+        }
+        let plain = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(plain["components"], 3);
+        assert_eq!(plain["groups"], 2);
+        assert_eq!(plain["items"][0]["value"], "100n");
+        assert_eq!(plain["items"][0]["quantity"], 1);
+        assert_eq!(plain["items"][0]["footprint"], "starter pads");
+        assert!(
+            plain["items"][0]["fields"]
+                .as_object()
+                .is_some_and(|f| f.is_empty())
+        );
+        assert_eq!(plain["items"][1]["quantity"], 2);
+        assert_eq!(plain["items"][1]["references"][0], "R1");
+        assert_eq!(plain["items"][1]["references"][1], "R2");
+        let with_fields = s.execute(
+            "bom.export",
+            json!({"fields":["Datasheet","Manufacturer"]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(with_fields["groups"], 3);
+        assert_eq!(row_in(&with_fields, "R1")?["quantity"], 1);
+        assert_eq!(
+            row_in(&with_fields, "R1")?["fields"]["Manufacturer"],
+            "Acme"
+        );
+        assert_eq!(row_in(&with_fields, "R2")?["fields"]["Manufacturer"], "");
+        assert_eq!(
+            row_in(&with_fields, "R2")?["fields"]["Datasheet"],
+            "dsA.pdf"
+        );
+        s.execute(
+            "footprint.assign",
+            json!({"id":r1,"path":library_fixture("R_0805_2012Metric.kicad_mod")}),
+            None,
+        )?;
+        let assigned = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(assigned["groups"], 3);
+        assert_eq!(
+            row_in(&assigned, "R1")?["footprint"],
+            "fixtures:R_0805_2012Metric"
+        );
+        assert_eq!(row_in(&assigned, "R2")?["footprint"], "starter pads");
+        assert_eq!(row_in(&assigned, "R2")?["quantity"], 1);
+        let before = s.inspect();
+        for params in [
+            json!({"fields":[""]}),
+            json!({"fields":["x".repeat(65)]}),
+            json!({"fields":(0..17).map(|i| format!("f{i}")).collect::<Vec<String>>()}),
+            json!({"fields":["Datasheet"],"extra":1}),
+        ] {
+            assert!(s.execute("bom.export", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        let unchanged = s.project.clone();
+        s.execute("bom.export", json!({"fields":["Datasheet"]}), None)?;
+        assert_eq!(s.project, unchanged);
         Ok(())
     }
     #[test]
