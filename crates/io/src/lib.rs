@@ -79,6 +79,14 @@ fn project_graphic_svg(g: &pcbcraft_doc::Graphic) -> String {
         g.width.min(0.4)
     )
 }
+/// Text drawn for a label, with the punctuation KiCad uses for each kind.
+fn label_text(l: &pcbcraft_doc::Label, net_name: &str) -> String {
+    match l.kind.as_str() {
+        "global" => format!("{{{net_name}}}"),
+        "hierarchical" => format!("/{net_name}"),
+        _ => net_name.to_string(),
+    }
+}
 fn uuid(id: u64, kind: usize) -> String {
     format!("{kind:08x}-0000-4000-8000-{id:012x}")
 }
@@ -396,6 +404,26 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
         for g in p.graphics.iter().filter(|g| g.layer == "schematic") {
             s.push_str(&project_graphic_svg(g));
         }
+        for l in &p.labels {
+            if l.kind == "junction" {
+                s.push_str(&format!(
+                    "<circle cx=\"{}\" cy=\"{}\" r=\"0.35\" fill=\"#5ae0bc\"/>",
+                    l.position.x, l.position.y
+                ));
+            } else {
+                s.push_str(&format!(
+                    "<text x=\"{}\" y=\"{}\">{}</text>",
+                    l.position.x,
+                    l.position.y,
+                    escape(&label_text(l, p.net_name(l.net)))
+                ));
+            }
+        }
+        for f in &p.no_connects {
+            if let Some(point) = p.pin_position(&f.pin) {
+                s.push_str(&format!("<path d=\"M {} {} L {} {} M {} {} L {} {}\" stroke=\"#f58d79\" stroke-width=\"0.25\"/>",point.x-0.6,point.y-0.6,point.x+0.6,point.y+0.6,point.x-0.6,point.y+0.6,point.x+0.6,point.y-0.6));
+            }
+        }
         for c in p.components.iter().flat_map(|c| c.schematic_views()) {
             s.push_str(&format!(
                 "<g transform=\"translate({} {}) rotate({})\">",
@@ -547,6 +575,35 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
                 if let (Some(a), Some(b)) = (pair.first(), pair.get(1)) {
                     line(&mut image, to_pixel(*a), to_pixel(*b), 1.0, [90, 224, 188]);
                 }
+            }
+        }
+        for l in p.labels.iter().filter(|l| l.kind == "junction") {
+            let point = to_pixel(l.position);
+            line(
+                &mut image,
+                Point::new(point.x - 2.0, point.y),
+                Point::new(point.x + 2.0, point.y),
+                2.0,
+                [90, 224, 188],
+            );
+        }
+        for f in &p.no_connects {
+            if let Some(anchor) = p.pin_position(&f.pin) {
+                let point = to_pixel(anchor);
+                line(
+                    &mut image,
+                    Point::new(point.x - 3.0, point.y - 3.0),
+                    Point::new(point.x + 3.0, point.y + 3.0),
+                    1.0,
+                    [245, 141, 121],
+                );
+                line(
+                    &mut image,
+                    Point::new(point.x - 3.0, point.y + 3.0),
+                    Point::new(point.x + 3.0, point.y - 3.0),
+                    1.0,
+                    [245, 141, 121],
+                );
             }
         }
         for c in p.components.iter().flat_map(|c| c.schematic_views()) {
@@ -1019,6 +1076,86 @@ mod tests {
         assert!(
             schematic.contains("points=\"10,10 20,10 20,20\""),
             "drawn wire vertices must render in order"
+        );
+        Ok(())
+    }
+    #[test]
+    fn labels_and_no_connect_flags_render_in_the_schematic_preview() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "VCC".into(),
+        });
+        project.components.push(pcbcraft_doc::Component {
+            id: 3,
+            reference: "R9".into(),
+            value: "1 k".into(),
+            kind: "resistor".into(),
+            position: Point::new(50.0, 30.0),
+            rotation: 0.0,
+            pins: vec![
+                pcbcraft_doc::Pin {
+                    number: "1".into(),
+                    name: String::new(),
+                    offset: Point::new(-1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: Some(180.0),
+                    unit: 1,
+                },
+                pcbcraft_doc::Pin {
+                    number: "2".into(),
+                    name: String::new(),
+                    offset: Point::new(1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: Some(0.0),
+                    unit: 1,
+                },
+            ],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+        });
+        project.drawn_wires.push(pcbcraft_doc::DrawnWire {
+            id: 2,
+            net: Some(1),
+            points: vec![Point::new(10.0, 5.0), Point::new(20.0, 5.0)],
+        });
+        project.labels.push(pcbcraft_doc::Label {
+            id: 4,
+            kind: "global".into(),
+            net: 1,
+            position: Point::new(10.0, 5.0),
+            rotation: 0.0,
+        });
+        project.labels.push(pcbcraft_doc::Label {
+            id: 5,
+            kind: "junction".into(),
+            net: 1,
+            position: Point::new(20.0, 5.0),
+            rotation: 0.0,
+        });
+        project.no_connects.push(pcbcraft_doc::NoConnectFlag {
+            id: 6,
+            pin: pcbcraft_doc::PinRef {
+                component: 3,
+                pin: "2".into(),
+            },
+        });
+        project.validate()?;
+        let schematic = svg(&project, "schematic")?;
+        assert!(
+            schematic.contains(">{VCC}</text>"),
+            "a global label must render its braced net name"
+        );
+        assert!(
+            schematic.contains("<circle cx=\"20\" cy=\"5\" r=\"0.35\""),
+            "a junction must render as a dot on its wire vertex"
+        );
+        assert!(
+            schematic.contains("stroke=\"#f58d79\""),
+            "a no-connect flag must render its cross at the pin"
         );
         Ok(())
     }

@@ -647,6 +647,38 @@ impl App {
                 );
             }
         }
+        for l in &p.labels {
+            let at = camera.screen(l.position, rect);
+            if l.kind == "junction" {
+                painter.circle_filled(at, 3.0, self.accent());
+            } else {
+                let text = match l.kind.as_str() {
+                    "global" => format!("{{{}}}", p.net_name(l.net)),
+                    "hierarchical" => format!("/{}", p.net_name(l.net)),
+                    _ => p.net_name(l.net).to_string(),
+                };
+                painter.text(
+                    at,
+                    Align2::CENTER_BOTTOM,
+                    text,
+                    FontId::monospace(11.0),
+                    self.accent(),
+                );
+            }
+        }
+        for f in &p.no_connects {
+            if let Some(anchor) = p.pin_position(&f.pin) {
+                let at = camera.screen(anchor, rect);
+                painter.line_segment(
+                    [at + egui::vec2(-4.0, -4.0), at + egui::vec2(4.0, 4.0)],
+                    Stroke::new(1.6, egui::Color32::from_rgb(245, 141, 121)),
+                );
+                painter.line_segment(
+                    [at + egui::vec2(-4.0, 4.0), at + egui::vec2(4.0, -4.0)],
+                    Stroke::new(1.6, egui::Color32::from_rgb(245, 141, 121)),
+                );
+            }
+        }
         for c in p.components.iter().flat_map(|c| c.schematic_views()) {
             self.symbol(
                 painter,

@@ -144,6 +144,19 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "label.place",
+            "Place a local, global, hierarchical or power label, or a junction, naming an existing net",
+            schema(
+                json!({"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema(),"position":point_schema(),"rotation":{"type":"number","minimum":-360000.0,"maximum":360000.0}}),
+                &["kind", "net", "position"],
+            ),
+        ),
+        (
+            "pin.no_connect",
+            "Mark a pin intentionally unconnected, suppressing its unconnected-pin violation",
+            schema(json!({"pin":pin_schema()}), &["pin"]),
+        ),
+        (
             "board.sync",
             "Reconcile schematic components and pin nets into PCB footprints; retain placements and report unassigned library symbols",
             schema(json!({}), &[]),
@@ -325,10 +338,10 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment, net population, capsule tracks, rectangular edge and circular cutout clearance. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, vias, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, vias, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -563,6 +576,20 @@ struct GraphicParams {
     width: f64,
     #[serde(default)]
     text: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LabelParams {
+    kind: String,
+    net: Id,
+    position: Point,
+    #[serde(default)]
+    rotation: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoConnectParams {
+    pin: PinRef,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -904,6 +931,70 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             });
             Ok(json!({"id":id}))
         }
+        "label.place" => {
+            let a: LabelParams = parse(params)?;
+            if !pcbcraft_doc::Label::KINDS.iter().any(|k| *k == a.kind) {
+                return Err(Error::Invalid("unknown label kind".into()));
+            }
+            if !p.nets.iter().any(|n| n.id == a.net) {
+                return Err(missing());
+            }
+            if !a.position.valid() {
+                return Err(Error::Invalid("label position is out of range".into()));
+            }
+            if !a.rotation.is_finite() || a.rotation.abs() > 360_000.0 {
+                return Err(Error::Invalid("invalid label rotation".into()));
+            }
+            if a.kind == "junction"
+                && !p
+                    .drawn_wires
+                    .iter()
+                    .any(|w| w.net == Some(a.net) && w.points.contains(&a.position))
+            {
+                return Err(Error::Invalid(
+                    "junction must sit on a vertex of a drawn wire of its net".into(),
+                ));
+            }
+            let id = allocate(next)?;
+            p.labels.push(pcbcraft_doc::Label {
+                id,
+                kind: a.kind,
+                net: a.net,
+                position: a.position,
+                rotation: a.rotation,
+            });
+            Ok(json!({"id":id}))
+        }
+        "pin.no_connect" => {
+            let a: NoConnectParams = parse(params)?;
+            if !p
+                .component(a.pin.component)
+                .is_some_and(|c| c.pins.iter().any(|pin| pin.number == a.pin.pin))
+            {
+                return Err(missing());
+            }
+            let component = a.pin.component;
+            let connected = p.wires.iter().any(|w| {
+                (w.from.component == component && w.from.pin == a.pin.pin)
+                    || (w.to.component == component && w.to.pin == a.pin.pin)
+            });
+            if connected {
+                return Err(Error::Invalid(
+                    "no-connect flag conflicts with a connected pin".into(),
+                ));
+            }
+            let duplicate = p
+                .no_connects
+                .iter()
+                .any(|f| f.pin.component == a.pin.component && f.pin.pin == a.pin.pin);
+            if duplicate {
+                return Err(Error::Invalid("pin already has a no-connect flag".into()));
+            }
+            let id = allocate(next)?;
+            p.no_connects
+                .push(pcbcraft_doc::NoConnectFlag { id, pin: a.pin });
+            Ok(json!({"id":id}))
+        }
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
@@ -1050,6 +1141,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.drawn_wires
                 .retain(|w| w.id != a.id && w.net.is_none_or(|n| n != a.id));
             p.graphics.retain(|g| g.id != a.id);
+            p.labels.retain(|l| l.id != a.id && l.net != a.id);
+            p.no_connects
+                .retain(|f| f.id != a.id && f.pin.component != a.id);
             p.board
                 .footprints
                 .retain(|f| f.id != a.id && f.component != a.id);
@@ -1160,6 +1254,86 @@ mod tests {
         assert_eq!(s.project.graphics.len(), 5);
         s.undo()?;
         assert_eq!(s.project.graphics.len(), 6);
+        Ok(())
+    }
+    #[test]
+    fn labels_and_no_connect_flags_validate_bind_and_undo_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"VCC"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for kind in ["label", "global", "hierarchical", "power"] {
+            s.execute(
+                "label.place",
+                json!({"kind":kind,"net":net,"position":{"x":10.0,"y":5.0},"rotation":90.0}),
+                None,
+            )?;
+        }
+        assert_eq!(s.project.labels.len(), 4);
+        assert!(s.project.validate().is_ok());
+        // A junction needs a drawn wire of its net under one of its vertices.
+        assert!(
+            s.execute(
+                "label.place",
+                json!({"kind":"junction","net":net,"position":{"x":10.0,"y":5.0}}),
+                None
+            )
+            .is_err()
+        );
+        s.execute(
+            "wire.draw",
+            json!({"points":[{"x":10.0,"y":5.0},{"x":20.0,"y":5.0}],"net":net}),
+            None,
+        )?;
+        s.execute(
+            "label.place",
+            json!({"kind":"junction","net":net,"position":{"x":10.0,"y":5.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.labels.len(), 5);
+        // Unknown kinds, unknown nets and off-wire junctions change nothing.
+        for params in [
+            json!({"kind":"port","net":net,"position":{"x":1.0,"y":1.0}}),
+            json!({"kind":"label","net":9999,"position":{"x":1.0,"y":1.0}}),
+            json!({"kind":"junction","net":net,"position":{"x":15.0,"y":9.0}}),
+        ] {
+            assert!(s.execute("label.place", params, None).is_err());
+        }
+        assert_eq!(s.project.labels.len(), 5);
+        // No-connect flags need a real, unconnected pin.
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R9","value":"1 k","position":{"x":50.0,"y":30.0}}),
+            None,
+        )?;
+        let resistor = s
+            .project
+            .components
+            .last()
+            .ok_or_else(|| "missing resistor".to_string())?
+            .id;
+        let other = s.project.components[0].id;
+        s.execute(
+            "pin.no_connect",
+            json!({"pin":{"component":resistor,"pin":"1"}}),
+            None,
+        )?;
+        assert_eq!(s.project.no_connects.len(), 1);
+        for params in [
+            json!({"pin":{"component":9999,"pin":"1"}}),
+            json!({"pin":{"component":resistor,"pin":"7"}}),
+            json!({"pin":{"component":other,"pin":"1"}}),
+            json!({"pin":{"component":resistor,"pin":"1"}}),
+        ] {
+            assert!(s.execute("pin.no_connect", params, None).is_err());
+        }
+        assert_eq!(s.project.no_connects.len(), 1);
+        // Deleting the net removes the labels that named it.
+        s.execute("object.delete", json!({"id":net}), None)?;
+        assert!(s.project.labels.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.labels.len(), 5);
+        assert_eq!(s.project.no_connects.len(), 1);
         Ok(())
     }
     #[test]

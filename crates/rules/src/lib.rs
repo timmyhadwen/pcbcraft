@@ -286,7 +286,12 @@ pub fn erc(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
     for c in &project.components {
         for p in &c.pins {
-            if p.net.is_none() {
+            if p.net.is_none()
+                && !project
+                    .no_connects
+                    .iter()
+                    .any(|f| f.pin.component == c.id && f.pin.pin == p.number)
+            {
                 result.push(Finding {
                     code: "unassigned_pin",
                     severity: "warning",
@@ -421,7 +426,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Footprint, Net, Pad, Track, component_template};
+    use pcbcraft_doc::{Footprint, Net, NoConnectFlag, Pad, PinRef, Track, component_template};
     fn fixture() -> Project {
         let mut p = Project::default();
         p.nets.push(Net {
@@ -469,6 +474,31 @@ mod tests {
             bridge: None,
             hole: None,
         }
+    }
+    #[test]
+    fn erc_suppresses_unassigned_pin_warnings_for_no_connect_flags() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "signal".into(),
+        });
+        let mut c = component_template("resistor", 2, "R2".into(), Point::new(10.0, 10.0))
+            .ok_or("resistor template missing")?;
+        c.pins[0].net = Some(1);
+        p.components.push(c);
+        let (component, pin) = p
+            .components
+            .first()
+            .and_then(|c| c.pins.get(1).map(|pin| (c.id, pin.number.clone())))
+            .ok_or("template pins missing")?;
+        assert!(erc(&p).iter().any(|f| f.code == "unassigned_pin"));
+        p.no_connects.push(NoConnectFlag {
+            id: 9,
+            pin: PinRef { component, pin },
+        });
+        p.validate()?;
+        assert!(!erc(&p).iter().any(|f| f.code == "unassigned_pin"));
+        Ok(())
     }
     #[test]
     fn plated_pad_bridges_front_and_back_but_identity_and_net_must_match() {

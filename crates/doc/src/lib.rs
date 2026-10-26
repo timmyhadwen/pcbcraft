@@ -146,6 +146,31 @@ pub struct Wire {
     pub from: PinRef,
     pub to: PinRef,
 }
+/// A named annotation attached to a logical net, as KiCad places local, global,
+/// hierarchical and power labels. Connectivity stays explicit: the label names a
+/// net that a command already assigned; it never creates a net by matching names.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Label {
+    pub id: Id,
+    /// `label`, `global`, `hierarchical`, `power` or `junction`.
+    pub kind: String,
+    /// Logical net the label names.
+    pub net: Id,
+    /// Anchor position in millimetres. A junction stores its point on a wire.
+    pub position: Point,
+    /// Text rotation in degrees, ignored for junctions.
+    pub rotation: f64,
+}
+impl Label {
+    pub const KINDS: [&'static str; 5] = ["label", "global", "hierarchical", "power", "junction"];
+}
+/// A flag marking a pin intentionally unconnected, as KiCad's no-connect flag
+/// suppresses its unconnected-pin violation.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct NoConnectFlag {
+    pub id: Id,
+    pub pin: PinRef,
+}
 /// Free-form schematic wire drawn by the user with explicit vertices, as in KiCad.
 /// Connectivity stays explicit: `net` is assigned by a command, never inferred from crossings.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -483,6 +508,12 @@ pub struct Project {
     /// Free-standing drawing primitives, as in KiCad schematic and board graphics.
     #[serde(default)]
     pub graphics: Vec<Graphic>,
+    /// Named net annotations placed on the schematic.
+    #[serde(default)]
+    pub labels: Vec<Label>,
+    /// Pins explicitly marked unconnected.
+    #[serde(default)]
+    pub no_connects: Vec<NoConnectFlag>,
     pub board: Board,
     #[serde(default)]
     pub library: ProjectLibrary,
@@ -532,6 +563,8 @@ impl Default for Project {
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
+            labels: vec![],
+            no_connects: vec![],
             board: Board {
                 width: 60.0,
                 height: 40.0,
@@ -665,6 +698,8 @@ impl Project {
             .chain(self.wires.iter().map(|x| x.id))
             .chain(self.drawn_wires.iter().map(|x| x.id))
             .chain(self.graphics.iter().map(|x| x.id))
+            .chain(self.labels.iter().map(|x| x.id))
+            .chain(self.no_connects.iter().map(|x| x.id))
             .chain(self.board.footprints.iter().map(|x| x.id))
             .chain(self.board.tracks.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
@@ -869,6 +904,42 @@ impl Project {
                 && g.points[0] == Point::new(g.points[0].x + g.width, g.points[0].y)
             {
                 return Err("circle graphic has zero radius".into());
+            }
+        }
+        for l in &self.labels {
+            if !Label::KINDS.iter().any(|k| *k == l.kind) {
+                return Err("unknown label kind".into());
+            }
+            if !self.nets.iter().any(|n| n.id == l.net) {
+                return Err("label references an unknown net".into());
+            }
+            if !l.position.valid() {
+                return Err("label position is out of range".into());
+            }
+            if !l.rotation.is_finite() || l.rotation.abs() > 360_000.0 {
+                return Err("invalid label rotation".into());
+            }
+            if l.kind == "junction"
+                && !self
+                    .drawn_wires
+                    .iter()
+                    .any(|w| w.net == Some(l.net) && w.points.contains(&l.position))
+            {
+                return Err("junction must sit on a vertex of a drawn wire of its net".into());
+            }
+        }
+        for f in &self.no_connects {
+            let Some(c) = self.component(f.pin.component) else {
+                return Err("no-connect flag references an unknown component".into());
+            };
+            if !c.pins.iter().any(|p| p.number == f.pin.pin) {
+                return Err("no-connect flag references an unknown pin".into());
+            }
+            if self.wires.iter().any(|w| {
+                (w.from.component == f.pin.component && w.from.pin == f.pin.pin)
+                    || (w.to.component == f.pin.component && w.to.pin == f.pin.pin)
+            }) {
+                return Err("no-connect flag conflicts with a connected pin".into());
             }
         }
         let b = &self.board;
