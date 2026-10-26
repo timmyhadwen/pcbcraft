@@ -814,6 +814,39 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn a_split_segment_still_conducts_across_the_break() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+        });
+        p.board.tracks.push(Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(15.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+        });
+        p.board.tracks.push(Track {
+            id: 3,
+            net: 1,
+            start: Point::new(15.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+        });
+        p.validate()?;
+        let items = copper(&p);
+        let head = items.iter().find(|c| c.id == 2).ok_or("head missing")?;
+        let tail = items.iter().find(|c| c.id == 3).ok_or("tail missing")?;
+        assert!(
+            touching(head, tail) && touching(tail, head),
+            "segments sharing an endpoint conduct through the split"
+        );
+        Ok(())
+    }
+    #[test]
     fn plated_pad_bridges_front_and_back_but_identity_and_net_must_match() {
         let mut front = test_copper(10, Point::new(10.0, 10.0), Layer::Front, 1, true);
         front.bridge = Some((10, "1".into()));

@@ -136,6 +136,11 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "wire.split",
+            "Split a drawn wire into two at a point on one of its segments",
+            schema(json!({"id":id_schema(),"at":point_schema()}), &["id", "at"]),
+        ),
+        (
             "graphic.add",
             "Add a free-standing schematic or board graphic: line, rect, circle, arc, polygon or text",
             schema(
@@ -240,6 +245,11 @@ pub fn commands() -> Vec<CommandSpec> {
                 json!({"net":id_schema(),"start":point_schema(),"end":point_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
                 &["net", "start", "end"],
             ),
+        ),
+        (
+            "track.split",
+            "Split one copper segment into two at a point on the track",
+            schema(json!({"id":id_schema(),"at":point_schema()}), &["id", "at"]),
         ),
         (
             "track.route",
@@ -675,6 +685,12 @@ struct StitchParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SplitParams {
+    id: Id,
+    at: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AlignParams {
     ids: Vec<Id>,
     mode: String,
@@ -988,6 +1004,43 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 points: a.points,
             });
             Ok(json!({"id":id,"vertices":vertices}))
+        }
+        "wire.split" => {
+            let a: SplitParams = parse(params)?;
+            if !a.at.valid() {
+                return Err(Error::Invalid("split point is out of range".into()));
+            }
+            let index = p
+                .drawn_wires
+                .iter()
+                .position(|w| w.id == a.id)
+                .ok_or_else(missing)?;
+            let wire = &p.drawn_wires[index];
+            let segment = (0..wire.points.len() - 1)
+                .find(|i| {
+                    let (from, to) = (wire.points[*i], wire.points[*i + 1]);
+                    a.at.distance(from) >= 0.01
+                        && a.at.distance(to) >= 0.01
+                        && pcbcraft_geom::point_segment(a.at, from, to) <= 1e-4
+                })
+                .ok_or_else(|| {
+                    Error::Invalid(
+                        "split point must lie on a wire segment, clear of its vertices".into(),
+                    )
+                })?;
+            let id = allocate(next)?;
+            let net = wire.net;
+            let mut head = wire.points[..=segment].to_vec();
+            head.push(a.at);
+            let mut tail = vec![a.at];
+            tail.extend_from_slice(&wire.points[segment + 1..]);
+            p.drawn_wires[index].points = head;
+            p.drawn_wires.push(DrawnWire {
+                id,
+                net,
+                points: tail,
+            });
+            Ok(json!({"id":id,"kept":a.id}))
         }
         "graphic.add" => {
             let a: GraphicParams = parse(params)?;
@@ -1308,6 +1361,39 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 layer: a.layer,
             });
             Ok(json!({"id":id}))
+        }
+        "track.split" => {
+            let a: SplitParams = parse(params)?;
+            if !a.at.valid() {
+                return Err(Error::Invalid("split point is out of range".into()));
+            }
+            let index = p
+                .board
+                .tracks
+                .iter()
+                .position(|t| t.id == a.id)
+                .ok_or_else(missing)?;
+            let track = &p.board.tracks[index];
+            if a.at.distance(track.start) < 0.01 || a.at.distance(track.end) < 0.01 {
+                return Err(Error::Invalid(
+                    "split point must sit clear of both track ends".into(),
+                ));
+            }
+            if pcbcraft_geom::point_segment(a.at, track.start, track.end) > 1e-4 {
+                return Err(Error::Invalid("split point must lie on the track".into()));
+            }
+            let id = allocate(next)?;
+            let (net, width, layer, end) = (track.net, track.width, track.layer, track.end);
+            p.board.tracks[index].end = a.at;
+            p.board.tracks.push(Track {
+                id,
+                net,
+                start: a.at,
+                end,
+                width,
+                layer,
+            });
+            Ok(json!({"id":id,"kept":a.id}))
         }
         "track.route" => {
             let a: Route = parse(params)?;
@@ -1832,6 +1918,84 @@ mod tests {
             .map(|f| f.position.y)
             .collect();
         assert_eq!(ys, vec![10.0, 10.0, 10.0]);
+        Ok(())
+    }
+    #[test]
+    fn splitting_tracks_and_wires_preserves_geometry_and_rejects_bad_points() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let wire = s.execute(
+            "wire.draw",
+            json!({"points":[{"x":10.0,"y":10.0},{"x":20.0,"y":10.0},{"x":20.0,"y":20.0}],"net":net}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let tail = s.execute(
+            "wire.split",
+            json!({"id":wire,"at":{"x":15.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.drawn_wires[0].points.len(), 2);
+        assert_eq!(s.project.drawn_wires[1].points.len(), 3);
+        assert_eq!(s.project.drawn_wires[1].points[0], Point::new(15.0, 10.0));
+        assert_eq!(s.project.drawn_wires[0].net, Some(net));
+        assert_eq!(s.project.drawn_wires[1].net, Some(net));
+        assert_eq!(s.project.drawn_wires[1].id, tail);
+        assert!(s.project.validate().is_ok());
+        let track = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":30.0,"y":30.0},"end":{"x":40.0,"y":30.0},"width":0.25,"layer":"B.Cu"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let second = s.execute(
+            "track.split",
+            json!({"id":track,"at":{"x":35.0,"y":30.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.board.tracks[0].end, Point::new(35.0, 30.0));
+        assert_eq!(s.project.board.tracks[1].start, Point::new(35.0, 30.0));
+        assert_eq!(s.project.board.tracks[1].end, Point::new(40.0, 30.0));
+        assert_eq!(s.project.board.tracks[1].layer, pcbcraft_doc::Layer::Back);
+        assert_eq!(s.project.board.tracks[1].net, net);
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"id":wire,"at":{"x":15.0,"y":12.0}}),
+            json!({"id":wire,"at":{"x":20.0,"y":10.0}}),
+            json!({"id":9999,"at":{"x":15.0,"y":10.0}}),
+            json!({"id":track,"at":{"x":35.0,"y":31.0}}),
+            json!({"id":track,"at":{"x":30.005,"y":30.0}}),
+            json!({"id":track,"at":{"x":1e6,"y":30.0}}),
+        ] {
+            let command =
+                if params["id"].as_u64() == Some(track) || params["id"].as_u64() == Some(9999) {
+                    "track.split"
+                } else {
+                    "wire.split"
+                };
+            assert!(s.execute(command, params, None).is_err());
+        }
+        assert_eq!(s.project.board.tracks.len(), 2);
+        assert_eq!(s.project.drawn_wires.len(), 2);
+        assert_eq!(s.project.board.tracks[1].id, second);
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), 1);
+        assert_eq!(s.project.board.tracks[0].end, Point::new(40.0, 30.0));
+        assert_eq!(s.project.drawn_wires[0].points.len(), 2);
+        s.undo()?;
+        assert!(s.project.board.tracks.is_empty());
+        assert_eq!(s.project.drawn_wires.len(), 2);
+        s.undo()?;
+        assert_eq!(s.project.drawn_wires.len(), 1);
+        assert_eq!(s.project.drawn_wires[0].points.len(), 3);
         Ok(())
     }
     #[test]
