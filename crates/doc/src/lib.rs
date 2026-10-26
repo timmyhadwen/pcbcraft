@@ -216,6 +216,52 @@ impl NetPairRule {
             && self.clearance <= 100.0
     }
 }
+/// A rectangular board area that demands a stricter minimum copper
+/// separation: copper lying wholly inside the rectangle, on the matching
+/// layer and net when those filters are set, must clear by at least the
+/// area's gap. The area raises the required clearance; it never lowers the
+/// net-pair requirement.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct RuleArea {
+    pub id: Id,
+    /// Optional note describing the area, such as a sensor or high-voltage
+    /// zone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// When set, the area only constrains copper of this net on one side of
+    /// each pair.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub net: Option<Id>,
+    /// When set, the area only constrains copper on this copper layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer: Option<Layer>,
+    /// Minimum copper separation demanded inside the area, in millimetres.
+    pub clearance: f64,
+    /// The rectangle itself.
+    pub region: RuleRegion,
+}
+impl RuleArea {
+    fn valid(&self) -> bool {
+        self.id != 0
+            && self.clearance.is_finite()
+            && self.clearance > 0.0
+            && self.clearance <= 100.0
+            && self
+                .name
+                .as_ref()
+                .is_none_or(|n| !n.is_empty() && n.len() <= 64)
+            && self.region.width.is_finite()
+            && self.region.height.is_finite()
+            && self.region.width > 0.0
+            && self.region.height > 0.0
+            && self.region.width <= 1000.0
+            && self.region.height <= 1000.0
+            && self.region.x >= -1000.0
+            && self.region.y >= -1000.0
+            && self.region.x + self.region.width <= 1000.0
+            && self.region.y + self.region.height <= 1000.0
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct PinRef {
     pub component: Id,
@@ -730,6 +776,10 @@ pub struct Board {
     /// Clearance rules between specific pairs of nets, ordered by net ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pair_rules: Vec<NetPairRule>,
+    /// Rectangular board areas that demand a stricter minimum copper
+    /// separation for copper whose midpoints lie inside them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rule_areas: Vec<RuleArea>,
     /// Free-form closed board outline in millimetres, ordered around the
     /// perimeter and implicitly closed. Absent means the plain rectangle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -983,6 +1033,7 @@ impl Default for Project {
                 layer_records: vec![],
                 machining: None,
                 pair_rules: vec![],
+                rule_areas: vec![],
                 outline: None,
                 footprints: vec![],
                 tracks: vec![],
@@ -1208,6 +1259,42 @@ impl Project {
         }
         best
     }
+    /// Minimum copper separation for a pair of copper items whose midpoints
+    /// sit at the given positions on the given layers. A rule area that
+    /// covers both midpoints, and matches the pair's nets and layers when
+    /// those filters are set, raises the requirement; it never lowers it.
+    pub fn required_clearance_at(
+        &self,
+        a: Id,
+        b: Id,
+        at_a: Point,
+        at_b: Point,
+        layer_a: Layer,
+        layer_b: Layer,
+    ) -> f64 {
+        let mut best = self.required_clearance(a, b);
+        for area in &self.board.rule_areas {
+            if area.clearance <= best {
+                continue;
+            }
+            if area.net.is_some_and(|n| a != n && b != n) {
+                continue;
+            }
+            if area.layer.is_some_and(|l| layer_a != l && layer_b != l) {
+                continue;
+            }
+            let inside = |p: Point| {
+                p.x >= area.region.x
+                    && p.x <= area.region.x + area.region.width
+                    && p.y >= area.region.y
+                    && p.y <= area.region.y + area.region.height
+            };
+            if inside(at_a) && inside(at_b) {
+                best = area.clearance;
+            }
+        }
+        best
+    }
     pub fn ids(&self) -> impl Iterator<Item = Id> + '_ {
         self.components
             .iter()
@@ -1224,6 +1311,7 @@ impl Project {
             .chain(self.board.vias.iter().map(|x| x.id))
             .chain(self.board.zones.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
+            .chain(self.board.rule_areas.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
     }
     pub fn validate(&self) -> Result<(), String> {
@@ -1317,6 +1405,14 @@ impl Project {
         }
         if self.board.pair_rules.len() > 64 {
             return Err("a board carries at most 64 net pair clearance rules".into());
+        }
+        if self.board.rule_areas.len() > 64 {
+            return Err("a board carries at most 64 rule areas".into());
+        }
+        for r in &self.board.rule_areas {
+            if !r.valid() || r.net.is_some_and(|n| !nets.contains(&n)) {
+                return Err("rule areas need a valid rectangle, a sane gap and a known net".into());
+            }
         }
         let mut paired: BTreeSet<(Id, Id)> = BTreeSet::new();
         for r in &self.board.pair_rules {

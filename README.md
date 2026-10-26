@@ -162,6 +162,10 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   stricter than either class or the board default when larger; the same pair
   replaces its rule, one call removes it, and the clearance check honours it
   immediately.
+- Rule areas: define a rectangle on the board that demands a stricter minimum
+  copper gap for copper whose midpoints lie inside it, optionally narrowed to
+  one net and one copper layer; the check honours it immediately and one call
+  removes the area again.
 - Barcodes: draw a Code 39 barcode (up to 48 characters of digits, letters and
   punctuation, case-folded) as real bar graphics on either layer, with
   selectable height and module width; the whole symbol lands and undoes as one
@@ -225,7 +229,7 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 144 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 146 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
 - 169 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,

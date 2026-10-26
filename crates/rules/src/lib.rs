@@ -476,7 +476,11 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     for (i, a) in items.iter().enumerate() {
         for b in items.iter().skip(i + 1) {
             if (a.net != b.net || a.net == 0) && a.layer == b.layer {
-                let required = project.required_clearance(a.net, b.net);
+                let mid = |c: &Copper| {
+                    Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0)
+                };
+                let required =
+                    project.required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer);
                 if segment_distance(a.start, a.end, b.start, b.end) - a.radius - b.radius > required
                 {
                     continue;
