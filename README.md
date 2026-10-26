@@ -66,7 +66,8 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Background search and geometry previews of installed KiCad symbol/footprint
   libraries, including inherited definitions. Place supported symbols with
   independently movable schematic units within one physical package, assign
-  matching front SMD or plated through-hole footprints, and embed used definitions.
+  matching front SMD or plated through-hole footprints, in bulk with a
+  reference wildcard, and embed used definitions.
 - Symbol and footprint editors in the Libraries tab: editable pins, unit membership,
   pad/drill dimensions, and line/rectangle/circle/arc/polyline/text graphics. Save
   undoable project-library definitions and reusable `.pcbcraft-lib` collections.
@@ -84,9 +85,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Named net classes: group nets once and every clearance check between their
   copper uses the strictest requirement involved, while new tracks and routes
   on a classified net start at that class's width unless a width is given.
-- 68 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 69 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 86 MCP tools: every engine command plus library discovery/search/inspection,
+- 87 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

@@ -83,6 +83,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "footprint.assign_pattern",
+            "Assign one footprint file to every component whose reference matches a * or ? pattern; components whose pins do not match the pads are skipped and reported",
+            schema(
+                json!({"pattern":{"type":"string","description":"reference wildcard, case sensitive"},"path":{"type":"string"}}),
+                &["pattern", "path"],
+            ),
+        ),
+        (
             "component.move",
             "Move a schematic component; connected wire endpoints follow",
             schema(
@@ -716,6 +724,12 @@ struct PlaceLibrary {
 #[serde(deny_unknown_fields)]
 struct AssignFootprint {
     id: Id,
+    path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AssignPatternParams {
+    pattern: String,
     path: String,
 }
 fn component_pads(c: &Component) -> Vec<Pad> {
@@ -1544,6 +1558,71 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     .into(),
                 library::footprint(path)?,
             )
+        }
+        "footprint.assign_pattern" => {
+            let a: AssignPatternParams = parse(params)?;
+            if a.pattern.is_empty() || a.pattern.len() > 64 || !a.pattern.contains(['*', '?']) {
+                return Err(Error::Invalid(
+                    "reference pattern must be 1 to 64 bytes and contain * or ?".into(),
+                ));
+            }
+            if a.path.is_empty() || a.path.len() > 1024 {
+                return Err(Error::Invalid("path must be 1 to 1024 bytes".into()));
+            }
+            let path = std::path::Path::new(&a.path);
+            let definition = library::footprint(path)?;
+            definition
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            validate_footprint_support(&definition)?;
+            let library_name = path
+                .parent()
+                .and_then(|p| p.file_stem())
+                .and_then(|s| s.to_str())
+                .unwrap_or("library")
+                .to_string();
+            let matched: Vec<Id> = p
+                .components
+                .iter()
+                .filter(|c| class_pattern_matches(&a.pattern, &c.reference))
+                .map(|c| c.id)
+                .collect();
+            if matched.is_empty() {
+                return Err(Error::Invalid(
+                    "no component reference matches that pattern".into(),
+                ));
+            }
+            let pads: std::collections::BTreeSet<_> =
+                definition.pads.iter().map(|p| p.number.as_str()).collect();
+            let mut assigned = vec![];
+            let mut skipped = vec![];
+            for id in matched {
+                let c = p
+                    .components
+                    .iter_mut()
+                    .find(|c| c.id == id)
+                    .ok_or_else(missing)?;
+                let pins: std::collections::BTreeSet<_> =
+                    c.pins.iter().map(|p| p.number.as_str()).collect();
+                if pins != pads {
+                    skipped.push(id);
+                    continue;
+                }
+                c.library_footprint = Some(LibraryFootprint {
+                    library: library_name.clone(),
+                    definition: definition.clone(),
+                });
+                if let Some(f) = p.board.footprints.iter_mut().find(|f| f.component == id) {
+                    f.pads = component_pads(c);
+                }
+                assigned.push(id);
+            }
+            if assigned.is_empty() {
+                return Err(Error::Invalid(
+                    "no matched component can take this footprint; pad numbers differ".into(),
+                ));
+            }
+            Ok(json!({"pattern": a.pattern, "assigned": assigned, "skipped": skipped}))
         }
         "component.move" => {
             let a: Move = parse(params)?;
@@ -5989,6 +6068,89 @@ mod tests {
         let unchanged = s.project.clone();
         s.execute("component.find", json!({"reference":"?*"}), None)?;
         assert_eq!(s.project, unchanged);
+        Ok(())
+    }
+    #[test]
+    fn footprints_can_be_assigned_to_every_component_matching_a_pattern() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (kind, reference, x) in [
+            ("resistor", "R1", 10.0),
+            ("resistor", "R2", 25.0),
+            ("resistor", "R3", 40.0),
+            ("connector", "J1", 55.0),
+        ] {
+            s.execute(
+                "component.add",
+                json!({"kind":kind,"reference":reference,"position":{"x":x,"y":10.0}}),
+                None,
+            )?;
+        }
+        let path = library_fixture("R_0805_2012Metric.kicad_mod");
+        let out = s.execute(
+            "footprint.assign_pattern",
+            json!({"pattern":"R*","path":path}),
+            None,
+        )?;
+        assert_eq!(out["result"]["assigned"].as_array().map(Vec::len), Some(3));
+        assert_eq!(out["result"]["skipped"].as_array().map(Vec::len), Some(0));
+        for c in &s.project.components {
+            if c.kind == "resistor" {
+                assert!(
+                    c.library_footprint.is_some(),
+                    "{} took the footprint",
+                    c.reference
+                );
+            } else {
+                assert!(
+                    c.library_footprint.is_none(),
+                    "{} was left alone",
+                    c.reference
+                );
+            }
+        }
+        s.undo()?;
+        assert!(
+            s.project
+                .components
+                .iter()
+                .all(|c| c.library_footprint.is_none()),
+            "one undo releases every bulk assignment"
+        );
+        s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM2904","reference":"U1","position":{"x":70.0,"y":30.0}}),
+            None,
+        )?;
+        let out = s.execute(
+            "footprint.assign_pattern",
+            json!({"pattern":"*","path":path}),
+            None,
+        )?;
+        assert_eq!(out["result"]["assigned"].as_array().map(Vec::len), Some(4));
+        assert_eq!(out["result"]["skipped"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            s.project
+                .components
+                .iter()
+                .filter(|c| c.library_footprint.is_some())
+                .count(),
+            4,
+            "the eight-pin package cannot take a two-pad resistor footprint"
+        );
+        let before = s.inspect();
+        for params in [
+            json!({"pattern":"R1","path":path}),
+            json!({"pattern":"","path":path}),
+            json!({"pattern":"X*","path":path}),
+            json!({"pattern":"R*","path":library_fixture("DIP-8_W7.62mm.kicad_mod")}),
+            json!({"pattern":"R*","path":""}),
+            json!({"pattern":"R*","path":library_fixture("absent.kicad_mod")}),
+            json!({"pattern":"R*","path":path,"extra":1}),
+        ] {
+            assert!(s.execute("footprint.assign_pattern", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        assert!(s.project.validate().is_ok());
         Ok(())
     }
     #[test]
