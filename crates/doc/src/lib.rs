@@ -607,6 +607,29 @@ pub struct BoardText {
     #[serde(default)]
     pub rotation: f64,
 }
+/// One named board layer record, kept for fabrication notes: a layer's role
+/// and thickness as stated by the stackup the design was built against.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct LayerRecord {
+    /// Display name, for example "F.Cu", "Core" or "L2".
+    pub name: String,
+    /// Layer role: copper, core, prepreg, soldermask, silkscreen, paste or custom.
+    pub kind: String,
+    /// Layer thickness in millimetres.
+    pub thickness: f64,
+}
+impl LayerRecord {
+    fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && matches!(
+                self.kind.as_str(),
+                "copper" | "core" | "prepreg" | "soldermask" | "silkscreen" | "paste" | "custom"
+            )
+            && self.thickness.is_finite()
+            && (0.0..=100.0).contains(&self.thickness)
+    }
+}
 fn board_finish() -> String {
     "HASL".into()
 }
@@ -631,6 +654,9 @@ pub struct Board {
     /// Origin that drill file coordinates are measured from, in millimetres.
     #[serde(default = "board_origin")]
     pub drill_origin: Point,
+    /// Recorded per-layer fabrication notes, ordered by layer name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layer_records: Vec<LayerRecord>,
     pub footprints: Vec<Footprint>,
     pub tracks: Vec<Track>,
     /// Plated through-hole vias joining front and back copper.
@@ -762,6 +788,7 @@ impl Default for Project {
                 finish: board_finish(),
                 er: board_er(),
                 drill_origin: board_origin(),
+                layer_records: vec![],
                 footprints: vec![],
                 tracks: vec![],
                 vias: vec![],
@@ -1351,6 +1378,8 @@ impl Project {
             || !b.drill_origin.valid()
             || b.drill_origin.x.abs() > 1000.0
             || b.drill_origin.y.abs() > 1000.0
+            || b.layer_records.len() > 32
+            || b.layer_records.iter().any(|l| !l.valid())
         {
             return Err("invalid board dimensions/rules".into());
         }

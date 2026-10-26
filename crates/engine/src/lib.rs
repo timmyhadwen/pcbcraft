@@ -684,6 +684,19 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({}), &[]),
         ),
         (
+            "board.set_layer_record",
+            "Record or replace one board layer note: its name, role (copper, core, prepreg, soldermask, silkscreen, paste or custom) and thickness in millimetres; at most 32 notes per board",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":["copper","core","prepreg","soldermask","silkscreen","paste","custom"]},"thickness":{"type":"number"}}),
+                &["name", "kind", "thickness"],
+            ),
+        ),
+        (
+            "board.clear_layer_records",
+            "Remove every recorded board layer note",
+            schema(json!({}), &[]),
+        ),
+        (
             "net.lengths",
             "Report routed copper length per net: track segments summed in millimetres, with via counts and unrouted nets listed",
             schema(json!({"net":id_schema()}), &[]),
@@ -947,7 +960,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1483,6 +1496,13 @@ struct NetImpedanceParams {
 #[serde(deny_unknown_fields)]
 struct DrillOriginParams {
     position: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LayerRecordParams {
+    name: String,
+    kind: String,
+    thickness: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4462,6 +4482,58 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             p.board.drill_origin = pcbcraft_geom::Point::default();
             Ok(json!({"drill_origin": p.board.drill_origin}))
+        }
+        "board.set_layer_record" => {
+            let a: LayerRecordParams = parse(params)?;
+            let name = a.name.trim().to_string();
+            if name.is_empty()
+                || name.len() > 64
+                || !matches!(
+                    a.kind.as_str(),
+                    "copper"
+                        | "core"
+                        | "prepreg"
+                        | "soldermask"
+                        | "silkscreen"
+                        | "paste"
+                        | "custom"
+                )
+                || !a.thickness.is_finite()
+                || !(0.0..=100.0).contains(&a.thickness)
+            {
+                return Err(Error::Invalid(
+                    "layer record needs a short name, a known role and a thickness within 100mm"
+                        .into(),
+                ));
+            }
+            let records = &mut p.board.layer_records;
+            if let Some(existing) = records.iter_mut().find(|l| l.name == name) {
+                existing.kind = a.kind;
+                existing.thickness = a.thickness;
+            } else {
+                if records.len() >= 32 {
+                    return Err(Error::Invalid(
+                        "a board records at most 32 layer notes".into(),
+                    ));
+                }
+                records.push(pcbcraft_doc::LayerRecord {
+                    name: name.clone(),
+                    kind: a.kind,
+                    thickness: a.thickness,
+                });
+                records.sort_by(|x, y| x.name.cmp(&y.name));
+            }
+            Ok(json!({"name": name, "count": p.board.layer_records.len()}))
+        }
+        "board.clear_layer_records" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "board.clear_layer_records takes an empty object".into(),
+                ));
+            }
+            let removed = p.board.layer_records.len();
+            p.board.layer_records.clear();
+            Ok(json!({"removed": removed}))
         }
         "net.lengths" => {
             let a: NetLengthsParams = parse(params)?;
@@ -8320,6 +8392,72 @@ mod tests {
         )?;
         s.undo()?;
         assert_eq!(s.inspect()["project"], before, "the origin edit undoes");
+        Ok(())
+    }
+    #[test]
+    fn layer_records_are_named_replaced_ordered_undone_and_cleared() -> Result<(), Error> {
+        let mut s = Session::default();
+        let core = s.execute(
+            "board.set_layer_record",
+            json!({"name":"Core","kind":"core","thickness":1.2}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(core["count"], 1, "the first note is recorded");
+        s.execute(
+            "board.set_layer_record",
+            json!({"name":"F.Cu","kind":"copper","thickness":0.035}),
+            None,
+        )?;
+        let replaced = s.execute(
+            "board.set_layer_record",
+            json!({"name":"Core","kind":"prepreg","thickness":0.2}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(replaced["count"], 2, "a repeated name replaces its note");
+        let records = s.inspect()["project"]["board"]["layer_records"].clone();
+        assert_eq!(records[0]["name"], "Core");
+        assert_eq!(records[0]["kind"], "prepreg");
+        assert_eq!(records[0]["thickness"], 0.2);
+        assert_eq!(records[1]["name"], "F.Cu", "notes stay ordered by name");
+        for bad in [
+            json!({"name":"  ","kind":"core","thickness":1.0}),
+            json!({"name":"L1","kind":"bronze","thickness":1.0}),
+            json!({"name":"L1","kind":"core","thickness":-0.1}),
+            json!({"name":"L1","kind":"core","thickness":101.0}),
+            json!({"name":"L1","kind":"core"}),
+        ] {
+            assert!(
+                s.execute("board.set_layer_record", bad, None).is_err(),
+                "bad layer notes are refused"
+            );
+        }
+        assert!(
+            s.execute("board.clear_layer_records", json!({"name":"Core"}), None)
+                .is_err(),
+            "board.clear_layer_records takes an empty object"
+        );
+        s.undo()?;
+        let records = s.inspect()["project"]["board"]["layer_records"].clone();
+        assert_eq!(records[0]["kind"], "core", "a replace undoes cleanly");
+        assert_eq!(records[0]["thickness"], 1.2);
+        let cleared = s.execute("board.clear_layer_records", json!({}), None)?["result"].clone();
+        assert_eq!(cleared["removed"], 2, "clearing reports what it dropped");
+        assert!(
+            s.inspect()["project"]["board"]
+                .get("layer_records")
+                .is_none_or(|a| a.as_array().is_some_and(|a| a.is_empty())),
+            "the board is left with no notes"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["board"]["layer_records"]
+                .as_array()
+                .map_or(0, |a| a.len()),
+            2,
+            "the clear undoes"
+        );
         Ok(())
     }
     #[test]
