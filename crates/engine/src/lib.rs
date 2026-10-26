@@ -364,6 +364,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "barcode.place",
+            "Draw a Code 39 barcode of up to 48 characters as bar graphics at a position, with optional height in millimetres, module width in millimetres and layer",
+            schema(
+                json!({"text":{"type":"string","minLength":1,"maxLength":48},"position":point_schema(),"height":{"type":"number","minimum":0.5,"maximum":50},"module":{"type":"number","minimum":0.05,"maximum":2},"layer":{"type":"string","enum":["schematic","board"]}}),
+                &["text", "position"],
+            ),
+        ),
+        (
             "label.place",
             "Place a local, global, hierarchical or power label, or a junction, naming an existing net",
             schema(
@@ -1050,7 +1058,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1338,6 +1346,66 @@ struct DrawnWireParams {
     points: Vec<Point>,
     net: Option<Id>,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BarcodeParams {
+    text: String,
+    position: Point,
+    #[serde(default)]
+    height: Option<f64>,
+    #[serde(default)]
+    module: Option<f64>,
+    #[serde(default)]
+    layer: Option<String>,
+}
+/// Code 39 element patterns: five bars and four spaces per symbol, three of
+/// the nine elements wide, bars at even indices.
+const CODE39: &[(char, &str)] = &[
+    ('*', "nwnnwnwnn"),
+    ('0', "nnnwwnwnn"),
+    ('1', "wnnwnnnnw"),
+    ('2', "nnwwnnnnw"),
+    ('3', "wnwwnnnnn"),
+    ('4', "nnnwwnnnw"),
+    ('5', "wnnwwnnnn"),
+    ('6', "nnwwwnnnn"),
+    ('7', "nnnwnnwnw"),
+    ('8', "wnnwnnwnn"),
+    ('9', "nnwwnnwnn"),
+    ('A', "wnnnnwnnw"),
+    ('B', "nnwnnwnnw"),
+    ('C', "wnwnnwnnn"),
+    ('D', "nnnnwwnnw"),
+    ('E', "wnnnwwnnn"),
+    ('F', "nnwnwwnnn"),
+    ('G', "nnnnnwwnw"),
+    ('H', "wnnnnwwnn"),
+    ('I', "nnwnnwwnn"),
+    ('J', "nnnnwwwnn"),
+    ('K', "wnnnnnnww"),
+    ('L', "nnwnnnnww"),
+    ('M', "wnwnnnnwn"),
+    ('N', "nnnnwnnww"),
+    ('O', "wnnnwnnwn"),
+    ('P', "nnwnwnnwn"),
+    ('Q', "nnnnnnwww"),
+    ('R', "wnnnnnwwn"),
+    ('S', "nnwnnnwnw"),
+    ('T', "nnnwnnwnn"),
+    ('U', "wwnnnnnnw"),
+    ('V', "nwwnnnnnw"),
+    ('W', "wwwnnnnnn"),
+    ('X', "nwnnwnnnw"),
+    ('Y', "wwnnwnnnn"),
+    ('Z', "nwwnwnnnn"),
+    ('-', "nwnnnnwnw"),
+    ('.', "nwwnnnnwn"),
+    (' ', "nwnnnnwwn"),
+    ('$', "nwnwnwnnn"),
+    ('/', "nwnwnnnwn"),
+    ('+', "nwnnnwnwn"),
+    ('%', "nnnwnwnwn"),
+];
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicParams {
@@ -3818,6 +3886,82 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             graphic.points[a.index] = a.position;
             Ok(json!({"id":a.id,"index":a.index,"position":a.position}))
+        }
+        "barcode.place" => {
+            let a: BarcodeParams = parse(params)?;
+            let layer = a.layer.unwrap_or_else(|| "board".to_string());
+            if layer != "schematic" && layer != "board" {
+                return Err(Error::Invalid(
+                    "barcode layer must be schematic or board".into(),
+                ));
+            }
+            let height = a.height.unwrap_or(3.0);
+            if !height.is_finite() || height < 0.5 || height > 50.0 {
+                return Err(Error::Invalid(
+                    "barcode height must be between 0.5 and 50 mm".into(),
+                ));
+            }
+            let module = a.module.unwrap_or(0.25);
+            if !module.is_finite() || module < 0.05 || module > 2.0 {
+                return Err(Error::Invalid(
+                    "barcode module width must be between 0.05 and 2 mm".into(),
+                ));
+            }
+            let text = a.text.trim().to_uppercase();
+            if text.is_empty() || text.len() > 48 {
+                return Err(Error::Invalid(
+                    "barcode text must be 1 to 48 characters".into(),
+                ));
+            }
+            if !a.position.valid() {
+                return Err(Error::Invalid("barcode position is out of range".into()));
+            }
+            let mut bars: Vec<(f64, f64)> = Vec::new();
+            let mut x = 0.0f64;
+            for sym in std::iter::once('*')
+                .chain(text.chars())
+                .chain(std::iter::once('*'))
+            {
+                let Some((_, pattern)) = CODE39.iter().find(|(c, _)| *c == sym) else {
+                    return Err(Error::Invalid(format!(
+                        "a Code 39 barcode cannot show {sym}"
+                    )));
+                };
+                for (i, element) in pattern.chars().enumerate() {
+                    let w = if element == 'w' { 3.0 * module } else { module };
+                    if i % 2 == 0 {
+                        bars.push((x + w / 2.0, w));
+                    }
+                    x += w;
+                }
+                x += module;
+            }
+            let top = a.position.y + height;
+            if !Point::new(a.position.x + x, top).valid() {
+                return Err(Error::Invalid("the barcode extends out of range".into()));
+            }
+            if p.graphics.len() + bars.len() > 4096 {
+                return Err(Error::Invalid(
+                    "the drawing holds at most 4096 graphics".into(),
+                ));
+            }
+            let mut count = 0usize;
+            for (cx, w) in bars {
+                let id = allocate(next)?;
+                p.graphics.push(pcbcraft_doc::Graphic {
+                    id,
+                    layer: layer.clone(),
+                    shape: "line".into(),
+                    points: vec![
+                        Point::new(a.position.x + cx, a.position.y),
+                        Point::new(a.position.x + cx, top),
+                    ],
+                    width: w,
+                    text: String::new(),
+                });
+                count += 1;
+            }
+            Ok(json!({"count": count, "width": x - module}))
         }
         "label.place" => {
             let a: LabelParams = parse(params)?;
@@ -9000,6 +9144,55 @@ mod tests {
             2,
             "the clear undoes"
         );
+        Ok(())
+    }
+    #[test]
+    fn barcode_place_draws_bars_in_one_step_and_refuses_bad_text() -> Result<(), Error> {
+        let mut s = Session::default();
+        let out = s.execute(
+            "barcode.place",
+            json!({"text":"pcb-1","position":[5,5]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["count"], 35, "each symbol contributes five bars");
+        let graphics = s.inspect()["project"]["graphics"].clone();
+        assert_eq!(graphics.as_array().map_or(0, |g| g.len()), 35);
+        assert_eq!(graphics[0]["layer"], "board");
+        assert_eq!(graphics[0]["shape"], "line");
+        assert_eq!(graphics[0]["points"][0]["x"], 5.125, "bars are centred");
+        assert_eq!(graphics[0]["width"], 0.25, "a narrow bar is one module");
+        assert_eq!(graphics[0]["points"][1]["y"], 8.0, "default height is 3 mm");
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["graphics"].get(0).is_none(),
+            "the whole barcode undoes in one step"
+        );
+        for bad in [
+            json!({"text":"AI-9#","position":[5,5]}),
+            json!({"text":"","position":[5,5]}),
+            json!({"text":"  ","position":[5,5]}),
+            json!({"text":"A".repeat(49),"position":[5,5]}),
+            json!({"text":"AB","position":[5,5],"height":0.4}),
+            json!({"text":"AB","position":[5,5],"module":0.04}),
+            json!({"text":"AB","position":[5,5],"layer":"copper"}),
+            json!({"text":"AB"}),
+        ] {
+            assert!(
+                s.execute("barcode.place", bad, None).is_err(),
+                "bad barcodes are refused"
+            );
+        }
+        let out2 = s.execute(
+            "barcode.place",
+            json!({"text":"OK","position":[0,0],"layer":"schematic","module":0.5,"height":5}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out2["count"], 20, "four symbols times five bars");
+        let g = s.inspect()["project"]["graphics"].clone();
+        assert_eq!(g[0]["layer"], "schematic");
+        assert_eq!(g[0]["width"], 0.5, "the module sets the narrow bar width");
         Ok(())
     }
     #[test]

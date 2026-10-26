@@ -155,6 +155,10 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   stricter than either class or the board default when larger; the same pair
   replaces its rule, one call removes it, and the clearance check honours it
   immediately.
+- Barcodes: draw a Code 39 barcode (up to 48 characters of digits, letters and
+  punctuation, case-folded) as real bar graphics on either layer, with
+  selectable height and module width; the whole symbol lands and undoes as one
+  step and stays editable like any other graphic.
 - Design queries: report the bounding box of all placed copper per side
   (tracks by width, via and pad extents, zone outlines), and list object
   IDs by kind with optional net and copper-side filters.
@@ -185,9 +189,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 125 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 126 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 150 MCP tools: every engine command plus library discovery/search/inspection,
+- 151 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
