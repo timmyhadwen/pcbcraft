@@ -152,6 +152,26 @@ fn copper(project: &Project) -> Vec<Copper> {
         result.push(back);
         result.push(item);
     }
+    for z in &project.board.zones {
+        let Some(&first) = z.outline.first() else {
+            continue;
+        };
+        result.push(Copper {
+            id: z.id,
+            net: z.net,
+            start: first,
+            end: first,
+            radius: 0.0,
+            contact_radius: 0.0,
+            conservative: false,
+            outline: Some(z.outline.clone()),
+            outline_error: 0.0,
+            layer: z.layer,
+            pad: false,
+            bridge: None,
+            hole: None,
+        });
+    }
     result
 }
 fn hole_contains(hole: &Hole, other: &Copper) -> bool {
@@ -167,11 +187,29 @@ fn hole_contains(hole: &Hole, other: &Copper) -> bool {
         .into_iter()
         .all(|point| point_segment(point, hole.start, hole.end) + radius < hole.radius - 1e-6)
 }
+fn overlapping(a: &Copper, b: &Copper) -> bool {
+    // A segment endpoint (or one whole outline) inside another outline means
+    // real overlap, which capsule distance alone cannot see.
+    match (&a.outline, &b.outline) {
+        (Some(a_points), Some(b_points)) => {
+            let hit = |points: &[Point], other: &[Point]| {
+                points.first().is_some_and(|p| inside(*p, other))
+            };
+            hit(a_points, b_points) || hit(b_points, a_points)
+        }
+        (Some(a_points), None) => inside(b.start, a_points) || inside(b.end, a_points),
+        (None, Some(b_points)) => inside(a.start, b_points) || inside(a.end, b_points),
+        (None, None) => false,
+    }
+}
 fn touching(a: &Copper, b: &Copper) -> bool {
     if a.net != b.net {
         return false;
     }
     if a.bridge.is_some() && a.bridge == b.bridge {
+        return true;
+    }
+    if a.layer == b.layer && overlapping(a, b) {
         return true;
     }
     a.layer == b.layer
@@ -587,6 +625,86 @@ mod tests {
         assert!(
             touching(back, back_track),
             "the via pad must touch back copper it overlaps"
+        );
+        Ok(())
+    }
+    #[test]
+    fn zones_conduct_same_net_copper_inside_their_outline() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "other".into(),
+        });
+        let square = vec![
+            Point::new(0.0, 0.0),
+            Point::new(50.0, 0.0),
+            Point::new(50.0, 30.0),
+            Point::new(0.0, 30.0),
+            Point::new(0.0, 0.0),
+        ];
+        p.board.zones.push(pcbcraft_doc::CopperZone {
+            id: 4,
+            net: 1,
+            layer: Layer::Front,
+            outline: square,
+        });
+        p.board.tracks.push(Track {
+            id: 5,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+        });
+        p.board.tracks.push(Track {
+            id: 6,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.25,
+            layer: Layer::Back,
+        });
+        p.board.tracks.push(Track {
+            id: 7,
+            net: 2,
+            start: Point::new(30.0, 20.0),
+            end: Point::new(40.0, 20.0),
+            width: 0.25,
+            layer: Layer::Front,
+        });
+        p.validate()?;
+        let items = copper(&p);
+        let zone = items
+            .iter()
+            .find(|c| c.id == 4)
+            .ok_or("zone copper missing")?;
+        let inside = items
+            .iter()
+            .find(|c| c.id == 5)
+            .ok_or("front track missing")?;
+        let other_layer = items
+            .iter()
+            .find(|c| c.id == 6)
+            .ok_or("back track missing")?;
+        let other_net = items
+            .iter()
+            .find(|c| c.id == 7)
+            .ok_or("other-net track missing")?;
+        assert!(
+            touching(zone, inside),
+            "same-net same-layer copper inside the outline conducts"
+        );
+        assert!(
+            !touching(zone, other_layer),
+            "the zone is confined to its own layer"
+        );
+        assert!(
+            !touching(zone, other_net),
+            "the zone never conducts to another net"
         );
         Ok(())
     }

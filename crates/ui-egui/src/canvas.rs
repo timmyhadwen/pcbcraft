@@ -82,6 +82,18 @@ fn fill_polygon(painter: &egui::Painter, points: &[Pos2], color: Color32, clip: 
         }
     }
 }
+/// Ray-cast point-in-polygon test for closed outlines (first vertex repeated).
+fn polygon_contains(points: &[Point], pos: Point) -> bool {
+    let mut inside = false;
+    for edge in points.windows(2) {
+        let (a, b) = (edge[0], edge[1]);
+        if (a.y > pos.y) != (b.y > pos.y) && pos.x < (b.x - a.x) * (pos.y - a.y) / (b.y - a.y) + a.x
+        {
+            inside = !inside;
+        }
+    }
+    inside
+}
 impl App {
     pub(super) fn select_at(&mut self, pos: Point, zoom: f32) {
         let id = self.pick_object(pos, zoom);
@@ -456,6 +468,15 @@ impl App {
                 .find(|c| (c.center.distance(pos) - c.radius).abs() * (zoom as f64) < 10.0)
             {
                 return Some(c.id);
+            }
+            if let Some(z) = self
+                .project
+                .board
+                .zones
+                .iter()
+                .find(|z| polygon_contains(&z.outline, pos))
+            {
+                return Some(z.id);
             }
             self.project
                 .board
@@ -917,6 +938,32 @@ impl App {
                     );
                 }
             }
+        }
+        for z in &p.board.zones {
+            let screen: Vec<egui::Pos2> = z
+                .outline
+                .iter()
+                .map(|pt| camera.screen(*pt, rect))
+                .collect();
+            let rgb = if z.layer == Layer::Front {
+                [245, 141, 121]
+            } else {
+                [116, 167, 236]
+            };
+            let fill = if self.selected == Some(z.id) {
+                self.accent().linear_multiply(0.35)
+            } else {
+                Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(0.3)
+            };
+            painter.add(egui::Shape::convex_polygon(
+                screen.clone(),
+                fill,
+                Stroke::NONE,
+            ));
+            painter.add(egui::Shape::closed_line(
+                screen,
+                Stroke::new(1.0, Color32::from_rgb(rgb[0], rgb[1], rgb[2])),
+            ));
         }
         for t in &p.board.tracks {
             painter.line_segment(

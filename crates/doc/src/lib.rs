@@ -492,6 +492,18 @@ pub struct Via {
     /// Drilled hole diameter in millimetres; zero keeps an unplated blind hole.
     pub drill: f64,
 }
+/// A solid copper region on one layer, bounded by a closed polygon and
+/// belonging to a net. Same-net copper that falls inside the outline conducts
+/// to the zone; the zone keeps its clearance from copper of other nets.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct CopperZone {
+    pub id: Id,
+    pub net: Id,
+    pub layer: Layer,
+    /// Closed outline in millimetres: at least three distinct vertices with the
+    /// first vertex repeated last.
+    pub outline: Vec<Point>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Cutout {
     pub id: Id,
@@ -509,6 +521,9 @@ pub struct Board {
     /// Plated through-hole vias joining front and back copper.
     #[serde(default)]
     pub vias: Vec<Via>,
+    /// Poured copper zones, one polygon per zone on a single layer.
+    #[serde(default)]
+    pub zones: Vec<CopperZone>,
     pub cutouts: Vec<Cutout>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -589,6 +604,7 @@ impl Default for Project {
                 footprints: vec![],
                 tracks: vec![],
                 vias: vec![],
+                zones: vec![],
                 cutouts: vec![],
             },
         }
@@ -720,6 +736,7 @@ impl Project {
             .chain(self.board.footprints.iter().map(|x| x.id))
             .chain(self.board.tracks.iter().map(|x| x.id))
             .chain(self.board.vias.iter().map(|x| x.id))
+            .chain(self.board.zones.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
     }
     pub fn validate(&self) -> Result<(), String> {
@@ -1062,6 +1079,24 @@ impl Project {
                 || v.drill >= v.diameter
             {
                 return Err("invalid via geometry or net".into());
+            }
+        }
+        for z in &b.zones {
+            if !nets.contains(&z.net) || z.outline.len() < 4 || z.outline.len() > 257 {
+                return Err("a zone outline needs 3 to 256 vertices and a known net".into());
+            }
+            if z.outline.first() != z.outline.last() {
+                return Err("zone outline must be closed".into());
+            }
+            if !z.outline.iter().all(|pt| pt.valid()) {
+                return Err("zone outline vertex is out of range".into());
+            }
+            let mut area = 0.0;
+            for edge in z.outline.windows(2) {
+                area += edge[0].x * edge[1].y - edge[1].x * edge[0].y;
+            }
+            if area.abs() < 1e-6 {
+                return Err("zone outline has no area".into());
             }
         }
         for c in &b.cutouts {

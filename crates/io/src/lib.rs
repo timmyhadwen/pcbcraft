@@ -320,6 +320,22 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
         for c in &p.board.cutouts {
             s.push_str(&format!("<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#131c29\" stroke=\"#5ae0bc\" stroke-width=\"0.1\"/>",c.center.x,c.center.y,c.radius));
         }
+        for z in &p.board.zones {
+            let color = if z.layer == pcbcraft_doc::Layer::Front {
+                "#f58d79"
+            } else {
+                "#74a7ec"
+            };
+            let points: Vec<String> = z
+                .outline
+                .iter()
+                .map(|pt| format!("{} {}", pt.x, pt.y))
+                .collect();
+            s.push_str(&format!(
+                "<polygon points=\"{}\" fill=\"{color}\" fill-opacity=\"0.3\" stroke=\"{color}\" stroke-width=\"0.1\"/>",
+                points.join(" ")
+            ));
+        }
         for t in &p.board.tracks {
             s.push_str(&format!("<path d=\"M {} {} L {} {}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" stroke-linecap=\"round\"/>",t.start.x,t.start.y,t.end.x,t.end.y,if t.layer==pcbcraft_doc::Layer::Front {"#f58d79"} else {"#74a7ec"},t.width));
         }
@@ -514,6 +530,15 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
                 c.radius * scale,
                 [19, 28, 41],
             );
+        }
+        for z in &p.board.zones {
+            let color = if z.layer == pcbcraft_doc::Layer::Front {
+                [245, 141, 121]
+            } else {
+                [116, 167, 236]
+            };
+            let points: Vec<Point> = z.outline.iter().map(|pt| to_pixel(*pt)).collect();
+            fill_polygon(&mut image, &points, color);
         }
         for t in &p.board.tracks {
             line(
@@ -735,6 +760,45 @@ fn line(image: &mut image::RgbImage, a: Point, b: Point, r: f64, color: [u8; 3])
     for x in left..=right {
         for y in top..=bottom {
             if pcbcraft_geom::point_segment(Point::new(x as f64, y as f64), a, b) <= radius {
+                image.put_pixel(x, y, image::Rgb(color));
+            }
+        }
+    }
+}
+
+fn fill_polygon(image: &mut image::RgbImage, points: &[Point], color: [u8; 3]) {
+    // Scanline fill in pixel space: pixel centres inside the polygon get the
+    // zone colour. Hostile or off-view geometry is clipped to the image.
+    if points.len() < 3 {
+        return;
+    }
+    let top = points
+        .iter()
+        .map(|p| p.y)
+        .fold(f64::INFINITY, f64::min)
+        .max(0.0) as u32;
+    let bottom = points
+        .iter()
+        .map(|p| p.y)
+        .fold(f64::NEG_INFINITY, f64::max)
+        .min(679.0) as u32;
+    for y in top..=bottom {
+        let row = f64::from(y) + 0.5;
+        let mut crossings: Vec<f64> = vec![];
+        for edge in points.windows(2) {
+            let (a, b) = (edge[0], edge[1]);
+            if (a.y > row) != (b.y > row) {
+                crossings.push(a.x + (row - a.y) * (b.x - a.x) / (b.y - a.y));
+            }
+        }
+        crossings.sort_by(f64::total_cmp);
+        for pair in crossings.chunks(2) {
+            if pair.len() < 2 {
+                continue;
+            }
+            let left = pair[0].max(0.0) as u32;
+            let right = (pair[1].min(999.0) as u32).min(999);
+            for x in left..=right {
                 image.put_pixel(x, y, image::Rgb(color));
             }
         }
@@ -1108,6 +1172,48 @@ mod tests {
         assert!(
             schematic.contains("points=\"10,10 20,10 20,20\""),
             "drawn wire vertices must render in order"
+        );
+        Ok(())
+    }
+    #[test]
+    fn zones_render_in_the_pcb_previews() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+        });
+        project.board.zones.push(pcbcraft_doc::CopperZone {
+            id: 2,
+            net: 1,
+            layer: pcbcraft_doc::Layer::Front,
+            outline: vec![
+                Point::new(5.0, 5.0),
+                Point::new(45.0, 5.0),
+                Point::new(45.0, 25.0),
+                Point::new(5.0, 25.0),
+                Point::new(5.0, 5.0),
+            ],
+        });
+        project.validate()?;
+        let pcb = svg(&project, "pcb")?;
+        assert!(
+            pcb.contains(
+                "<polygon points=\"5 5 45 5 45 25 5 25 5 5\" fill=\"#f58d79\" fill-opacity=\"0.3\""
+            ),
+            "the zone outline must render as a filled copper polygon"
+        );
+        let image = image::load_from_memory(&preview_png(&project, "pcb")?)
+            .map_err(|e| e.to_string())?
+            .to_rgb8();
+        assert_eq!(
+            image.get_pixel(500, 300).0,
+            [245, 141, 121],
+            "inside the zone the copper colour must be painted"
+        );
+        assert_eq!(
+            image.get_pixel(100, 600).0,
+            [25, 58, 54],
+            "outside the zone the board keeps its substrate colour"
         );
         Ok(())
     }
