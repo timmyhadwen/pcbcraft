@@ -128,6 +128,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "dimension.radius",
+            "Measure a circle or arc: a witness circle, a leader from the centre to a point on the rim, and the radius in millimetres as an R label; the pieces are grouped so the whole annotation moves as one unit",
+            schema(
+                json!({"center":point_schema(),"point":point_schema(),"layer":{"type":"string","enum":["schematic","board"]}}),
+                &["center", "point", "layer"],
+            ),
+        ),
+        (
+            "dimension.diameter",
+            "Measure a circle across its centre: a witness circle, a leader from the far rim through the centre to the near rim, and the diameter in millimetres as a label; the pieces are grouped so the whole annotation moves as one unit",
+            schema(
+                json!({"center":point_schema(),"point":point_schema(),"layer":{"type":"string","enum":["schematic","board"]}}),
+                &["center", "point", "layer"],
+            ),
+        ),
+        (
             "footprint.assign",
             "Assign a KiCad front SMD or plated through-hole footprint with matching physical pins",
             schema(
@@ -1148,7 +1164,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -2211,6 +2227,13 @@ struct DimensionParams {
     layer: String,
     #[serde(default)]
     offset: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RadialParams {
+    center: Point,
+    point: Point,
+    layer: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4120,6 +4143,83 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             Ok(json!({
                 "id": group,
                 "distance": (distance * 100.0).round() / 100.0,
+            }))
+        }
+        "dimension.radius" | "dimension.diameter" => {
+            let diameter = command == "dimension.diameter";
+            let a: RadialParams = parse(params)?;
+            if a.layer != "schematic" && a.layer != "board" {
+                return Err(Error::Invalid(
+                    "dimension layer must be schematic or board".into(),
+                ));
+            }
+            if !a.center.valid() || !a.point.valid() || a.center == a.point {
+                return Err(Error::Invalid(
+                    "dimension centre and point must be distinct points in range".into(),
+                ));
+            }
+            let radius = (a.point.x - a.center.x).hypot(a.point.y - a.center.y);
+            if p.graphics.len() + 3 > 4096 || p.graphic_groups.len() >= 256 {
+                return Err(Error::Invalid(
+                    "the drawing has no room for another dimension".into(),
+                ));
+            }
+            let (ux, uy) = (
+                (a.point.x - a.center.x) / radius,
+                (a.point.y - a.center.y) / radius,
+            );
+            let near = Point::new(a.center.x - ux * radius, a.center.y - uy * radius);
+            let label = Point::new(
+                a.center.x + ux * (radius + 0.8),
+                a.center.y + uy * (radius + 0.8),
+            );
+            let pieces: [(&str, Vec<Point>, f64, String); 3] = [
+                ("circle", vec![a.center], radius, String::new()),
+                (
+                    "line",
+                    if diameter {
+                        vec![near, a.point]
+                    } else {
+                        vec![a.center, a.point]
+                    },
+                    0.15,
+                    String::new(),
+                ),
+                (
+                    "text",
+                    vec![label],
+                    2.5,
+                    if diameter {
+                        format!("\u{d8} {:.2}", 2.0 * radius)
+                    } else {
+                        format!("R {:.2}", radius)
+                    },
+                ),
+            ];
+            let mut ids = Vec::new();
+            for (shape, points, width, text) in pieces {
+                if !points.iter().all(|point| point.valid()) {
+                    return Err(Error::Invalid("dimension vertex is out of range".into()));
+                }
+                let id = allocate(next)?;
+                p.graphics.push(pcbcraft_doc::Graphic {
+                    id,
+                    layer: a.layer.clone(),
+                    shape: shape.into(),
+                    points,
+                    width,
+                    text,
+                });
+                ids.push(id);
+            }
+            let group = allocate(next)?;
+            p.graphic_groups.push(pcbcraft_doc::GraphicGroup {
+                id: group,
+                graphics: ids,
+            });
+            Ok(json!({
+                "id": group,
+                "radius": (radius * 100.0).round() / 100.0,
             }))
         }
         "graphic.rotate" => {
@@ -10028,6 +10128,71 @@ mod tests {
         assert!(
             s.execute("board.clear_outline", json!({}), None).is_err(),
             "clearing twice is a missing outline"
+        );
+        Ok(())
+    }
+    #[test]
+    fn radial_dimensions_measure_circles_and_undo_as_one_unit() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r = s.execute(
+            "dimension.radius",
+            json!({"center":{"x":10.0,"y":10.0},"point":{"x":14.0,"y":10.0},"layer":"board"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(r["radius"], 4.0);
+        assert_eq!(s.project.graphic_groups.len(), 1);
+        assert_eq!(s.project.graphic_groups[0].graphics.len(), 3);
+        let last = s.project.graphics.len();
+        assert_eq!(s.project.graphics[last - 3].shape, "circle");
+        assert_eq!(s.project.graphics[last - 3].width, 4.0);
+        assert_eq!(
+            s.project.graphics[last - 2].points[0],
+            Point::new(10.0, 10.0)
+        );
+        assert_eq!(
+            s.project.graphics[last - 1].text,
+            "R 4.00",
+            "the label carries the measured radius"
+        );
+        s.undo()?;
+        assert!(
+            s.project.graphics.is_empty() && s.project.graphic_groups.is_empty(),
+            "one undo removes every piece of the dimension"
+        );
+        let d = s.execute(
+            "dimension.diameter",
+            json!({"center":{"x":0.0,"y":0.0},"point":{"x":3.0,"y":4.0},"layer":"schematic"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(d["radius"], 5.0);
+        let last = s.project.graphics.len();
+        assert_eq!(
+            s.project.graphics[last - 2].points[0],
+            Point::new(-3.0, -4.0),
+            "the diameter leader starts on the far rim"
+        );
+        assert_eq!(s.project.graphics[last - 1].text, "\u{d8} 10.00");
+        s.undo()?;
+        assert!(s.project.graphics.is_empty());
+        for bad in [
+            json!({"center":{"x":1.0,"y":1.0},"point":{"x":1.0,"y":1.0},"layer":"board"}),
+            json!({"center":{"x":1.0,"y":1.0},"point":{"x":2.0,"y":1.0},"layer":"copper"}),
+            json!({"center":{"x":1.0,"y":1.0},"point":{"x":2.0,"y":1.0}}),
+        ] {
+            assert!(
+                s.execute("dimension.radius", bad, None).is_err(),
+                "bad radial dimension requests are refused"
+            );
+        }
+        assert!(
+            s.execute(
+                "dimension.diameter",
+                json!({"center":{"x":1.0,"y":1.0},"point":{"x":1.0,"y":1.0},"layer":"board"}),
+                None,
+            )
+            .is_err()
         );
         Ok(())
     }
