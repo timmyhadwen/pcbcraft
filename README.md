@@ -16,6 +16,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Dark default, light theme, persistent accent and grid preferences, zoom around
   the cursor, middle-button pan, symbol previews and drag-to-move.
 - Periodic project recovery and recovery on normal close, using application storage.
+- One-command alignment and distribution for groups of schematic symbols or
+  board footprints: flush left/right/top/bottom, shared horizontal or vertical
+  centre, or even spacing along an axis.
 - Original resistor, capacitor, LED and two-pin connector symbols; explicit
   logical nets, pin-to-pin orthogonal wire presentations and free-form drawn
   wires with explicit vertices that may be bound to a net, and free-standing
@@ -41,9 +44,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   exported as Edge.Cuts. Constrained/parametric outline sketches are planned.
 - Initial pin assignment/net-population checks and copper short, clearance,
   board-edge, cutout and unrouted checks with affected object IDs.
-- 34 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 35 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 52 MCP tools: every engine command plus library discovery/search/inspection,
+- 53 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

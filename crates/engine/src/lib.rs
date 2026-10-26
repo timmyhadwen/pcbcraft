@@ -250,6 +250,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "align.distribute",
+            "Align or evenly distribute components or board footprints along an axis",
+            schema(
+                json!({"ids":{"type":"array","minItems":2,"maxItems":128,"items":id_schema()},"mode":{"type":"string","enum":["left","center_x","right","top","center_y","bottom","distribute_x","distribute_y"]}}),
+                &["ids", "mode"],
+            ),
+        ),
+        (
             "object.delete",
             "Delete a component, wire, track, via, zone, footprint, cutout or unused net by stable ID",
             schema(json!({"id":id_schema()}), &["id"]),
@@ -664,6 +672,20 @@ struct StitchParams {
     drill: f64,
     #[serde(default = "default_stitch_spacing")]
     spacing: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AlignParams {
+    ids: Vec<Id>,
+    mode: String,
+}
+/// Center of an align item's bounding box on the requested axis.
+fn align_center(item: (Id, bool, f64, f64, f64, f64), axis_x: bool) -> f64 {
+    if axis_x {
+        (item.2 + item.4) / 2.0
+    } else {
+        (item.3 + item.5) / 2.0
+    }
 }
 fn default_stitch_spacing() -> f64 {
     1.0
@@ -1314,6 +1336,143 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             Ok(json!({"ids":ids,"net":net}))
         }
+        "align.distribute" => {
+            let a: AlignParams = parse(params)?;
+            let mode = a.mode.as_str();
+            if a.ids.len() < 2 {
+                return Err(Error::Invalid("alignment needs at least two items".into()));
+            }
+            if !matches!(
+                mode,
+                "left"
+                    | "center_x"
+                    | "right"
+                    | "top"
+                    | "center_y"
+                    | "bottom"
+                    | "distribute_x"
+                    | "distribute_y"
+            ) {
+                return Err(Error::Invalid("unknown alignment mode".into()));
+            }
+            let mut seen: Vec<Id> = vec![];
+            let mut items: Vec<(Id, bool, f64, f64, f64, f64)> = vec![];
+            for id in &a.ids {
+                if seen.contains(id) {
+                    continue;
+                }
+                seen.push(*id);
+                let points: Vec<Point> = if let Some(c) = p.component(*id) {
+                    c.schematic_views()
+                        .iter()
+                        .flat_map(|view| {
+                            view.drawing_points()
+                                .into_iter()
+                                .map(move |point| point.rotate(view.rotation).offset(view.position))
+                        })
+                        .collect()
+                } else if let Some(f) = p.footprint(*id) {
+                    f.drawing_points(p)
+                        .into_iter()
+                        .map(|point| point.rotate(f.rotation).offset(f.position))
+                        .collect()
+                } else {
+                    return Err(missing());
+                };
+                if points.is_empty() {
+                    return Err(Error::Invalid("item has no drawing outline".into()));
+                }
+                let min = points
+                    .iter()
+                    .fold(Point::new(f64::INFINITY, f64::INFINITY), |m, point| {
+                        Point::new(m.x.min(point.x), m.y.min(point.y))
+                    });
+                let max = points.iter().fold(
+                    Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
+                    |m, point| Point::new(m.x.max(point.x), m.y.max(point.y)),
+                );
+                items.push((*id, p.footprint(*id).is_some(), min.x, min.y, max.x, max.y));
+            }
+            let left = items.iter().map(|i| i.2).fold(f64::INFINITY, f64::min);
+            let top = items.iter().map(|i| i.3).fold(f64::INFINITY, f64::min);
+            let right = items.iter().map(|i| i.4).fold(f64::NEG_INFINITY, f64::max);
+            let bottom = items.iter().map(|i| i.5).fold(f64::NEG_INFINITY, f64::max);
+            if !(left.is_finite() && top.is_finite() && right.is_finite() && bottom.is_finite()) {
+                return Err(Error::Invalid("item outlines are out of range".into()));
+            }
+            let mut plan: Vec<(Id, bool, f64, f64)> = vec![];
+            if mode == "distribute_x" || mode == "distribute_y" {
+                let axis_x = mode == "distribute_x";
+                let mut order: Vec<usize> = (0..items.len()).collect();
+                order.sort_by(|a, b| {
+                    let ca = align_center(items[*a], axis_x);
+                    let cb = align_center(items[*b], axis_x);
+                    ca.partial_cmp(&cb).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                let first = align_center(items[order[0]], axis_x);
+                let last = align_center(items[*order.last().ok_or_else(missing)?], axis_x);
+                let steps = order.len() - 1;
+                for (step, item) in order.iter().enumerate().skip(1) {
+                    if step == steps {
+                        continue;
+                    }
+                    let target = first + (last - first) * step as f64 / steps as f64;
+                    let delta = target - align_center(items[*item], axis_x);
+                    plan.push((
+                        items[*item].0,
+                        items[*item].1,
+                        if axis_x { delta } else { 0.0 },
+                        if axis_x { 0.0 } else { delta },
+                    ));
+                }
+            } else {
+                for (id, footprint, minx, miny, maxx, maxy) in &items {
+                    let (dx, dy) = match mode {
+                        "left" => (left - minx, 0.0),
+                        "right" => (right - maxx, 0.0),
+                        "center_x" => ((left + right) / 2.0 - (minx + maxx) / 2.0, 0.0),
+                        "top" => (0.0, top - miny),
+                        "bottom" => (0.0, bottom - maxy),
+                        _ => (0.0, (top + bottom) / 2.0 - (miny + maxy) / 2.0),
+                    };
+                    plan.push((*id, *footprint, dx, dy));
+                }
+            }
+            for (id, footprint, dx, dy) in plan {
+                if footprint {
+                    let f = p
+                        .board
+                        .footprints
+                        .iter_mut()
+                        .find(|f| f.id == id)
+                        .ok_or_else(missing)?;
+                    let position = Point::new(f.position.x + dx, f.position.y + dy);
+                    if !position.valid() {
+                        return Err(Error::Invalid("aligned position is out of range".into()));
+                    }
+                    f.position = position;
+                } else {
+                    let c = p
+                        .components
+                        .iter_mut()
+                        .find(|c| c.id == id)
+                        .ok_or_else(missing)?;
+                    let position = Point::new(c.position.x + dx, c.position.y + dy);
+                    if !position.valid() {
+                        return Err(Error::Invalid("aligned position is out of range".into()));
+                    }
+                    c.position = position;
+                    for unit in &mut c.units {
+                        let position = Point::new(unit.position.x + dx, unit.position.y + dy);
+                        if !position.valid() {
+                            return Err(Error::Invalid("aligned position is out of range".into()));
+                        }
+                        unit.position = position;
+                    }
+                }
+            }
+            Ok(json!({"aligned": seen.len(), "mode": mode}))
+        }
         "object.delete" => {
             let a: Object = parse(params)?;
             if !p.ids().any(|id| id == a.id) {
@@ -1600,6 +1759,79 @@ mod tests {
         assert_eq!(s.project.board.vias.len(), 9);
         s.undo()?;
         assert!(s.project.board.vias.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn align_and_distribute_move_groups_and_undo_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut ids = vec![];
+        for (x, y) in [(10.0, 10.0), (20.0, 14.0), (35.0, 8.0)] {
+            let out = s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":{"x":x,"y":y}}),
+                None,
+            )?;
+            ids.push(out["result"]["id"].as_u64().ok_or_else(missing)?);
+        }
+        s.execute("align.distribute", json!({"ids":ids,"mode":"left"}), None)?;
+        for c in &s.project.components {
+            assert_eq!(c.position.x, 10.0, "left edge alignment");
+        }
+        s.undo()?;
+        assert_eq!(s.project.components[1].position.x, 20.0);
+        s.execute("align.distribute", json!({"ids":ids,"mode":"top"}), None)?;
+        for c in &s.project.components {
+            assert_eq!(c.position.y, 8.0, "top edge alignment");
+        }
+        s.execute(
+            "align.distribute",
+            json!({"ids":ids,"mode":"distribute_x"}),
+            None,
+        )?;
+        let xs: Vec<f64> = s.project.components.iter().map(|c| c.position.x).collect();
+        assert_eq!(
+            xs,
+            vec![10.0, 22.5, 35.0],
+            "even distribution between the ends"
+        );
+        let sync = s.execute("board.sync", json!({}), None)?;
+        let fp_ids: Vec<u64> = sync["result"]["footprints"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .map(|f| f["id"].as_u64().unwrap_or_default())
+            .collect();
+        s.execute(
+            "footprint.move",
+            json!({"id":fp_ids[2],"position":{"x":30.0,"y":25.0}}),
+            None,
+        )?;
+        s.execute("align.distribute", json!({"ids":fp_ids,"mode":"top"}), None)?;
+        for f in &s.project.board.footprints {
+            assert_eq!(f.position.y, 10.0, "footprint top alignment");
+        }
+        for params in [
+            json!({"ids":[ids[0],9999],"mode":"left"}),
+            json!({"ids":ids,"mode":"sideways"}),
+            json!({"ids":[ids[0]],"mode":"left"}),
+            json!({"ids":ids,"mode":"left","extra":1}),
+        ] {
+            assert!(s.execute("align.distribute", params, None).is_err());
+        }
+        let xs: Vec<f64> = s.project.components.iter().map(|c| c.position.x).collect();
+        assert_eq!(
+            xs,
+            vec![10.0, 22.5, 35.0],
+            "rejections must not move anything"
+        );
+        let ys: Vec<f64> = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .map(|f| f.position.y)
+            .collect();
+        assert_eq!(ys, vec![10.0, 10.0, 10.0]);
         Ok(())
     }
     #[test]
