@@ -356,6 +356,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "label.set",
+            "Retype a net label or point it at a different net in place; junctions must stay on matching wire",
+            schema(
+                json!({"id":id_schema(),"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema()}),
+                &["id"],
+            ),
+        ),
+        (
             "pin.no_connect",
             "Mark a pin intentionally unconnected, suppressing its unconnected-pin violation",
             schema(json!({"pin":pin_schema()}), &["pin"]),
@@ -813,7 +821,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1343,6 +1351,15 @@ struct GraphicRotateParams {
 struct LabelRotateParams {
     id: Id,
     degrees: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LabelSetParams {
+    id: Id,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    net: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3090,6 +3107,46 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.labels[index].rotation = (p.labels[index].rotation + a.degrees).rem_euclid(360.0);
             Ok(json!({"id": a.id}))
         }
+        "label.set" => {
+            let a: LabelSetParams = parse(params)?;
+            if a.kind.is_none() && a.net.is_none() {
+                return Err(Error::Invalid("provide a kind or net to change".into()));
+            }
+            if a.kind
+                .as_ref()
+                .is_some_and(|k| !pcbcraft_doc::Label::KINDS.iter().any(|x| *x == k))
+            {
+                return Err(Error::Invalid("unknown label kind".into()));
+            }
+            if a.net.is_some_and(|n| !p.nets.iter().any(|x| x.id == n)) {
+                return Err(missing());
+            }
+            let index = p
+                .labels
+                .iter()
+                .position(|l| l.id == a.id)
+                .ok_or_else(missing)?;
+            let kind = a.kind.unwrap_or_else(|| p.labels[index].kind.clone());
+            let net = a.net.unwrap_or_else(|| p.labels[index].net);
+            if kind == p.labels[index].kind && net == p.labels[index].net {
+                return Err(Error::Invalid(
+                    "that label already has that kind and net".into(),
+                ));
+            }
+            if kind == "junction"
+                && !p
+                    .drawn_wires
+                    .iter()
+                    .any(|w| w.net == Some(net) && w.points.contains(&p.labels[index].position))
+            {
+                return Err(Error::Invalid(
+                    "junction must sit on a vertex of a drawn wire of its net".into(),
+                ));
+            }
+            p.labels[index].kind = kind;
+            p.labels[index].net = net;
+            Ok(json!({"id": a.id}))
+        }
         "pin.no_connect" => {
             let a: NoConnectParams = parse(params)?;
             if !p
@@ -4830,6 +4887,99 @@ mod tests {
         s.undo()?;
         assert_eq!(s.project.labels.len(), 5);
         assert_eq!(s.project.no_connects.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn schematic_labels_can_be_retyped_and_reassigned_in_place() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "wire.draw",
+            json!({"net":a,"points":[{"x":10.0,"y":10.0},{"x":20.0,"y":10.0}]}),
+            None,
+        )?;
+        let lab = s.execute(
+            "label.place",
+            json!({"kind":"label","net":a,"position":{"x":30.0,"y":20.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("label.set", json!({"id":lab,"kind":"global"}), None)?;
+        s.execute("label.set", json!({"id":lab,"net":b}), None)?;
+        let label = s
+            .project
+            .labels
+            .iter()
+            .find(|l| l.id == lab)
+            .ok_or_else(missing)?;
+        assert_eq!(label.kind, "global");
+        assert_eq!(label.net, b);
+        assert_eq!(label.position, Point::new(30.0, 20.0));
+        assert!(s.project.validate().is_ok());
+        // An off-wire label cannot become a junction where it stands.
+        assert!(
+            s.execute("label.set", json!({"id":lab,"kind":"junction"}), None)
+                .is_err()
+        );
+        // A junction on the wire may only name a net whose wire touches it.
+        let junc = s.execute(
+            "label.place",
+            json!({"kind":"junction","net":a,"position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute("label.set", json!({"id":junc,"net":b}), None)
+                .is_err()
+        );
+        s.execute(
+            "wire.draw",
+            json!({"net":b,"points":[{"x":20.0,"y":10.0},{"x":20.0,"y":15.0}]}),
+            None,
+        )?;
+        s.execute("label.set", json!({"id":junc,"net":b}), None)?;
+        // Released from the wire, the old junction moves freely again.
+        s.execute("label.set", json!({"id":junc,"kind":"label"}), None)?;
+        s.execute(
+            "label.move",
+            json!({"id":junc,"position":{"x":40.0,"y":40.0}}),
+            None,
+        )?;
+        let before = s.inspect();
+        for params in [
+            json!({"id":lab}),
+            json!({"id":lab,"kind":"global"}),
+            json!({"id":lab,"net":b}),
+            json!({"id":lab,"kind":"global","net":b}),
+            json!({"id":lab,"kind":"nonsense"}),
+            json!({"id":lab,"net":9999}),
+            json!({"id":9999,"kind":"global"}),
+            json!({"id":lab,"kind":"junction"}),
+            json!({"id":lab,"extra":1}),
+        ] {
+            assert!(
+                s.execute("label.set", params.clone(), None).is_err(),
+                "{params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.execute("label.set", json!({"id":lab,"kind":"power"}), None)?;
+        s.undo()?;
+        let label = s
+            .project
+            .labels
+            .iter()
+            .find(|l| l.id == lab)
+            .ok_or_else(missing)?;
+        assert_eq!(label.kind, "global", "undo restores the kind");
+        assert_eq!(label.net, b);
         Ok(())
     }
     #[test]
