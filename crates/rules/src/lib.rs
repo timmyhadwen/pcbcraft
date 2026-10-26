@@ -756,6 +756,64 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn a_stitched_via_grid_bridges_copper_across_layers() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+        });
+        p.board.tracks.push(Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(12.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+        });
+        p.board.tracks.push(Track {
+            id: 3,
+            net: 1,
+            start: Point::new(12.2, 10.0),
+            end: Point::new(14.0, 10.0),
+            width: 0.25,
+            layer: Layer::Back,
+        });
+        p.validate()?;
+        for column in 0..5 {
+            p.board.vias.push(Via {
+                id: 4 + column,
+                net: 1,
+                position: Point::new(12.0 + column as f64 * 0.5, 10.0),
+                diameter: 1.4,
+                drill: 0.4,
+            });
+        }
+        p.validate()?;
+        let items = copper(&p);
+        let front_track = items
+            .iter()
+            .find(|c| c.id == 2)
+            .ok_or("front track missing")?;
+        let back_track = items
+            .iter()
+            .find(|c| c.id == 3)
+            .ok_or("back track missing")?;
+        let bridges = items
+            .iter()
+            .filter(|c| c.id >= 4 && c.id <= 8 && c.layer == Layer::Front)
+            .zip(
+                items
+                    .iter()
+                    .filter(|c| c.id >= 4 && c.id <= 8 && c.layer == Layer::Back),
+            )
+            .any(|(front, back)| touching(front, front_track) && touching(back, back_track));
+        assert!(
+            bridges,
+            "a stitched grid must contain a via bridging front and back copper of its net"
+        );
+        Ok(())
+    }
+    #[test]
     fn plated_pad_bridges_front_and_back_but_identity_and_net_must_match() {
         let mut front = test_copper(10, Point::new(10.0, 10.0), Layer::Front, 1, true);
         front.bridge = Some((10, "1".into()));

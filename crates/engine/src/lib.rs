@@ -165,6 +165,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "via.stitch",
+            "Fill a rectangular area with a grid of stitched vias on an existing net",
+            schema(
+                json!({"net":id_schema(),"bounds":schema(json!({"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","exclusiveMinimum":0},"height":{"type":"number","exclusiveMinimum":0}}),&["x","y","width","height"]),"spacing":{"type":"number","minimum":0.5,"maximum":50,"description":"grid pitch, millimetres"},"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"}}),
+                &["net", "bounds", "diameter"],
+            ),
+        ),
+        (
             "zone.place",
             "Place a poured copper zone: a closed polygon of copper on one layer bound to an existing net",
             schema(
@@ -362,7 +370,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias, poured copper zones with cutouts, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -637,6 +645,28 @@ struct ZoneParams {
 struct ZoneCutoutParams {
     zone: Id,
     outline: Vec<Point>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StitchBounds {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StitchParams {
+    net: Id,
+    bounds: StitchBounds,
+    diameter: f64,
+    #[serde(default)]
+    drill: f64,
+    #[serde(default = "default_stitch_spacing")]
+    spacing: f64,
+}
+fn default_stitch_spacing() -> f64 {
+    1.0
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1068,6 +1098,70 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             });
             Ok(json!({"id":id}))
         }
+        "via.stitch" => {
+            let a: StitchParams = parse(params)?;
+            if !p.nets.iter().any(|n| n.id == a.net) {
+                return Err(missing());
+            }
+            if !a.diameter.is_finite() || a.diameter <= 0.0 || a.diameter > 100.0 {
+                return Err(Error::Invalid("via diameter must be within 0–100mm".into()));
+            }
+            if !a.drill.is_finite() || a.drill < 0.0 || a.drill >= a.diameter {
+                return Err(Error::Invalid(
+                    "via drill must be smaller than its pad".into(),
+                ));
+            }
+            if !a.spacing.is_finite() || !(0.5..=50.0).contains(&a.spacing) {
+                return Err(Error::Invalid(
+                    "stitch spacing must be within 0.5–50mm".into(),
+                ));
+            }
+            let b = &a.bounds;
+            if !b.x.is_finite()
+                || !b.y.is_finite()
+                || !b.width.is_finite()
+                || !b.height.is_finite()
+                || b.x < 0.0
+                || b.y < 0.0
+                || b.width <= 0.0
+                || b.height <= 0.0
+                || b.x + b.width > p.board.width
+                || b.y + b.height > p.board.height
+            {
+                return Err(Error::Invalid(
+                    "stitch bounds must lie inside the board".into(),
+                ));
+            }
+            let columns = (b.width / a.spacing).floor() as i64 + 1;
+            let rows = (b.height / a.spacing).floor() as i64 + 1;
+            if columns * rows > 4096 {
+                return Err(Error::Invalid(
+                    "a stitch grid is limited to 4096 vias".into(),
+                ));
+            }
+            let mut ids = vec![];
+            for row in 0..rows {
+                for column in 0..columns {
+                    let position = Point::new(
+                        b.x + (column as f64 + 0.5) * a.spacing,
+                        b.y + (row as f64 + 0.5) * a.spacing,
+                    );
+                    if !position.valid() {
+                        return Err(Error::Invalid("stitch via position is out of range".into()));
+                    }
+                    let id = allocate(next)?;
+                    p.board.vias.push(pcbcraft_doc::Via {
+                        id,
+                        net: a.net,
+                        position,
+                        diameter: a.diameter,
+                        drill: a.drill,
+                    });
+                    ids.push(id);
+                }
+            }
+            Ok(json!({"count": ids.len(), "ids": ids}))
+        }
         "zone.place" => {
             let a: ZoneParams = parse(params)?;
             if !p.nets.iter().any(|n| n.id == a.net) {
@@ -1475,6 +1569,37 @@ mod tests {
         assert!(s.project.board.vias.is_empty());
         s.undo()?;
         assert_eq!(s.project.board.vias.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn via_stitch_places_grids_and_validates_without_mutating() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute(
+            "via.stitch",
+            json!({"net":net,"bounds":{"x":5.0,"y":5.0,"width":10.0,"height":10.0},"spacing":5.0,"diameter":1.4,"drill":0.4}),
+            None,
+        )?;
+        assert_eq!(out["result"]["count"], 9);
+        assert_eq!(s.project.board.vias.len(), 9);
+        assert_eq!(s.project.board.vias[0].position, Point::new(7.5, 7.5));
+        assert_eq!(s.project.board.vias[8].position, Point::new(17.5, 17.5));
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"net":9999,"bounds":{"x":5.0,"y":5.0,"width":10.0,"height":10.0},"diameter":1.4}),
+            json!({"net":net,"bounds":{"x":5.0,"y":5.0,"width":10.0,"height":10.0},"diameter":1.4,"spacing":0.4}),
+            json!({"net":net,"bounds":{"x":5.0,"y":5.0,"width":10.0,"height":10.0},"diameter":1.4,"spacing":51.0}),
+            json!({"net":net,"bounds":{"x":50.0,"y":5.0,"width":20.0,"height":10.0},"diameter":1.4}),
+            json!({"net":net,"bounds":{"x":0.0,"y":0.0,"width":100.0,"height":100.0},"diameter":1.4,"spacing":0.5}),
+            json!({"net":net,"bounds":{"x":5.0,"y":5.0,"width":10.0,"height":10.0},"diameter":1.4,"drill":1.4}),
+        ] {
+            assert!(s.execute("via.stitch", params, None).is_err());
+        }
+        assert_eq!(s.project.board.vias.len(), 9);
+        s.undo()?;
+        assert!(s.project.board.vias.is_empty());
         Ok(())
     }
     #[test]
