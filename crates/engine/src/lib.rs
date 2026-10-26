@@ -144,6 +144,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netclass.add",
+            "Create a net class with a clearance requirement, a default track width and optional member nets",
+            schema(
+                json!({"name":{"type":"string"},"clearance":{"type":"number","exclusiveMinimum":0},"width":{"type":"number","exclusiveMinimum":0},"nets":{"type":"array","items":id_schema(),"maxItems":256}}),
+                &["name", "clearance", "width"],
+            ),
+        ),
+        (
+            "netclass.assign",
+            "Move a net into a net class, or out of every class when the class is null",
+            schema(
+                json!({"net":id_schema(),"class":{"oneOf":[id_schema(),{"type":"null"}]}}),
+                &["net"],
+            ),
+        ),
+        (
             "netlist.import",
             "Import a netlist table: assign listed pins to named nets by reference, creating missing nets",
             schema(
@@ -534,10 +550,10 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -831,6 +847,22 @@ struct StitchParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct NetClassParams {
+    name: String,
+    clearance: f64,
+    width: f64,
+    #[serde(default)]
+    nets: Vec<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetClassAssignParams {
+    net: Id,
+    #[serde(default)]
+    class: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PadTableParams {
     #[serde(default)]
     component: Option<Id>,
@@ -1102,8 +1134,8 @@ struct TrackParams {
     net: Id,
     start: Point,
     end: Point,
-    #[serde(default = "default_width")]
-    width: f64,
+    #[serde(default)]
+    width: Option<f64>,
     #[serde(default = "front")]
     layer: Layer,
 }
@@ -1118,8 +1150,8 @@ struct PadRef {
 struct Route {
     from: PadRef,
     to: PadRef,
-    #[serde(default = "default_width")]
-    width: f64,
+    #[serde(default)]
+    width: Option<f64>,
     #[serde(default = "front")]
     layer: Layer,
 }
@@ -1130,6 +1162,13 @@ struct Object {
 }
 fn default_width() -> f64 {
     0.35
+}
+/// Track width to use when a command leaves width out: the width of the net's
+/// class, or the standard width for unclassified nets.
+fn class_width(p: &Project, net: Id) -> f64 {
+    p.net_class(net)
+        .map(|class| class.width)
+        .unwrap_or_else(default_width)
 }
 fn front() -> Layer {
     Layer::Front
@@ -1423,6 +1462,75 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let a: Connect = parse(params)?;
             assign(p, a.net, &a.pins)?;
             Ok(json!({"net":a.net,"pins":a.pins.len()}))
+        }
+        "netclass.add" => {
+            let a: NetClassParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "net class name must be 1 to 128 bytes".into(),
+                ));
+            }
+            if p.net_classes.iter().any(|c| c.name == a.name) {
+                return Err(Error::Invalid("net class name already in use".into()));
+            }
+            if !a.clearance.is_finite() || a.clearance <= 0.0 || a.clearance > 100.0 {
+                return Err(Error::Invalid(
+                    "clearance must be between 0 and 100 millimetres".into(),
+                ));
+            }
+            if !a.width.is_finite() || a.width <= 0.0 || a.width > 100.0 {
+                return Err(Error::Invalid(
+                    "width must be between 0 and 100 millimetres".into(),
+                ));
+            }
+            if a.nets.len() > 256 {
+                return Err(Error::Invalid("a class holds at most 256 nets".into()));
+            }
+            for net in &a.nets {
+                if !p.nets.iter().any(|n| n.id == *net) {
+                    return Err(Error::Invalid("unknown net in class membership".into()));
+                }
+                if let Some(existing) = p.net_class(*net) {
+                    return Err(Error::Invalid(format!(
+                        "net already belongs to class {}",
+                        existing.name
+                    )));
+                }
+            }
+            let id = allocate(next)?;
+            p.net_classes.push(NetClass {
+                id,
+                name: a.name,
+                clearance: a.clearance,
+                width: a.width,
+                nets: a.nets,
+            });
+            Ok(json!({"id": id}))
+        }
+        "netclass.assign" => {
+            let a: NetClassAssignParams = parse(params)?;
+            if !p.nets.iter().any(|n| n.id == a.net) {
+                return Err(missing());
+            }
+            if a.class
+                .is_some_and(|c| !p.net_classes.iter().any(|k| k.id == c))
+            {
+                return Err(Error::Invalid("unknown net class".into()));
+            }
+            if a.class.is_some_and(|class| {
+                p.net_classes
+                    .iter()
+                    .any(|k| k.id == class && k.nets.len() >= 256 && !k.nets.contains(&a.net))
+            }) {
+                return Err(Error::Invalid("that class already holds 256 nets".into()));
+            }
+            for class in p.net_classes.iter_mut() {
+                class.nets.retain(|net| *net != a.net);
+            }
+            if let Some(target) = p.net_classes.iter_mut().find(|k| a.class == Some(k.id)) {
+                target.nets.push(a.net);
+            }
+            Ok(json!({"net": a.net, "class": a.class}))
         }
         "netlist.import" => {
             let a: NetlistImportParams = parse(params)?;
@@ -2236,16 +2344,20 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "track.add" => {
             let a: TrackParams = parse(params)?;
+            let width = a.width.unwrap_or_else(|| class_width(p, a.net));
+            if !positive(width) {
+                return Err(Error::Invalid("width must be positive".into()));
+            }
             let id = allocate(next)?;
             p.board.tracks.push(Track {
                 id,
                 net: a.net,
                 start: a.start,
                 end: a.end,
-                width: a.width,
+                width,
                 layer: a.layer,
             });
-            Ok(json!({"id":id}))
+            Ok(json!({"id":id, "width": width}))
         }
         "track.split" => {
             let a: SplitParams = parse(params)?;
@@ -2392,7 +2504,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let a: Route = parse(params)?;
             let (start, net) = pad(p, &a.from, a.layer)?;
             let (end, end_net) = pad(p, &a.to, a.layer)?;
-            if net != end_net || start.distance(end) < 1e-6 || !positive(a.width) {
+            let width = a.width.unwrap_or_else(|| class_width(p, net));
+            if net != end_net || start.distance(end) < 1e-6 || !positive(width) {
                 return Err(Error::Invalid(
                     "route requires distinct pads on the same net and a valid width".into(),
                 ));
@@ -2408,12 +2521,12 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         net,
                         start: from,
                         end: to,
-                        width: a.width,
+                        width,
                         layer: a.layer,
                     });
                 }
             }
-            Ok(json!({"ids":ids,"net":net}))
+            Ok(json!({"ids":ids,"net":net,"width":width}))
         }
         "footprint.mirror" => {
             let a: MirrorParams = parse(params)?;
@@ -2734,6 +2847,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             p.components.retain(|c| c.id != a.id);
             p.nets.retain(|n| n.id != a.id);
+            for class in p.net_classes.iter_mut() {
+                class.nets.retain(|net| *net != a.id);
+            }
             p.wires
                 .retain(|w| w.id != a.id && w.from.component != a.id && w.to.component != a.id);
             p.drawn_wires
@@ -4150,6 +4266,110 @@ mod tests {
         assert_eq!(pads[0]["size"]["x"], 1.6);
         assert_eq!(pads[0]["drill"]["x"], 0.8);
         assert_eq!(pads[7]["pad"], "8");
+        Ok(())
+    }
+    #[test]
+    fn net_classes_drive_clearance_and_default_track_width() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (net, y) in [(a, 10.0), (b, 10.5)] {
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":30.0,"y":y},"width":0.2}),
+                None,
+            )?;
+        }
+        fn drc(s: &Session) -> Result<Vec<Value>, Error> {
+            Ok(s.checks()["drc"].as_array().ok_or_else(missing)?.clone())
+        }
+        assert!(!drc(&s)?.iter().any(|f| f["code"] == "clearance"));
+        let power = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.5,"width":0.6,"nets":[a]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            drc(&s)?.iter().any(|f| f["code"] == "clearance"
+                && f["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("0.500 mm required"))),
+            "the class clearance raises the requirement"
+        );
+        let added = s.execute(
+            "track.add",
+            json!({"net":a,"start":{"x":10.0,"y":20.0},"end":{"x":20.0,"y":20.0}}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(added["width"], 0.6);
+        let explicit = s.execute(
+            "track.add",
+            json!({"net":b,"start":{"x":10.0,"y":25.0},"end":{"x":20.0,"y":25.0},"width":0.2}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(explicit["width"], 0.2);
+        let logic = s.execute(
+            "netclass.add",
+            json!({"name":"LOGIC","clearance":0.1,"width":0.25}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("netclass.assign", json!({"net": b, "class": logic}), None)?;
+        assert!(drc(&s)?.iter().any(|f| f["code"] == "clearance"));
+        s.execute("netclass.assign", json!({"net": a, "class": null}), None)?;
+        assert!(!drc(&s)?.iter().any(|f| f["code"] == "clearance"));
+        s.execute("netclass.assign", json!({"net": b, "class": power}), None)?;
+        assert_eq!(
+            s.project
+                .net_classes
+                .iter()
+                .filter(|k| k.nets.contains(&b))
+                .count(),
+            1
+        );
+        assert_eq!(s.project.net_classes[0].nets.len(), 1);
+        assert!(s.project.net_classes[1].nets.is_empty());
+        let before = s.inspect();
+        for params in [
+            json!({"name":"POWER","clearance":0.4,"width":0.3}),
+            json!({"name":"","clearance":0.4,"width":0.3}),
+            json!({"name":"X","clearance":0.0,"width":0.3}),
+            json!({"name":"X","clearance":0.4,"width":0.0}),
+            json!({"name":"X","clearance":0.4,"width":0.3,"nets":[9999]}),
+            json!({"name":"X","clearance":0.4,"width":0.3,"nets":[b]}),
+            json!({"name":"X","clearance":0.4,"width":0.3,"extra":1}),
+            json!({"net": 9999, "class": power}),
+            json!({"net": b, "class": 9999}),
+            json!({"net": b, "class": power, "extra": 1}),
+        ] {
+            let command = if params.get("class").is_some() {
+                "netclass.assign"
+            } else {
+                "netclass.add"
+            };
+            assert!(s.execute(command, params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        let c = s.execute("net.create", json!({"name":"C"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("netclass.assign", json!({"net": c, "class": logic}), None)?;
+        assert!(s.project.net_classes[1].nets.contains(&c));
+        s.execute("object.delete", json!({"id": c}), None)?;
+        assert!(s.project.net_classes.iter().all(|k| !k.nets.contains(&c)));
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert!(s.project.net_classes[1].nets.contains(&c));
+        assert!(s.project.validate().is_ok());
         Ok(())
     }
     #[test]

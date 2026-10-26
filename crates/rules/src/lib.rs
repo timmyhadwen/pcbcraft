@@ -406,13 +406,13 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     for (i, a) in items.iter().enumerate() {
         for b in items.iter().skip(i + 1) {
             if (a.net != b.net || a.net == 0) && a.layer == b.layer {
-                if segment_distance(a.start, a.end, b.start, b.end) - a.radius - b.radius
-                    > board.clearance
+                let required = project.required_clearance(a.net, b.net);
+                if segment_distance(a.start, a.end, b.start, b.end) - a.radius - b.radius > required
                 {
                     continue;
                 }
                 let separation = gap(a, b);
-                if separation + 1e-6 < board.clearance {
+                if separation + 1e-6 < required {
                     result.push(Finding {
                         code: if a.conservative || b.conservative {
                             "pad_clearance_bound"
@@ -427,7 +427,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                             project.net_name(a.net),
                             project.net_name(b.net),
                             separation,
-                            board.clearance
+                            required
                         ),
                         objects: vec![a.id, b.id],
                     });

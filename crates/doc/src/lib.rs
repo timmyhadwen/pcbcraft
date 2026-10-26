@@ -134,6 +134,22 @@ pub struct Net {
     pub id: Id,
     pub name: String,
 }
+/// A named group of nets sharing one clearance requirement and one default
+/// track width. A net belongs to at most one class; nets in no class follow
+/// the board default.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct NetClass {
+    pub id: Id,
+    pub name: String,
+    /// Minimum copper clearance between members of this class and other
+    /// copper, in millimetres.
+    pub clearance: f64,
+    /// Default track width for members of this class, in millimetres.
+    pub width: f64,
+    /// Nets belonging to this class.
+    #[serde(default)]
+    pub nets: Vec<Id>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct PinRef {
     pub component: Id,
@@ -537,6 +553,9 @@ pub struct Project {
     pub name: String,
     pub components: Vec<Component>,
     pub nets: Vec<Net>,
+    /// Named net classes carrying clearance and default width rules.
+    #[serde(default)]
+    pub net_classes: Vec<NetClass>,
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub drawn_wires: Vec<DrawnWire>,
@@ -616,6 +635,7 @@ impl Default for Project {
             name: "Untitled circuit".into(),
             components: vec![],
             nets: vec![],
+            net_classes: vec![],
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -748,11 +768,29 @@ impl Project {
             .map(|n| n.name.as_str())
             .unwrap_or("unassigned")
     }
+    /// The net class a net belongs to, if it belongs to one.
+    pub fn net_class(&self, net: Id) -> Option<&NetClass> {
+        self.net_classes.iter().find(|c| c.nets.contains(&net))
+    }
+    /// Minimum clearance required between copper on `a` and copper on `b`:
+    /// the board default, raised by the class of either net when classified.
+    pub fn required_clearance(&self, a: Id, b: Id) -> f64 {
+        [a, b]
+            .iter()
+            .map(|net| {
+                self.net_class(*net)
+                    .map(|c| c.clearance)
+                    .unwrap_or(self.board.clearance)
+            })
+            .max_by(f64::total_cmp)
+            .unwrap_or(self.board.clearance)
+    }
     pub fn ids(&self) -> impl Iterator<Item = Id> + '_ {
         self.components
             .iter()
             .map(|x| x.id)
             .chain(self.nets.iter().map(|x| x.id))
+            .chain(self.net_classes.iter().map(|x| x.id))
             .chain(self.wires.iter().map(|x| x.id))
             .chain(self.drawn_wires.iter().map(|x| x.id))
             .chain(self.graphics.iter().map(|x| x.id))
@@ -806,6 +844,31 @@ impl Project {
         for n in &self.nets {
             if n.name.is_empty() || n.name.len() > 128 || !names.insert(&n.name) {
                 return Err("invalid or duplicate net name".into());
+            }
+        }
+        if self.net_classes.len() > 64 {
+            return Err("net class limit reached (64)".into());
+        }
+        let mut class_names = BTreeSet::new();
+        let mut classified: BTreeSet<Id> = BTreeSet::new();
+        for c in &self.net_classes {
+            if c.name.is_empty()
+                || c.name.len() > 128
+                || !class_names.insert(&c.name)
+                || c.nets.len() > 256
+                || !c.clearance.is_finite()
+                || c.clearance <= 0.0
+                || c.clearance > 100.0
+                || !c.width.is_finite()
+                || c.width <= 0.0
+                || c.width > 100.0
+            {
+                return Err("invalid net class".into());
+            }
+            for net in &c.nets {
+                if !nets.contains(net) || !classified.insert(*net) {
+                    return Err("net class membership is invalid".into());
+                }
             }
         }
         let mut refs = BTreeSet::new();
