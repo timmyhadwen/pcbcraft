@@ -1680,6 +1680,7 @@ mod tests {
             component: 1,
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
+            locked: None,
             pads,
         });
         project.validate()?;
@@ -2157,6 +2158,7 @@ mod tests {
             component: 1,
             position: Point::new(0.0, 0.0),
             rotation: 0.0,
+            locked: None,
             pads: vec![through_pad, pad2],
         });
         project.components.push(pcbcraft_doc::Component {
@@ -2299,6 +2301,7 @@ mod tests {
                 Point::new(30.0, 10.0)
             },
             rotation: if component == 1 { 0.0 } else { 90.0 },
+            locked: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
@@ -2439,6 +2442,7 @@ mod tests {
                 component,
                 position: Point::new(x, y),
                 rotation,
+                locked: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),

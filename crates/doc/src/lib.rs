@@ -518,6 +518,10 @@ pub struct Footprint {
     pub component: Id,
     pub position: Point,
     pub rotation: f64,
+    /// True when this footprint is locked in place so placement commands refuse
+    /// to move it. Absent means unlocked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
     pub pads: Vec<Pad>,
 }
 impl Footprint {

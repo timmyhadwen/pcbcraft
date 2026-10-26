@@ -644,6 +644,7 @@ mod tests {
                 component: id,
                 position: Point::new(x, 10.0),
                 rotation: 0.0,
+                locked: None,
                 pads: vec![Pad {
                     number: "1".into(),
                     offset: Point::default(),
@@ -1041,6 +1042,7 @@ mod tests {
             component: 4,
             position: Point::new(20.0, 10.0),
             rotation: 0.0,
+            locked: None,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),
@@ -1155,6 +1157,7 @@ mod tests {
             component: 1,
             position: Point::new(20.0, 20.0),
             rotation: 0.0,
+            locked: None,
             pads,
         });
         p.validate()?;

@@ -590,6 +590,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "footprint.set_locked",
+            "Lock or unlock a placed footprint; a locked footprint refuses move, rotate, mirror, array and edge docking until it is unlocked again",
+            schema(
+                json!({"id":id_schema(),"locked":{"type":"boolean"}}),
+                &["id", "locked"],
+            ),
+        ),
+        (
             "footprint.array",
             "Step-and-repeat: clone a placed footprint and its component into a rectangular grid of copies at fixed column and row spacing; every copy gets fresh IDs and a numbered reference, the clones must stay within the project object limit, and one undo removes the whole array",
             schema(
@@ -1082,7 +1090,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1213,6 +1221,19 @@ struct PadCastellateParams {
 struct DockEdgeParams {
     id: Id,
     edge: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LockParams {
+    id: Id,
+    locked: bool,
+}
+fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
+    project
+        .board
+        .footprints
+        .iter()
+        .any(|f| f.id == id && f.locked.unwrap_or(false))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5897,6 +5918,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                             10.0 + (index / 4) as f64 * 8.0,
                         ),
                         rotation: 0.0,
+                        locked: None,
                         pads: component_pads(c),
                     });
                 }
@@ -5981,6 +6003,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "PCB footprints do not have schematic units".into(),
                 ));
             }
+            if footprint_locked(p, a.id) {
+                return Err(Error::Invalid(
+                    "that footprint is locked against placement changes".into(),
+                ));
+            }
             p.board
                 .footprints
                 .iter_mut()
@@ -5998,6 +6025,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             if !a.degrees.is_finite() {
                 return Err(Error::Invalid("rotation must be finite".into()));
+            }
+            if footprint_locked(p, a.id) {
+                return Err(Error::Invalid(
+                    "that footprint is locked against placement changes".into(),
+                ));
             }
             p.board
                 .footprints
@@ -6071,6 +6103,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "footprint.dock_edge" => {
             let a: DockEdgeParams = parse(params)?;
+            if footprint_locked(p, a.id) {
+                return Err(Error::Invalid(
+                    "that footprint is locked against placement changes".into(),
+                ));
+            }
             let footprint = p
                 .board
                 .footprints
@@ -6124,6 +6161,17 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 "position": {"x": footprint.position.x, "y": footprint.position.y},
             }))
         }
+        "footprint.set_locked" => {
+            let a: LockParams = parse(params)?;
+            let footprint = p
+                .board
+                .footprints
+                .iter_mut()
+                .find(|f| f.id == a.id)
+                .ok_or_else(missing)?;
+            footprint.locked = a.locked.then_some(true);
+            Ok(json!({"id": a.id, "locked": a.locked}))
+        }
         "footprint.array" => {
             let a: ArrayParams = parse(params)?;
             if a.columns == 0
@@ -6139,6 +6187,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             {
                 return Err(Error::Invalid(
                     "array must be 1-64 by 1-64 with positive spacing".into(),
+                ));
+            }
+            if footprint_locked(p, a.footprint) {
+                return Err(Error::Invalid(
+                    "that footprint is locked against placement changes".into(),
                 ));
             }
             let total = a.columns * a.rows;
@@ -6390,6 +6443,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "footprint.mirror" => {
             let a: MirrorParams = parse(params)?;
+            if footprint_locked(p, a.id) {
+                return Err(Error::Invalid(
+                    "that footprint is locked against placement changes".into(),
+                ));
+            }
             let horizontal = match a.axis.as_str() {
                 "horizontal" => true,
                 "vertical" => false,
@@ -9395,6 +9453,74 @@ mod tests {
             2,
             "the clear undoes"
         );
+        Ok(())
+    }
+    #[test]
+    fn locked_footprints_refuse_placement_and_unlock_again() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","position":[10,10],"reference":"J1","value":"edge"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.inspect()["project"]["board"]["footprints"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out =
+            s.execute("footprint.set_locked", json!({"id":fp,"locked":true}), None)?["result"]
+                .clone();
+        assert_eq!(out["locked"], true, "the lock is reported");
+        assert_eq!(
+            s.inspect()["project"]["board"]["footprints"][0]["locked"],
+            true,
+            "the lock is stored"
+        );
+        for (cmd, params) in [
+            ("footprint.move", json!({"id":fp,"position":[20,20]})),
+            ("footprint.rotate", json!({"id":fp,"degrees":90})),
+            ("footprint.mirror", json!({"id":fp,"axis":"horizontal"})),
+            (
+                "footprint.array",
+                json!({"footprint":fp,"columns":2,"rows":1,"dx":5,"dy":5}),
+            ),
+            ("footprint.dock_edge", json!({"id":fp,"edge":"left"})),
+        ] {
+            assert!(
+                s.execute(cmd, params, None).is_err(),
+                "{cmd} refuses a locked footprint"
+            );
+        }
+        s.execute(
+            "footprint.set_locked",
+            json!({"id":fp,"locked":false}),
+            None,
+        )?;
+        assert!(
+            s.inspect()["project"]["board"]["footprints"][0]
+                .get("locked")
+                .is_none(),
+            "unlocking drops the stored flag"
+        );
+        s.execute("footprint.move", json!({"id":fp,"position":[20,20]}), None)?;
+        s.execute("footprint.set_locked", json!({"id":fp,"locked":true}), None)?;
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["board"]["footprints"][0]
+                .get("locked")
+                .is_none(),
+            "the lock undoes"
+        );
+        for bad in [
+            json!({"id":999,"locked":true}),
+            json!({"id":fp}),
+            json!({"id":fp,"locked":true,"nope":1}),
+        ] {
+            assert!(
+                s.execute("footprint.set_locked", bad, None).is_err(),
+                "bad lock requests are refused"
+            );
+        }
         Ok(())
     }
     #[test]
