@@ -417,6 +417,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "zone.insert_point",
+            "Insert a new vertex into a poured zone's outline, or one of its cutouts, at an index; outlines hold 3 to 256 vertices",
+            schema(
+                json!({"id":id_schema(),"index":{"type":"integer","minimum":0},"position":point_schema(),"cutout":{"type":"integer","minimum":0,"description":"which cutout outline to edit; omit to edit the zone outline"}}),
+                &["id", "index", "position"],
+            ),
+        ),
+        (
+            "zone.remove_point",
+            "Remove one vertex from a poured zone's outline, or one of its cutouts, by index; at least three vertices must remain",
+            schema(
+                json!({"id":id_schema(),"index":{"type":"integer","minimum":0},"cutout":{"type":"integer","minimum":0,"description":"which cutout outline to edit; omit to edit the zone outline"}}),
+                &["id", "index"],
+            ),
+        ),
+        (
             "zone.cutout",
             "Add a closed cutout outline that removes copper from an existing zone",
             schema(
@@ -773,7 +789,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1342,6 +1358,23 @@ struct ZonePointParams {
     cutout: Option<usize>,
     index: usize,
     position: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZoneInsertParams {
+    id: Id,
+    #[serde(default)]
+    cutout: Option<usize>,
+    index: usize,
+    position: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZoneRemoveParams {
+    id: Id,
+    #[serde(default)]
+    cutout: Option<usize>,
+    index: usize,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3225,6 +3258,71 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             validate_closed_outline(outline).map_err(Error::Invalid)?;
             Ok(json!({"id":a.id,"cutout":a.cutout,"index":a.index,"position":a.position}))
+        }
+        "zone.insert_point" => {
+            let a: ZoneInsertParams = parse(params)?;
+            if !a.position.valid() {
+                return Err(Error::Invalid("zone vertex is out of range".into()));
+            }
+            let zone = p
+                .board
+                .zones
+                .iter_mut()
+                .find(|z| z.id == a.id)
+                .ok_or_else(missing)?;
+            let outline = match a.cutout {
+                None => &mut zone.outline,
+                Some(which) => zone.cutouts.get_mut(which).ok_or_else(|| {
+                    Error::Invalid("cutout index is outside this zone's cutouts".into())
+                })?,
+            };
+            if outline.len() >= 257 {
+                return Err(Error::Invalid(
+                    "this outline already holds the most vertices".into(),
+                ));
+            }
+            if a.index > outline.len() - 1 {
+                return Err(Error::Invalid(
+                    "vertex index is outside this outline".into(),
+                ));
+            }
+            outline.insert(a.index, a.position);
+            if a.index == 0 {
+                let last = outline.len() - 1;
+                outline[last] = a.position;
+            }
+            validate_closed_outline(outline).map_err(Error::Invalid)?;
+            Ok(json!({"id":a.id,"cutout":a.cutout,"index":a.index,"position":a.position}))
+        }
+        "zone.remove_point" => {
+            let a: ZoneRemoveParams = parse(params)?;
+            let zone = p
+                .board
+                .zones
+                .iter_mut()
+                .find(|z| z.id == a.id)
+                .ok_or_else(missing)?;
+            let outline = match a.cutout {
+                None => &mut zone.outline,
+                Some(which) => zone.cutouts.get_mut(which).ok_or_else(|| {
+                    Error::Invalid("cutout index is outside this zone's cutouts".into())
+                })?,
+            };
+            if a.index > outline.len() - 2 {
+                return Err(Error::Invalid(
+                    "vertex index is outside this outline".into(),
+                ));
+            }
+            if outline.len() <= 4 {
+                return Err(Error::Invalid(
+                    "an outline needs at least three vertices".into(),
+                ));
+            }
+            outline.remove(a.index);
+            let last = outline.len() - 1;
+            outline[last] = outline[0];
+            validate_closed_outline(outline).map_err(Error::Invalid)?;
+            Ok(json!({"id":a.id,"cutout":a.cutout,"index":a.index}))
         }
         "zone.cutout" => {
             let a: ZoneCutoutParams = parse(params)?;
@@ -8328,6 +8426,178 @@ mod tests {
             s.project.board.zones[0].outline[1],
             Point::new(50.0, 10.0),
             "undo restores the lifted corner"
+        );
+        Ok(())
+    }
+    #[test]
+    fn zone_outlines_gain_and_lose_one_vertex_at_a_time() -> Result<(), Error> {
+        let mut s = Session::default();
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":gnd,"outline":[{"x":10.0,"y":10.0},{"x":50.0,"y":10.0},{"x":50.0,"y":30.0},{"x":10.0,"y":30.0},{"x":10.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "zone.cutout",
+            json!({"zone":zone,"outline":[{"x":20.0,"y":15.0},{"x":30.0,"y":15.0},{"x":30.0,"y":25.0},{"x":20.0,"y":25.0},{"x":20.0,"y":15.0}]}),
+            None,
+        )?;
+        s.execute(
+            "zone.insert_point",
+            json!({"id":zone,"index":2,"position":{"x":55.0,"y":20.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.zones[0].outline,
+            [
+                Point::new(10.0, 10.0),
+                Point::new(50.0, 10.0),
+                Point::new(55.0, 20.0),
+                Point::new(50.0, 30.0),
+                Point::new(10.0, 30.0),
+                Point::new(10.0, 10.0),
+            ],
+            "a new corner slides between the two it was inserted before"
+        );
+        s.execute(
+            "zone.insert_point",
+            json!({"id":zone,"index":0,"position":{"x":8.0,"y":12.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.zones[0].outline.first(),
+            s.project.board.zones[0].outline.last(),
+            "inserting at the opening keeps the outline closed"
+        );
+        s.execute(
+            "zone.insert_point",
+            json!({"id":zone,"cutout":0,"index":1,"position":{"x":25.0,"y":14.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.zones[0].cutouts[0][1],
+            Point::new(25.0, 14.0),
+            "cutouts gain corners through the same command"
+        );
+        s.execute(
+            "zone.remove_point",
+            json!({"id":zone,"cutout":0,"index":1}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.zones[0].cutouts[0],
+            [
+                Point::new(20.0, 15.0),
+                Point::new(30.0, 15.0),
+                Point::new(30.0, 25.0),
+                Point::new(20.0, 25.0),
+                Point::new(20.0, 15.0),
+            ],
+            "and lose them again"
+        );
+        s.execute("zone.remove_point", json!({"id":zone,"index":0}), None)?;
+        assert_eq!(
+            s.project.board.zones[0].outline.first(),
+            s.project.board.zones[0].outline.last(),
+            "removing the opening vertex keeps the outline closed"
+        );
+        s.execute("zone.remove_point", json!({"id":zone,"index":2}), None)?;
+        assert_eq!(
+            s.project.board.zones[0].outline,
+            [
+                Point::new(10.0, 10.0),
+                Point::new(50.0, 10.0),
+                Point::new(50.0, 30.0),
+                Point::new(10.0, 30.0),
+                Point::new(10.0, 10.0),
+            ],
+            "two removals return the square to its original corners"
+        );
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        for params in [
+            json!({"id":zone,"index":5,"position":{"x":20.0,"y":20.0}}),
+            json!({"id":zone,"index":-1,"position":{"x":20.0,"y":20.0}}),
+            json!({"id":zone,"index":1,"position":{"x":1e9,"y":20.0}}),
+            json!({"id":zone,"index":1,"position":{"x":20.0,"y":null}}),
+            json!({"id":zone,"cutout":1,"index":0,"position":{"x":20.0,"y":20.0}}),
+            json!({"id":999,"index":0,"position":{"x":20.0,"y":20.0}}),
+            json!({"id":zone,"position":{"x":20.0,"y":20.0}}),
+            json!({"id":zone,"index":1,"position":{"x":20.0,"y":20.0},"extra":1}),
+        ] {
+            assert!(
+                s.execute("zone.insert_point", params.clone(), None)
+                    .is_err(),
+                "insert {params:?} refused"
+            );
+        }
+        for params in [
+            json!({"id":zone,"index":4}),
+            json!({"id":zone,"index":-1}),
+            json!({"id":zone,"cutout":1,"index":0}),
+            json!({"id":zone,"cutout":-1,"index":0}),
+            json!({"id":999,"index":0}),
+            json!({"id":zone}),
+            json!({"id":zone,"index":1,"extra":1}),
+        ] {
+            assert!(
+                s.execute("zone.remove_point", params.clone(), None)
+                    .is_err(),
+                "remove {params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        let ring: Vec<serde_json::Value> = (0..256)
+            .map(|i| {
+                let t = std::f64::consts::TAU * i as f64 / 256.0;
+                json!({"x":30.0 + 20.0 * t.cos(),"y":30.0 + 20.0 * t.sin()})
+            })
+            .collect();
+        let mut fat = ring.clone();
+        fat.push(ring[0].clone());
+        let round =
+            s.execute("zone.place", json!({"net":gnd,"outline":fat}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+        assert!(
+            s.execute(
+                "zone.insert_point",
+                json!({"id":round,"index":0,"position":{"x":30.0,"y":50.5}}),
+                None,
+            )
+            .is_err(),
+            "a full outline cannot gain another vertex"
+        );
+        let three = s.execute(
+            "zone.place",
+            json!({"net":gnd,"outline":[{"x":55.0,"y":10.0},{"x":58.0,"y":10.0},{"x":56.5,"y":13.0},{"x":55.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute("zone.remove_point", json!({"id":three,"index":1}), None)
+                .is_err(),
+            "removing a corner from a triangle would leave a line"
+        );
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        s.undo()?;
+        assert_eq!(
+            s.project.board.zones.len(),
+            1,
+            "undo removes both test zones again"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.zones[0].outline.len(),
+            6,
+            "undo brings the removed corner back"
         );
         Ok(())
     }
