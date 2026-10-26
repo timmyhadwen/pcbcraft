@@ -385,6 +385,11 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "pad.table",
+            "Report every board pad: number, net, position, shape, size and drill, by component reference",
+            schema(json!({"component":id_schema()}), &[]),
+        ),
+        (
             "align.distribute",
             "Align or evenly distribute components or board footprints along an axis",
             schema(
@@ -823,6 +828,12 @@ struct StitchParams {
     drill: f64,
     #[serde(default = "default_stitch_spacing")]
     spacing: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PadTableParams {
+    #[serde(default)]
+    component: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2078,6 +2089,66 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             validate_closed_outline(&a.outline).map_err(Error::Invalid)?;
             zone.cutouts.push(a.outline);
             Ok(json!({"cutouts": zone.cutouts.len()}))
+        }
+        "pad.table" => {
+            let a: PadTableParams = parse(params)?;
+            if a.component
+                .is_some_and(|id| !p.components.iter().any(|c| c.id == id))
+            {
+                return Err(missing());
+            }
+            let mut rows: Vec<(String, String, Value)> = Vec::new();
+            let mut unassigned = 0usize;
+            for footprint in &p.board.footprints {
+                let Some(component) = p.component(footprint.component) else {
+                    continue;
+                };
+                if a.component.is_some_and(|id| id != footprint.component) {
+                    continue;
+                }
+                for pad in &footprint.pads {
+                    let position = footprint.pad_position(&pad.number).unwrap_or(pad.offset);
+                    let net = pad
+                        .net
+                        .and_then(|id| p.nets.iter().find(|n| n.id == id).map(|n| n.name.clone()));
+                    if net.is_none() {
+                        unassigned += 1;
+                    }
+                    let (shape, size, drill) = match &pad.geometry {
+                        Some(g) => (
+                            g.shape.clone(),
+                            json!({"x": g.size.x, "y": g.size.y}),
+                            g.drill
+                                .as_ref()
+                                .map(|d| json!({"x": d.size.x, "y": d.size.y}))
+                                .unwrap_or_default(),
+                        ),
+                        None => (
+                            "circle".into(),
+                            json!({"x": pad.diameter, "y": pad.diameter}),
+                            Value::Null,
+                        ),
+                    };
+                    rows.push((
+                        component.reference.clone(),
+                        pad.number.clone(),
+                        json!({
+                            "reference": component.reference,
+                            "footprint": footprint.id,
+                            "pad": pad.number,
+                            "net": net,
+                            "position": {"x": position.x, "y": position.y},
+                            "shape": shape,
+                            "size": size,
+                            "drill": drill,
+                        }),
+                    ));
+                }
+            }
+            rows.sort_by(|left, right| (&left.0, &left.1).cmp(&(&right.0, &right.1)));
+            let pads: Vec<Value> = rows.into_iter().map(|(_, _, row)| row).collect();
+            let count = pads.len();
+            Ok(json!({"pads": pads, "count": count, "unassigned": unassigned}))
         }
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
@@ -4000,6 +4071,85 @@ mod tests {
                 .net
                 .is_some()
         );
+        Ok(())
+    }
+    #[test]
+    fn pad_tables_report_nets_geometry_and_drills() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"PWR","pins":[{"reference":"R2","pin":"1"},{"reference":"R1","pin":"1"}]}]}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let result = s.execute("pad.table", json!({}), None)?["result"].clone();
+        assert_eq!(result["count"], 4);
+        assert_eq!(result["unassigned"], 2);
+        let pads = result["pads"].as_array().ok_or_else(missing)?;
+        assert_eq!(pads[0]["reference"], "R1");
+        assert_eq!(pads[0]["pad"], "1");
+        assert_eq!(pads[0]["net"], "PWR");
+        assert_eq!(pads[1]["reference"], "R1");
+        assert_eq!(pads[1]["pad"], "2");
+        assert_eq!(pads[1]["net"], json!(null));
+        assert_eq!(pads[0]["shape"], "circle");
+        assert_eq!(pads[0]["size"]["x"], 1.6);
+        assert_eq!(pads[0]["drill"], json!(null));
+        let footprint = s.project.board.footprints.first().ok_or_else(missing)?;
+        let expected = footprint.pad_position("1").ok_or_else(missing)?;
+        let reported = pads[0]["position"].as_object().ok_or_else(missing)?;
+        let rx = reported["x"].as_f64().ok_or_else(missing)?;
+        let ry = reported["y"].as_f64().ok_or_else(missing)?;
+        assert!((rx - expected.x).abs() < 1e-9 && (ry - expected.y).abs() < 1e-9);
+        for (component, reference) in [(r1, "R1"), (r2, "R2")] {
+            let filtered =
+                s.execute("pad.table", json!({"component": component}), None)?["result"].clone();
+            assert_eq!(filtered["count"], 2);
+            assert_eq!(filtered["pads"][0]["reference"], reference);
+            assert_eq!(filtered["pads"][0]["net"], "PWR");
+        }
+        for params in [json!({"component": 9999}), json!({"extra": 1})] {
+            assert!(s.execute("pad.table", params, None).is_err());
+        }
+        let u = s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","position":{"x":20.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign",
+            json!({"id":u,"path":library_fixture("DIP-8_W7.62mm.kicad_mod")}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let geometry = s.execute("pad.table", json!({"component": u}), None)?["result"].clone();
+        assert_eq!(geometry["count"], 8);
+        assert_eq!(geometry["unassigned"], 8);
+        let pads = geometry["pads"].as_array().ok_or_else(missing)?;
+        assert_eq!(
+            pads[0]["reference"],
+            s.project.component(u).ok_or_else(missing)?.reference
+        );
+        assert_eq!(pads[0]["shape"], "roundrect");
+        assert_eq!(pads[0]["size"]["x"], 1.6);
+        assert_eq!(pads[0]["drill"]["x"], 0.8);
+        assert_eq!(pads[7]["pad"], "8");
         Ok(())
     }
     #[test]
