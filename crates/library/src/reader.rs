@@ -359,6 +359,7 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
         keywords: node.field("tags").to_owned(),
         pads: Vec::new(),
         graphics: Vec::new(),
+        model: None,
         raw_source: source[node.span.clone()].to_owned(),
         unsupported: Vec::new(),
     };
@@ -421,6 +422,34 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     .transpose()?,
                 raw_source: source[child.span.clone()].to_owned(),
             });
+        } else if child.name() == "model" {
+            if s.model.is_some() {
+                s.unsupported.push("more than one 3D model attached".into());
+            } else {
+                let triple =
+                    |holder: Option<&Node>, fallback: [f64; 3]| -> Result<[f64; 3], Error> {
+                        let Some(holder) = holder else {
+                            return Ok(fallback);
+                        };
+                        let Some(xyz) = holder.child("xyz") else {
+                            return Err(invalid("model transform needs an xyz triple"));
+                        };
+                        Ok([num(xyz.value(1))?, num(xyz.value(2))?, num(xyz.value(3))?])
+                    };
+                let offset = triple(
+                    child.child("offset").or_else(|| child.child("at")),
+                    [0.0; 3],
+                )?;
+                let scale = triple(child.child("scale"), [1.0; 3])?;
+                let rotate = triple(child.child("rotate"), [0.0; 3])?;
+                s.model = Some(Model3D {
+                    path: child.value(1).to_owned(),
+                    offset,
+                    scale,
+                    rotate,
+                    raw_source: source[child.span.clone()].to_owned(),
+                });
+            }
         } else if let Some(g) = graphic(child, false)? {
             s.graphics.push(g);
         } else if child.atom.is_none()
@@ -436,7 +465,6 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     | "attr"
                     | "duplicate_pad_numbers_are_jumpers"
                     | "embedded_fonts"
-                    | "model"
             )
         {
             s.unsupported

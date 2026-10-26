@@ -157,3 +157,69 @@ fn inheritance_overrides_properties_and_replaces_local_units()
     assert!(read_symbols("(kicad_symbol_lib (symbol X (symbol X_1_1) (symbol X_1_1)))").is_err());
     Ok(())
 }
+
+#[test]
+fn footprint_models_are_recorded_and_bounded() -> Result<(), Box<dyn std::error::Error>> {
+    let fp = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu)\
+         (model \"pkg.wrl\" (offset (xyz 0 0 1)) (scale (xyz 2 2 2)) (rotate (xyz 0 0 90)))\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    let m = fp.model.as_ref().ok_or("model missing")?;
+    assert_eq!(m.path, "pkg.wrl");
+    assert_eq!(m.offset, [0.0, 0.0, 1.0]);
+    assert_eq!(m.scale, [2.0, 2.0, 2.0]);
+    assert_eq!(m.rotate, [0.0, 0.0, 90.0]);
+    assert!(
+        fp.unsupported.iter().all(|u| !u.contains("model")),
+        "a recorded model is no longer unsupported"
+    );
+    let modern = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu)\
+         (model \"pkg.step\" (at (xyz 1 2 3)) (rotate (xyz 0 90 0)))\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    let m = modern.model.as_ref().ok_or("at-form model missing")?;
+    assert_eq!(m.offset, [1.0, 2.0, 3.0], "newer files place with at");
+    assert_eq!(m.scale, [1.0, 1.0, 1.0], "an absent scale is unit size");
+    let plain = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu) (model \"pkg.wrl\")\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    let m = plain.model.as_ref().ok_or("bare model missing")?;
+    assert_eq!(m.offset, [0.0, 0.0, 0.0]);
+    assert!(
+        read_footprint(
+            "(footprint M (at 0 0 0) (layer F.Cu) (model \"a.wrl\" (offset (xyz 0 0 NaN))))"
+        )
+        .is_err(),
+        "a non-finite model offset is rejected"
+    );
+    assert!(
+        read_footprint(
+            "(footprint M (at 0 0 0) (layer F.Cu) (model \"a.wrl\" (scale (xyz 1 0 1))))"
+        )
+        .is_err(),
+        "a zero model scale is rejected"
+    );
+    assert!(
+        read_footprint("(footprint M (at 0 0 0) (layer F.Cu) (model \"\"))").is_err(),
+        "an empty model path is rejected"
+    );
+    let doubled = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu) (model \"a.wrl\") (model \"b.wrl\"))",
+    )?;
+    assert_eq!(
+        doubled.model.as_ref().ok_or("first model missing")?.path,
+        "a.wrl",
+        "the first model wins"
+    );
+    assert!(
+        doubled
+            .unsupported
+            .iter()
+            .any(|u| u.contains("more than one 3D model")),
+        "extra models are reported"
+    );
+    Ok(())
+}

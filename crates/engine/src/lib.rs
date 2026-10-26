@@ -1206,7 +1206,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair and rule-area clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, and footprint 3D model references with placement transforms that read, edit and export but never render; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair and rule-area clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -11156,6 +11156,119 @@ mod tests {
         assert!(
             s.inspect()["project"]["board"].get("rule_areas").is_none(),
             "adding an area undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn library_footprint_model_references_read_edit_and_export() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let stored = s.inspect()["project"]["library"]["footprints"][0]["model"].clone();
+        assert!(
+            stored["path"]
+                .as_str()
+                .is_some_and(|p| p.ends_with("R_0805_2012Metric.step")),
+            "reading a footprint records its 3D model reference"
+        );
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":r,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        let board = pcbcraft_io::kicad_board(&s.project)?;
+        assert!(
+            board.contains("R_0805_2012Metric.step"),
+            "the embedded model travels into the board export"
+        );
+        s.execute(
+            "library.footprint.set_model",
+            json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5],"rotate":[0,0,90]}),
+            None,
+        )?;
+        let m = s.inspect()["project"]["library"]["footprints"][0]["model"].clone();
+        assert_eq!(m["path"], "parts/resistor.wrl");
+        assert_eq!(m["offset"][2], 0.5);
+        assert_eq!(
+            m["scale"],
+            json!([1.0, 1.0, 1.0]),
+            "an absent scale is unit"
+        );
+        assert_eq!(m["rotate"][2], 90.0);
+        let board_now = pcbcraft_io::kicad_board(&s.project)?;
+        assert!(
+            board_now.contains("R_0805_2012Metric.step"),
+            "placed instances keep their embedded copy until reassigned"
+        );
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":r,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        let board_new = pcbcraft_io::kicad_board(&s.project)?;
+        assert!(
+            board_new.contains("(model \"parts/resistor.wrl\""),
+            "reassigning carries the new model into the export"
+        );
+        for bad in [
+            json!({"name":"R_0805_2012Metric","path":""}),
+            json!({"name":"R_0805_2012Metric","path":"p".repeat(1025)}),
+            json!({"name":"R_0805_2012Metric","path":"a.wrl","offset":[0,0]}),
+            json!({"name":"R_0805_2012Metric","path":"a.wrl","scale":[1,0,1]}),
+            json!({"name":"nope","path":"a.wrl"}),
+            json!({"name":"R_0805_2012Metric","path":"a.wrl","nope":1}),
+            json!({"path":"a.wrl"}),
+        ] {
+            assert!(
+                s.execute("library.footprint.set_model", bad, None).is_err(),
+                "bad model requests are refused"
+            );
+        }
+        s.execute(
+            "library.footprint.clear_model",
+            json!({"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        assert!(
+            s.inspect()["project"]["library"]["footprints"][0]
+                .get("model")
+                .is_none(),
+            "clearing drops the model field"
+        );
+        assert!(
+            s.execute(
+                "library.footprint.clear_model",
+                json!({"name":"R_0805_2012Metric"}),
+                None
+            )
+            .is_err(),
+            "clearing an absent model is refused"
+        );
+        s.execute(
+            "library.footprint.set_model",
+            json!({"name":"R_0805_2012Metric","path":"again.wrl"}),
+            None,
+        )?;
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["library"]["footprints"][0]
+                .get("model")
+                .is_none(),
+            "setting a model undoes back to the cleared state"
         );
         Ok(())
     }

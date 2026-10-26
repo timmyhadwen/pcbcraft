@@ -95,8 +95,30 @@ pub struct FootprintDefinition {
     pub keywords: String,
     pub pads: Vec<FootprintPad>,
     pub graphics: Vec<Graphic>,
+    /// A 3D model reference when the footprint carries one. The transform is
+    /// kept exactly as the source states it; this tool records and re-emits
+    /// it without rendering geometry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<Model3D>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+}
+/// A reference to a 3D model file attached to a footprint, with the
+/// placement transform from the source file's coordinate frame.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Model3D {
+    pub path: String,
+    #[serde(default)]
+    pub offset: [f64; 3],
+    #[serde(default = "unit_scale")]
+    pub scale: [f64; 3],
+    #[serde(default)]
+    pub rotate: [f64; 3],
+    pub raw_source: String,
+}
+fn unit_scale() -> [f64; 3] {
+    [1.0, 1.0, 1.0]
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

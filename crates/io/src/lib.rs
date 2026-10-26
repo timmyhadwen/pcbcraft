@@ -156,6 +156,21 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
         let value_y = max.y + 1.2;
         s.push_str(&format!(" (footprint {} (layer \"F.Cu\") (uuid {}) (at {} {} {})\n (property \"Reference\" {} (at {label_x} {reference_y} {}) (layer \"F.SilkS\") (effects (font (size 1 1) (thickness 0.15))))\n (property \"Value\" {} (at {label_x} {value_y} {}) (layer \"F.SilkS\") (effects (font (size 1 1) (thickness 0.15))))\n (attr {attr})\n",quote(&name),uuid(f.id,1),f.position.x,f.position.y,f.rotation,quote(&c.reference),f.rotation,quote(&c.value),f.rotation));
         if let Some(library) = &c.library_footprint {
+            if let Some(m) = &library.definition.model {
+                s.push_str(&format!(
+                    " (model {} (offset (xyz {} {} {})) (scale (xyz {} {} {})) (rotate (xyz {} {} {})))\n",
+                    quote(&m.path),
+                    m.offset[0],
+                    m.offset[1],
+                    m.offset[2],
+                    m.scale[0],
+                    m.scale[1],
+                    m.scale[2],
+                    m.rotate[0],
+                    m.rotate[1],
+                    m.rotate[2]
+                ));
+            }
             for graphic in &library.definition.graphics {
                 s.push_str(&kicad_graphic(graphic, f.rotation)?);
             }
@@ -2344,6 +2359,7 @@ mod tests {
                     keywords: String::new(),
                     pads: vec![embedded_pad, embedded_pad2],
                     graphics: vec![],
+                    model: None,
                     raw_source: String::new(),
                     unsupported: vec![],
                 },
@@ -2484,6 +2500,7 @@ mod tests {
                         keywords: String::new(),
                         pads: vec![oval_geometry()],
                         graphics: vec![],
+                        model: None,
                         raw_source: String::new(),
                         unsupported: vec![],
                     },
@@ -2576,6 +2593,7 @@ mod tests {
                         keywords: String::new(),
                         pads: vec![geometry("1", -1.0, back), geometry("2", 1.0, back)],
                         graphics: vec![],
+                        model: None,
                         raw_source: String::new(),
                         unsupported: vec![],
                     },

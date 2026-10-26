@@ -93,6 +93,11 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Symbol and footprint editors in the Libraries tab: editable pins, unit membership,
   pad/drill dimensions, and line/rectangle/circle/arc/polyline/text graphics. Save
   undoable project-library definitions and reusable `.pcbcraft-lib` collections.
+- 3D model references: footprints read their model path and placement transform
+  from library files, and one command each sets or clears that reference on a
+  project-library footprint; the reference travels into board exports. Placed
+  instances keep their embedded copy until reassigned, and nothing renders the
+  model yet.
 - Schematic-to-PCB sync retains existing placements and reconciles pad nets.
   A pad table report lists every board pad by component reference with its net,
   position, shape, size and drill, for the whole board or one component. A
@@ -229,9 +234,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 146 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 148 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 169 MCP tools: every engine command plus library discovery/search/inspection,
+- 173 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
