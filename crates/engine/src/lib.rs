@@ -292,6 +292,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"id":id_schema(),"at":point_schema()}), &["id", "at"]),
         ),
         (
+            "track.chamfer",
+            "Cut the corner between two joined same-net track segments with a diagonal segment",
+            schema(
+                json!({"a":id_schema(),"b":id_schema(),"size":{"type":"number","description":"distance cut back from the corner along each segment, millimetres"}}),
+                &["a", "b", "size"],
+            ),
+        ),
+        (
             "track.move",
             "Translate an existing copper segment by a delta; both ends move together",
             schema(
@@ -754,6 +762,13 @@ struct StitchParams {
     drill: f64,
     #[serde(default = "default_stitch_spacing")]
     spacing: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChamferParams {
+    a: Id,
+    b: Id,
+    size: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1766,6 +1781,97 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 layer,
             });
             Ok(json!({"id":id,"kept":a.id}))
+        }
+        "track.chamfer" => {
+            let a: ChamferParams = parse(params)?;
+            if !a.size.is_finite() || a.size <= 0.0 {
+                return Err(Error::Invalid("chamfer size must be positive".into()));
+            }
+            let ia = p
+                .board
+                .tracks
+                .iter()
+                .position(|t| t.id == a.a)
+                .ok_or_else(missing)?;
+            let ib = p
+                .board
+                .tracks
+                .iter()
+                .position(|t| t.id == a.b)
+                .ok_or_else(missing)?;
+            if ia == ib {
+                return Err(Error::Invalid("the two tracks must be different".into()));
+            }
+            let (net, layer) = (p.board.tracks[ia].net, p.board.tracks[ia].layer);
+            if p.board.tracks[ib].net != net || p.board.tracks[ib].layer != layer {
+                return Err(Error::Invalid(
+                    "tracks must share one net and one layer".into(),
+                ));
+            }
+            let ends = |t: &Track| [t.start, t.end];
+            let ta = ends(&p.board.tracks[ia]);
+            let tb = ends(&p.board.tracks[ib]);
+            let shared: Vec<Point> = ta
+                .iter()
+                .flat_map(|pa| {
+                    tb.iter()
+                        .filter(move |pb| pb.distance(*pa) <= 1e-6)
+                        .copied()
+                })
+                .collect();
+            if shared.len() != 1 {
+                return Err(Error::Invalid(
+                    "tracks must meet at exactly one endpoint".into(),
+                ));
+            }
+            let corner = shared[0];
+            let away = |ends: [Point; 2]| {
+                if ends[0].distance(corner) <= 1e-6 {
+                    ends[1]
+                } else {
+                    ends[0]
+                }
+            };
+            let (fa, fb) = (away(ta), away(tb));
+            let (la, lb) = (corner.distance(fa), corner.distance(fb));
+            if a.size > la.min(lb) * 0.5 {
+                return Err(Error::Invalid(
+                    "chamfer size must not exceed half the shorter segment".into(),
+                ));
+            }
+            let cut = |far: Point, length: f64| {
+                let t = a.size / length;
+                Point::new(
+                    corner.x + (far.x - corner.x) * t,
+                    corner.y + (far.y - corner.y) * t,
+                )
+            };
+            let (p1, p2) = (cut(fa, la), cut(fb, lb));
+            if !p1.valid() || !p2.valid() {
+                return Err(Error::Invalid("chamfer point is out of range".into()));
+            }
+            if p1.distance(p2) < 0.01 {
+                return Err(Error::Invalid("corner is too shallow to chamfer".into()));
+            }
+            let width = p.board.tracks[ia].width.min(p.board.tracks[ib].width);
+            for (index, target) in [(ia, p1), (ib, p2)] {
+                let track = &mut p.board.tracks[index];
+                if track.start.distance(corner) <= 1e-6 {
+                    track.start = target;
+                } else {
+                    track.end = target;
+                }
+            }
+            let id = allocate(next)?;
+            p.board.tracks.push(Track {
+                id,
+                net,
+                start: p1,
+                end: p2,
+                width,
+                layer,
+            });
+            Ok(json!({"id": id, "a": a.a, "b": a.b}))
         }
         "track.move" => {
             let a: DeltaParams = parse(params)?;
@@ -3014,6 +3120,83 @@ mod tests {
                 .ok_or_else(missing)?
                 .drawing_points(),
             outline_after
+        );
+        Ok(())
+    }
+    #[test]
+    fn chamfering_a_track_corner_replaces_it_with_a_diagonal() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let a = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":20.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let other = s.execute("net.create", json!({"name":"OTHER"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let d = s.execute(
+            "track.add",
+            json!({"net":other,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for params in [
+            json!({"a":a,"b":b,"size":0.0}),
+            json!({"a":a,"b":b,"size":6.0}),
+            json!({"a":a,"b":a,"size":1.0}),
+            json!({"a":a,"b":9999,"size":1.0}),
+            json!({"a":a,"b":b,"size":1.0,"extra":1}),
+            json!({"a":a,"b":d,"size":1.0}),
+            json!({"a":b,"b":d,"size":1.0}),
+        ] {
+            assert!(s.execute("track.chamfer", params, None).is_err());
+        }
+        assert_eq!(s.project.board.tracks.len(), 3);
+        let c = s.execute("track.chamfer", json!({"a":a,"b":b,"size":2.0}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let tracks = &s.project.board.tracks;
+        assert_eq!(tracks.len(), 4);
+        let find = |id| {
+            tracks
+                .iter()
+                .find(|t| t.id == id)
+                .cloned()
+                .ok_or_else(missing)
+        };
+        assert_eq!(find(a)?.end, Point::new(8.0, 10.0));
+        assert_eq!(find(a)?.start, Point::new(0.0, 10.0));
+        assert_eq!(find(b)?.start, Point::new(10.0, 12.0));
+        assert_eq!(find(b)?.end, Point::new(10.0, 20.0));
+        let bridge = find(c)?;
+        assert_eq!(bridge.net, net);
+        assert_eq!(bridge.start, Point::new(8.0, 10.0));
+        assert_eq!(bridge.end, Point::new(10.0, 12.0));
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), 3);
+        assert_eq!(
+            s.project
+                .board
+                .tracks
+                .iter()
+                .find(|t| t.id == a)
+                .ok_or_else(missing)?
+                .end,
+            Point::new(10.0, 10.0)
         );
         Ok(())
     }

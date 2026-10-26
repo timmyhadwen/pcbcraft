@@ -23,7 +23,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   top-to-bottom about its own origin; pins, pads, embedded library graphics
   and per-unit placements all flip together and two mirrors cancel exactly.
 - Split an existing copper segment or drawn wire at any point on it; both
-  halves keep the net, width and layer of the original. Duplicate components
+  halves keep the net, width and layer of the original. Cut the corner
+  between two joined same-net track segments with a diagonal chamfer.
+  Duplicate components
   at an offset with fresh ids and automatically unique reference labels,
   bringing the physical footprint when one is assigned. Placed copper
   segments and vias move after the fact, and the clearance findings follow
@@ -56,9 +58,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   exported as Edge.Cuts. Constrained/parametric outline sketches are planned.
 - Initial pin assignment/net-population checks and copper short, clearance,
   board-edge, cutout and unrouted checks with affected object IDs.
-- 46 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 47 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 64 MCP tools: every engine command plus library discovery/search/inspection,
+- 65 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
