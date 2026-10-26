@@ -692,6 +692,19 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"net":id_schema(),"target":{"type":"number"}}), &[]),
         ),
         (
+            "board.bounds",
+            "Report the bounding box in millimetres of the board outline and of placed objects, overall and per copper side, from object anchors, pad and via extents and zone outlines",
+            schema(json!({}), &[]),
+        ),
+        (
+            "items.find",
+            "List object IDs by kind (track, via, zone, pad, footprint, text or component) with optional net and copper-layer filters",
+            schema(
+                json!({"kind":{"type":"string","enum":["track","via","zone","pad","footprint","text","component"]},"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                &["kind"],
+            ),
+        ),
+        (
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
@@ -1455,6 +1468,15 @@ struct NetImpedanceParams {
     net: Option<Id>,
     #[serde(default)]
     target: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ItemFindParams {
+    kind: String,
+    #[serde(default)]
+    net: Option<Id>,
+    #[serde(default)]
+    layer: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4123,6 +4145,209 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 });
             }
             Ok(json!({"holes": holes, "total": total, "board_thickness": p.board.thickness}))
+        }
+        "board.bounds" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid("board.bounds takes an empty object".into()));
+            }
+            #[derive(Default)]
+            struct Extent {
+                min_x: f64,
+                min_y: f64,
+                max_x: f64,
+                max_y: f64,
+                count: usize,
+            }
+            impl Extent {
+                fn add(&mut self, x: f64, y: f64) {
+                    if self.count == 0 {
+                        self.min_x = x;
+                        self.min_y = y;
+                        self.max_x = x;
+                        self.max_y = y;
+                    } else {
+                        self.min_x = self.min_x.min(x);
+                        self.min_y = self.min_y.min(y);
+                        self.max_x = self.max_x.max(x);
+                        self.max_y = self.max_y.max(y);
+                    }
+                    self.count += 1;
+                }
+            }
+            fn box_json(b: &Extent) -> Value {
+                if b.count == 0 {
+                    return json!({"empty": true});
+                }
+                json!({
+                    "min_x": b.min_x,
+                    "min_y": b.min_y,
+                    "max_x": b.max_x,
+                    "max_y": b.max_y,
+                    "width": b.max_x - b.min_x,
+                    "height": b.max_y - b.min_y,
+                    "points": b.count
+                })
+            }
+            let mut front = Extent::default();
+            let mut back = Extent::default();
+            let mut all = Extent::default();
+            for f in &p.board.footprints {
+                front.add(f.position.x, f.position.y);
+                all.add(f.position.x, f.position.y);
+                for pad in &f.pads {
+                    let world = f.position.offset(pad.offset.rotate(-f.rotation));
+                    let radius = pad
+                        .geometry
+                        .as_ref()
+                        .map(|g| g.size.x.max(g.size.y) / 2.0)
+                        .unwrap_or(0.0);
+                    front.add(world.x - radius, world.y - radius);
+                    front.add(world.x + radius, world.y + radius);
+                    all.add(world.x - radius, world.y - radius);
+                    all.add(world.x + radius, world.y + radius);
+                }
+            }
+            for t in &p.board.tracks {
+                let half = t.width / 2.0;
+                let e = if t.layer == pcbcraft_doc::Layer::Back {
+                    &mut back
+                } else {
+                    &mut front
+                };
+                e.add(t.start.x - half, t.start.y - half);
+                e.add(t.end.x + half, t.end.y + half);
+                all.add(t.start.x - half, t.start.y - half);
+                all.add(t.end.x + half, t.end.y + half);
+            }
+            for v in &p.board.vias {
+                let radius = v.diameter / 2.0;
+                front.add(v.position.x - radius, v.position.y - radius);
+                front.add(v.position.x + radius, v.position.y + radius);
+                all.add(v.position.x - radius, v.position.y - radius);
+                all.add(v.position.x + radius, v.position.y + radius);
+            }
+            for z in &p.board.zones {
+                let e = if z.layer == pcbcraft_doc::Layer::Back {
+                    &mut back
+                } else {
+                    &mut front
+                };
+                for q in &z.outline {
+                    e.add(q.x, q.y);
+                    all.add(q.x, q.y);
+                }
+            }
+            for t in &p.board.texts {
+                let e = if t.layer == pcbcraft_doc::Layer::Back {
+                    &mut back
+                } else {
+                    &mut front
+                };
+                e.add(t.position.x, t.position.y);
+                e.add(t.position.x + t.size, t.position.y + t.size);
+                all.add(t.position.x, t.position.y);
+                all.add(t.position.x + t.size, t.position.y + t.size);
+            }
+            Ok(json!({
+                "overall": box_json(&all),
+                "front": box_json(&front),
+                "back": box_json(&back),
+                "board": {"width": p.board.width, "height": p.board.height}
+            }))
+        }
+        "items.find" => {
+            let a: ItemFindParams = parse(params)?;
+            if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
+                return Err(Error::Invalid("unknown net".into()));
+            }
+            let layer = match a.layer.as_deref() {
+                None => None,
+                Some("F.Cu") => Some(pcbcraft_doc::Layer::Front),
+                Some("B.Cu") => Some(pcbcraft_doc::Layer::Back),
+                _ => return Err(Error::Invalid("layer must be one of F.Cu, B.Cu".into())),
+            };
+            let matches_layer = |l: &pcbcraft_doc::Layer| layer.is_none_or(|w| *l == w);
+            let refs: std::collections::BTreeMap<Id, String> = p
+                .components
+                .iter()
+                .map(|c| (c.id, c.reference.clone()))
+                .collect();
+            let mut found: Vec<Value> = Vec::new();
+            match a.kind.as_str() {
+                "track" => {
+                    for t in &p.board.tracks {
+                        if a.net.is_some_and(|n| t.net != n) || !matches_layer(&t.layer) {
+                            continue;
+                        }
+                        found.push(json!({"id": t.id, "net": t.net, "layer": t.layer}));
+                    }
+                }
+                "via" => {
+                    for v in &p.board.vias {
+                        if a.net.is_some_and(|n| v.net != n) {
+                            continue;
+                        }
+                        found.push(json!({"id": v.id, "net": v.net, "position": v.position}));
+                    }
+                }
+                "zone" => {
+                    for z in &p.board.zones {
+                        if a.net.is_some_and(|n| z.net != n) || !matches_layer(&z.layer) {
+                            continue;
+                        }
+                        found.push(
+                            json!({"id": z.id, "net": z.net, "layer": z.layer, "filled": z.filled}),
+                        );
+                    }
+                }
+                "pad" => {
+                    for f in &p.board.footprints {
+                        for pad in &f.pads {
+                            if a.net.is_some_and(|n| pad.net != Some(n)) {
+                                continue;
+                            }
+                            found.push(json!({
+                                "id": f.id,
+                                "reference": refs.get(&f.component).cloned().unwrap_or_default(),
+                                "pad": pad.number
+                            }));
+                        }
+                    }
+                }
+                "footprint" => {
+                    for f in &p.board.footprints {
+                        found.push(json!({
+                            "id": f.id,
+                            "reference": refs.get(&f.component).cloned().unwrap_or_default()
+                        }));
+                    }
+                }
+                "text" => {
+                    for t in &p.board.texts {
+                        if !matches_layer(&t.layer) {
+                            continue;
+                        }
+                        found.push(json!({"id": t.id, "text": t.text, "layer": t.layer}));
+                    }
+                }
+                "component" => {
+                    for c in &p.components {
+                        if a.net
+                            .is_some_and(|n| !c.pins.iter().any(|q| q.net == Some(n)))
+                        {
+                            continue;
+                        }
+                        found.push(json!({"id": c.id, "reference": c.reference}));
+                    }
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "kind must be one of track, via, zone, pad, footprint, text, component"
+                            .into(),
+                    ));
+                }
+            }
+            Ok(json!({"kind": a.kind, "count": found.len(), "items": found}))
         }
         "board.statistics" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
@@ -8006,6 +8231,99 @@ mod tests {
         assert_ne!(back, before, "the stackup edit undoes");
         assert_eq!(back["board"]["er"], 4.4);
         assert_eq!(back["board"]["thickness"], 1.6);
+        Ok(())
+    }
+    #[test]
+    fn board_bounds_cover_tracks_and_vias_per_copper_side() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"SIG"}), None)?;
+        let net = s.inspect()["project"]["nets"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":12.0},"width":0.4}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":5.0,"y":20.0},"width":0.2,"layer":"B.Cu"}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":20.0,"y":14.0},"diameter":0.7}),
+            None,
+        )?;
+        let bounds = s.execute("board.bounds", json!({}), None)?["result"].clone();
+        assert_eq!(
+            bounds["overall"]["points"], 6,
+            "two tracks and a via, corner pairs"
+        );
+        assert_eq!(
+            bounds["front"]["points"], 4,
+            "the back track is its own box"
+        );
+        assert_eq!(bounds["back"]["min_x"], 4.9, "track width feeds the box");
+        assert_eq!(bounds["back"]["max_y"], 20.1);
+        assert_eq!(
+            bounds["front"]["max_y"], 14.35,
+            "the via pad diameter feeds the box"
+        );
+        assert_eq!(bounds["overall"]["width"], 30.2 - 4.9);
+        assert_eq!(bounds["board"]["width"], 60.0);
+        let mut fresh = Session::default();
+        let empty = fresh.execute("board.bounds", json!({}), None)?["result"].clone();
+        assert_eq!(empty["overall"]["empty"], true, "a bare board has no box");
+        assert!(
+            fresh
+                .execute("board.bounds", json!({"layer":"F.Cu"}), None)
+                .is_err(),
+            "board.bounds takes no parameters"
+        );
+        Ok(())
+    }
+    #[test]
+    fn items_find_lists_ids_by_kind_with_net_and_layer_filters() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"SIG"}), None)?;
+        s.execute("net.create", json!({"name":"GND"}), None)?;
+        let sig = s.inspect()["project"]["nets"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let gnd = s.inspect()["project"]["nets"][1]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":10.0}}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":gnd,"start":{"x":10.0,"y":12.0},"end":{"x":30.0,"y":12.0},"layer":"B.Cu"}),
+            None,
+        )?;
+        let found = s.execute("items.find", json!({"kind":"track"}), None)?["result"].clone();
+        assert_eq!(found["count"], 2, "both tracks by default");
+        let one =
+            s.execute("items.find", json!({"kind":"track","net":sig}), None)?["result"].clone();
+        assert_eq!(one["count"], 1, "the net filter narrows the list");
+        assert_eq!(one["items"][0]["net"], sig);
+        let back = s.execute("items.find", json!({"kind":"track","layer":"B.Cu"}), None)?["result"]
+            .clone();
+        assert_eq!(back["count"], 1, "the copper-side filter narrows the list");
+        let none = s.execute("items.find", json!({"kind":"zone"}), None)?["result"].clone();
+        assert_eq!(none["count"], 0, "a kind with nothing placed lists nothing");
+        for bad in [
+            json!({"kind":"widget"}),
+            json!({"kind":"track","net":9999}),
+            json!({"kind":"track","layer":"F.Adge"}),
+            json!({"kind":"track","extra":1}),
+            json!({}),
+        ] {
+            assert!(s.execute("items.find", bad, None).is_err());
+        }
         Ok(())
     }
     #[test]
