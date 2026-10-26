@@ -99,6 +99,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "component.mirror",
+            "Mirror a placed symbol left-to-right or top-to-bottom about its own origin",
+            schema(
+                json!({"id":id_schema(),"axis":{"type":"string","enum":["horizontal","vertical"]}}),
+                &["id", "axis"],
+            ),
+        ),
+        (
             "component.value",
             "Change the component value",
             schema(
@@ -297,6 +305,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"from":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
                 &["from", "to"],
+            ),
+        ),
+        (
+            "footprint.mirror",
+            "Mirror a board footprint left-to-right or top-to-bottom about its own origin",
+            schema(
+                json!({"id":id_schema(),"axis":{"type":"string","enum":["horizontal","vertical"]}}),
+                &["id", "axis"],
             ),
         ),
         (
@@ -741,6 +757,104 @@ struct StitchParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct MirrorParams {
+    id: Id,
+    axis: String,
+}
+/// Mirror a library graphic primitive about the local origin; horizontal
+/// flips left-to-right, vertical flips top-to-bottom. Arcs keep their three
+/// defining points, so the mirrored arc is the reflected curve.
+fn mirror_primitive(
+    graphic: pcbcraft_library::Graphic,
+    horizontal: bool,
+) -> pcbcraft_library::Graphic {
+    use pcbcraft_library::Graphic as G;
+    let mirror = |point: Point| {
+        if horizontal {
+            Point::new(-point.x, point.y)
+        } else {
+            Point::new(point.x, -point.y)
+        }
+    };
+    match graphic {
+        G::Line {
+            start,
+            end,
+            width,
+            layer,
+        } => G::Line {
+            start: mirror(start),
+            end: mirror(end),
+            width,
+            layer,
+        },
+        G::Rectangle {
+            start,
+            end,
+            width,
+            fill,
+            layer,
+        } => G::Rectangle {
+            start: mirror(start),
+            end: mirror(end),
+            width,
+            fill,
+            layer,
+        },
+        G::Circle {
+            center,
+            radius,
+            width,
+            fill,
+            layer,
+        } => G::Circle {
+            center: mirror(center),
+            radius,
+            width,
+            fill,
+            layer,
+        },
+        G::Arc {
+            start,
+            mid,
+            end,
+            width,
+            layer,
+        } => G::Arc {
+            start: mirror(start),
+            mid: mirror(mid),
+            end: mirror(end),
+            width,
+            layer,
+        },
+        G::Polyline {
+            points,
+            width,
+            fill,
+            layer,
+        } => G::Polyline {
+            points: points.iter().map(|point| mirror(*point)).collect(),
+            width,
+            fill,
+            layer,
+        },
+        G::Text {
+            position,
+            angle,
+            text,
+            size,
+            layer,
+        } => G::Text {
+            position: mirror(position),
+            angle: if horizontal { 180.0 - angle } else { -angle },
+            text,
+            size,
+            layer,
+        },
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PositionParams {
     id: Id,
     position: Point,
@@ -1041,6 +1155,71 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     .rotation = a.degrees.rem_euclid(360.0);
             }
             Ok(json!({"id":a.id,"unit":a.unit.unwrap_or(1)}))
+        }
+        "component.mirror" => {
+            let a: MirrorParams = parse(params)?;
+            let horizontal = match a.axis.as_str() {
+                "horizontal" => true,
+                "vertical" => false,
+                _ => return Err(Error::Invalid("axis must be horizontal or vertical".into())),
+            };
+            let c = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let mirror = |point: Point| {
+                if horizontal {
+                    Point::new(-point.x, point.y)
+                } else {
+                    Point::new(point.x, -point.y)
+                }
+            };
+            let anchor = c.position;
+            let units: Vec<(Point, f64)> = c
+                .units
+                .iter()
+                .map(|unit| {
+                    let offset = mirror(Point::new(
+                        unit.position.x - anchor.x,
+                        unit.position.y - anchor.y,
+                    ));
+                    (
+                        Point::new(anchor.x + offset.x, anchor.y + offset.y),
+                        -unit.rotation,
+                    )
+                })
+                .collect();
+            if !units.iter().all(|(position, _)| position.valid()) {
+                return Err(Error::Invalid(
+                    "mirrored unit position is out of range".into(),
+                ));
+            }
+            for pin in &mut c.pins {
+                pin.offset = mirror(pin.offset);
+                pin.direction = pin
+                    .direction
+                    .map(|d| if horizontal { 180.0 - d } else { -d });
+            }
+            c.rotation = -c.rotation;
+            if let Some(symbol) = &mut c.library_symbol {
+                for pin in &mut symbol.definition.pins {
+                    pin.position = mirror(pin.position);
+                    pin.angle = if horizontal {
+                        180.0 - pin.angle
+                    } else {
+                        -pin.angle
+                    };
+                }
+                for graphic in &mut symbol.definition.graphics {
+                    graphic.primitive = mirror_primitive(graphic.primitive.clone(), horizontal);
+                }
+            }
+            for (unit, (position, rotation)) in c.units.iter_mut().zip(units) {
+                unit.position = position;
+                unit.rotation = rotation;
+            }
+            Ok(json!({"id": a.id, "axis": a.axis}))
         }
         "component.value" => {
             let a: ValueParams = parse(params)?;
@@ -1631,6 +1810,58 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
             }
             Ok(json!({"ids":ids,"net":net}))
+        }
+        "footprint.mirror" => {
+            let a: MirrorParams = parse(params)?;
+            let horizontal = match a.axis.as_str() {
+                "horizontal" => true,
+                "vertical" => false,
+                _ => return Err(Error::Invalid("axis must be horizontal or vertical".into())),
+            };
+            let index = p
+                .board
+                .footprints
+                .iter()
+                .position(|f| f.id == a.id)
+                .ok_or_else(missing)?;
+            let component = p.board.footprints[index].component;
+            let mirror = |point: Point| {
+                if horizontal {
+                    Point::new(-point.x, point.y)
+                } else {
+                    Point::new(point.x, -point.y)
+                }
+            };
+            let footprint = &mut p.board.footprints[index];
+            footprint.rotation = -footprint.rotation;
+            for pad in &mut footprint.pads {
+                pad.offset = mirror(pad.offset);
+                if let Some(geometry) = &mut pad.geometry {
+                    geometry.position = mirror(geometry.position);
+                    geometry.rotation = -geometry.rotation;
+                    if let Some(drill) = &mut geometry.drill {
+                        drill.offset = mirror(drill.offset);
+                    }
+                }
+            }
+            if let Some(library) = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == component)
+                .and_then(|c| c.library_footprint.as_mut())
+            {
+                for pad in &mut library.definition.pads {
+                    pad.position = mirror(pad.position);
+                    pad.rotation = -pad.rotation;
+                    if let Some(drill) = &mut pad.drill {
+                        drill.offset = mirror(drill.offset);
+                    }
+                }
+                for graphic in &mut library.definition.graphics {
+                    *graphic = mirror_primitive(graphic.clone(), horizontal);
+                }
+            }
+            Ok(json!({"id": a.id, "axis": a.axis}))
         }
         "align.distribute" => {
             let a: AlignParams = parse(params)?;
@@ -2655,6 +2886,134 @@ mod tests {
         assert_eq!(
             s.project.board.zones[0].cutouts[0][0],
             Point::new(20.0, 15.0)
+        );
+        Ok(())
+    }
+    #[test]
+    fn mirroring_symbols_and_footprints_flips_geometry_exactly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":20.0,"y":15.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before: Vec<Point> = s
+            .project
+            .component(r1)
+            .ok_or_else(missing)?
+            .pins
+            .iter()
+            .map(|pin| pin.offset)
+            .collect();
+        s.execute("component.rotate", json!({"id":r1,"degrees":90.0}), None)?;
+        s.execute(
+            "component.mirror",
+            json!({"id":r1,"axis":"horizontal"}),
+            None,
+        )?;
+        let mirrored = s.project.component(r1).ok_or_else(missing)?.clone();
+        assert_eq!(mirrored.rotation, -90.0);
+        for (original, now) in before
+            .iter()
+            .zip(mirrored.pins.iter().map(|pin| pin.offset))
+        {
+            assert_eq!(now, Point::new(-original.x, original.y));
+        }
+        assert!(s.project.validate().is_ok());
+        s.execute(
+            "component.mirror",
+            json!({"id":r1,"axis":"horizontal"}),
+            None,
+        )?;
+        let restored = s.project.component(r1).ok_or_else(missing)?.clone();
+        assert_eq!(restored.rotation, 90.0);
+        for (original, now) in before
+            .iter()
+            .zip(restored.pins.iter().map(|pin| pin.offset))
+        {
+            assert_eq!(now, *original);
+        }
+        s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("device.kicad_sym"),"symbol":"R","position":{"x":50.0,"y":40.0}}),
+            None,
+        )?;
+        let placed = s.project.components.last().ok_or_else(missing)?.id;
+        let outline_before = s
+            .project
+            .component(placed)
+            .ok_or_else(missing)?
+            .drawing_points();
+        s.execute(
+            "component.mirror",
+            json!({"id":placed,"axis":"horizontal"}),
+            None,
+        )?;
+        let outline_after = s
+            .project
+            .component(placed)
+            .ok_or_else(missing)?
+            .drawing_points();
+        assert_eq!(
+            outline_after,
+            outline_before
+                .iter()
+                .map(|point| Point::new(-point.x, point.y))
+                .collect::<Vec<_>>()
+        );
+        assert!(s.project.validate().is_ok());
+        s.execute("board.sync", json!({}), None)?;
+        let footprint = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == r1)
+            .cloned()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.mirror",
+            json!({"id":footprint.id,"axis":"vertical"}),
+            None,
+        )?;
+        let flipped = s
+            .project
+            .footprint(footprint.id)
+            .ok_or_else(missing)?
+            .clone();
+        for (original, now) in footprint.pads.iter().zip(flipped.pads.iter()) {
+            assert_eq!(
+                now.offset,
+                Point::new(original.offset.x, -original.offset.y)
+            );
+        }
+        s.execute(
+            "footprint.mirror",
+            json!({"id":footprint.id,"axis":"vertical"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.footprint(footprint.id).ok_or_else(missing)?.pads,
+            footprint.pads,
+            "two mirrors cancel exactly"
+        );
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"id":9999,"axis":"horizontal"}),
+            json!({"id":r1,"axis":"diagonal"}),
+            json!({"id":r1,"axis":"horizontal","extra":1}),
+        ] {
+            assert!(s.execute("component.mirror", params.clone(), None).is_err());
+            assert!(s.execute("footprint.mirror", params, None).is_err());
+        }
+        assert_eq!(
+            s.project
+                .component(placed)
+                .ok_or_else(missing)?
+                .drawing_points(),
+            outline_after
         );
         Ok(())
     }

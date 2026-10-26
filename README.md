@@ -19,7 +19,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - One-command alignment and distribution for groups of schematic symbols or
   board footprints: flush left/right/top/bottom, shared horizontal or vertical
   centre, even spacing along an axis, or snapping placements to the nearest
-  multiple of a grid.
+  multiple of a grid. Mirror a placed symbol or footprint left-to-right or
+  top-to-bottom about its own origin; pins, pads, embedded library graphics
+  and per-unit placements all flip together and two mirrors cancel exactly.
 - Split an existing copper segment or drawn wire at any point on it; both
   halves keep the net, width and layer of the original. Duplicate components
   at an offset with fresh ids and automatically unique reference labels,
@@ -36,7 +38,8 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   their net); plated through-hole vias that join front
   and back copper, including stitch grids that fill a rectangular area with a
   via lattice; poured copper zones as closed polygons on either layer, with
-  cutouts that remove copper from a zone.
+  cutouts that remove copper from a zone; a moved zone shifts its outline and
+  every cutout together.
 - Background search and geometry previews of installed KiCad symbol/footprint
   libraries, including inherited definitions. Place supported symbols with
   independently movable schematic units within one physical package, assign
@@ -53,9 +56,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   exported as Edge.Cuts. Constrained/parametric outline sketches are planned.
 - Initial pin assignment/net-population checks and copper short, clearance,
   board-edge, cutout and unrouted checks with affected object IDs.
-- 44 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 46 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 62 MCP tools: every engine command plus library discovery/search/inspection,
+- 64 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
