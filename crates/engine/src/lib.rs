@@ -669,6 +669,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "object.nudge",
+            "Slide one placed board object, track, via, footprint, zone, cutout or text label, by a distance in millimetres",
+            schema(
+                json!({"id":id_schema(),"dx":{"type":"number","minimum":-1000,"maximum":1000},"dy":{"type":"number","minimum":-1000,"maximum":1000}}),
+                &["id", "dx", "dy"],
+            ),
+        ),
+        (
             "object.duplicate",
             "Duplicate components at an offset, each with a fresh reference and ids, bringing its footprint when one exists",
             schema(
@@ -829,7 +837,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1625,6 +1633,13 @@ struct TextRotateParams {
 struct SnapParams {
     ids: Vec<Id>,
     grid: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NudgeParams {
+    id: Id,
+    dx: f64,
+    dy: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4460,6 +4475,78 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
             }
             Ok(json!({"moved": moved, "grid": a.grid}))
+        }
+        "object.nudge" => {
+            let a: NudgeParams = parse(params)?;
+            if !a.dx.is_finite() || !a.dy.is_finite() || a.dx.abs() > 1000.0 || a.dy.abs() > 1000.0
+            {
+                return Err(Error::Invalid("nudge distance is out of range".into()));
+            }
+            if a.dx == 0.0 && a.dy == 0.0 {
+                return Err(Error::Invalid("a nudge must move something".into()));
+            }
+            let shift = |pt: Point| Point::new(pt.x + a.dx, pt.y + a.dy);
+            let shift_all = |pts: &mut Vec<Point>| -> Result<(), Error> {
+                for pt in pts.iter_mut() {
+                    *pt = shift(*pt);
+                    if !pt.valid() {
+                        return Err(Error::Invalid("nudged position is out of range".into()));
+                    }
+                }
+                Ok(())
+            };
+            if let Some(t) = p.board.tracks.iter_mut().find(|t| t.id == a.id) {
+                let (start, end) = (shift(t.start), shift(t.end));
+                if !start.valid() || !end.valid() {
+                    return Err(Error::Invalid("nudged position is out of range".into()));
+                }
+                (t.start, t.end) = (start, end);
+                return Ok(json!({"id": a.id}));
+            }
+            if let Some(v) = p.board.vias.iter_mut().find(|v| v.id == a.id) {
+                let position = shift(v.position);
+                if !position.valid() {
+                    return Err(Error::Invalid("nudged position is out of range".into()));
+                }
+                v.position = position;
+                return Ok(json!({"id": a.id}));
+            }
+            if let Some(f) = p.board.footprints.iter_mut().find(|f| f.id == a.id) {
+                let position = shift(f.position);
+                if !position.valid() {
+                    return Err(Error::Invalid("nudged position is out of range".into()));
+                }
+                f.position = position;
+                return Ok(json!({"id": a.id}));
+            }
+            if let Some(z) = p.board.zones.iter_mut().find(|z| z.id == a.id) {
+                let mut outline = z.outline.clone();
+                shift_all(&mut outline)?;
+                let mut cutouts = z.cutouts.clone();
+                for cut in &mut cutouts {
+                    shift_all(cut)?;
+                }
+                z.outline = outline;
+                z.cutouts = cutouts;
+                return Ok(json!({"id": a.id}));
+            }
+            if let Some(c) = p.board.cutouts.iter_mut().find(|c| c.id == a.id) {
+                let center = shift(c.center);
+                if !center.valid() {
+                    return Err(Error::Invalid("nudged position is out of range".into()));
+                }
+                c.center = center;
+                return Ok(json!({"id": a.id}));
+            }
+            if let Some(t) = p.board.texts.iter_mut().find(|t| t.id == a.id) {
+                let position = shift(t.position);
+                if !position.valid() {
+                    return Err(Error::Invalid("nudged position is out of range".into()));
+                }
+                t.position = position;
+                return Ok(json!({"id": a.id}));
+            }
+            Err(missing())
         }
         "object.duplicate" => {
             let a: DuplicateParams = parse(params)?;
@@ -8843,6 +8930,95 @@ mod tests {
             s.project.board.tracks[0].start,
             Point::new(10.0, 40.0),
             "undo restores the original end point"
+        );
+        Ok(())
+    }
+    #[test]
+    fn placed_board_objects_slide_by_a_distance_with_object_nudge() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"N"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let track = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":25.0,"y":15.0},"diameter":0.8}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":net,"outline":[{"x":40.0,"y":10.0},{"x":50.0,"y":10.0},{"x":50.0,"y":20.0},{"x":40.0,"y":20.0},{"x":40.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "zone.cutout",
+            json!({"zone":zone,"outline":[{"x":44.0,"y":14.0},{"x":46.0,"y":14.0},{"x":46.0,"y":16.0},{"x":44.0,"y":16.0},{"x":44.0,"y":14.0}]}),
+            None,
+        )?;
+        let text = s.execute(
+            "text.place",
+            json!({"text":"TOP","position":{"x":5.0,"y":5.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("object.nudge", json!({"id":track,"dx":1.5,"dy":2.0}), None)?;
+        assert_eq!(s.project.board.tracks[0].start, Point::new(11.5, 12.0));
+        assert_eq!(s.project.board.tracks[0].end, Point::new(21.5, 12.0));
+        s.execute("object.nudge", json!({"id":via,"dx":0.0,"dy":-4.0}), None)?;
+        assert_eq!(s.project.board.vias[0].position, Point::new(25.0, 11.0));
+        s.execute("object.nudge", json!({"id":zone,"dx":-5.0,"dy":0.0}), None)?;
+        assert_eq!(s.project.board.zones[0].outline[0], Point::new(35.0, 10.0));
+        assert_eq!(
+            s.project.board.zones[0].cutouts[0][0],
+            Point::new(39.0, 14.0),
+            "the cutout travels with its zone"
+        );
+        s.execute("object.nudge", json!({"id":text,"dx":2.0,"dy":2.0}), None)?;
+        assert_eq!(s.project.board.texts[0].position, Point::new(7.0, 7.0));
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        for params in [
+            json!({"id":track,"dx":0.0,"dy":0.0}),
+            json!({"id":track,"dx":1.0}),
+            json!({"id":9999,"dx":1.0,"dy":1.0}),
+            json!({"id":track,"dx":1e9,"dy":0.0}),
+            json!({"id":track,"dx":1001.0,"dy":0.0}),
+            json!({"id":track,"dx":null,"dy":0.0}),
+            json!({"id":track,"dx":1.0,"dy":1.0,"extra":2}),
+            json!({"id":net,"dx":1.0,"dy":1.0}),
+        ] {
+            assert!(
+                s.execute("object.nudge", params.clone(), None).is_err(),
+                "{params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        assert_eq!(
+            s.project.board.zones[0].outline[0],
+            Point::new(35.0, 10.0),
+            "a refused zone nudge leaves every vertex alone"
+        );
+        s.execute(
+            "object.nudge",
+            json!({"id":track,"dx":-1.5,"dy":-2.0}),
+            None,
+        )?;
+        s.undo()?;
+        assert_eq!(
+            s.project.board.tracks[0].start,
+            Point::new(11.5, 12.0),
+            "undo puts the nudge back"
         );
         Ok(())
     }
