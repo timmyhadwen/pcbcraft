@@ -414,6 +414,11 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"component":id_schema()}), &[]),
         ),
         (
+            "net.lengths",
+            "Report routed copper length per net: track segments summed in millimetres, with via counts and unrouted nets listed",
+            schema(json!({"net":id_schema()}), &[]),
+        ),
+        (
             "bom.export",
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties",
             schema(
@@ -566,7 +571,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -882,6 +887,12 @@ struct NetClassAssignParams {
 struct BomParams {
     #[serde(default)]
     fields: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetLengthsParams {
+    #[serde(default)]
+    net: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2330,6 +2341,80 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let pads: Vec<Value> = rows.into_iter().map(|(_, _, row)| row).collect();
             let count = pads.len();
             Ok(json!({"pads": pads, "count": count, "unassigned": unassigned}))
+        }
+        "net.lengths" => {
+            let a: NetLengthsParams = parse(params)?;
+            if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
+                return Err(missing());
+            }
+            struct Row {
+                segments: usize,
+                length: f64,
+                vias: usize,
+            }
+            let mut rows: std::collections::BTreeMap<Id, Row> = std::collections::BTreeMap::new();
+            for track in &p.board.tracks {
+                if !track.start.x.is_finite()
+                    || !track.start.y.is_finite()
+                    || !track.end.x.is_finite()
+                    || !track.end.y.is_finite()
+                {
+                    return Err(Error::Invalid(
+                        "a track position must be a finite number".into(),
+                    ));
+                }
+                let row = rows.entry(track.net).or_insert(Row {
+                    segments: 0,
+                    length: 0.0,
+                    vias: 0,
+                });
+                row.segments += 1;
+                row.length += ((track.end.x - track.start.x).powi(2)
+                    + (track.end.y - track.start.y).powi(2))
+                .sqrt();
+            }
+            for via in &p.board.vias {
+                rows.entry(via.net)
+                    .or_insert(Row {
+                        segments: 0,
+                        length: 0.0,
+                        vias: 0,
+                    })
+                    .vias += 1;
+            }
+            let mut nets: Vec<Value> = Vec::new();
+            let mut unrouted: Vec<Value> = Vec::new();
+            for net in &p.nets {
+                if a.net.is_some_and(|id| net.id != id) {
+                    continue;
+                }
+                match rows.get(&net.id) {
+                    Some(row) => nets.push(json!({
+                        "id": net.id,
+                        "name": net.name,
+                        "segments": row.segments,
+                        "vias": row.vias,
+                        "length": row.length,
+                    })),
+                    None => unrouted.push(json!({"id": net.id, "name": net.name})),
+                }
+            }
+            let total: f64 = nets
+                .iter()
+                .map(|n| n["length"].as_f64().unwrap_or(0.0))
+                .sum();
+            let routed = nets.len();
+            nets.sort_by(|a, b| {
+                let left = a["length"].as_f64().unwrap_or(0.0);
+                let right = b["length"].as_f64().unwrap_or(0.0);
+                right.total_cmp(&left)
+            });
+            Ok(json!({
+                "nets": nets,
+                "routed": routed,
+                "unrouted": unrouted,
+                "total": total,
+            }))
         }
         "bom.export" => {
             let a: BomParams = parse(params)?;
@@ -4400,6 +4485,92 @@ mod tests {
         assert_eq!(pads[0]["size"]["x"], 1.6);
         assert_eq!(pads[0]["drill"]["x"], 0.8);
         assert_eq!(pads[7]["pad"], "8");
+        Ok(())
+    }
+    #[test]
+    fn routed_copper_lengths_are_reported_per_net() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"PWR","pins":[{"reference":"R2","pin":"1"},{"reference":"R1","pin":"1"}]},{"name":"GND","pins":[{"reference":"R1","pin":"2"}]}]}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let before = s.execute("net.lengths", json!({}), None)?["result"].clone();
+        assert_eq!(before["routed"], 0);
+        assert_eq!(before["unrouted"].as_array().ok_or_else(missing)?.len(), 2);
+        let before_total = before["total"].as_f64().ok_or_else(missing)?;
+        assert!(before_total.abs() < 1e-9);
+        let pwr = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "PWR")
+            .ok_or_else(missing)?
+            .id;
+        let gnd = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "GND")
+            .ok_or_else(missing)?
+            .id;
+        s.execute(
+            "track.add",
+            json!({"net":pwr,"start":{"x":0.0,"y":0.0},"end":{"x":3.0,"y":0.0}}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":pwr,"start":{"x":0.0,"y":0.0},"end":{"x":0.0,"y":4.0},"layer":"B.Cu"}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":gnd,"position":{"x":1.0,"y":1.0},"diameter":1.5,"drill":0.8}),
+            None,
+        )?;
+        let after = s.execute("net.lengths", json!({}), None)?["result"].clone();
+        assert_eq!(after["routed"], 2);
+        assert!(after["unrouted"].as_array().ok_or_else(missing)?.is_empty());
+        let nets = after["nets"].as_array().ok_or_else(missing)?;
+        assert_eq!(nets[0]["name"], "PWR");
+        assert_eq!(nets[0]["segments"], 2);
+        assert_eq!(nets[0]["vias"], 0);
+        let length = nets[0]["length"].as_f64().ok_or_else(missing)?;
+        assert!((length - 7.0).abs() < 1e-9);
+        assert_eq!(nets[1]["name"], "GND");
+        assert_eq!(nets[1]["segments"], 0);
+        assert_eq!(nets[1]["vias"], 1);
+        let gnd_length = nets[1]["length"].as_f64().ok_or_else(missing)?;
+        assert!((gnd_length - 0.0).abs() < 1e-9);
+        let total = after["total"].as_f64().ok_or_else(missing)?;
+        assert!((total - 7.0).abs() < 1e-9);
+        let single = s.execute("net.lengths", json!({"net": gnd}), None)?["result"].clone();
+        assert_eq!(single["routed"], 1);
+        assert_eq!(single["nets"].as_array().ok_or_else(missing)?.len(), 1);
+        assert_eq!(single["nets"][0]["name"], "GND");
+        for params in [json!({"net": 9999}), json!({"extra": 1})] {
+            assert!(s.execute("net.lengths", params, None).is_err());
+        }
+        let unchanged = s.project.clone();
+        s.execute("net.lengths", json!({"net": pwr}), None)?;
+        assert_eq!(s.project, unchanged);
+        assert!(r1 > 0 && r2 > 0);
         Ok(())
     }
     #[test]
