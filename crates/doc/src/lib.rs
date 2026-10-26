@@ -196,6 +196,26 @@ pub struct NetClass {
     #[serde(default)]
     pub nets: Vec<Id>,
 }
+/// A clearance requirement between two named nets, stricter than either
+/// class or the board default when it is larger.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct NetPairRule {
+    /// Ids of the two nets the rule sits between.
+    pub a: Id,
+    pub b: Id,
+    /// Minimum copper separation between the two nets, in millimetres.
+    pub clearance: f64,
+}
+impl NetPairRule {
+    fn valid(&self) -> bool {
+        self.a != self.b
+            && self.a != 0
+            && self.b != 0
+            && self.clearance.is_finite()
+            && self.clearance > 0.0
+            && self.clearance <= 100.0
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct PinRef {
     pub component: Id,
@@ -683,6 +703,9 @@ pub struct Board {
     /// Machining notes for fabrication, absent when none were recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machining: Option<MachiningNotes>,
+    /// Clearance rules between specific pairs of nets, ordered by net ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pair_rules: Vec<NetPairRule>,
     pub footprints: Vec<Footprint>,
     pub tracks: Vec<Track>,
     /// Plated through-hole vias joining front and back copper.
@@ -876,6 +899,7 @@ impl Default for Project {
                 drill_origin: board_origin(),
                 layer_records: vec![],
                 machining: None,
+                pair_rules: vec![],
                 footprints: vec![],
                 tracks: vec![],
                 vias: vec![],
@@ -1080,7 +1104,7 @@ impl Project {
     /// Minimum clearance required between copper on `a` and copper on `b`:
     /// the board default, raised by the class of either net when classified.
     pub fn required_clearance(&self, a: Id, b: Id) -> f64 {
-        [a, b]
+        let mut best = [a, b]
             .iter()
             .map(|net| {
                 self.net_class(*net)
@@ -1088,7 +1112,17 @@ impl Project {
                     .unwrap_or(self.board.clearance)
             })
             .max_by(f64::total_cmp)
-            .unwrap_or(self.board.clearance)
+            .unwrap_or(self.board.clearance);
+        if let Some(rule) = self
+            .board
+            .pair_rules
+            .iter()
+            .find(|r| (r.a == a && r.b == b) || (r.a == b && r.b == a))
+            && rule.clearance > best
+        {
+            best = rule.clearance;
+        }
+        best
     }
     pub fn ids(&self) -> impl Iterator<Item = Id> + '_ {
         self.components
@@ -1195,6 +1229,18 @@ impl Project {
                 if !nets.contains(net) || !classified.insert(*net) {
                     return Err("net class membership is invalid".into());
                 }
+            }
+        }
+        if self.board.pair_rules.len() > 64 {
+            return Err("a board carries at most 64 net pair clearance rules".into());
+        }
+        let mut paired: BTreeSet<(Id, Id)> = BTreeSet::new();
+        for r in &self.board.pair_rules {
+            let key = (r.a.min(r.b), r.a.max(r.b));
+            if !r.valid() || !nets.contains(&r.a) || !nets.contains(&r.b) || !paired.insert(key) {
+                return Err(
+                    "net pair clearance rules need known distinct nets, one rule per pair".into(),
+                );
             }
         }
         if self.bom_fields.len() > 16 {
