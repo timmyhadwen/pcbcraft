@@ -58,7 +58,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   suppress the matching ERC warning, all movable after placement (graphics by
   delta, labels to an absolute position, junctions only onto a vertex of
   their net) and rotatable (graphics in 90-degree steps about their centre or
-  a chosen pivot, labels by any angle); plated through-hole vias that join front
+  a chosen pivot, labels by any angle) and retargetable one vertex at a time,
+  with their layer, stroke width and text all still editable; plated
+  through-hole vias that join front
   and back copper, including stitch grids that fill a rectangular area with a
   via lattice; poured copper zones as closed polygons on either layer, with
   cutouts that remove copper from a zone; a moved zone shifts its outline and
@@ -97,9 +99,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 80 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 82 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 98 MCP tools: every engine command plus library discovery/search/inspection,
+- 100 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

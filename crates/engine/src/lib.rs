@@ -308,6 +308,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "graphic.set",
+            "Change an existing graphic's layer, stroke width or radius, or its text; omitted fields stay as they were",
+            schema(
+                json!({"id":id_schema(),"layer":{"type":"string","enum":["schematic","board"]},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"text":{"type":"string","minLength":1,"maxLength":1024}}),
+                &["id"],
+            ),
+        ),
+        (
+            "graphic.set_point",
+            "Move one vertex of an existing graphic to a new position",
+            schema(
+                json!({"id":id_schema(),"index":{"type":"integer","minimum":0},"position":point_schema()}),
+                &["id", "index", "position"],
+            ),
+        ),
+        (
             "label.place",
             "Place a local, global, hierarchical or power label, or a junction, naming an existing net",
             schema(
@@ -717,7 +733,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, poured copper zones with cutouts, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, poured copper zones with cutouts, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -967,6 +983,24 @@ struct GraphicParams {
     width: f64,
     #[serde(default)]
     text: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicSetParams {
+    id: Id,
+    #[serde(default)]
+    layer: Option<String>,
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default)]
+    text: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicPointParams {
+    id: Id,
+    index: usize,
+    position: Point,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2706,6 +2740,76 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             graphic.points = rotated;
             Ok(json!({"id": a.id}))
+        }
+        "graphic.set" => {
+            let a: GraphicSetParams = parse(params)?;
+            if a.layer.is_none() && a.width.is_none() && a.text.is_none() {
+                return Err(Error::Invalid(
+                    "give a layer, width or text to change".into(),
+                ));
+            }
+            if a.layer
+                .as_deref()
+                .is_some_and(|l| l != "schematic" && l != "board")
+            {
+                return Err(Error::Invalid(
+                    "graphic layer must be schematic or board".into(),
+                ));
+            }
+            if a.width
+                .is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 1_000.0)
+            {
+                return Err(Error::Invalid(
+                    "graphic width, radius or text size must be within 0 to 1000 mm".into(),
+                ));
+            }
+            if a.text
+                .as_ref()
+                .is_some_and(|t| t.is_empty() || t.len() > 1024)
+            {
+                return Err(Error::Invalid("graphic text is too long".into()));
+            }
+            let graphic = p
+                .graphics
+                .iter_mut()
+                .find(|g| g.id == a.id)
+                .ok_or_else(missing)?;
+            if a.text.is_some() && graphic.shape != "text" {
+                return Err(Error::Invalid("only text graphics may carry text".into()));
+            }
+            if let Some(layer) = a.layer {
+                graphic.layer = layer;
+            }
+            if let Some(width) = a.width {
+                graphic.width = width;
+            }
+            if let Some(text) = a.text {
+                graphic.text = text;
+            }
+            Ok(json!({
+                "id":a.id,
+                "layer":graphic.layer,
+                "width":graphic.width,
+                "text":graphic.text,
+            }))
+        }
+        "graphic.set_point" => {
+            let a: GraphicPointParams = parse(params)?;
+            if !a.position.valid() {
+                return Err(Error::Invalid("graphic vertex is out of range".into()));
+            }
+            let graphic = p
+                .graphics
+                .iter_mut()
+                .find(|g| g.id == a.id)
+                .ok_or_else(missing)?;
+            if a.index >= graphic.points.len() {
+                return Err(Error::Invalid(
+                    "vertex index is outside this graphic's points".into(),
+                ));
+            }
+            graphic.points[a.index] = a.position;
+            Ok(json!({"id":a.id,"index":a.index,"position":a.position}))
         }
         "label.place" => {
             let a: LabelParams = parse(params)?;
@@ -7083,6 +7187,106 @@ mod tests {
             assert!(s.execute("component.add", params, None).is_err());
             assert_eq!(s.inspect(), before);
         }
+    }
+    #[test]
+    fn drawn_graphics_keep_their_properties_editable() -> Result<(), Error> {
+        let mut s = Session::default();
+        let line = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"line","points":[{"x":5.0,"y":5.0},{"x":25.0,"y":5.0}],"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let note = s.execute(
+            "graphic.add",
+            json!({"layer":"schematic","shape":"text","points":[{"x":10.0,"y":30.0}],"width":1.2,"text":"note"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let circle = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"circle","points":[{"x":40.0,"y":20.0}],"width":2.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute(
+            "graphic.set",
+            json!({"id":line,"layer":"schematic","width":0.5}),
+            None,
+        )?;
+        assert_eq!(out["result"]["layer"].as_str(), Some("schematic"));
+        assert_eq!(out["result"]["width"].as_f64(), Some(0.5));
+        s.execute("graphic.set", json!({"id":note,"text":"changed"}), None)?;
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .find(|g| g.id == note)
+                .map(|g| g.text.as_str()),
+            Some("changed")
+        );
+        s.execute(
+            "graphic.set_point",
+            json!({"id":line,"index":1,"position":{"x":25.0,"y":15.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .find(|g| g.id == line)
+                .map(|g| g.points[1]),
+            Some(Point::new(25.0, 15.0)),
+            "one corner moves and the other stays put"
+        );
+        s.execute("graphic.set", json!({"id":circle,"width":3.5}), None)?;
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .find(|g| g.id == circle)
+                .map(|g| g.width),
+            Some(3.5),
+            "the same field is the radius on a circle"
+        );
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        for params in [
+            json!({"id":line}),
+            json!({"id":line,"layer":"copper"}),
+            json!({"id":line,"width":0.0}),
+            json!({"id":line,"width":1001.0}),
+            json!({"id":line,"text":"x"}),
+            json!({"id":note,"text":""}),
+            json!({"id":999,"width":0.3}),
+            json!({"id":line,"width":0.3,"extra":1}),
+        ] {
+            assert!(s.execute("graphic.set", params, None).is_err());
+        }
+        for params in [
+            json!({"id":line,"index":2,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":line,"index":0,"position":{"x":null,"y":1.0}}),
+            json!({"id":line,"index":0,"position":{"x":1e9,"y":1.0}}),
+            json!({"id":999,"index":0,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":line,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":line,"index":0,"position":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("graphic.set_point", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.undo()?;
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .find(|g| g.id == circle)
+                .map(|g| g.width),
+            Some(2.0)
+        );
+        Ok(())
     }
     #[test]
     fn pins_leave_a_net_and_placed_copper_can_switch_nets() -> Result<(), Error> {
