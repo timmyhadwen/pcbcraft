@@ -210,6 +210,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "zone.move",
+            "Translate a poured zone by a delta; outline and every cutout move together",
+            schema(
+                json!({"id":id_schema(),"delta":point_schema()}),
+                &["id", "delta"],
+            ),
+        ),
+        (
             "zone.cutout",
             "Add a closed cutout outline that removes copper from an existing zone",
             schema(
@@ -1412,6 +1420,32 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             });
             Ok(json!({"id":id}))
         }
+        "zone.move" => {
+            let a: DeltaParams = parse(params)?;
+            let zone = p
+                .board
+                .zones
+                .iter_mut()
+                .find(|z| z.id == a.id)
+                .ok_or_else(missing)?;
+            let shift = |point: &Point| Point::new(point.x + a.delta.x, point.y + a.delta.y);
+            let outline: Vec<Point> = zone.outline.iter().map(shift).collect();
+            let cutouts: Vec<Vec<Point>> = zone
+                .cutouts
+                .iter()
+                .map(|c| c.iter().map(shift).collect())
+                .collect();
+            if !outline
+                .iter()
+                .chain(cutouts.iter().flatten())
+                .all(|point| point.valid())
+            {
+                return Err(Error::Invalid("zone vertex is out of range".into()));
+            }
+            zone.outline = outline;
+            zone.cutouts = cutouts;
+            Ok(json!({"id": a.id}))
+        }
         "zone.cutout" => {
             let a: ZoneCutoutParams = parse(params)?;
             let zone = p
@@ -2576,6 +2610,51 @@ mod tests {
         assert!(
             !s.checks()["drc"].as_array().ok_or_else(missing)?.is_empty(),
             "undo restores the finding"
+        );
+        Ok(())
+    }
+    #[test]
+    fn moving_a_zone_shifts_outline_and_cutouts_together() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":net,"layer":"F.Cu","outline":[{"x":10.0,"y":10.0},{"x":40.0,"y":10.0},{"x":40.0,"y":30.0},{"x":10.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "zone.cutout",
+            json!({"zone":zone,"outline":[{"x":20.0,"y":15.0},{"x":25.0,"y":15.0},{"x":25.0,"y":20.0},{"x":20.0,"y":15.0}]}),
+            None,
+        )?;
+        s.execute(
+            "zone.move",
+            json!({"id":zone,"delta":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.zones[0].outline[1], Point::new(45.0, 15.0));
+        assert_eq!(
+            s.project.board.zones[0].cutouts[0][0],
+            Point::new(25.0, 20.0)
+        );
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"id":zone,"delta":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"delta":{"x":1.0,"y":1.0}}),
+            json!({"id":zone,"delta":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("zone.move", params, None).is_err());
+        }
+        assert_eq!(s.project.board.zones[0].outline[1], Point::new(45.0, 15.0));
+        s.undo()?;
+        assert_eq!(s.project.board.zones[0].outline[1], Point::new(40.0, 10.0));
+        assert_eq!(
+            s.project.board.zones[0].cutouts[0][0],
+            Point::new(20.0, 15.0)
         );
         Ok(())
     }
