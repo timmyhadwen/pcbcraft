@@ -43,7 +43,8 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   can also demand a minimum and maximum track width, and member tracks
   outside those bounds are reported by the checks. Components can be found by
   reference wildcard, exact value or kind, with each hit reporting whether it
-  is placed on the board.
+  is placed on the board, and align or distribute can select its group with
+  that same filter instead of an id list.
 - Original resistor, capacitor, LED and two-pin connector symbols; explicit
   logical nets, pin-to-pin orthogonal wire presentations and free-form drawn
   wires with explicit vertices that may be bound to a net and edited after

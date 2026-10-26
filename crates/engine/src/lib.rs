@@ -460,10 +460,10 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "align.distribute",
-            "Align or evenly distribute components or board footprints along an axis",
+            "Align or evenly distribute components or board footprints along an axis, named by id or selected by reference/value/kind filter",
             schema(
-                json!({"ids":{"type":"array","minItems":2,"maxItems":128,"items":id_schema()},"mode":{"type":"string","enum":["left","center_x","right","top","center_y","bottom","distribute_x","distribute_y"]}}),
-                &["ids", "mode"],
+                json!({"ids":{"type":"array","maxItems":128,"items":id_schema()},"filter":schema(json!({"reference":{"type":"string","description":"case-sensitive reference pattern, must contain * or ?","maxLength":64},"value":{"type":"string","maxLength":256},"kind":{"type":"string","maxLength":64}}),&[]),"mode":{"type":"string","enum":["left","center_x","right","top","center_y","bottom","distribute_x","distribute_y"]}}),
+                &["mode"],
             ),
         ),
         (
@@ -1010,12 +1010,8 @@ struct NetlistPin {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FindParams {
-    #[serde(default)]
-    reference: Option<String>,
-    #[serde(default)]
-    value: Option<String>,
-    #[serde(default)]
-    kind: Option<String>,
+    #[serde(flatten)]
+    filter: ComponentFilter,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1232,8 +1228,59 @@ struct SplitParams {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AlignParams {
+    #[serde(default)]
     ids: Vec<Id>,
+    #[serde(default)]
+    filter: Option<ComponentFilter>,
     mode: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentFilter {
+    #[serde(default)]
+    reference: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+}
+/// Shared validation for reference/value/kind selection filters.
+fn validate_filter(filter: &ComponentFilter) -> Result<(), Error> {
+    if filter
+        .reference
+        .as_deref()
+        .is_some_and(|r| r.is_empty() || r.len() > 64 || !r.contains(['*', '?']))
+    {
+        return Err(Error::Invalid(
+            "reference pattern must be 1 to 64 bytes and contain * or ?".into(),
+        ));
+    }
+    if filter
+        .value
+        .as_deref()
+        .is_some_and(|v| v.is_empty() || v.len() > 256)
+    {
+        return Err(Error::Invalid("value filter must be 1 to 256 bytes".into()));
+    }
+    if filter
+        .kind
+        .as_deref()
+        .is_some_and(|k| k.is_empty() || k.len() > 64)
+    {
+        return Err(Error::Invalid("kind filter must be 1 to 64 bytes".into()));
+    }
+    if filter.reference.is_none() && filter.value.is_none() && filter.kind.is_none() {
+        return Err(Error::Invalid("filter needs at least one criterion".into()));
+    }
+    Ok(())
+}
+fn filter_matches(filter: &ComponentFilter, c: &Component) -> bool {
+    filter
+        .reference
+        .as_deref()
+        .is_none_or(|r| class_pattern_matches(r, &c.reference))
+        && filter.value.as_deref().is_none_or(|v| c.value == v)
+        && filter.kind.as_deref().is_none_or(|k| c.kind == k)
 }
 /// Center of an align item's bounding box on the requested axis.
 fn align_center(item: (Id, bool, f64, f64, f64, f64), axis_x: bool) -> f64 {
@@ -1616,39 +1663,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "component.find" => {
             let a: FindParams = parse(params)?;
-            if a.reference
-                .as_deref()
-                .is_some_and(|r| r.is_empty() || r.len() > 64 || !r.contains(['*', '?']))
-            {
-                return Err(Error::Invalid(
-                    "reference pattern must be 1 to 64 bytes and contain * or ?".into(),
-                ));
-            }
-            if a.value
-                .as_deref()
-                .is_some_and(|v| v.is_empty() || v.len() > 256)
-            {
-                return Err(Error::Invalid("value filter must be 1 to 256 bytes".into()));
-            }
-            if a.kind
-                .as_deref()
-                .is_some_and(|k| k.is_empty() || k.len() > 64)
-            {
-                return Err(Error::Invalid("kind filter must be 1 to 64 bytes".into()));
-            }
-            if a.reference.is_none() && a.value.is_none() && a.kind.is_none() {
-                return Err(Error::Invalid("give at least one filter".into()));
-            }
+            validate_filter(&a.filter)?;
             let mut matches: Vec<&Component> = p
                 .components
                 .iter()
-                .filter(|c| {
-                    a.reference
-                        .as_deref()
-                        .is_none_or(|r| class_pattern_matches(r, &c.reference))
-                        && a.value.as_deref().is_none_or(|v| c.value == v)
-                        && a.kind.as_deref().is_none_or(|k| c.kind == k)
-                })
+                .filter(|c| filter_matches(&a.filter, c))
                 .collect();
             matches.sort_by(|a, b| a.reference.cmp(&b.reference));
             let matches = matches
@@ -3067,8 +3086,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         "align.distribute" => {
             let a: AlignParams = parse(params)?;
             let mode = a.mode.as_str();
-            if a.ids.len() < 2 {
-                return Err(Error::Invalid("alignment needs at least two items".into()));
+            if let Some(filter) = &a.filter {
+                validate_filter(filter)?;
+            }
+            if a.ids.is_empty() && a.filter.is_none() {
+                return Err(Error::Invalid("give ids or a filter".into()));
             }
             if !matches!(
                 mode,
@@ -3083,9 +3105,20 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             ) {
                 return Err(Error::Invalid("unknown alignment mode".into()));
             }
+            let mut effective_ids = a.ids.clone();
+            if let Some(filter) = &a.filter {
+                for c in p.components.iter().filter(|c| filter_matches(filter, c)) {
+                    if !effective_ids.contains(&c.id) {
+                        effective_ids.push(c.id);
+                    }
+                }
+            }
+            if effective_ids.len() < 2 {
+                return Err(Error::Invalid("alignment needs at least two items".into()));
+            }
             let mut seen: Vec<Id> = vec![];
             let mut items: Vec<(Id, bool, f64, f64, f64, f64)> = vec![];
-            for id in &a.ids {
+            for id in &effective_ids {
                 if seen.contains(id) {
                     continue;
                 }
@@ -3676,6 +3709,90 @@ mod tests {
             .map(|f| f.position.y)
             .collect();
         assert_eq!(ys, vec![10.0, 10.0, 10.0]);
+        Ok(())
+    }
+    #[test]
+    fn alignment_can_select_its_group_by_filter() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (kind, reference, x, y) in [
+            ("resistor", "R1", 10.0, 10.0),
+            ("resistor", "R2", 20.0, 14.0),
+            ("resistor", "R3", 35.0, 8.0),
+            ("capacitor", "C1", 50.0, 30.0),
+        ] {
+            s.execute(
+                "component.add",
+                json!({"kind":kind,"position":{"x":x,"y":y},"reference":reference}),
+                None,
+            )?;
+        }
+        s.execute(
+            "align.distribute",
+            json!({"filter":{"reference":"R*"},"mode":"left"}),
+            None,
+        )?;
+        for c in &s.project.components {
+            if c.kind == "resistor" {
+                assert_eq!(c.position.x, 10.0, "every matched part aligns");
+            } else {
+                assert_eq!(c.position.x, 50.0, "the unmatched part stays");
+            }
+        }
+        s.undo()?;
+        assert_eq!(
+            s.project
+                .components
+                .iter()
+                .find(|c| c.reference == "R2")
+                .ok_or_else(missing)?
+                .position
+                .x,
+            20.0
+        );
+        s.execute(
+            "align.distribute",
+            json!({"filter":{"reference":"*1"},"mode":"top"}),
+            None,
+        )?;
+        let ys: Vec<f64> = s
+            .project
+            .components
+            .iter()
+            .filter(|c| c.reference == "R1" || c.reference == "C1")
+            .map(|c| c.position.y)
+            .collect();
+        assert_eq!(ys[0], ys[1], "wildcard across kinds aligns both");
+        assert_ne!(
+            s.project
+                .components
+                .iter()
+                .find(|c| c.reference == "R2")
+                .ok_or_else(missing)?
+                .position
+                .y,
+            ys[0],
+            "unmatched parts stay put"
+        );
+        for params in [
+            json!({"mode":"left"}),
+            json!({"filter":{},"mode":"left"}),
+            json!({"filter":{"reference":"R1"},"mode":"left"}),
+            json!({"filter":{"reference":""},"mode":"left"}),
+            json!({"filter":{"kind":""},"mode":"left"}),
+            json!({"filter":{"kind":"capacitor"},"mode":"left"}),
+            json!({"filter":{"reference":"R*"},"mode":"left","extra":1}),
+        ] {
+            assert!(s.execute("align.distribute", params, None).is_err());
+        }
+        let r2_x = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R2")
+            .ok_or_else(missing)?
+            .position
+            .x;
+        assert_eq!(r2_x, 20.0, "rejections must not move anything");
         Ok(())
     }
     #[test]
