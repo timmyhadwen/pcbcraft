@@ -44,7 +44,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   check code can be re-levelled between error and warning, or silenced
   entirely, when its findings are normal for a particular design; individual
   objects can also be excluded per code, so one accepted clearance silences
-  just that finding instead of the whole check. Net classes
+  just that finding instead of the whole check; whole rectangular areas can be
+  excluded per code as well, so a work-in-progress corner can be held out of a
+  check until it is finished. Net classes
   can also demand a minimum and maximum track width, and member tracks
   outside those bounds are reported by the checks. Components can be found by
   reference wildcard, exact value or kind, with each hit reporting whether it
@@ -107,9 +109,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 90 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 92 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 108 MCP tools: every engine command plus library discovery/search/inspection,
+- 111 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

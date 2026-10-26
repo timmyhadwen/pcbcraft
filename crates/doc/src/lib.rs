@@ -573,6 +573,16 @@ pub struct Cutout {
     pub center: Point,
     pub radius: f64,
 }
+/// A rectangular area that silences one check code for objects inside it.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct RuleRegion {
+    /// Lower-left corner in millimetres.
+    pub x: f64,
+    pub y: f64,
+    /// Extent in millimetres; must be positive.
+    pub width: f64,
+    pub height: f64,
+}
 /// A text label drawn on the board, such as an assembly note or a marking.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BoardText {
@@ -626,6 +636,10 @@ pub struct Project {
     /// dropped when every object it names is on that code's exclusion list.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_exclusions: BTreeMap<String, Vec<Id>>,
+    /// Per-check-code rectangular areas: a finding for one of these codes is
+    /// dropped when every object it names sits inside one of its rectangles.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub drawn_wires: Vec<DrawnWire>,
@@ -708,6 +722,7 @@ impl Default for Project {
             net_classes: vec![],
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
+            rule_regions: Default::default(),
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -867,6 +882,58 @@ impl Project {
                 .get(code)
                 .is_some_and(|ids| objects.iter().all(|o| ids.contains(o)))
     }
+    /// True when a finding of `code` naming `objects` falls inside one of
+    /// that code's rectangular regions: every named object must have a
+    /// position and all of them must sit inside the same rectangle.
+    pub fn rule_region_excluded(&self, code: &str, objects: &[Id]) -> bool {
+        let Some(regions) = self.rule_regions.get(code) else {
+            return false;
+        };
+        !objects.is_empty()
+            && regions.iter().any(|r| {
+                objects.iter().all(|o| {
+                    self.object_position(*o).is_some_and(|p| {
+                        p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height
+                    })
+                })
+            })
+    }
+    /// The position that represents a design object for region tests: track
+    /// midpoints, via and footprint anchors, zone centroids, cutout centres.
+    pub fn object_position(&self, id: Id) -> Option<Point> {
+        let b = &self.board;
+        if let Some(t) = b.tracks.iter().find(|t| t.id == id) {
+            return Some(Point::new(
+                (t.start.x + t.end.x) / 2.0,
+                (t.start.y + t.end.y) / 2.0,
+            ));
+        }
+        if let Some(v) = b.vias.iter().find(|v| v.id == id) {
+            return Some(v.position);
+        }
+        if let Some(z) = b.zones.iter().find(|z| z.id == id) {
+            let n = z.outline.len().saturating_sub(1);
+            if n == 0 {
+                return None;
+            }
+            let sx: f64 = z.outline[..n].iter().map(|p| p.x).sum();
+            let sy: f64 = z.outline[..n].iter().map(|p| p.y).sum();
+            return Some(Point::new(sx / n as f64, sy / n as f64));
+        }
+        if let Some(c) = b.cutouts.iter().find(|c| c.id == id) {
+            return Some(c.center);
+        }
+        if let Some(f) = b.footprints.iter().find(|f| f.id == id) {
+            return Some(f.position);
+        }
+        if let Some(t) = b.texts.iter().find(|t| t.id == id) {
+            return Some(t.position);
+        }
+        if let Some(c) = self.components.iter().find(|c| c.id == id) {
+            return Some(c.position);
+        }
+        None
+    }
     /// Minimum clearance required between copper on `a` and copper on `b`:
     /// the board default, raised by the class of either net when classified.
     pub fn required_clearance(&self, a: Id, b: Id) -> f64 {
@@ -1007,6 +1074,34 @@ impl Project {
             }
             if ids.len() > 256 {
                 return Err("a check code excludes at most 256 objects".into());
+            }
+        }
+        if self.rule_regions.len() > 64 {
+            return Err("region exclusions cover at most 64 check codes".into());
+        }
+        for (code, regions) in &self.rule_regions {
+            if code.is_empty() || code.len() > 32 {
+                return Err("invalid region exclusion check code".into());
+            }
+            if regions.len() > 64 {
+                return Err("a check code carries at most 64 regions".into());
+            }
+            for r in regions {
+                if !r.x.is_finite()
+                    || !r.y.is_finite()
+                    || !r.width.is_finite()
+                    || !r.height.is_finite()
+                    || r.width <= 0.0
+                    || r.height <= 0.0
+                    || r.width > 1000.0
+                    || r.height > 1000.0
+                    || r.x < -1000.0
+                    || r.y < -1000.0
+                    || r.x + r.width > 1000.0
+                    || r.y + r.height > 1000.0
+                {
+                    return Err("region exclusion rectangle is out of range".into());
+                }
             }
         }
         let mut refs = BTreeSet::new();

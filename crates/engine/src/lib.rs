@@ -613,6 +613,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "rules.exclude_region",
+            "Silence one check code inside a rectangle; a finding drops when every object it names sits within the region",
+            schema(
+                json!({"code":{"type":"string","description":"check code, as listed by rules.severity"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000}}),
+                &["code", "x", "y", "width", "height"],
+            ),
+        ),
+        (
+            "rules.include_region",
+            "Lift rectangular region exclusions for one check code; omit index to lift every region of that code",
+            schema(
+                json!({"code":{"type":"string"},"index":{"type":"integer","minimum":0,"description":"which region of that code to remove, oldest first; omit to remove all"}}),
+                &["code"],
+            ),
+        ),
+        (
             "bom.export",
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties",
             schema(
@@ -797,7 +813,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1237,6 +1253,22 @@ struct RuleIncludeParams {
     code: String,
     #[serde(default)]
     ids: Option<Vec<Id>>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuleRegionParams {
+    code: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuleRegionLiftParams {
+    code: String,
+    #[serde(default)]
+    index: Option<usize>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3615,6 +3647,90 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         p.rule_exclusions.remove(&a.code);
                     }
                     Ok(json!({"code": a.code, "removed": removed}))
+                }
+            }
+        }
+        "rules.exclude_region" => {
+            let a: RuleRegionParams = parse(params)?;
+            if a.code.is_empty() || a.code.len() > 32 {
+                return Err(Error::Invalid("check code must be 1 to 32 bytes".into()));
+            }
+            if !a.x.is_finite()
+                || !a.y.is_finite()
+                || !a.width.is_finite()
+                || !a.height.is_finite()
+                || a.width <= 0.0
+                || a.height <= 0.0
+                || a.width > 1000.0
+                || a.height > 1000.0
+                || a.x < -1000.0
+                || a.y < -1000.0
+                || a.x + a.width > 1000.0
+                || a.y + a.height > 1000.0
+            {
+                return Err(Error::Invalid("region rectangle is out of range".into()));
+            }
+            if !p.rule_regions.contains_key(&a.code) && p.rule_regions.len() >= 64 {
+                return Err(Error::Invalid(
+                    "region exclusions cover at most 64 check codes".into(),
+                ));
+            }
+            let regions = p.rule_regions.entry(a.code.clone()).or_default();
+            if regions.len() >= 64 {
+                return Err(Error::Invalid(
+                    "a check code carries at most 64 regions".into(),
+                ));
+            }
+            if regions
+                .iter()
+                .any(|r| r.x == a.x && r.y == a.y && r.width == a.width && r.height == a.height)
+            {
+                return Err(Error::Invalid(
+                    "that rectangle is already excluded for that code".into(),
+                ));
+            }
+            regions.push(pcbcraft_doc::RuleRegion {
+                x: a.x,
+                y: a.y,
+                width: a.width,
+                height: a.height,
+            });
+            Ok(json!({"code": a.code, "index": regions.len() - 1}))
+        }
+        "rules.include_region" => {
+            let a: RuleRegionLiftParams = parse(params)?;
+            if a.code.is_empty() || a.code.len() > 32 {
+                return Err(Error::Invalid("check code must be 1 to 32 bytes".into()));
+            }
+            let count = p
+                .rule_regions
+                .get(&a.code)
+                .map_or(0, |r| if r.is_empty() { 0 } else { r.len() });
+            if count == 0 {
+                return Err(Error::Invalid(
+                    "that check code has no region exclusions".into(),
+                ));
+            }
+            match a.index {
+                None => {
+                    p.rule_regions.remove(&a.code);
+                    Ok(json!({"code": a.code, "removed": count}))
+                }
+                Some(i) => {
+                    if i >= count {
+                        return Err(Error::Invalid(
+                            "region index is outside this code's regions".into(),
+                        ));
+                    }
+                    let list = p
+                        .rule_regions
+                        .get_mut(&a.code)
+                        .ok_or_else(|| Error::Invalid("unknown check code".into()))?;
+                    list.remove(i);
+                    if list.is_empty() {
+                        p.rule_regions.remove(&a.code);
+                    }
+                    Ok(json!({"code": a.code, "index": i}))
                 }
             }
         }
@@ -6772,6 +6888,120 @@ mod tests {
         assert!(s.project.validate().is_ok());
         s.undo()?;
         assert!(s.project.rule_exclusions.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn check_findings_can_be_excluded_by_rectangle_and_restored() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (net, sx) in [(a, 5.0), (b, 15.1), (a, 35.0), (b, 45.1)] {
+            let y = if sx < 30.0 { 10.0 } else { 30.0 };
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":sx,"y":y},"end":{"x":sx + 10.0,"y":y},"width":0.3}),
+                None,
+            )?;
+        }
+        let shorts = |s: &Session| -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| f["code"] == "copper_short")
+                .count()
+        };
+        assert_eq!(shorts(&s), 2, "two pairs of tracks touch in two places");
+        s.execute(
+            "rules.exclude_region",
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":22.0,"height":10.0}),
+            None,
+        )?;
+        assert_eq!(
+            shorts(&s),
+            1,
+            "only the short inside the rectangle falls silent"
+        );
+        s.execute(
+            "rules.exclude_region",
+            json!({"code":"copper_short","x":34.0,"y":25.0,"width":22.0,"height":10.0}),
+            None,
+        )?;
+        assert_eq!(shorts(&s), 0, "a second rectangle covers the other one");
+        assert!(
+            s.execute(
+                "rules.include_region",
+                json!({"code":"copper_short","index":2}),
+                None,
+            )
+            .is_err()
+        );
+        s.execute(
+            "rules.include_region",
+            json!({"code":"copper_short","index":0}),
+            None,
+        )?;
+        assert_eq!(
+            shorts(&s),
+            1,
+            "lifting the first rectangle restores its finding"
+        );
+        s.execute("rules.include_region", json!({"code":"copper_short"}), None)?;
+        assert_eq!(
+            shorts(&s),
+            2,
+            "lifting every rectangle restores both findings"
+        );
+        assert!(s.project.rule_regions.is_empty());
+        let before = s.inspect();
+        for params in [
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":0.0,"height":10.0}),
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":-5.0,"height":10.0}),
+            json!({"code":"copper_short","x":-1001.0,"y":5.0,"width":10.0,"height":10.0}),
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":1e9,"height":10.0}),
+            json!({"code":"copper_short","x":null,"y":5.0,"width":10.0,"height":10.0}),
+            json!({"code":"","x":4.0,"y":5.0,"width":10.0,"height":10.0}),
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":10.0}),
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":10.0,"height":10.0,"extra":1}),
+        ] {
+            assert!(
+                s.execute("rules.exclude_region", params.clone(), None)
+                    .is_err(),
+                "{params:?} refused"
+            );
+        }
+        for params in [
+            json!({"code":"nothing_here"}),
+            json!({"code":"copper_short"}),
+            json!({"code":"copper_short","index":0}),
+            json!({"code":"copper_short","index":-1}),
+            json!({"code":""}),
+            json!({"code":"copper_short","extra":1}),
+        ] {
+            assert!(
+                s.execute("rules.include_region", params.clone(), None)
+                    .is_err(),
+                "{params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.execute(
+            "rules.exclude_region",
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":22.0,"height":10.0}),
+            None,
+        )?;
+        assert_eq!(shorts(&s), 1);
+        s.undo()?;
+        assert!(
+            s.project.rule_regions.is_empty(),
+            "undo removes the rectangle again"
+        );
+        assert_eq!(shorts(&s), 2, "and both findings return");
         Ok(())
     }
     #[test]

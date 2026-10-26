@@ -397,7 +397,11 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             });
         }
     }
-    result.retain(|f| !project.rule_disabled(f.code) && !project.rule_excluded(f.code, &f.objects));
+    result.retain(|f| {
+        !project.rule_disabled(f.code)
+            && !project.rule_excluded(f.code, &f.objects)
+            && !project.rule_region_excluded(f.code, &f.objects)
+    });
     result
 }
 pub fn drc(project: &Project) -> Vec<Finding> {
@@ -602,7 +606,11 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![net.id],
         });
     }
-    result.retain(|f| !project.rule_disabled(f.code) && !project.rule_excluded(f.code, &f.objects));
+    result.retain(|f| {
+        !project.rule_disabled(f.code)
+            && !project.rule_excluded(f.code, &f.objects)
+            && !project.rule_region_excluded(f.code, &f.objects)
+    });
     result
 }
 
