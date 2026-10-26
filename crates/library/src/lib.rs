@@ -107,8 +107,25 @@ pub struct FootprintDefinition {
     /// it without rendering geometry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<Model3D>,
+    /// Design rule overrides scoped to this footprint: a local copper
+    /// clearance and solder mask/paste margin shifts in millimetres. The
+    /// clearance tightens checks; the margins are recorded and exported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<FootprintRules>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+}
+/// Per-footprint design rule overrides. Each value is a millimetre amount;
+/// a negative margin shrinks the paste or mask opening.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FootprintRules {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clearance: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask_margin: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paste_margin: Option<f64>,
 }
 /// A reference to a 3D model file attached to a footprint, with the
 /// placement transform from the source file's coordinate frame.

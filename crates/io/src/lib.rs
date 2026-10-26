@@ -171,6 +171,17 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                     m.rotate[2]
                 ));
             }
+            if let Some(r) = &library.definition.rules {
+                if let Some(v) = r.clearance {
+                    s.push_str(&format!(" (clearance {v})\n"));
+                }
+                if let Some(v) = r.mask_margin {
+                    s.push_str(&format!(" (solder_mask_margin {v})\n"));
+                }
+                if let Some(v) = r.paste_margin {
+                    s.push_str(&format!(" (solder_paste_margin {v})\n"));
+                }
+            }
             for graphic in &library.definition.graphics {
                 s.push_str(&kicad_graphic(graphic, f.rotation)?);
             }
@@ -2360,6 +2371,7 @@ mod tests {
                     pads: vec![embedded_pad, embedded_pad2],
                     graphics: vec![],
                     model: None,
+                    rules: None,
                     raw_source: String::new(),
                     unsupported: vec![],
                 },
@@ -2501,6 +2513,7 @@ mod tests {
                         pads: vec![oval_geometry()],
                         graphics: vec![],
                         model: None,
+                        rules: None,
                         raw_source: String::new(),
                         unsupported: vec![],
                     },
@@ -2594,6 +2607,7 @@ mod tests {
                         pads: vec![geometry("1", -1.0, back), geometry("2", 1.0, back)],
                         graphics: vec![],
                         model: None,
+                        rules: None,
                         raw_source: String::new(),
                         unsupported: vec![],
                     },

@@ -360,6 +360,7 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
         pads: Vec::new(),
         graphics: Vec::new(),
         model: None,
+        rules: None,
         raw_source: source[node.span.clone()].to_owned(),
         unsupported: Vec::new(),
     };
@@ -449,6 +450,22 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     rotate,
                     raw_source: source[child.span.clone()].to_owned(),
                 });
+            }
+        } else if matches!(
+            child.name(),
+            "clearance" | "solder_mask_margin" | "solder_paste_margin"
+        ) {
+            let value = num(child.value(1))?;
+            let rules = s.rules.get_or_insert_default();
+            let (slot, label) = match child.name() {
+                "clearance" => (&mut rules.clearance, "local clearance"),
+                "solder_mask_margin" => (&mut rules.mask_margin, "solder mask margin"),
+                _ => (&mut rules.paste_margin, "solder paste margin"),
+            };
+            if slot.is_some() {
+                s.unsupported.push(format!("duplicate {label} override"));
+            } else {
+                *slot = Some(value);
             }
         } else if let Some(g) = graphic(child, false)? {
             s.graphics.push(g);

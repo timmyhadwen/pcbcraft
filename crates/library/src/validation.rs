@@ -151,6 +151,18 @@ impl SymbolDefinition {
 }
 impl FootprintDefinition {
     pub fn validate(&self) -> Result<(), Error> {
+        if let Some(rules) = &self.rules {
+            for value in [rules.clearance, rules.mask_margin, rules.paste_margin]
+                .into_iter()
+                .flatten()
+            {
+                if !scalar(value) || value.abs() > 100.0 {
+                    return Err(bad(
+                        "footprint rule override must be finite, at most 100 mm",
+                    ));
+                }
+            }
+        }
         if self.name.is_empty() || self.pads.len() > 20_000 || self.graphics.len() > 20_000 {
             return Err(bad("invalid footprint name or object count"));
         }

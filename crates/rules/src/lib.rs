@@ -32,6 +32,9 @@ struct Copper {
     outline_error: f64,
     layer: Layer,
     pad: bool,
+    /// Clearance demanded by the owning footprint's own design-rule
+    /// overrides, if it carries one.
+    clearance: Option<f64>,
     bridge: Option<(Id, String)>,
     hole: Option<Hole>,
     /// Closed outlines removed from this item's copper (zone cutouts).
@@ -47,6 +50,11 @@ struct Hole {
 fn copper(project: &Project) -> Vec<Copper> {
     let mut result = Vec::new();
     for f in &project.board.footprints {
+        let local = project
+            .component(f.component)
+            .and_then(|c| c.library_footprint.as_ref())
+            .and_then(|l| l.definition.rules.as_ref())
+            .and_then(|r| r.clearance);
         for pad in &f.pads {
             if let Some(position) = f.pad_position(&pad.number) {
                 let plated = pad
@@ -95,6 +103,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                     outline_error: pad.outline_error(),
                     layer: Layer::Front,
                     pad: true,
+                    clearance: local,
                     bridge: if plated {
                         Some((f.id, pad.number.clone()))
                     } else {
@@ -125,6 +134,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             outline_error: 0.0,
             layer: t.layer,
             pad: false,
+            clearance: None,
             bridge: None,
             hole: None,
             cutouts: vec![],
@@ -163,6 +173,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             outline_error: 0.0,
             layer: Layer::Front,
             pad: true,
+            clearance: None,
             bridge: Some((v.id, "via".into())),
             hole,
             cutouts: vec![],
@@ -191,6 +202,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             outline_error: 0.0,
             layer: z.layer,
             pad: false,
+            clearance: None,
             bridge: None,
             hole: None,
             cutouts: z.cutouts.clone(),
@@ -479,8 +491,10 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 let mid = |c: &Copper| {
                     Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0)
                 };
-                let required =
-                    project.required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer);
+                let required = project
+                    .required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer)
+                    .max(a.clearance.unwrap_or(0.0))
+                    .max(b.clearance.unwrap_or(0.0));
                 if segment_distance(a.start, a.end, b.start, b.end) - a.radius - b.radius > required
                 {
                     continue;
@@ -727,6 +741,7 @@ mod tests {
             outline_error: 0.0,
             layer,
             pad,
+            clearance: None,
             bridge: None,
             hole: None,
             cutouts: vec![],

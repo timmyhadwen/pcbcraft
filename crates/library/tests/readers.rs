@@ -293,3 +293,44 @@ fn specctra_session_net_maps_are_split_bounded_and_skipped_when_empty()
     );
     Ok(())
 }
+
+#[test]
+fn footprint_rule_overrides_are_recorded_bounded_and_deduplicated()
+-> Result<(), Box<dyn std::error::Error>> {
+    let base = r#"(footprint "R_X" (version 20240101) (layer F.Cu) (at 0 0)
+        (pad "1" smd rect (at -1 0) (size 1 1) (layers "F.Cu" "F.Paste" "F.Mask"))
+    )"#;
+    let plain = pcbcraft_library::read_footprint(base)?;
+    assert!(
+        plain.rules.is_none(),
+        "a plain footprint carries no overrides"
+    );
+    let tuned = pcbcraft_library::read_footprint(&base.replace(
+        "(at 0 0)",
+        "(at 0 0) (clearance 0.15) (solder_mask_margin 0.05) (solder_paste_margin -0.02)",
+    ))?;
+    let rules = tuned.rules.ok_or("overrides should be recorded")?;
+    assert_eq!(rules.clearance, Some(0.15));
+    assert_eq!(rules.mask_margin, Some(0.05));
+    assert_eq!(
+        rules.paste_margin,
+        Some(-0.02),
+        "a negative paste margin shrinks the opening"
+    );
+    let doubled = pcbcraft_library::read_footprint(
+        &base.replace("(at 0 0)", "(at 0 0) (clearance 0.15) (clearance 0.2)"),
+    )?;
+    assert!(
+        doubled
+            .unsupported
+            .iter()
+            .any(|u| u.contains("duplicate local clearance")),
+        "a second clearance is reported, not silently merged"
+    );
+    assert!(
+        pcbcraft_library::read_footprint(&base.replace("(at 0 0)", "(at 0 0) (clearance 150)"))
+            .is_err(),
+        "an override beyond 100 mm is refused"
+    );
+    Ok(())
+}

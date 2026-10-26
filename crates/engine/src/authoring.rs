@@ -12,6 +12,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
+        ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
+        ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
 }
 #[derive(Deserialize)]
@@ -42,6 +44,17 @@ struct ModelParams {
     scale: Option<[f64; 3]>,
     #[serde(default)]
     rotate: Option<[f64; 3]>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RulesParams {
+    name: String,
+    #[serde(default)]
+    clearance: Option<f64>,
+    #[serde(default)]
+    mask_margin: Option<f64>,
+    #[serde(default)]
+    paste_margin: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -189,6 +202,46 @@ pub(super) fn run(
                 return Err(missing());
             }
             def.model = None;
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({"name": a.name}))
+        }
+        "library.footprint.set_rules" => {
+            let a: RulesParams = parse(params)?;
+            if a.clearance.is_none() && a.mask_margin.is_none() && a.paste_margin.is_none() {
+                return Err(Error::Invalid("set at least one rule override".into()));
+            }
+            let bounded = |v: &Option<f64>| v.is_none_or(|x| x.is_finite() && x.abs() <= 100.0);
+            if !bounded(&a.clearance) || !bounded(&a.mask_margin) || !bounded(&a.paste_margin) {
+                return Err(Error::Invalid(
+                    "rule overrides must be finite and at most 100 mm".into(),
+                ));
+            }
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            def.rules = Some(pcbcraft_library::FootprintRules {
+                clearance: a.clearance,
+                mask_margin: a.mask_margin,
+                paste_margin: a.paste_margin,
+            });
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({"name": a.name, "rules": def.rules}))
+        }
+        "library.footprint.clear_rules" => {
+            let a: Name = parse(params)?;
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            if def.rules.is_none() {
+                return Err(missing());
+            }
+            def.rules = None;
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name}))
         }
