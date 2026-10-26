@@ -152,6 +152,11 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netlist.export",
+            "Export the connectivity table: every net with its pins by reference, plus unconnected pins",
+            schema(json!({"net":id_schema()}), &[]),
+        ),
+        (
             "wire.connect",
             "Connect two pins; infer their existing net or atomically create a net if neither is assigned",
             schema(
@@ -818,6 +823,12 @@ struct StitchParams {
     drill: f64,
     #[serde(default = "default_stitch_spacing")]
     spacing: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetlistExportParams {
+    #[serde(default)]
+    net: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1496,6 +1507,62 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 assigned += pins.len();
             }
             Ok(json!({"nets": a.nets.len(), "created": created, "pins": assigned}))
+        }
+        "netlist.export" => {
+            let a: NetlistExportParams = parse(params)?;
+            if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
+                return Err(Error::Invalid("unknown net".into()));
+            }
+            let mut chosen: Vec<(String, Id)> = p
+                .nets
+                .iter()
+                .filter(|n| a.net.is_none_or(|id| n.id == id))
+                .map(|n| (n.name.clone(), n.id))
+                .collect();
+            chosen.sort();
+            let mut nets: Vec<Value> = Vec::new();
+            let mut listed = 0usize;
+            for (name, net) in chosen {
+                let mut pins: Vec<(String, String)> = Vec::new();
+                for c in &p.components {
+                    for pin in &c.pins {
+                        if pin.net == Some(net) {
+                            pins.push((c.reference.clone(), pin.number.clone()));
+                        }
+                    }
+                }
+                pins.sort();
+                listed += pins.len();
+                nets.push(json!({
+                    "name": name,
+                    "pins": pins
+                        .into_iter()
+                        .map(|(reference, pin)| json!({"reference": reference, "pin": pin}))
+                        .collect::<Vec<Value>>(),
+                }));
+            }
+            let mut unconnected: Vec<(String, String)> = Vec::new();
+            for c in &p.components {
+                for pin in &c.pins {
+                    if pin.net.is_none()
+                        && !p
+                            .no_connects
+                            .iter()
+                            .any(|f| f.pin.component == c.id && f.pin.pin == pin.number)
+                    {
+                        unconnected.push((c.reference.clone(), pin.number.clone()));
+                    }
+                }
+            }
+            unconnected.sort();
+            Ok(json!({
+                "nets": nets,
+                "pins": listed,
+                "unconnected": unconnected
+                    .into_iter()
+                    .map(|(reference, pin)| json!({"reference": reference, "pin": pin}))
+                    .collect::<Vec<Value>>(),
+            }))
         }
         "wire.connect" => {
             let a: WireParams = parse(params)?;
@@ -3861,6 +3928,78 @@ mod tests {
         s.undo()?;
         assert!(s.project.nets.is_empty());
         assert_eq!(pin_net(&s, r1, "1"), None);
+        Ok(())
+    }
+    #[test]
+    fn exporting_a_netlist_lists_pins_by_reference() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"PWR","pins":[{"reference":"R2","pin":"1"},{"reference":"R1","pin":"1"}]},{"name":"GND","pins":[{"reference":"R1","pin":"2"}]}]}),
+            None,
+        )?;
+        let before = s.project.clone();
+        let result = s.execute("netlist.export", json!({}), None)?["result"].clone();
+        assert_eq!(result["nets"].as_array().ok_or_else(missing)?.len(), 2);
+        assert_eq!(result["pins"], 3);
+        assert_eq!(result["nets"][0]["name"], "GND");
+        assert_eq!(result["nets"][1]["pins"][0]["reference"], "R1");
+        assert_eq!(result["nets"][1]["pins"][1]["reference"], "R2");
+        assert_eq!(
+            result["unconnected"].as_array().ok_or_else(missing)?.len(),
+            1
+        );
+        assert_eq!(result["unconnected"][0]["reference"], "R2");
+        assert_eq!(result["unconnected"][0]["pin"], "2");
+        assert_eq!(s.project, before);
+        let pwr = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "PWR")
+            .ok_or_else(missing)?
+            .id;
+        let filtered = s.execute("netlist.export", json!({"net": pwr}), None)?["result"].clone();
+        assert_eq!(filtered["nets"].as_array().ok_or_else(missing)?.len(), 1);
+        assert_eq!(filtered["nets"][0]["name"], "PWR");
+        assert_eq!(filtered["pins"], 2);
+        s.execute(
+            "pin.no_connect",
+            json!({"pin":{"component":r2,"pin":"2"}}),
+            None,
+        )?;
+        let flagged = s.execute("netlist.export", json!({}), None)?["result"].clone();
+        assert!(
+            flagged["unconnected"]
+                .as_array()
+                .ok_or_else(missing)?
+                .is_empty()
+        );
+        for params in [json!({"net": 9999}), json!({"extra": 1})] {
+            assert!(s.execute("netlist.export", params, None).is_err());
+        }
+        let after = s.project.clone();
+        s.execute("netlist.export", json!({}), None)?;
+        assert_eq!(s.project, after);
+        assert!(
+            s.project.component(r1).ok_or_else(missing)?.pins[0]
+                .net
+                .is_some()
+        );
         Ok(())
     }
     #[test]
