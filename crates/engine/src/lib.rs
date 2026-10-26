@@ -6972,6 +6972,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.drawn_wires
                 .retain(|w| w.id != a.id && w.net.is_none_or(|n| n != a.id));
             p.graphics.retain(|g| g.id != a.id);
+            for group in p.graphic_groups.iter_mut() {
+                group.graphics.retain(|gid| *gid != a.id);
+            }
+            p.graphic_groups.retain(|g| g.graphics.len() >= 2);
             p.labels.retain(|l| l.id != a.id && l.net != a.id);
             p.no_connects
                 .retain(|f| f.id != a.id && f.pin.component != a.id);
@@ -9660,6 +9664,20 @@ mod tests {
                 .len(),
             1,
             "dissolving undoes"
+        );
+        s.execute("object.delete", json!({"id":1}), None)?;
+        assert!(
+            s.inspect()["project"].get("graphic_groups").is_none(),
+            "deleting a grouped graphic dissolves the leftover group"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["graphic_groups"]
+                .as_array()
+                .ok_or_else(missing)?
+                .len(),
+            1,
+            "the deletion and its group pruning undo together"
         );
         Ok(())
     }
