@@ -19,6 +19,7 @@ pub fn tool_list() -> Value {
     let mut tools = vec![
         json!({"name":"library.save","description":"Atomically save the editable project library to a .pcbcraft-lib collection","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"gerber.export","description":"Write fabrication outputs (Gerber RS-274X front and back copper, board outline, Excellon drill map) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"netlist.write","description":"Write a plain-text netlist, one line per net with its component pins, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed KiCad symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a KiCad symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
@@ -123,6 +124,15 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                 written.push(name.clone());
             }
             json!({"directory":directory,"files":written})
+        }
+        "netlist.write" => {
+            let directory = string(args, "path")?;
+            let text = pcbcraft_io::netlist_text(&s.project)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("pcb-netlist.net"),
+                text.as_bytes(),
+            )?;
+            json!({"directory":directory,"files":["pcb-netlist.net"]})
         }
         "list_commands" => {
             json!({"commands":pcbcraft_engine::commands(),"units":"millimetres and degrees"})
@@ -591,6 +601,41 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "exporting fabrication files does not edit history"
+        );
+        Ok(())
+    }
+    #[test]
+    fn netlist_write_exports_pins_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"component.add","params":{"kind":"resistor","reference":"R1","position":[10.0,10.0]}}),
+        );
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"component.add","params":{"kind":"resistor","reference":"R2","position":[30.0,10.0]}}),
+        );
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"netlist.import","params":{"nets":[{"name":"SIG","pins":[{"reference":"R1","pin":"1"},{"reference":"R2","pin":"1"}]}]}}),
+        );
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(&session, "netlist.write", &json!({"path":directory.path()}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(directory.path().join("pcb-netlist.net"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            text.contains("SIG R1.1 R2.1\n"),
+            "the exported netlist should carry the connected pins"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "the export must not edit the design"
         );
         Ok(())
     }

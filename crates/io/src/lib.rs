@@ -638,6 +638,51 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     files.insert("pcb-Drill.drl".into(), drill);
     Ok(files)
 }
+/// Plain-text netlist: one line per connected net, listing the component
+/// pins it carries as `REFERENCE.PIN`, sorted by net name and reference.
+pub fn netlist_text(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_PINS: usize = 50_000;
+    let names: std::collections::BTreeMap<u64, String> =
+        p.nets.iter().map(|n| (n.id, n.name.clone())).collect();
+    let mut rows: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut pins = 0usize;
+    for c in &p.components {
+        for pin in &c.pins {
+            let Some(net) = pin.net else {
+                continue;
+            };
+            pins += 1;
+            if pins > MAX_PINS {
+                return Err("netlist exceeds the pin limit".into());
+            }
+            let name = names
+                .get(&net)
+                .ok_or("pin references an unknown net")?
+                .clone();
+            rows.entry(name)
+                .or_default()
+                .push(format!("{}.{}", c.reference, pin.number));
+        }
+    }
+    let mut out = String::from("# PCBCraft netlist\n");
+    out.push_str(&format!(
+        "# board: {} x {} mm\n# nets: {}\n",
+        p.board.width,
+        p.board.height,
+        rows.len()
+    ));
+    for (name, list) in &mut rows {
+        list.sort();
+        out.push_str(name);
+        for entry in list {
+            out.push(' ');
+            out.push_str(entry);
+        }
+        out.push('\n');
+    }
+    Ok(out)
+}
 pub fn svg(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
     if view != "pcb" && view != "schematic" {
@@ -1928,6 +1973,68 @@ mod tests {
             "a rotated footprint rotates its slot"
         );
         assert!(drill.ends_with("M30\n"));
+        Ok(())
+    }
+    #[test]
+    fn netlist_text_lists_every_net_with_sorted_component_pins() -> Result<(), String> {
+        let mut project = Project::default();
+        for (id, name) in [(7, "UNUSED"), (8, "SIG"), (9, "GND")] {
+            project.nets.push(pcbcraft_doc::Net {
+                id,
+                name: name.into(),
+                ..Default::default()
+            });
+        }
+        for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
+            project.components.push(pcbcraft_doc::Component {
+                id,
+                reference: reference.into(),
+                value: "1k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: vec![
+                    pcbcraft_doc::Pin {
+                        number: "1".into(),
+                        name: String::new(),
+                        offset: Point::new(-1.0, 0.0),
+                        net: Some(p1),
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                    pcbcraft_doc::Pin {
+                        number: "2".into(),
+                        name: String::new(),
+                        offset: Point::new(1.0, 0.0),
+                        net: if reference == "R1" { None } else { Some(p2) },
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                ],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: None,
+                fields: vec![],
+            });
+        }
+        project.validate()?;
+        let text = netlist_text(&project)?;
+        assert!(
+            text.starts_with("# PCBCraft netlist\n"),
+            "a parseable header"
+        );
+        assert!(
+            text.contains("# nets: 2\n"),
+            "nets without pins are not listed"
+        );
+        assert!(
+            text.contains("GND R1.1 R2.1\n"),
+            "pins sort by reference within the net"
+        );
+        assert!(text.contains("SIG R2.2\n"), "each net gets its own line");
+        assert!(!text.contains("R1.2"), "a pin with no net is left out");
         Ok(())
     }
     #[test]
