@@ -401,6 +401,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "board.cutout.move",
+            "Move an existing board cutout to a new centre, keeping it inside the board",
+            schema(
+                json!({"id":id_schema(),"center":point_schema()}),
+                &["id", "center"],
+            ),
+        ),
+        (
+            "board.cutout.resize",
+            "Change the radius of an existing board cutout, keeping it inside the board",
+            schema(
+                json!({"id":id_schema(),"radius":{"type":"number","exclusiveMinimum":0,"maximum":1000}}),
+                &["id", "radius"],
+            ),
+        ),
+        (
             "footprint.move",
             "Move a board footprint; existing routed tracks stay fixed",
             schema(
@@ -688,7 +704,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement, poured copper zones with cutouts, rectangular outline and circular cutouts, free text labels on either copper side, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement, poured copper zones with cutouts, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1490,6 +1506,18 @@ struct Clearance {
 #[serde(deny_unknown_fields)]
 struct Cut {
     center: Point,
+    radius: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CutoutMoveParams {
+    id: Id,
+    center: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CutoutSizeParams {
+    id: Id,
     radius: f64,
 }
 #[derive(Deserialize)]
@@ -3212,6 +3240,54 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 radius: a.radius,
             });
             Ok(json!({"id":id}))
+        }
+        "board.cutout.move" => {
+            let a: CutoutMoveParams = parse(params)?;
+            if !a.center.valid() {
+                return Err(Error::Invalid("cutout centre is out of range".into()));
+            }
+            let cutout = p
+                .board
+                .cutouts
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            if a.center.x - cutout.radius <= 0.0
+                || a.center.y - cutout.radius <= 0.0
+                || a.center.x + cutout.radius >= p.board.width
+                || a.center.y + cutout.radius >= p.board.height
+            {
+                return Err(Error::Invalid(
+                    "cutout must be strictly inside the board".into(),
+                ));
+            }
+            cutout.center = a.center;
+            Ok(json!({"id":a.id,"center":a.center}))
+        }
+        "board.cutout.resize" => {
+            let a: CutoutSizeParams = parse(params)?;
+            if !a.radius.is_finite() || a.radius <= 0.0 || a.radius > 1000.0 {
+                return Err(Error::Invalid(
+                    "radius must be between 0 and 1000 millimetres".into(),
+                ));
+            }
+            let cutout = p
+                .board
+                .cutouts
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            if cutout.center.x - a.radius <= 0.0
+                || cutout.center.y - a.radius <= 0.0
+                || cutout.center.x + a.radius >= p.board.width
+                || cutout.center.y + a.radius >= p.board.height
+            {
+                return Err(Error::Invalid(
+                    "cutout must be strictly inside the board".into(),
+                ));
+            }
+            cutout.radius = a.radius;
+            Ok(json!({"id":a.id,"radius":a.radius}))
         }
         "footprint.move" => {
             let a: Move = parse(params)?;
@@ -6914,6 +6990,98 @@ mod tests {
             assert!(s.execute("component.add", params, None).is_err());
             assert_eq!(s.inspect(), before);
         }
+    }
+    #[test]
+    fn board_cutouts_move_and_resize_within_the_outline() -> Result<(), Error> {
+        let mut s = Session::default();
+        let hole = s.execute(
+            "board.cutout.add",
+            json!({"center":{"x":30.0,"y":20.0},"radius":1.6}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let near = s.execute(
+            "board.cutout.add",
+            json!({"center":{"x":5.0,"y":5.0},"radius":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":gnd,"start":{"x":5.0,"y":20.0},"end":{"x":25.0,"y":20.0},"width":0.2}),
+            None,
+        )?;
+        fn tight(s: &Session) -> Result<usize, Error> {
+            Ok(s.checks()["drc"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .filter(|f| f["code"] == json!("cutout_clearance"))
+                .count())
+        }
+        assert_eq!(tight(&s)?, 0, "the hole starts clear of the copper");
+        s.execute(
+            "board.cutout.move",
+            json!({"id":hole,"center":{"x":26.0,"y":20.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.cutouts[0].center.x, 26.0);
+        assert_eq!(
+            tight(&s)?,
+            1,
+            "moving the hole next to the track breaks clearance"
+        );
+        s.execute(
+            "board.cutout.move",
+            json!({"id":hole,"center":{"x":35.0,"y":20.0}}),
+            None,
+        )?;
+        assert_eq!(tight(&s)?, 0, "moving it away clears the finding");
+        s.execute(
+            "board.cutout.resize",
+            json!({"id":hole,"radius":12.0}),
+            None,
+        )?;
+        assert_eq!(s.project.board.cutouts[0].radius, 12.0);
+        assert_eq!(tight(&s)?, 1, "a bigger hole reaches the copper again");
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        for params in [
+            json!({"id":hole,"center":{"x":1.0,"y":20.0}}),
+            json!({"id":hole,"center":{"x":59.0,"y":20.0}}),
+            json!({"id":hole,"center":{"x":null,"y":20.0}}),
+            json!({"id":hole,"center":{"x":1e200,"y":20.0}}),
+            json!({"id":999,"center":{"x":10.0,"y":10.0}}),
+            json!({"id":hole}),
+            json!({"id":hole,"center":{"x":10.0,"y":10.0},"radius":1.0}),
+        ] {
+            assert!(s.execute("board.cutout.move", params, None).is_err());
+        }
+        for params in [
+            json!({"id":near,"radius":6.0}),
+            json!({"id":hole,"radius":20.0}),
+            json!({"id":hole,"radius":0.0}),
+            json!({"id":hole,"radius":-1.0}),
+            json!({"id":hole,"radius":1001.0}),
+            json!({"id":999,"radius":2.0}),
+            json!({"id":hole}),
+            json!({"id":hole,"radius":2.0,"center":{"x":1.0,"y":1.0}}),
+        ] {
+            assert!(s.execute("board.cutout.resize", params, None).is_err());
+        }
+        assert_eq!(
+            s.project.board.cutouts[0].radius, 12.0,
+            "the corner cutout stays where it was"
+        );
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.undo()?;
+        assert_eq!(s.project.board.cutouts[0].radius, 1.6);
+        Ok(())
     }
     #[test]
     fn net_classes_can_be_retuned_and_removed_releasing_their_nets() -> Result<(), Error> {
