@@ -639,6 +639,29 @@ fn board_er() -> f64 {
 fn board_origin() -> Point {
     Point::default()
 }
+/// Machining notes recorded for fabrication: whether the board edges are
+/// plated and the tolerances the mill and drill are held to.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+pub struct MachiningNotes {
+    /// True when board edges are plated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge_plating: Option<bool>,
+    /// Drill hole diameter tolerance in millimetres, plus or minus.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drill_tolerance: Option<f64>,
+    /// Rout/edge dimension tolerance in millimetres, plus or minus.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge_tolerance: Option<f64>,
+}
+impl MachiningNotes {
+    fn valid(&self) -> bool {
+        self.drill_tolerance
+            .is_none_or(|t| t.is_finite() && (0.0..=1.0).contains(&t))
+            && self
+                .edge_tolerance
+                .is_none_or(|t| t.is_finite() && (0.0..=1.0).contains(&t))
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Board {
     pub width: f64,
@@ -657,6 +680,9 @@ pub struct Board {
     /// Recorded per-layer fabrication notes, ordered by layer name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_records: Vec<LayerRecord>,
+    /// Machining notes for fabrication, absent when none were recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machining: Option<MachiningNotes>,
     pub footprints: Vec<Footprint>,
     pub tracks: Vec<Track>,
     /// Plated through-hole vias joining front and back copper.
@@ -824,6 +850,7 @@ impl Default for Project {
                 er: board_er(),
                 drill_origin: board_origin(),
                 layer_records: vec![],
+                machining: None,
                 footprints: vec![],
                 tracks: vec![],
                 vias: vec![],
@@ -1433,6 +1460,7 @@ impl Project {
             || b.drill_origin.y.abs() > 1000.0
             || b.layer_records.len() > 32
             || b.layer_records.iter().any(|l| !l.valid())
+            || b.machining.as_ref().is_some_and(|m| !m.valid())
         {
             return Err("invalid board dimensions/rules".into());
         }

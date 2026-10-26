@@ -697,6 +697,19 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({}), &[]),
         ),
         (
+            "board.set_machining",
+            "Record machining notes for fabrication: whether edges are plated, the drill diameter tolerance and the rout dimension tolerance in millimetres; give at least one, each given value replaces its stored note",
+            schema(
+                json!({"edge_plating":{"type":"boolean"},"drill_tolerance":{"type":"number","minimum":0,"maximum":1},"edge_tolerance":{"type":"number","minimum":0,"maximum":1}}),
+                &[],
+            ),
+        ),
+        (
+            "board.clear_machining",
+            "Remove every recorded machining note from the board",
+            schema(json!({}), &[]),
+        ),
+        (
             "net.lengths",
             "Report routed copper length per net: track segments summed in millimetres, with via counts and unrouted nets listed",
             schema(json!({"net":id_schema()}), &[]),
@@ -989,7 +1002,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1532,6 +1545,16 @@ struct LayerRecordParams {
     name: String,
     kind: String,
     thickness: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MachiningParams {
+    #[serde(default)]
+    edge_plating: Option<bool>,
+    #[serde(default)]
+    drill_tolerance: Option<f64>,
+    #[serde(default)]
+    edge_tolerance: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4988,6 +5011,44 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     Ok(json!({"code": a.code, "index": i}))
                 }
             }
+        }
+        "board.set_machining" => {
+            let a: MachiningParams = parse(params)?;
+            if a.edge_plating.is_none() && a.drill_tolerance.is_none() && a.edge_tolerance.is_none()
+            {
+                return Err(Error::Invalid(
+                    "board.set_machining needs at least one note".into(),
+                ));
+            }
+            for t in [a.drill_tolerance, a.edge_tolerance].into_iter().flatten() {
+                if !t.is_finite() || !(0.0..=1.0).contains(&t) {
+                    return Err(Error::Invalid(
+                        "machining tolerances must be finite and within 1mm".into(),
+                    ));
+                }
+            }
+            let mut notes = p.board.machining.take().unwrap_or_default();
+            if a.edge_plating.is_some() {
+                notes.edge_plating = a.edge_plating;
+            }
+            if a.drill_tolerance.is_some() {
+                notes.drill_tolerance = a.drill_tolerance;
+            }
+            if a.edge_tolerance.is_some() {
+                notes.edge_tolerance = a.edge_tolerance;
+            }
+            p.board.machining = Some(notes.clone());
+            Ok(json!({"machining": notes}))
+        }
+        "board.clear_machining" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "board.clear_machining takes an empty object".into(),
+                ));
+            }
+            let had = p.board.machining.is_some();
+            p.board.machining = None;
+            Ok(json!({"removed": had}))
         }
         "bom.set_fields" => {
             let a: BomFieldsParams = parse(params)?;
@@ -8572,6 +8633,63 @@ mod tests {
                 .as_array()
                 .map_or(0, |a| a.len()),
             2,
+            "the clear undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn machining_notes_merge_replace_and_clear_with_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let first = s.execute(
+            "board.set_machining",
+            json!({"edge_plating":true,"drill_tolerance":0.05}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(first["machining"]["edge_plating"], true);
+        assert_eq!(first["machining"]["drill_tolerance"], 0.05);
+        assert_eq!(
+            first["machining"].get("edge_tolerance"),
+            None,
+            "unmentioned notes stay absent"
+        );
+        let merged =
+            s.execute("board.set_machining", json!({"edge_tolerance":0.1}), None)?["result"]
+                .clone();
+        assert_eq!(
+            merged["machining"]["edge_plating"], true,
+            "a partial update keeps the other notes"
+        );
+        assert_eq!(merged["machining"]["edge_tolerance"], 0.1);
+        let replaced =
+            s.execute("board.set_machining", json!({"drill_tolerance":0.02}), None)?["result"]
+                .clone();
+        assert_eq!(replaced["machining"]["drill_tolerance"], 0.02);
+        assert_eq!(replaced["machining"]["edge_tolerance"], 0.1);
+        for bad in [
+            json!({}),
+            json!({"drill_tolerance":-0.01}),
+            json!({"edge_tolerance":1.1}),
+            json!({"edge_plating":"yes"}),
+            json!({"tolerance":0.05}),
+        ] {
+            assert!(
+                s.execute("board.set_machining", bad, None).is_err(),
+                "bad machining notes are refused"
+            );
+        }
+        assert!(
+            s.execute("board.clear_machining", json!({"edge_plating":true}), None)
+                .is_err(),
+            "board.clear_machining takes an empty object"
+        );
+        let cleared = s.execute("board.clear_machining", json!({}), None)?["result"].clone();
+        assert_eq!(cleared["removed"], true, "clearing reports it held notes");
+        assert!(s.inspect()["project"]["board"].get("machining").is_none());
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["board"]["machining"]["drill_tolerance"],
+            0.02,
             "the clear undoes"
         );
         Ok(())
