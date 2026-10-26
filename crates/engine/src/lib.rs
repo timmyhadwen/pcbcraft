@@ -518,6 +518,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "footprint.set_pad",
+            "Reposition a placed footprint pad by its local offset, and resize it when it is a plain round pad; shaped pads keep their library shape",
+            schema(
+                json!({"id":id_schema(),"pad":{"type":"string","description":"pad number, exactly as listed by pad.table"},"offset":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100}}),
+                &["id", "pad"],
+            ),
+        ),
+        (
             "track.add",
             "Add a straight copper segment; checks report clearance errors rather than hiding them",
             schema(
@@ -837,7 +845,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -921,6 +929,16 @@ struct PlaceLibrary {
     position: Point,
     reference: Option<String>,
     value: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PadSetParams {
+    id: Id,
+    pad: String,
+    #[serde(default)]
+    offset: Option<Point>,
+    #[serde(default)]
+    diameter: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4031,6 +4049,53 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .ok_or_else(missing)?
                 .rotation = a.degrees.rem_euclid(360.0);
             Ok(json!({"id":a.id}))
+        }
+        "footprint.set_pad" => {
+            let a: PadSetParams = parse(params)?;
+            if a.offset.is_none() && a.diameter.is_none() {
+                return Err(Error::Invalid(
+                    "provide an offset or a diameter to change".into(),
+                ));
+            }
+            if a.pad.is_empty() || a.pad.len() > 32 {
+                return Err(Error::Invalid("pad number must be 1 to 32 bytes".into()));
+            }
+            if a.offset.is_some_and(|o| !o.valid()) {
+                return Err(Error::Invalid("pad offset is out of range".into()));
+            }
+            if a.diameter
+                .is_some_and(|d| !d.is_finite() || d <= 0.0 || d > 100.0)
+            {
+                return Err(Error::Invalid(
+                    "pad diameter must be within 0 to 100 mm".into(),
+                ));
+            }
+            let pad = p
+                .board
+                .footprints
+                .iter_mut()
+                .find(|f| f.id == a.id)
+                .and_then(|f| f.pads.iter_mut().find(|pd| pd.number == a.pad))
+                .ok_or_else(missing)?;
+            if pad.geometry.is_some() && a.diameter.is_some() {
+                return Err(Error::Invalid(
+                    "a shaped pad keeps its library shape; only its offset is editable".into(),
+                ));
+            }
+            if a.offset.is_none_or(|o| o == pad.offset)
+                && a.diameter.is_none_or(|d| d == pad.diameter)
+            {
+                return Err(Error::Invalid(
+                    "that pad already has that offset and diameter".into(),
+                ));
+            }
+            if let Some(offset) = a.offset {
+                pad.offset = offset;
+            }
+            if let Some(diameter) = a.diameter {
+                pad.diameter = diameter;
+            }
+            Ok(json!({"id": a.id, "pad": a.pad}))
         }
         "track.add" => {
             let a: TrackParams = parse(params)?;
@@ -8930,6 +8995,68 @@ mod tests {
             s.project.board.tracks[0].start,
             Point::new(10.0, 40.0),
             "undo restores the original end point"
+        );
+        Ok(())
+    }
+    #[test]
+    fn placed_footprint_pads_can_be_offset_and_resized() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":20.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let footprint = s.project.board.footprints[0].id;
+        let before = s.project.board.footprints[0].pads.clone();
+        assert_eq!(before.len(), 2, "a synced resistor has two pads");
+        let p1 = &before[0];
+        let shifted = Point::new(p1.offset.x, p1.offset.y + 1.5);
+        s.execute(
+            "footprint.set_pad",
+            json!({"id":footprint,"pad":p1.number,"offset":{"x":shifted.x,"y":shifted.y}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.footprints[0].pads[0].offset, shifted);
+        assert_eq!(
+            s.project.board.footprints[0].pads[1], before[1],
+            "the other pad is untouched"
+        );
+        s.execute(
+            "footprint.set_pad",
+            json!({"id":footprint,"pad":"2","diameter":0.9}),
+            None,
+        )?;
+        assert_eq!(s.project.board.footprints[0].pads[1].diameter, 0.9);
+        assert!(s.project.validate().is_ok());
+        let snap = s.inspect();
+        for params in [
+            json!({"id":footprint,"pad":p1.number}),
+            json!({"id":footprint,"pad":"9","offset":{"x":0.0,"y":0.0}}),
+            json!({"id":9999,"pad":"1","diameter":0.5}),
+            json!({"id":footprint,"pad":"1","diameter":0.0}),
+            json!({"id":footprint,"pad":"1","diameter":1e9}),
+            json!({"id":footprint,"pad":"1","offset":{"x":null,"y":0.0}}),
+            json!({"id":footprint,"pad":"","diameter":0.5}),
+            json!({"id":footprint,"pad":"2","diameter":0.9}),
+            json!({"id":footprint,"pad":"1","diameter":0.5,"extra":1}),
+        ] {
+            assert!(
+                s.execute("footprint.set_pad", params.clone(), None)
+                    .is_err(),
+                "{params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), snap, "rejections change nothing");
+        s.execute(
+            "footprint.set_pad",
+            json!({"id":footprint,"pad":p1.number,"offset":{"x":0.0,"y":0.0}}),
+            None,
+        )?;
+        s.undo()?;
+        assert_eq!(
+            s.project.board.footprints[0].pads[0].offset, shifted,
+            "undo puts the pad back"
         );
         Ok(())
     }
