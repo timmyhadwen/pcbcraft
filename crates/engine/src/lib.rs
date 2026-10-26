@@ -173,6 +173,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "zone.cutout",
+            "Add a closed cutout outline that removes copper from an existing zone",
+            schema(
+                json!({"zone":id_schema(),"outline":{"type":"array","minItems":4,"maxItems":257,"items":point_schema(),"description":"closed polygon, millimetres; first vertex repeated last"}}),
+                &["zone", "outline"],
+            ),
+        ),
+        (
             "board.sync",
             "Reconcile schematic components and pin nets into PCB footprints; retain placements and report unassigned library symbols",
             schema(json!({}), &[]),
@@ -354,7 +362,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias, poured copper zones, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias, poured copper zones with cutouts, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -622,6 +630,12 @@ struct ZoneParams {
     net: Id,
     #[serde(default = "front")]
     layer: Layer,
+    outline: Vec<Point>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZoneCutoutParams {
+    zone: Id,
     outline: Vec<Point>,
 }
 #[derive(Deserialize)]
@@ -1059,32 +1073,28 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if !p.nets.iter().any(|n| n.id == a.net) {
                 return Err(missing());
             }
-            if a.outline.len() < 4 || a.outline.len() > 257 {
-                return Err(Error::Invalid(
-                    "a zone outline needs 3 to 256 vertices".into(),
-                ));
-            }
-            if a.outline.first() != a.outline.last() {
-                return Err(Error::Invalid("zone outline must be closed".into()));
-            }
-            if !a.outline.iter().all(|pt| pt.valid()) {
-                return Err(Error::Invalid("zone outline vertex is out of range".into()));
-            }
-            let mut area = 0.0;
-            for edge in a.outline.windows(2) {
-                area += edge[0].x * edge[1].y - edge[1].x * edge[0].y;
-            }
-            if area.abs() < 1e-6 {
-                return Err(Error::Invalid("zone outline has no area".into()));
-            }
+            validate_closed_outline(&a.outline).map_err(Error::Invalid)?;
             let id = allocate(next)?;
             p.board.zones.push(pcbcraft_doc::CopperZone {
                 id,
                 net: a.net,
                 layer: a.layer,
                 outline: a.outline,
+                cutouts: vec![],
             });
             Ok(json!({"id":id}))
+        }
+        "zone.cutout" => {
+            let a: ZoneCutoutParams = parse(params)?;
+            let zone = p
+                .board
+                .zones
+                .iter_mut()
+                .find(|z| z.id == a.zone)
+                .ok_or_else(missing)?;
+            validate_closed_outline(&a.outline).map_err(Error::Invalid)?;
+            zone.cutouts.push(a.outline);
+            Ok(json!({"cutouts": zone.cutouts.len()}))
         }
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
@@ -1507,6 +1517,44 @@ mod tests {
         assert!(s.project.board.zones.is_empty());
         s.undo()?;
         assert_eq!(s.project.board.zones.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn zone_cutout_validates_and_undoes_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let square = json!([
+            {"x":5.0,"y":5.0},
+            {"x":55.0,"y":5.0},
+            {"x":55.0,"y":35.0},
+            {"x":5.0,"y":35.0},
+            {"x":5.0,"y":5.0}
+        ]);
+        s.execute("zone.place", json!({"net":net,"outline":square}), None)?;
+        let zone = s.project.board.zones[0].id;
+        let cut = json!([
+            {"x":20.0,"y":15.0},
+            {"x":30.0,"y":15.0},
+            {"x":30.0,"y":25.0},
+            {"x":20.0,"y":25.0},
+            {"x":20.0,"y":15.0}
+        ]);
+        let out = s.execute("zone.cutout", json!({"zone":zone,"outline":cut}), None)?;
+        assert_eq!(out["result"]["cutouts"], 1);
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"zone":9999,"outline":cut}),
+            json!({"zone":zone,"outline":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0},{"x":10.0,"y":5.0}]}),
+            json!({"zone":zone,"outline":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0},{"x":10.0,"y":5.0},{"x":1.0,"y":5.0}]}),
+            json!({"zone":zone,"outline":[{"x":0.0,"y":0.0},{"x":0.0,"y":0.0},{"x":0.0,"y":0.0},{"x":0.0,"y":0.0}]}),
+        ] {
+            assert!(s.execute("zone.cutout", params, None).is_err());
+        }
+        assert_eq!(s.project.board.zones[0].cutouts.len(), 1);
+        s.undo()?;
+        assert!(s.project.board.zones[0].cutouts.is_empty());
         Ok(())
     }
     #[test]

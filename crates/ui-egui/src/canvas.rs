@@ -961,9 +961,22 @@ impl App {
                 Stroke::NONE,
             ));
             painter.add(egui::Shape::closed_line(
-                screen,
+                screen.clone(),
                 Stroke::new(1.0, Color32::from_rgb(rgb[0], rgb[1], rgb[2])),
             ));
+            for cut in &z.cutouts {
+                let cut_screen: Vec<egui::Pos2> =
+                    cut.iter().map(|pt| camera.screen(*pt, rect)).collect();
+                painter.add(egui::Shape::convex_polygon(
+                    cut_screen.clone(),
+                    Color32::from_rgb(25, 58, 54),
+                    Stroke::NONE,
+                ));
+                painter.add(egui::Shape::closed_line(
+                    cut_screen,
+                    Stroke::new(1.0, Color32::from_rgb(rgb[0], rgb[1], rgb[2])),
+                ));
+            }
         }
         for t in &p.board.tracks {
             painter.line_segment(

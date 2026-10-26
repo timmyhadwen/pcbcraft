@@ -503,6 +503,10 @@ pub struct CopperZone {
     /// Closed outline in millimetres: at least three distinct vertices with the
     /// first vertex repeated last.
     pub outline: Vec<Point>,
+    /// Closed outlines removed from this zone: copper of other nets, or empty
+    /// board, inside a cutout never conducts through the zone.
+    #[serde(default)]
+    pub cutouts: Vec<Vec<Point>>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Cutout {
@@ -581,6 +585,27 @@ impl ProjectLibrary {
         }
         Ok(())
     }
+}
+/// A closed polygon outline: 3-256 distinct vertices, the first repeated last,
+/// finite in-range coordinates and nonzero enclosed area.
+pub fn validate_closed_outline(outline: &[Point]) -> Result<(), String> {
+    if outline.len() < 4 || outline.len() > 257 {
+        return Err("a zone outline needs 3 to 256 vertices".into());
+    }
+    if outline.first() != outline.last() {
+        return Err("zone outline must be closed".into());
+    }
+    if !outline.iter().all(|pt| pt.valid()) {
+        return Err("zone outline vertex is out of range".into());
+    }
+    let mut area = 0.0;
+    for edge in outline.windows(2) {
+        area += edge[0].x * edge[1].y - edge[1].x * edge[0].y;
+    }
+    if area.abs() < 1e-6 {
+        return Err("zone outline has no area".into());
+    }
+    Ok(())
 }
 impl Default for Project {
     fn default() -> Self {
@@ -1082,21 +1107,12 @@ impl Project {
             }
         }
         for z in &b.zones {
-            if !nets.contains(&z.net) || z.outline.len() < 4 || z.outline.len() > 257 {
-                return Err("a zone outline needs 3 to 256 vertices and a known net".into());
+            if !nets.contains(&z.net) {
+                return Err("zone references an unknown net".into());
             }
-            if z.outline.first() != z.outline.last() {
-                return Err("zone outline must be closed".into());
-            }
-            if !z.outline.iter().all(|pt| pt.valid()) {
-                return Err("zone outline vertex is out of range".into());
-            }
-            let mut area = 0.0;
-            for edge in z.outline.windows(2) {
-                area += edge[0].x * edge[1].y - edge[1].x * edge[0].y;
-            }
-            if area.abs() < 1e-6 {
-                return Err("zone outline has no area".into());
+            validate_closed_outline(&z.outline)?;
+            for cut in &z.cutouts {
+                validate_closed_outline(cut)?;
             }
         }
         for c in &b.cutouts {

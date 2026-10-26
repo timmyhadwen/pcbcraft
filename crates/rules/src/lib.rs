@@ -34,6 +34,8 @@ struct Copper {
     pad: bool,
     bridge: Option<(Id, String)>,
     hole: Option<Hole>,
+    /// Closed outlines removed from this item's copper (zone cutouts).
+    cutouts: Vec<Vec<Point>>,
 }
 #[derive(Clone)]
 struct Hole {
@@ -99,6 +101,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                         None
                     },
                     hole,
+                    cutouts: vec![],
                 };
                 if plated {
                     let mut back = item.clone();
@@ -124,6 +127,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             pad: false,
             bridge: None,
             hole: None,
+            cutouts: vec![],
         });
     }
     for v in &project.board.vias {
@@ -146,6 +150,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             pad: true,
             bridge: Some((v.id, "via".into())),
             hole,
+            cutouts: vec![],
         };
         let mut back = item.clone();
         back.layer = Layer::Back;
@@ -170,6 +175,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             pad: false,
             bridge: None,
             hole: None,
+            cutouts: z.cutouts.clone(),
         });
     }
     result
@@ -189,16 +195,26 @@ fn hole_contains(hole: &Hole, other: &Copper) -> bool {
 }
 fn overlapping(a: &Copper, b: &Copper) -> bool {
     // A segment endpoint (or one whole outline) inside another outline means
-    // real overlap, which capsule distance alone cannot see.
+    // real overlap, which capsule distance alone cannot see. Zone cutouts
+    // remove the contact where the touching point falls inside one.
+    let segment_in = |points: &[Point], seg: &Copper| {
+        [seg.start, seg.end]
+            .into_iter()
+            .any(|p| inside(p, points) && !a.cutouts.iter().any(|c| inside(p, c)))
+    };
     match (&a.outline, &b.outline) {
         (Some(a_points), Some(b_points)) => {
-            let hit = |points: &[Point], other: &[Point]| {
-                points.first().is_some_and(|p| inside(*p, other))
+            let whole = |points: &[Point], other: &[Point]| {
+                points
+                    .first()
+                    .is_some_and(|p| inside(*p, other) && !a.cutouts.iter().any(|c| inside(*p, c)))
             };
-            hit(a_points, b_points) || hit(b_points, a_points)
+            whole(a_points, b_points) || whole(b_points, a_points)
         }
-        (Some(a_points), None) => inside(b.start, a_points) || inside(b.end, a_points),
-        (None, Some(b_points)) => inside(a.start, b_points) || inside(a.end, b_points),
+        (Some(a_points), None) => segment_in(a_points, b),
+        (None, Some(b_points)) => [a.start, a.end]
+            .into_iter()
+            .any(|p| inside(p, b_points) && !b.cutouts.iter().any(|c| inside(p, c))),
         (None, None) => false,
     }
 }
@@ -209,7 +225,7 @@ fn touching(a: &Copper, b: &Copper) -> bool {
     if a.bridge.is_some() && a.bridge == b.bridge {
         return true;
     }
-    if a.layer == b.layer && overlapping(a, b) {
+    if a.layer == b.layer && (overlapping(a, b) || overlapping(b, a)) {
         return true;
     }
     a.layer == b.layer
@@ -539,6 +555,7 @@ mod tests {
             pad,
             bridge: None,
             hole: None,
+            cutouts: vec![],
         }
     }
     #[test]
@@ -651,6 +668,7 @@ mod tests {
             net: 1,
             layer: Layer::Front,
             outline: square,
+            cutouts: vec![],
         });
         p.board.tracks.push(Track {
             id: 5,
@@ -705,6 +723,35 @@ mod tests {
         assert!(
             !touching(zone, other_net),
             "the zone never conducts to another net"
+        );
+        p.board.zones[0].cutouts.push(vec![
+            Point::new(25.0, 5.0),
+            Point::new(45.0, 5.0),
+            Point::new(45.0, 25.0),
+            Point::new(25.0, 25.0),
+            Point::new(25.0, 5.0),
+        ]);
+        p.board.tracks.push(Track {
+            id: 8,
+            net: 1,
+            start: Point::new(30.0, 10.0),
+            end: Point::new(40.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+        });
+        p.validate()?;
+        let items = copper(&p);
+        let zone = items
+            .iter()
+            .find(|c| c.id == 4)
+            .ok_or("zone copper missing")?;
+        let in_cutout = items
+            .iter()
+            .find(|c| c.id == 8)
+            .ok_or("cutout track missing")?;
+        assert!(
+            !touching(zone, in_cutout) && !touching(in_cutout, zone),
+            "copper inside a zone cutout never conducts through the zone"
         );
         Ok(())
     }

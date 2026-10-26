@@ -335,6 +335,14 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                 "<polygon points=\"{}\" fill=\"{color}\" fill-opacity=\"0.3\" stroke=\"{color}\" stroke-width=\"0.1\"/>",
                 points.join(" ")
             ));
+            for cut in &z.cutouts {
+                let cut_points: Vec<String> =
+                    cut.iter().map(|pt| format!("{} {}", pt.x, pt.y)).collect();
+                s.push_str(&format!(
+                    "<polygon points=\"{}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"0.1\" stroke-dasharray=\"0.6 0.3\"/>",
+                    cut_points.join(" ")
+                ));
+            }
         }
         for t in &p.board.tracks {
             s.push_str(&format!("<path d=\"M {} {} L {} {}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" stroke-linecap=\"round\"/>",t.start.x,t.start.y,t.end.x,t.end.y,if t.layer==pcbcraft_doc::Layer::Front {"#f58d79"} else {"#74a7ec"},t.width));
@@ -539,6 +547,10 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
             };
             let points: Vec<Point> = z.outline.iter().map(|pt| to_pixel(*pt)).collect();
             fill_polygon(&mut image, &points, color);
+            for cut in &z.cutouts {
+                let points: Vec<Point> = cut.iter().map(|pt| to_pixel(*pt)).collect();
+                fill_polygon(&mut image, &points, [25, 58, 54]);
+            }
         }
         for t in &p.board.tracks {
             line(
@@ -1193,6 +1205,13 @@ mod tests {
                 Point::new(5.0, 25.0),
                 Point::new(5.0, 5.0),
             ],
+            cutouts: vec![vec![
+                Point::new(30.0, 15.0),
+                Point::new(40.0, 15.0),
+                Point::new(40.0, 20.0),
+                Point::new(30.0, 20.0),
+                Point::new(30.0, 15.0),
+            ]],
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -1202,13 +1221,22 @@ mod tests {
             ),
             "the zone outline must render as a filled copper polygon"
         );
+        assert!(
+            pcb.contains("<polygon points=\"30 15 40 15 40 20 30 20 30 15\" fill=\"none\""),
+            "the zone cutout must render as an unfilled dashed outline"
+        );
         let image = image::load_from_memory(&preview_png(&project, "pcb")?)
             .map_err(|e| e.to_string())?
             .to_rgb8();
         assert_eq!(
-            image.get_pixel(500, 300).0,
+            image.get_pixel(500, 200).0,
             [245, 141, 121],
             "inside the zone the copper colour must be painted"
+        );
+        assert_eq!(
+            image.get_pixel(700, 400).0,
+            [25, 58, 54],
+            "inside the zone cutout the substrate colour must show through"
         );
         assert_eq!(
             image.get_pixel(100, 600).0,
