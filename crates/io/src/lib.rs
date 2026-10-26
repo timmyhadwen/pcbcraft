@@ -876,6 +876,7 @@ mod tests {
                 library: "Resistor_SMD".into(),
                 definition: footprint,
             }),
+            fields: vec![],
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 2,
@@ -1308,6 +1309,7 @@ mod tests {
             units: vec![],
             library_symbol: None,
             library_footprint: None,
+            fields: vec![],
         });
         project.drawn_wires.push(pcbcraft_doc::DrawnWire {
             id: 2,

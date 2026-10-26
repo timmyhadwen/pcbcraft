@@ -32,7 +32,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   the move. Reference designators and net names can be renamed at any time,
   validated unique against the rest of the design, and a netlist table can be
   imported in one step to assign pins to named nets by reference, or read back
-  as a net-by-net pin table that also lists every unconnected pin.
+  as a net-by-net pin table that also lists every unconnected pin. Components
+  also carry named properties (datasheet, manufacturer, custom notes) that are
+  set, replaced or cleared one at a time and travel with a duplicate.
 - Original resistor, capacitor, LED and two-pin connector symbols; explicit
   logical nets, pin-to-pin orthogonal wire presentations and free-form drawn
   wires with explicit vertices that may be bound to a net and edited after
@@ -68,9 +70,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Named net classes: group nets once and every clearance check between their
   copper uses the strictest requirement involved, while new tracks and routes
   on a classified net start at that class's width unless a width is given.
-- 58 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 59 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 76 MCP tools: every engine command plus library discovery/search/inspection,
+- 77 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

@@ -123,6 +123,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "component.field",
+            "Set one named component property (datasheet, manufacturer, custom note), or clear it when value is null or omitted",
+            schema(
+                json!({"id":id_schema(),"key":{"type":"string"},"value":{"type":["string","null"]}}),
+                &["id", "key"],
+            ),
+        ),
+        (
             "net.create",
             "Create a named logical net",
             schema(json!({"name":{"type":"string"}}), &["name"]),
@@ -892,6 +900,14 @@ struct NetlistPin {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct FieldParams {
+    id: Id,
+    key: String,
+    #[serde(default)]
+    value: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ReferenceParams {
     id: Id,
     reference: String,
@@ -1435,6 +1451,49 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .ok_or_else(missing)?;
             c.reference = a.reference;
             Ok(json!({"id": a.id}))
+        }
+        "component.field" => {
+            let a: FieldParams = parse(params)?;
+            if a.key.is_empty() || a.key.len() > 64 {
+                return Err(Error::Invalid("field name must be 1 to 64 bytes".into()));
+            }
+            if a.value.as_ref().is_some_and(|v| v.len() > 256) {
+                return Err(Error::Invalid(
+                    "field value must be at most 256 bytes".into(),
+                ));
+            }
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let existing = component.fields.iter().position(|f| f.key == a.key);
+            let set = match (&a.value, existing) {
+                (Some(value), Some(index)) => {
+                    component.fields[index].value = value.clone();
+                    true
+                }
+                (Some(value), None) => {
+                    if component.fields.len() >= 32 {
+                        return Err(Error::Invalid(
+                            "a component carries at most 32 fields".into(),
+                        ));
+                    }
+                    component.fields.push(ComponentField {
+                        key: a.key.clone(),
+                        value: value.clone(),
+                    });
+                    true
+                }
+                (None, Some(index)) => {
+                    component.fields.remove(index);
+                    false
+                }
+                (None, None) => {
+                    return Err(Error::Invalid("component has no such field".into()));
+                }
+            };
+            Ok(json!({"id": a.id, "key": a.key, "set": set}))
         }
         "net.create" => {
             let a: Name = parse(params)?;
@@ -4370,6 +4429,101 @@ mod tests {
         s.undo()?;
         assert!(s.project.net_classes[1].nets.contains(&c));
         assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn component_fields_are_set_replaced_cleared_and_copied() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn field(s: &Session, id: u64, key: &str) -> Option<String> {
+            s.project.component(id)?.field(key).map(str::to_string)
+        }
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Datasheet","value":"ds1.pdf"}),
+            None,
+        )?;
+        assert_eq!(field(&s, r1, "Datasheet").as_deref(), Some("ds1.pdf"));
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Datasheet","value":"ds2.pdf"}),
+            None,
+        )?;
+        assert_eq!(field(&s, r1, "Datasheet").as_deref(), Some("ds2.pdf"));
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Manufacturer","value":"Acme"}),
+            None,
+        )?;
+        assert_eq!(s.project.component(r1).ok_or_else(missing)?.fields.len(), 2);
+        assert!(s.project.validate().is_ok());
+        let copy = s.execute(
+            "object.duplicate",
+            json!({"ids":[r1],"offset":{"x":0.0,"y":10.0}}),
+            None,
+        )?["result"]["duplicates"][0]["component"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(field(&s, copy, "Datasheet").as_deref(), Some("ds2.pdf"));
+        assert_ne!(
+            s.project.component(copy).ok_or_else(missing)?.reference,
+            s.project.component(r1).ok_or_else(missing)?.reference
+        );
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Datasheet","value":null}),
+            None,
+        )?;
+        assert_eq!(field(&s, r1, "Datasheet"), None);
+        assert_eq!(s.project.component(r1).ok_or_else(missing)?.fields.len(), 1);
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Part","value":""}),
+            None,
+        )?;
+        assert_eq!(field(&s, r1, "Part").as_deref(), Some(""));
+        for i in 0..30 {
+            s.execute(
+                "component.field",
+                json!({"id":copy,"key":format!("note{i}"),"value":"v"}),
+                None,
+            )?;
+        }
+        assert_eq!(
+            s.project.component(copy).ok_or_else(missing)?.fields.len(),
+            32
+        );
+        let before = s.inspect();
+        for params in [
+            json!({"id":copy,"key":"note30","value":"v"}),
+            json!({"id":r1,"key":""}),
+            json!({"id":r1,"key":"x".repeat(65),"value":"v"}),
+            json!({"id":r1,"key":"k","value":"x".repeat(257)}),
+            json!({"id":9999,"key":"k","value":"v"}),
+            json!({"id":r1,"key":"Nope"}),
+            json!({"id":r1,"key":"k","value":"v","extra":1}),
+        ] {
+            assert!(s.execute("component.field", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Manufacturer","value":"Globemans"}),
+            None,
+        )?;
+        s.undo()?;
+        assert_eq!(field(&s, r1, "Manufacturer").as_deref(), Some("Acme"));
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert_eq!(loaded, s.project);
         Ok(())
     }
     #[test]

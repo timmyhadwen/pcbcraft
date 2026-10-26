@@ -57,8 +57,26 @@ pub struct Component {
     pub library_symbol: Option<LibrarySymbol>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library_footprint: Option<LibraryFootprint>,
+    /// Free-form component properties, such as a datasheet link, a manufacturer
+    /// or an orderable part number. Keys are unique per component.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<ComponentField>,
+}
+/// One named property on a component. A blank value is still a real property:
+/// it says the key applies to this component and has not been filled in.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ComponentField {
+    pub key: String,
+    pub value: String,
 }
 impl Component {
+    /// Value of a named component property, if the component carries it.
+    pub fn field(&self, key: &str) -> Option<&str> {
+        self.fields
+            .iter()
+            .find(|f| f.key == key)
+            .map(|f| f.value.as_str())
+    }
     pub fn unit_placement(&self, unit: u32) -> Option<(Point, f64)> {
         if unit == self.library_symbol.as_ref().map(|s| s.unit).unwrap_or(1) {
             Some((self.position, self.rotation))
@@ -712,6 +730,7 @@ pub fn component_template(
         rotation: 0.0,
         library_symbol: None,
         library_footprint: None,
+        fields: vec![],
         pins: names
             .iter()
             .enumerate()
@@ -883,6 +902,19 @@ impl Project {
                 || (c.library_symbol.is_none() && !TEMPLATES.iter().any(|t| t.kind == c.kind))
             {
                 return Err("invalid component".into());
+            }
+            if c.fields.len() > 32 {
+                return Err("a component carries at most 32 fields".into());
+            }
+            let mut field_keys: BTreeSet<&str> = BTreeSet::new();
+            for f in &c.fields {
+                if f.key.is_empty()
+                    || f.key.len() > 64
+                    || f.value.len() > 256
+                    || !field_keys.insert(f.key.as_str())
+                {
+                    return Err("invalid component field".into());
+                }
             }
             if let Some(symbol) = &c.library_symbol {
                 symbol.definition.validate().map_err(|e| e.to_string())?;
@@ -1282,6 +1314,7 @@ pub fn library_component(
         rotation: 0.0,
         pins,
         units,
+        fields: vec![],
         library_symbol: Some(LibrarySymbol {
             library,
             unit: 1,
