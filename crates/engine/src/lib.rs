@@ -131,6 +131,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "component.find",
+            "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
+            schema(
+                json!({"reference":{"type":"string","description":"case-sensitive reference pattern, must contain * or ?","maxLength":64},"value":{"type":"string","maxLength":256},"kind":{"type":"string","maxLength":64}}),
+                &[],
+            ),
+        ),
+        (
             "net.create",
             "Create a named logical net",
             schema(json!({"name":{"type":"string"}}), &["name"]),
@@ -1001,6 +1009,16 @@ struct NetlistPin {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct FindParams {
+    #[serde(default)]
+    reference: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FieldParams {
     id: Id,
     key: String,
@@ -1595,6 +1613,58 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
             };
             Ok(json!({"id": a.id, "key": a.key, "set": set}))
+        }
+        "component.find" => {
+            let a: FindParams = parse(params)?;
+            if a.reference
+                .as_deref()
+                .is_some_and(|r| r.is_empty() || r.len() > 64 || !r.contains(['*', '?']))
+            {
+                return Err(Error::Invalid(
+                    "reference pattern must be 1 to 64 bytes and contain * or ?".into(),
+                ));
+            }
+            if a.value
+                .as_deref()
+                .is_some_and(|v| v.is_empty() || v.len() > 256)
+            {
+                return Err(Error::Invalid("value filter must be 1 to 256 bytes".into()));
+            }
+            if a.kind
+                .as_deref()
+                .is_some_and(|k| k.is_empty() || k.len() > 64)
+            {
+                return Err(Error::Invalid("kind filter must be 1 to 64 bytes".into()));
+            }
+            if a.reference.is_none() && a.value.is_none() && a.kind.is_none() {
+                return Err(Error::Invalid("give at least one filter".into()));
+            }
+            let mut matches: Vec<&Component> = p
+                .components
+                .iter()
+                .filter(|c| {
+                    a.reference
+                        .as_deref()
+                        .is_none_or(|r| class_pattern_matches(r, &c.reference))
+                        && a.value.as_deref().is_none_or(|v| c.value == v)
+                        && a.kind.as_deref().is_none_or(|k| c.kind == k)
+                })
+                .collect();
+            matches.sort_by(|a, b| a.reference.cmp(&b.reference));
+            let matches = matches
+                .iter()
+                .map(|c| {
+                    json!({
+                        "id": c.id,
+                        "reference": c.reference,
+                        "value": c.value,
+                        "kind": c.kind,
+                        "placed": p.board.footprints.iter().any(|f| f.component == c.id),
+                    })
+                })
+                .collect::<Vec<Value>>();
+            let count = matches.len();
+            Ok(json!({"components": matches, "count": count}))
         }
         "net.create" => {
             let a: Name = parse(params)?;
@@ -5309,6 +5379,99 @@ mod tests {
             serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         loaded.validate()?;
         assert_eq!(loaded, s.project);
+        Ok(())
+    }
+    #[test]
+    fn components_can_be_found_by_reference_pattern_value_and_kind() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (kind, reference, value) in [
+            ("resistor", "R1", "1k"),
+            ("resistor", "R2", "10k"),
+            ("resistor", "RV1", "1k"),
+            ("capacitor", "C1", "100n"),
+        ] {
+            s.execute(
+                "component.add",
+                json!({"kind":kind,"position":{"x":10.0,"y":10.0},"reference":reference,"value":value}),
+                None,
+            )?;
+        }
+        let r1 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R1")
+            .ok_or_else(missing)?
+            .id;
+        s.execute("board.sync", json!({}), None)?;
+        fn references(found: &Value) -> Vec<String> {
+            found["components"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .map(|c| c["reference"].as_str().unwrap_or_default().to_string())
+                .collect()
+        }
+        let by_pattern =
+            s.execute("component.find", json!({"reference":"R*"}), None)?["result"].clone();
+        assert_eq!(references(&by_pattern), ["R1", "R2", "RV1"]);
+        assert_eq!(by_pattern["count"], 3);
+        assert!(
+            by_pattern["components"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .any(|c| c["reference"] == "R1" && c["id"] == r1 && c["placed"] == json!(true))
+        );
+        let exact = s.execute(
+            "component.find",
+            json!({"reference":"R?", "value":"1k"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(references(&exact), ["R1"]);
+        let by_value = s.execute("component.find", json!({"value":"1k"}), None)?["result"].clone();
+        assert_eq!(references(&by_value), ["R1", "RV1"]);
+        let by_kind =
+            s.execute("component.find", json!({"kind":"resistor"}), None)?["result"].clone();
+        assert_eq!(by_kind["count"], 3);
+        let c1 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "C1")
+            .ok_or_else(missing)?
+            .id;
+        let combo = s.execute(
+            "component.find",
+            json!({"reference":"*1","kind":"capacitor"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(references(&combo), ["C1"]);
+        assert_eq!(combo["components"][0]["id"], c1);
+        let none = s.execute("component.find", json!({"reference":"ZZ*"}), None)?["result"].clone();
+        assert_eq!(none["count"], 0);
+        assert!(none["components"].as_array().is_some_and(|c| c.is_empty()));
+        let before = s.inspect();
+        for params in [
+            json!({}),
+            json!({"reference":"R1"}),
+            json!({"reference":""}),
+            json!({"reference":"x".repeat(65)}),
+            json!({"value":""}),
+            json!({"kind":""}),
+            json!({"kind":"x".repeat(65)}),
+            json!({"reference":"R*","extra":1}),
+        ] {
+            assert!(s.execute("component.find", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        let unchanged = s.project.clone();
+        s.execute("component.find", json!({"reference":"?*"}), None)?;
+        assert_eq!(s.project, unchanged);
         Ok(())
     }
     #[test]
