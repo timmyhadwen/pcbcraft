@@ -223,3 +223,73 @@ fn footprint_models_are_recorded_and_bounded() -> Result<(), Box<dyn std::error:
     );
     Ok(())
 }
+
+#[test]
+fn specctra_session_net_maps_are_split_bounded_and_skipped_when_empty()
+-> Result<(), Box<dyn std::error::Error>> {
+    let session = r#"(session
+        (parser
+            (library 0)
+        )
+        (net_map_out
+            (net
+                (number 0)
+                (name UNCONNECTED)
+            )
+            (net
+                (number 1)
+                (name GND)
+                (pins
+                    (pin R1-1)
+                    (pin C1-2)
+                    (pin J1-A)
+                )
+            )
+            (net
+                (number 2)
+                (name "5V")
+                (pins
+                    (pin U1-8)
+                    (pin C1-1)
+                )
+            )
+        )
+    )"#;
+    let nets = pcbcraft_library::read_specctra_session(session)?;
+    assert_eq!(nets.len(), 2, "the pin-less net is skipped");
+    assert_eq!(nets[0].name, "GND");
+    assert_eq!(nets[0].pins[0], ("R1".into(), "1".into()));
+    assert_eq!(
+        nets[0].pins[2],
+        ("J1".into(), "A".into()),
+        "lettered pins split at the last dash"
+    );
+    assert_eq!(nets[1].name, "5V", "quoted names are unquoted");
+    assert_eq!(nets[1].pins[1], ("C1".into(), "1".into()));
+    assert!(pcbcraft_library::read_specctra_session("(board X)").is_err());
+    assert!(pcbcraft_library::read_specctra_session("(session (parser (library 0)))").is_err());
+    assert!(
+        pcbcraft_library::read_specctra_session(
+            "(session (net_map_out (net (name GND) (pins (pin R1)))))"
+        )
+        .is_err(),
+        "a pin without a dash is refused"
+    );
+    assert!(
+        pcbcraft_library::read_specctra_session(
+            "(session (net_map_out (net (name \"\") (pins (pin R1-1)))))"
+        )
+        .is_err(),
+        "an empty net name is refused"
+    );
+    let many = (0..257)
+        .map(|i| format!("(net (number {i}) (name N{i}) (pins (pin R1-1)))"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        pcbcraft_library::read_specctra_session(&format!("(session (net_map_out {many}))"))
+            .is_err(),
+        "more than 256 nets are refused"
+    );
+    Ok(())
+}

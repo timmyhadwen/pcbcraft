@@ -4,7 +4,7 @@ mod reader;
 mod sexpr;
 mod validation;
 use pcbcraft_geom::Point;
-pub use reader::{read_footprint, read_symbols};
+pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
 pub use sexpr::{Error, Limits};
 
@@ -86,6 +86,13 @@ pub enum Graphic {
         size: Point,
         layer: String,
     },
+}
+/// One net of a Specctra design session and the component pins it names,
+/// each pin given as a (reference, pin number) pair.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionNet {
+    pub name: String,
+    pub pins: Vec<(String, String)>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

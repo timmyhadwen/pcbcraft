@@ -32,7 +32,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   the move. Reference designators and net names can be renamed at any time,
   validated unique against the rest of the design, and a netlist table can be
   imported in one step to assign pins to named nets by reference, or read back
-  as a net-by-net pin table that also lists every unconnected pin. Components
+  as a net-by-net pin table that also lists every unconnected pin. A router
+  design session file on disk brings in the same assignments in one step,
+  splitting its named nets into component-pin references. Components
   carry named properties (datasheet, manufacturer, custom notes) that are set,
   replaced or cleared one at a time and travel with a duplicate, and a bill of
   materials groups the design by value, kind and footprint with any requested
@@ -234,9 +236,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 148 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 149 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 173 MCP tools: every engine command plus library discovery/search/inspection,
+- 174 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

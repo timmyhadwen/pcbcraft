@@ -474,3 +474,55 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
     s.validate()?;
     Ok(s)
 }
+
+/// Read the net map of a Specctra design session: every named net with its
+/// pins split from the `REF-PIN` entries. Nets without pins are skipped.
+pub fn read_specctra_session(source: &str) -> Result<Vec<SessionNet>, Error> {
+    let node = sexpr::parse(source)?;
+    if node.name() != "session" {
+        return Err(invalid("expected a design session"));
+    }
+    let map = node
+        .child("net_map_out")
+        .ok_or_else(|| invalid("session has no net map"))?;
+    let mut nets = Vec::new();
+    for net in map.children.iter().filter(|c| c.name() == "net") {
+        let name = net
+            .child("name")
+            .map(|n| n.value(1).to_owned())
+            .unwrap_or_default();
+        if name.is_empty() || name.len() > 128 {
+            return Err(invalid("session net name must be 1 to 128 bytes"));
+        }
+        let Some(pins) = net.child("pins") else {
+            continue;
+        };
+        let mut list = Vec::new();
+        for pin in pins.children.iter().filter(|c| c.name() == "pin") {
+            let token = pin.value(1);
+            let Some((reference, number)) = token.rsplit_once('-') else {
+                return Err(invalid("session pin entries need the REF-PIN form"));
+            };
+            if reference.is_empty()
+                || reference.len() > 64
+                || number.is_empty()
+                || number.len() > 64
+            {
+                return Err(invalid("session pin entry is out of bounds"));
+            }
+            list.push((reference.to_owned(), number.to_owned()));
+        }
+        if list.len() > 128 {
+            return Err(invalid("a session net lists at most 128 pins"));
+        }
+        nets.push(SessionNet { name, pins: list });
+        if nets.len() > 256 {
+            return Err(invalid("a session holds at most 256 nets"));
+        }
+    }
+    let total: usize = nets.iter().map(|n| n.pins.len()).sum();
+    if total > 4096 {
+        return Err(invalid("a session lists at most 4096 pins"));
+    }
+    Ok(nets)
+}

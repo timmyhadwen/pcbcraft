@@ -332,6 +332,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"net":id_schema()}), &[]),
         ),
         (
+            "netlist.import_session",
+            "Import net assignments from a Specctra session file on disk: every named net with pins is created if missing and its REF-PIN entries are assigned to matching component pins",
+            schema(
+                json!({"path":{"type":"string","maxLength":1024}}),
+                &["path"],
+            ),
+        ),
+        (
             "wire.connect",
             "Connect two pins; infer their existing net or atomically create a net if neither is assigned",
             schema(
@@ -1206,7 +1214,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, and footprint 3D model references with placement transforms that read, edit and export but never render; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair and rule-area clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, and footprint 3D model references with placement transforms that read, edit and export but never render; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair and rule-area clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1289,6 +1297,98 @@ fn width_for_ohms(target: f64, height: f64, er: f64) -> f64 {
         }
     }
     (lo + hi) / 2.0
+}
+fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Result<Value, Error> {
+    if a.nets.is_empty() || a.nets.len() > 256 {
+        return Err(Error::Invalid("netlist must hold 1 to 256 nets".into()));
+    }
+    let total: usize = a.nets.iter().map(|n| n.pins.len()).sum();
+    if total > 4096 {
+        return Err(Error::Invalid("netlist has too many pins".into()));
+    }
+    let mut planned: std::collections::BTreeMap<(Id, String), String> =
+        std::collections::BTreeMap::new();
+    let mut plan: Vec<(&str, Vec<PinRef>)> = Vec::new();
+    for entry in &a.nets {
+        if entry.name.is_empty() || entry.name.len() > 128 {
+            return Err(Error::Invalid("net name must be 1 to 128 bytes".into()));
+        }
+        if entry.pins.is_empty() || entry.pins.len() > 128 {
+            return Err(Error::Invalid(
+                "each netlist net must list 1 to 128 pins".into(),
+            ));
+        }
+        let mut pins = Vec::with_capacity(entry.pins.len());
+        for listed in &entry.pins {
+            if listed.reference.is_empty()
+                || listed.reference.len() > 64
+                || listed.pin.is_empty()
+                || listed.pin.len() > 64
+            {
+                return Err(Error::Invalid(
+                    "netlist references must be 1 to 64 bytes".into(),
+                ));
+            }
+            let component = p
+                .components
+                .iter()
+                .find(|c| c.reference == listed.reference)
+                .ok_or_else(|| {
+                    Error::Invalid(format!(
+                        "netlist names unknown reference {}",
+                        listed.reference
+                    ))
+                })?;
+            let pin = component
+                .pins
+                .iter()
+                .find(|pin| pin.number == listed.pin)
+                .ok_or_else(|| {
+                    Error::Invalid(format!("{} has no pin {}", listed.reference, listed.pin))
+                })?;
+            if pin
+                .net
+                .is_some_and(|other| !p.nets.iter().any(|n| n.id == other && n.name == entry.name))
+            {
+                return Err(Error::Invalid(format!(
+                    "{} pin {} already belongs to another net",
+                    listed.reference, listed.pin
+                )));
+            }
+            let previous = planned.insert((component.id, listed.pin.clone()), entry.name.clone());
+            if previous.is_some_and(|previous| previous != entry.name) {
+                return Err(Error::Invalid(format!(
+                    "{} pin {} is listed under two nets",
+                    listed.reference, listed.pin
+                )));
+            }
+            pins.push(PinRef {
+                component: component.id,
+                pin: listed.pin.clone(),
+            });
+        }
+        plan.push((&entry.name, pins));
+    }
+    let mut created = 0usize;
+    let mut assigned = 0usize;
+    for (name, pins) in &plan {
+        let id = match p.nets.iter().find(|n| &n.name == name).map(|n| n.id) {
+            Some(id) => id,
+            None => {
+                let id = allocate(next)?;
+                p.nets.push(Net {
+                    id,
+                    name: (*name).to_string(),
+                    ..Default::default()
+                });
+                created += 1;
+                id
+            }
+        };
+        assign(p, id, pins)?;
+        assigned += pins.len();
+    }
+    Ok(json!({"nets": a.nets.len(), "created": created, "pins": assigned}))
 }
 fn allocate(next: &mut Id) -> Result<Id, Error> {
     let id = *next;
@@ -1989,6 +2089,11 @@ struct NetlistExportParams {
 #[serde(deny_unknown_fields)]
 struct NetlistImportParams {
     nets: Vec<NetlistNet>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SessionImportParams {
+    path: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3632,99 +3737,28 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "netlist.import" => {
             let a: NetlistImportParams = parse(params)?;
-            if a.nets.is_empty() || a.nets.len() > 256 {
-                return Err(Error::Invalid("netlist must hold 1 to 256 nets".into()));
+            import_nets(p, next, &a)
+        }
+        "netlist.import_session" => {
+            let a: SessionImportParams = parse(params)?;
+            if a.path.is_empty() || a.path.len() > 1024 {
+                return Err(Error::Invalid("path must be 1 to 1024 bytes".into()));
             }
-            let total: usize = a.nets.iter().map(|n| n.pins.len()).sum();
-            if total > 4096 {
-                return Err(Error::Invalid("netlist has too many pins".into()));
-            }
-            let mut planned: std::collections::BTreeMap<(Id, String), String> =
-                std::collections::BTreeMap::new();
-            let mut plan: Vec<(&str, Vec<PinRef>)> = Vec::new();
-            for entry in &a.nets {
-                if entry.name.is_empty() || entry.name.len() > 128 {
-                    return Err(Error::Invalid("net name must be 1 to 128 bytes".into()));
-                }
-                if entry.pins.is_empty() || entry.pins.len() > 128 {
-                    return Err(Error::Invalid(
-                        "each netlist net must list 1 to 128 pins".into(),
-                    ));
-                }
-                let mut pins = Vec::with_capacity(entry.pins.len());
-                for listed in &entry.pins {
-                    if listed.reference.is_empty()
-                        || listed.reference.len() > 64
-                        || listed.pin.is_empty()
-                        || listed.pin.len() > 64
-                    {
-                        return Err(Error::Invalid(
-                            "netlist references must be 1 to 64 bytes".into(),
-                        ));
-                    }
-                    let component = p
-                        .components
-                        .iter()
-                        .find(|c| c.reference == listed.reference)
-                        .ok_or_else(|| {
-                            Error::Invalid(format!(
-                                "netlist names unknown reference {}",
-                                listed.reference
-                            ))
-                        })?;
-                    let pin = component
+            let text = pcbcraft_io::read_text(std::path::Path::new(&a.path))?;
+            let parsed = pcbcraft_library::read_specctra_session(&text)
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let nets: Vec<NetlistNet> = parsed
+                .into_iter()
+                .map(|n| NetlistNet {
+                    name: n.name,
+                    pins: n
                         .pins
-                        .iter()
-                        .find(|pin| pin.number == listed.pin)
-                        .ok_or_else(|| {
-                            Error::Invalid(format!(
-                                "{} has no pin {}",
-                                listed.reference, listed.pin
-                            ))
-                        })?;
-                    if pin.net.is_some_and(|other| {
-                        !p.nets.iter().any(|n| n.id == other && n.name == entry.name)
-                    }) {
-                        return Err(Error::Invalid(format!(
-                            "{} pin {} already belongs to another net",
-                            listed.reference, listed.pin
-                        )));
-                    }
-                    let previous =
-                        planned.insert((component.id, listed.pin.clone()), entry.name.clone());
-                    if previous.is_some_and(|previous| previous != entry.name) {
-                        return Err(Error::Invalid(format!(
-                            "{} pin {} is listed under two nets",
-                            listed.reference, listed.pin
-                        )));
-                    }
-                    pins.push(PinRef {
-                        component: component.id,
-                        pin: listed.pin.clone(),
-                    });
-                }
-                plan.push((&entry.name, pins));
-            }
-            let mut created = 0usize;
-            let mut assigned = 0usize;
-            for (name, pins) in &plan {
-                let id = match p.nets.iter().find(|n| &n.name == name).map(|n| n.id) {
-                    Some(id) => id,
-                    None => {
-                        let id = allocate(next)?;
-                        p.nets.push(Net {
-                            id,
-                            name: (*name).to_string(),
-                            ..Default::default()
-                        });
-                        created += 1;
-                        id
-                    }
-                };
-                assign(p, id, pins)?;
-                assigned += pins.len();
-            }
-            Ok(json!({"nets": a.nets.len(), "created": created, "pins": assigned}))
+                        .into_iter()
+                        .map(|(reference, pin)| NetlistPin { reference, pin })
+                        .collect(),
+                })
+                .collect();
+            import_nets(p, next, &NetlistImportParams { nets })
         }
         "netlist.export" => {
             let a: NetlistExportParams = parse(params)?;
@@ -11270,6 +11304,70 @@ mod tests {
                 .is_none(),
             "setting a model undoes back to the cleared state"
         );
+        Ok(())
+    }
+    #[test]
+    fn specctra_session_files_import_net_assignments() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (reference, x) in [("R1", 10.0), ("R2", 20.0)] {
+            s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":[x,10],"reference":reference,"value":"10k"}),
+                None,
+            )?;
+        }
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-session-import-{}.ses",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "(session (net_map_out (net (number 0) (name UNCONNECTED)) (net (number 1) (name GND) (pins (pin R1-2) (pin R2-2))) (net (number 2) (name VCC) (pins (pin R1-1) (pin R2-1)))))",
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let params = json!({"path": path.to_string_lossy()});
+        let out = s.execute("netlist.import_session", params.clone(), None)?["result"].clone();
+        assert_eq!(out["nets"], 2, "the pin-less net is not imported");
+        assert_eq!(out["created"], 2);
+        assert_eq!(out["pins"], 4);
+        let nets = s.inspect()["project"]["nets"].clone();
+        assert_eq!(nets.as_array().map_or(0, |n| n.len()), 2);
+        assert_eq!(nets[0]["name"], "GND");
+        let first = &s.inspect()["project"]["components"][0]["pins"];
+        assert!(
+            first[0]["net"].is_number() && first[1]["net"].is_number(),
+            "every imported pin lands on a net"
+        );
+        let again = s.execute("netlist.import_session", params.clone(), None)?["result"].clone();
+        assert_eq!(
+            again["created"], 0,
+            "re-importing the same session reuses nets"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["nets"]
+                .as_array()
+                .map_or(0, |n| n.len()),
+            2,
+            "the no-op re-import undoes to the imported state"
+        );
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["nets"].get(0).is_none(),
+            "the import itself undoes in one step"
+        );
+        for bad in [
+            json!({"path": ""}),
+            json!({"path": "/nonexistent/dir/none.ses"}),
+            json!({"path": path.to_string_lossy(), "nope": 1}),
+            json!({}),
+        ] {
+            assert!(
+                s.execute("netlist.import_session", bad, None).is_err(),
+                "bad session requests are refused"
+            );
+        }
+        std::fs::remove_file(&path).map_err(|e| Error::Invalid(e.to_string()))?;
         Ok(())
     }
     #[test]
