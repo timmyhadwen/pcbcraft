@@ -18,7 +18,8 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Periodic project recovery and recovery on normal close, using application storage.
 - One-command alignment and distribution for groups of schematic symbols or
   board footprints: flush left/right/top/bottom, shared horizontal or vertical
-  centre, or even spacing along an axis.
+  centre, even spacing along an axis, or snapping placements to the nearest
+  multiple of a grid.
 - Split an existing copper segment or drawn wire at any point on it; both
   halves keep the net, width and layer of the original. Duplicate components
   at an offset with fresh ids and automatically unique reference labels,
@@ -48,9 +49,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   exported as Edge.Cuts. Constrained/parametric outline sketches are planned.
 - Initial pin assignment/net-population checks and copper short, clearance,
   board-edge, cutout and unrouted checks with affected object IDs.
-- 38 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 39 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 56 MCP tools: every engine command plus library discovery/search/inspection,
+- 57 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

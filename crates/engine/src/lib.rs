@@ -268,6 +268,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "object.snap",
+            "Snap component or footprint placements to the nearest multiple of a grid",
+            schema(
+                json!({"ids":{"type":"array","minItems":1,"maxItems":128,"items":id_schema()},"grid":{"type":"number"}}),
+                &["ids", "grid"],
+            ),
+        ),
+        (
             "object.duplicate",
             "Duplicate components at an offset, each with a fresh reference and ids, bringing its footprint when one exists",
             schema(
@@ -690,6 +698,12 @@ struct StitchParams {
     drill: f64,
     #[serde(default = "default_stitch_spacing")]
     spacing: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SnapParams {
+    ids: Vec<Id>,
+    grid: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1592,6 +1606,61 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             Ok(json!({"aligned": seen.len(), "mode": mode}))
         }
+        "object.snap" => {
+            let a: SnapParams = parse(params)?;
+            if a.ids.is_empty() || a.ids.len() > 128 {
+                return Err(Error::Invalid("snap accepts 1–128 items".into()));
+            }
+            if !(0.05..=25.0).contains(&a.grid) {
+                return Err(Error::Invalid("grid must be within 0.05–25mm".into()));
+            }
+            let mut seen: Vec<Id> = vec![];
+            for id in &a.ids {
+                if seen.contains(id) {
+                    continue;
+                }
+                if p.component(*id).is_none() && p.footprint(*id).is_none() {
+                    return Err(missing());
+                }
+                seen.push(*id);
+            }
+            let snap = |value: f64| (value / a.grid).round() * a.grid;
+            let mut moved = 0usize;
+            for c in &mut p.components {
+                if !seen.contains(&c.id) {
+                    continue;
+                }
+                let position = Point::new(snap(c.position.x), snap(c.position.y));
+                if !position.valid() {
+                    return Err(Error::Invalid("snapped position is out of range".into()));
+                }
+                if position != c.position {
+                    c.position = position;
+                    moved += 1;
+                }
+                for unit in &mut c.units {
+                    let position = Point::new(snap(unit.position.x), snap(unit.position.y));
+                    if !position.valid() {
+                        return Err(Error::Invalid("snapped position is out of range".into()));
+                    }
+                    unit.position = position;
+                }
+            }
+            for f in &mut p.board.footprints {
+                if !seen.contains(&f.id) {
+                    continue;
+                }
+                let position = Point::new(snap(f.position.x), snap(f.position.y));
+                if !position.valid() {
+                    return Err(Error::Invalid("snapped position is out of range".into()));
+                }
+                if position != f.position {
+                    f.position = position;
+                    moved += 1;
+                }
+            }
+            Ok(json!({"moved": moved, "grid": a.grid}))
+        }
         "object.duplicate" => {
             let a: DuplicateParams = parse(params)?;
             if a.ids.is_empty() || a.ids.len() > 64 {
@@ -2162,6 +2231,66 @@ mod tests {
         s.undo()?;
         assert_eq!(s.project.components.len(), 3);
         assert_eq!(s.project.board.footprints.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn snapping_moves_placements_to_the_grid_only_when_needed() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":11.4,"y":13.7},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":20.0,"y":20.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute("object.snap", json!({"ids":[r1,r2],"grid":2.5}), None)?;
+        assert_eq!(out["result"]["moved"], 1);
+        assert_eq!(s.project.components[0].position, Point::new(12.5, 12.5));
+        assert_eq!(s.project.components[1].position, Point::new(20.0, 20.0));
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == r1)
+            .cloned()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.move",
+            json!({"id":fp.id,"position":{"x":23.3,"y":17.9}}),
+            None,
+        )?;
+        let out = s.execute("object.snap", json!({"ids":[fp.id],"grid":2.5}), None)?;
+        assert_eq!(out["result"]["moved"], 1);
+        assert_eq!(
+            s.project.footprint(fp.id).ok_or_else(missing)?.position,
+            Point::new(22.5, 17.5)
+        );
+        for params in [
+            json!({"ids":[r1],"grid":0.01}),
+            json!({"ids":[r1],"grid":30.0}),
+            json!({"ids":[9999],"grid":2.5}),
+            json!({"ids":[],"grid":2.5}),
+            json!({"ids":[r1],"grid":2.5,"extra":1}),
+        ] {
+            assert!(s.execute("object.snap", params, None).is_err());
+        }
+        assert_eq!(s.project.components[0].position, Point::new(12.5, 12.5));
+        s.undo()?;
+        assert_eq!(
+            s.project.footprint(fp.id).ok_or_else(missing)?.position,
+            Point::new(23.3, 17.9),
+            "undo returns only the last snap"
+        );
+        assert_eq!(s.project.components[0].position, Point::new(12.5, 12.5));
         Ok(())
     }
     #[test]
