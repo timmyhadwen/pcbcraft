@@ -149,11 +149,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "graphic.move",
+            "Translate an existing schematic or board graphic by a delta",
+            schema(
+                json!({"id":id_schema(),"delta":point_schema()}),
+                &["id", "delta"],
+            ),
+        ),
+        (
             "label.place",
             "Place a local, global, hierarchical or power label, or a junction, naming an existing net",
             schema(
                 json!({"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema(),"position":point_schema(),"rotation":{"type":"number","minimum":-360000.0,"maximum":360000.0}}),
                 &["kind", "net", "position"],
+            ),
+        ),
+        (
+            "label.move",
+            "Move an existing net label, global label or junction to a new position",
+            schema(
+                json!({"id":id_schema(),"position":point_schema()}),
+                &["id", "position"],
             ),
         ),
         (
@@ -701,6 +717,18 @@ struct StitchParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct GraphicMoveParams {
+    id: Id,
+    delta: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LabelMoveParams {
+    id: Id,
+    position: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SnapParams {
     ids: Vec<Id>,
     grid: f64,
@@ -1130,6 +1158,24 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             });
             Ok(json!({"id":id}))
         }
+        "graphic.move" => {
+            let a: GraphicMoveParams = parse(params)?;
+            let graphic = p
+                .graphics
+                .iter_mut()
+                .find(|g| g.id == a.id)
+                .ok_or_else(missing)?;
+            let moved: Vec<Point> = graphic
+                .points
+                .iter()
+                .map(|point| Point::new(point.x + a.delta.x, point.y + a.delta.y))
+                .collect();
+            if !moved.iter().all(|point| point.valid()) {
+                return Err(Error::Invalid("graphic vertex is out of range".into()));
+            }
+            graphic.points = moved;
+            Ok(json!({"id": a.id}))
+        }
         "label.place" => {
             let a: LabelParams = parse(params)?;
             if !pcbcraft_doc::Label::KINDS.iter().any(|k| *k == a.kind) {
@@ -1163,6 +1209,30 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 rotation: a.rotation,
             });
             Ok(json!({"id":id}))
+        }
+        "label.move" => {
+            let a: LabelMoveParams = parse(params)?;
+            if !a.position.valid() {
+                return Err(Error::Invalid("label position is out of range".into()));
+            }
+            let index = p
+                .labels
+                .iter()
+                .position(|l| l.id == a.id)
+                .ok_or_else(missing)?;
+            let label = &p.labels[index];
+            if label.kind == "junction"
+                && !p
+                    .drawn_wires
+                    .iter()
+                    .any(|w| w.net == Some(label.net) && w.points.contains(&a.position))
+            {
+                return Err(Error::Invalid(
+                    "junction must sit on a vertex of a drawn wire of its net".into(),
+                ));
+            }
+            p.labels[index].position = a.position;
+            Ok(json!({"id": a.id}))
         }
         "pin.no_connect" => {
             let a: NoConnectParams = parse(params)?;
@@ -2291,6 +2361,87 @@ mod tests {
             "undo returns only the last snap"
         );
         assert_eq!(s.project.components[0].position, Point::new(12.5, 12.5));
+        Ok(())
+    }
+    #[test]
+    fn moving_graphics_and_labels_keeps_rules_and_undoes_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let line = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"line","points":[{"x":10.0,"y":10.0},{"x":20.0,"y":15.0}],"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "graphic.move",
+            json!({"id":line,"delta":{"x":5.0,"y":-5.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.graphics[0].points,
+            vec![Point::new(15.0, 5.0), Point::new(25.0, 10.0)]
+        );
+        let label = s.execute(
+            "label.place",
+            json!({"kind":"global","net":net,"position":{"x":30.0,"y":20.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "label.move",
+            json!({"id":label,"position":{"x":40.0,"y":25.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.labels[0].position, Point::new(40.0, 25.0));
+        s.execute(
+            "wire.draw",
+            json!({"points":[{"x":10.0,"y":10.0},{"x":20.0,"y":10.0}],"net":net}),
+            None,
+        )?;
+        let junction = s.execute(
+            "label.place",
+            json!({"kind":"junction","net":net,"position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "label.move",
+            json!({"id":junction,"position":{"x":20.0,"y":10.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.labels[1].position, Point::new(20.0, 10.0));
+        for params in [
+            json!({"id":junction,"position":{"x":15.0,"y":10.0}}),
+            json!({"id":line,"delta":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"delta":{"x":1.0,"y":1.0}}),
+            json!({"id":9999,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":line,"delta":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            let command = if params.get("delta").is_some() {
+                "graphic.move"
+            } else {
+                "label.move"
+            };
+            assert!(s.execute(command, params, None).is_err());
+        }
+        assert_eq!(s.project.graphics[0].points[0], Point::new(15.0, 5.0));
+        assert_eq!(s.project.labels[1].position, Point::new(20.0, 10.0));
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert_eq!(s.project.labels[1].position, Point::new(10.0, 10.0));
+        s.undo()?;
+        assert_eq!(s.project.labels.len(), 1);
+        assert_eq!(s.project.labels[0].position, Point::new(40.0, 25.0));
+        s.undo()?;
+        assert!(s.project.drawn_wires.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.labels[0].position, Point::new(30.0, 20.0));
         Ok(())
     }
     #[test]

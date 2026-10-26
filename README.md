@@ -29,7 +29,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   wires with explicit vertices that may be bound to a net, and free-standing
   schematic/board graphics (lines, rectangles, circles, arcs, polygons and text);
   local/global/hierarchical/power labels, junctions and no-connect flags that
-  suppress the matching ERC warning; plated through-hole vias that join front
+  suppress the matching ERC warning, all movable after placement (graphics by
+  delta, labels to an absolute position, junctions only onto a vertex of
+  their net); plated through-hole vias that join front
   and back copper, including stitch grids that fill a rectangular area with a
   via lattice; poured copper zones as closed polygons on either layer, with
   cutouts that remove copper from a zone.
@@ -49,9 +51,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   exported as Edge.Cuts. Constrained/parametric outline sketches are planned.
 - Initial pin assignment/net-population checks and copper short, clearance,
   board-edge, cutout and unrouted checks with affected object IDs.
-- 39 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 41 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 57 MCP tools: every engine command plus library discovery/search/inspection,
+- 59 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
