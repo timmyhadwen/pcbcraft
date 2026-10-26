@@ -755,6 +755,21 @@ impl EmbeddedFile {
         !self.name.trim().is_empty() && self.name.len() <= 128 && self.data.len() <= 262_144
     }
 }
+/// A set of drawn graphics that translate together as one unit, so a
+/// multi-graphic annotation can be repositioned in a single step.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct GraphicGroup {
+    pub id: Id,
+    pub graphics: Vec<Id>,
+}
+impl GraphicGroup {
+    fn valid(&self) -> bool {
+        self.graphics.len() >= 2 && self.graphics.len() <= 512 && {
+            let unique: BTreeSet<Id> = self.graphics.iter().copied().collect();
+            unique.len() == self.graphics.len()
+        }
+    }
+}
 /// An assembly variant of the design: a named alternate build in which a
 /// chosen set of components is marked do not populate.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -795,6 +810,9 @@ pub struct Project {
     /// Assembly variants, ordered by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variants: Vec<Variant>,
+    /// Groups of drawn graphics that translate together, ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub graphic_groups: Vec<GraphicGroup>,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -890,6 +908,7 @@ impl Default for Project {
             bom_fields: vec![],
             files: vec![],
             variants: vec![],
+            graphic_groups: vec![],
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
@@ -1268,6 +1287,24 @@ impl Project {
         for f in &self.files {
             if !f.valid() || !file_names.insert(&f.name) {
                 return Err("attached files need unique short names and 256 KiB or less".into());
+            }
+        }
+        if self.graphic_groups.len() > 256 {
+            return Err("a project defines at most 256 graphic groups".into());
+        }
+        let graphic_ids: BTreeSet<Id> = self.graphics.iter().map(|g| g.id).collect();
+        let mut grouped = BTreeSet::new();
+        for g in &self.graphic_groups {
+            let known = g
+                .graphics
+                .iter()
+                .all(|id| graphic_ids.contains(id) && grouped.insert(*id));
+            if !g.valid() || !known {
+                return Err(
+                    "graphic groups need two to 512 distinct existing graphics, each in at \
+                     most one group"
+                        .into(),
+                );
             }
         }
         if self.variants.len() > 16 {

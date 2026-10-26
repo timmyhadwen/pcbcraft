@@ -83,6 +83,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "graphic.group",
+            "Group two to 512 drawn graphics into one unit that can be moved together; each graphic joins at most one group",
+            schema(
+                json!({"graphics":{"type":"array","items":id_schema(),"minItems":2,"maxItems":512}}),
+                &["graphics"],
+            ),
+        ),
+        (
+            "graphic.ungroup",
+            "Dissolve a graphic group again, leaving its member graphics exactly where they are",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "graphic.translate",
+            "Move every graphic in a group by the same offset in one undoable step",
+            schema(
+                json!({"id":id_schema(),"delta":point_schema()}),
+                &["id", "delta"],
+            ),
+        ),
+        (
             "footprint.assign",
             "Assign a KiCad front SMD or plated through-hole footprint with matching physical pins",
             schema(
@@ -1090,7 +1111,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class and net-pair clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -2110,6 +2131,22 @@ struct DeltaParams {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicMoveParams {
+    id: Id,
+    delta: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicGroupParams {
+    graphics: Vec<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicGroupIdParams {
+    id: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicTranslateParams {
     id: Id,
     delta: Point,
 }
@@ -3834,6 +3871,81 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             graphic.points = moved;
             Ok(json!({"id": a.id}))
+        }
+        "graphic.group" => {
+            let a: GraphicGroupParams = parse(params)?;
+            if a.graphics.len() < 2 || a.graphics.len() > 512 {
+                return Err(Error::Invalid("a group holds two to 512 graphics".into()));
+            }
+            for id in &a.graphics {
+                if id == &0
+                    || !p.graphics.iter().any(|g| g.id == *id)
+                    || p.graphic_groups.iter().any(|g| g.graphics.contains(id))
+                {
+                    return Err(Error::Invalid(
+                        "every grouped graphic must exist and be in no other group".into(),
+                    ));
+                }
+            }
+            let unique: std::collections::BTreeSet<Id> = a.graphics.iter().copied().collect();
+            if unique.len() != a.graphics.len() {
+                return Err(Error::Invalid("a graphic joins a group once".into()));
+            }
+            if p.graphic_groups.len() >= 256 {
+                return Err(Error::Invalid(
+                    "a project defines at most 256 graphic groups".into(),
+                ));
+            }
+            let id = allocate(next)?;
+            p.graphic_groups.push(pcbcraft_doc::GraphicGroup {
+                id,
+                graphics: a.graphics.clone(),
+            });
+            Ok(json!({"id": id, "count": a.graphics.len()}))
+        }
+        "graphic.ungroup" => {
+            let a: GraphicGroupIdParams = parse(params)?;
+            let index = p
+                .graphic_groups
+                .iter()
+                .position(|g| g.id == a.id)
+                .ok_or_else(missing)?;
+            p.graphic_groups.remove(index);
+            Ok(json!({"id": a.id}))
+        }
+        "graphic.translate" => {
+            let a: GraphicTranslateParams = parse(params)?;
+            let delta = a.delta;
+            let members: Vec<Id> = p
+                .graphic_groups
+                .iter()
+                .find(|g| g.id == a.id)
+                .ok_or_else(missing)?
+                .graphics
+                .clone();
+            let mut moved_all = Vec::new();
+            for id in &members {
+                let graphic = p
+                    .graphics
+                    .iter_mut()
+                    .find(|g| g.id == *id)
+                    .ok_or_else(missing)?;
+                let moved: Vec<Point> = graphic
+                    .points
+                    .iter()
+                    .map(|point| Point::new(point.x + delta.x, point.y + delta.y))
+                    .collect();
+                if !moved.iter().all(|point| point.valid()) {
+                    return Err(Error::Invalid("graphic vertex is out of range".into()));
+                }
+                moved_all.push((graphic.id, moved));
+            }
+            for (id, moved) in moved_all {
+                if let Some(graphic) = p.graphics.iter_mut().find(|g| g.id == id) {
+                    graphic.points = moved;
+                }
+            }
+            Ok(json!({"id": a.id, "moved": members.len()}))
         }
         "graphic.rotate" => {
             let a: GraphicRotateParams = parse(params)?;
@@ -9452,6 +9564,102 @@ mod tests {
                 .map_or(0, |a| a.len()),
             2,
             "the clear undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn graphic_groups_translate_together_and_refuse_bad_requests() -> Result<(), Error> {
+        let mut s = Session::default();
+        for points in [
+            json!([[0.0, 0.0], [10.0, 0.0]]),
+            json!([[0.0, 5.0], [10.0, 5.0]]),
+            json!([[0.0, 20.0], [10.0, 20.0]]),
+        ] {
+            s.execute(
+                "graphic.add",
+                json!({"layer":"schematic","shape":"line","points":points,"width":0.2}),
+                None,
+            )?;
+        }
+        let grouped = s.execute("graphic.group", json!({"graphics":[1,2]}), None)?;
+        let gid = grouped["result"]["id"].as_u64().ok_or_else(missing)?;
+        assert_eq!(grouped["result"]["count"], 2, "both graphics joined");
+        assert_eq!(
+            s.inspect()["project"]["graphic_groups"]
+                .as_array()
+                .ok_or_else(missing)?
+                .len(),
+            1,
+            "the group is stored"
+        );
+        let moved = s.execute(
+            "graphic.translate",
+            json!({"id":gid,"delta":[5.0,5.0]}),
+            None,
+        )?;
+        assert_eq!(moved["result"]["moved"], 2, "both graphics moved");
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        let first_x = |s: &Session, id: u64| -> Result<f64, Error> {
+            let graphics = s.inspect()["project"]["graphics"].clone();
+            let row = graphics
+                .as_array()
+                .and_then(|rows| rows.iter().find(|g| g["id"] == id))
+                .cloned()
+                .ok_or_else(missing)?;
+            row["points"][0]["x"].as_f64().ok_or_else(missing)
+        };
+        assert!(
+            near(first_x(&s, 1)?, 5.0) && near(first_x(&s, 2)?, 5.0),
+            "grouped graphics shifted together"
+        );
+        assert!(near(first_x(&s, 3)?, 0.0), "outside graphics stay put");
+        s.undo()?;
+        assert!(
+            near(first_x(&s, 1)?, 0.0),
+            "the whole group move undoes as one step"
+        );
+        for bad in [
+            json!({"graphics":[2,3]}),
+            json!({"graphics":[1,99]}),
+            json!({"graphics":[1]}),
+            json!({"graphics":[1,1]}),
+            json!({"graphics":[1,2],"nope":1}),
+        ] {
+            assert!(
+                s.execute("graphic.group", bad, None).is_err(),
+                "bad group requests are refused"
+            );
+        }
+        s.execute("graphic.ungroup", json!({"id":gid}), None)?;
+        assert!(
+            s.inspect()["project"].get("graphic_groups").is_none()
+                || s.inspect()["project"]["graphic_groups"]
+                    .as_array()
+                    .is_some_and(|g| g.is_empty()),
+            "the group is gone"
+        );
+        assert!(
+            s.execute(
+                "graphic.translate",
+                json!({"id":gid,"delta":[1.0,0.0]}),
+                None
+            )
+            .is_err(),
+            "translating a dissolved group is refused"
+        );
+        assert!(
+            s.execute("graphic.ungroup", json!({"id":gid}), None)
+                .is_err(),
+            "dissolving twice is refused"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["graphic_groups"]
+                .as_array()
+                .ok_or_else(missing)?
+                .len(),
+            1,
+            "dissolving undoes"
         );
         Ok(())
     }
