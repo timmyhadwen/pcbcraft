@@ -558,6 +558,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "footprint.array",
+            "Step-and-repeat: clone a placed footprint and its component into a rectangular grid of copies at fixed column and row spacing; every copy gets fresh IDs and a numbered reference, the clones must stay within the project object limit, and one undo removes the whole array",
+            schema(
+                json!({"footprint":id_schema(),"columns":{"type":"integer","minimum":1,"maximum":64},"rows":{"type":"integer","minimum":1,"maximum":64},"dx":{"type":"number","exclusiveMinimum":0,"maximum":10000},"dy":{"type":"number","exclusiveMinimum":0,"maximum":10000}}),
+                &["footprint", "columns", "rows", "dx", "dy"],
+            ),
+        ),
+        (
             "track.add",
             "Add a straight copper segment; checks report clearance errors rather than hiding them",
             schema(
@@ -895,7 +903,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1887,6 +1895,15 @@ struct TrackParams {
     width: Option<f64>,
     #[serde(default = "front")]
     layer: Layer,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArrayParams {
+    footprint: Id,
+    columns: usize,
+    rows: usize,
+    dx: f64,
+    dy: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4623,6 +4640,84 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 pad.diameter = diameter;
             }
             Ok(json!({"id": a.id, "pad": a.pad}))
+        }
+        "footprint.array" => {
+            let a: ArrayParams = parse(params)?;
+            if a.columns == 0
+                || a.columns > 64
+                || a.rows == 0
+                || a.rows > 64
+                || !a.dx.is_finite()
+                || a.dx <= 0.0
+                || a.dx > 10_000.0
+                || !a.dy.is_finite()
+                || a.dy <= 0.0
+                || a.dy > 10_000.0
+            {
+                return Err(Error::Invalid(
+                    "array must be 1-64 by 1-64 with positive spacing".into(),
+                ));
+            }
+            let total = a.columns * a.rows;
+            if total < 2 {
+                return Err(Error::Invalid("an array needs at least two copies".into()));
+            }
+            if p.ids().count() + 2 * (total - 1) > 2048 {
+                return Err(Error::Invalid(
+                    "the array would exceed the project limit".into(),
+                ));
+            }
+            let source = p
+                .board
+                .footprints
+                .iter()
+                .find(|f| f.id == a.footprint)
+                .ok_or_else(missing)?
+                .clone();
+            let base = p
+                .components
+                .iter()
+                .find(|c| c.id == source.component)
+                .ok_or_else(missing)?
+                .clone();
+            let mut copies = Vec::new();
+            let mut parts = Vec::new();
+            for row in 0..a.rows {
+                for column in 0..a.columns {
+                    if row == 0 && column == 0 {
+                        continue;
+                    }
+                    let reference = format!("{}-{}", base.reference, copies.len() + 2);
+                    if reference.len() > 64 || p.components.iter().any(|c| c.reference == reference)
+                    {
+                        return Err(Error::Invalid(format!(
+                            "reference {reference} is already in use"
+                        )));
+                    }
+                    let delta = Point::new(column as f64 * a.dx, row as f64 * a.dy);
+                    let position = base.position.offset(delta);
+                    let footprint_position = source.position.offset(delta);
+                    let component = allocate(next)?;
+                    let footprint = allocate(next)?;
+                    let mut new_component = base.clone();
+                    new_component.id = component;
+                    new_component.reference = reference;
+                    new_component.position = position;
+                    let mut new_footprint = source.clone();
+                    new_footprint.id = footprint;
+                    new_footprint.component = component;
+                    new_footprint.position = footprint_position;
+                    p.components.push(new_component);
+                    p.board.footprints.push(new_footprint);
+                    copies.push(component);
+                    parts.push(footprint);
+                }
+            }
+            Ok(json!({
+                "count": copies.len() + 1,
+                "components": copies,
+                "footprints": parts
+            }))
         }
         "track.add" => {
             let a: TrackParams = parse(params)?;
@@ -7421,6 +7516,82 @@ mod tests {
             "two letter spellings that would produce the same names refuse the call"
         );
         assert_eq!(s.inspect()["project"], before);
+        Ok(())
+    }
+    #[test]
+    fn a_placed_footprint_can_be_stepped_and_repeated_as_one_undoable_array() -> Result<(), Error> {
+        let mut s = Session::default();
+        let chip = s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","reference":"U1","position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign",
+            json!({"id":chip,"path":library_fixture("DIP-8_W7.62mm.kicad_mod")}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.inspect()["project"]["board"]["footprints"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let array = s.execute(
+            "footprint.array",
+            json!({"footprint":fp,"columns":3,"rows":2,"dx":5.0,"dy":6.0}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(array["count"], 6, "the source plus five copies");
+        let project = s.inspect()["project"].clone();
+        let footprints = project["board"]["footprints"]
+            .as_array()
+            .ok_or_else(missing)?;
+        assert_eq!(footprints.len(), 6);
+        let refs: Vec<String> = project["components"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .map(|c| c["reference"].as_str().unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(refs, ["U1", "U1-2", "U1-3", "U1-4", "U1-5", "U1-6"]);
+        let last = footprints.last().ok_or_else(missing)?;
+        assert_eq!(
+            last["position"]["x"],
+            footprints[0]["position"]["x"]
+                .as_f64()
+                .ok_or_else(missing)?
+                + 10.0,
+            "two columns right"
+        );
+        assert_eq!(
+            last["position"]["y"],
+            footprints[0]["position"]["y"]
+                .as_f64()
+                .ok_or_else(missing)?
+                + 6.0,
+            "one row down"
+        );
+        for bad in [
+            json!({"footprint":fp,"columns":0,"rows":2,"dx":5.0,"dy":6.0}),
+            json!({"footprint":fp,"columns":1,"rows":1,"dx":5.0,"dy":6.0}),
+            json!({"footprint":fp,"columns":2,"rows":2,"dx":0.0,"dy":6.0}),
+            json!({"footprint":999,"columns":2,"rows":2,"dx":5.0,"dy":6.0}),
+        ] {
+            assert!(s.execute("footprint.array", bad, None).is_err());
+        }
+        assert_eq!(s.inspect()["project"], project, "refusals change nothing");
+        s.undo()?;
+        let back = s.inspect()["project"].clone();
+        assert_eq!(
+            back["board"]["footprints"]
+                .as_array()
+                .ok_or_else(missing)?
+                .len(),
+            1
+        );
+        assert_eq!(back["components"].as_array().ok_or_else(missing)?.len(), 1);
         Ok(())
     }
     #[test]

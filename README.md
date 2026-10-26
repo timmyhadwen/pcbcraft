@@ -118,6 +118,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   move, re-edit, and delete them like any other object, and they appear in
   previews and saved projects. The angle is carried in saved projects and
   exported previews; the desktop canvas still draws labels horizontally.
+- Step-and-repeat arrays: clone a placed footprint and its component into a
+  grid of up to 64x64 copies at fixed spacing in one call, with numbered
+  references, collision refusal and a single undo for the whole array.
 - Reference renumbering: reassign designators per letter prefix in placement
   order (R1, R2, ... from the top left), a dry run to preview the mapping, and
   any collision with a part outside the renumbered group refuses the whole call.
@@ -136,9 +139,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 103 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 104 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 123 MCP tools: every engine command plus library discovery/search/inspection,
+- 124 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
