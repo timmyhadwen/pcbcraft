@@ -181,6 +181,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "graphic.rotate",
+            "Rotate an existing schematic or board graphic in 90-degree steps about its centre or a given pivot",
+            schema(
+                json!({"id":id_schema(),"degrees":{"type":"number"},"around":point_schema()}),
+                &["id", "degrees"],
+            ),
+        ),
+        (
             "label.place",
             "Place a local, global, hierarchical or power label, or a junction, naming an existing net",
             schema(
@@ -194,6 +202,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"position":point_schema()}),
                 &["id", "position"],
+            ),
+        ),
+        (
+            "label.rotate",
+            "Rotate an existing label, global label or power label in degrees",
+            schema(
+                json!({"id":id_schema(),"degrees":{"type":"number"}}),
+                &["id", "degrees"],
             ),
         ),
         (
@@ -778,6 +794,19 @@ struct StitchParams {
     drill: f64,
     #[serde(default = "default_stitch_spacing")]
     spacing: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicRotateParams {
+    id: Id,
+    degrees: f64,
+    around: Option<Point>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LabelRotateParams {
+    id: Id,
+    degrees: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1490,6 +1519,57 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             graphic.points = moved;
             Ok(json!({"id": a.id}))
         }
+        "graphic.rotate" => {
+            let a: GraphicRotateParams = parse(params)?;
+            if !a.degrees.is_finite() {
+                return Err(Error::Invalid("rotation must be finite".into()));
+            }
+            let steps = (a.degrees / 90.0).round();
+            if steps == 0.0 || (a.degrees - steps * 90.0).abs() > 1e-9 {
+                return Err(Error::Invalid(
+                    "graphic rotation must be a nonzero multiple of 90 degrees".into(),
+                ));
+            }
+            if a.around.is_some_and(|p| !p.valid()) {
+                return Err(Error::Invalid("pivot point is out of range".into()));
+            }
+            let graphic = p
+                .graphics
+                .iter_mut()
+                .find(|g| g.id == a.id)
+                .ok_or_else(missing)?;
+            let center = match a.around {
+                Some(point) => point,
+                None => {
+                    let mut bounds = (
+                        f64::INFINITY,
+                        f64::NEG_INFINITY,
+                        f64::INFINITY,
+                        f64::NEG_INFINITY,
+                    );
+                    for point in &graphic.points {
+                        bounds.0 = bounds.0.min(point.x);
+                        bounds.1 = bounds.1.max(point.x);
+                        bounds.2 = bounds.2.min(point.y);
+                        bounds.3 = bounds.3.max(point.y);
+                    }
+                    Point::new((bounds.0 + bounds.1) / 2.0, (bounds.2 + bounds.3) / 2.0)
+                }
+            };
+            let rotated: Vec<Point> = graphic
+                .points
+                .iter()
+                .map(|p| {
+                    let r = Point::new(p.x - center.x, p.y - center.y).rotate(steps * 90.0);
+                    Point::new(center.x + r.x, center.y + r.y)
+                })
+                .collect();
+            if !rotated.iter().all(|p| p.valid()) {
+                return Err(Error::Invalid("rotated vertex is out of range".into()));
+            }
+            graphic.points = rotated;
+            Ok(json!({"id": a.id}))
+        }
         "label.place" => {
             let a: LabelParams = parse(params)?;
             if !pcbcraft_doc::Label::KINDS.iter().any(|k| *k == a.kind) {
@@ -1546,6 +1626,19 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             p.labels[index].position = a.position;
+            Ok(json!({"id": a.id}))
+        }
+        "label.rotate" => {
+            let a: LabelRotateParams = parse(params)?;
+            if !a.degrees.is_finite() {
+                return Err(Error::Invalid("rotation must be finite".into()));
+            }
+            let index = p
+                .labels
+                .iter()
+                .position(|l| l.id == a.id)
+                .ok_or_else(missing)?;
+            p.labels[index].rotation = (p.labels[index].rotation + a.degrees).rem_euclid(360.0);
             Ok(json!({"id": a.id}))
         }
         "pin.no_connect" => {
@@ -3364,6 +3457,87 @@ mod tests {
         assert_eq!(points(&s).len(), 2);
         s.undo()?;
         assert_eq!(points(&s).len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn graphics_and_labels_rotate_in_steps() -> Result<(), Error> {
+        let mut s = Session::default();
+        let line = s.execute(
+            "graphic.add",
+            json!({"layer":"schematic","shape":"line","points":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0}],"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn graphic(s: &Session, id: u64) -> Vec<Point> {
+            s.project
+                .graphics
+                .iter()
+                .find(|g| g.id == id)
+                .ok_or_else(missing)
+                .map(|g| g.points.clone())
+                .unwrap_or_default()
+        }
+        fn same(s: &Session, id: u64, expected: &[(f64, f64)]) -> bool {
+            let points = graphic(s, id);
+            points.len() == expected.len()
+                && points
+                    .iter()
+                    .zip(expected)
+                    .all(|(p, (x, y))| (p.x - x).abs() < 1e-9 && (p.y - y).abs() < 1e-9)
+        }
+        s.execute("graphic.rotate", json!({"id":line,"degrees":90.0}), None)?;
+        assert!(same(&s, line, &[(5.0, -5.0), (5.0, 5.0)]));
+        s.execute("graphic.rotate", json!({"id":line,"degrees":-90.0}), None)?;
+        assert!(same(&s, line, &[(0.0, 0.0), (10.0, 0.0)]));
+        s.execute(
+            "graphic.rotate",
+            json!({"id":line,"degrees":180.0,"around":{"x":0.0,"y":0.0}}),
+            None,
+        )?;
+        assert!(same(&s, line, &[(0.0, 0.0), (-10.0, 0.0)]));
+        let rect = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"rect","points":[{"x":0.0,"y":0.0},{"x":10.0,"y":2.0}],"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("graphic.rotate", json!({"id":rect,"degrees":90.0}), None)?;
+        assert!(same(&s, rect, &[(6.0, -4.0), (4.0, 6.0)]));
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"id":line,"degrees":45.0}),
+            json!({"id":line,"degrees":0.0}),
+            json!({"id":line,"degrees":90.0,"around":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"degrees":90.0}),
+            json!({"id":line,"degrees":90.0,"extra":1}),
+        ] {
+            assert!(s.execute("graphic.rotate", params, None).is_err());
+        }
+        assert!(same(&s, line, &[(0.0, 0.0), (-10.0, 0.0)]));
+        let net = s.execute("net.create", json!({"name":"N2"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let label = s.execute(
+            "label.place",
+            json!({"kind":"label","net":net,"position":{"x":30.0,"y":30.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("label.rotate", json!({"id":label,"degrees":45.0}), None)?;
+        assert_eq!(s.project.labels[0].rotation, 45.0);
+        s.execute("label.rotate", json!({"id":label,"degrees":-90.0}), None)?;
+        assert_eq!(s.project.labels[0].rotation, 315.0);
+        for params in [
+            json!({"id":9999,"degrees":90.0}),
+            json!({"id":label,"degrees":1.0,"extra":2}),
+        ] {
+            assert!(s.execute("label.rotate", params, None).is_err());
+        }
+        s.undo()?;
+        assert_eq!(s.project.labels[0].rotation, 45.0);
         Ok(())
     }
     #[test]
