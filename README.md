@@ -137,8 +137,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   layers, a board outline layer with circular cutouts, and an Excellon drill
   map into any directory. Poured zones, tracks, vias and pads flash with their
   real shapes and drills, and the export never edits the project. Oval holes
-  are written as spanned slot hits that follow pad and footprint rotation.
-  A plain-text netlist, one line per net with its component pins, and a
+  are written as spanned slot hits that follow pad and footprint rotation,
+  measured from a drill origin that can be recorded and reset. A plain-text
+  netlist, one line per net with its component pins, and a
   bill-of-materials CSV with identical parts collapsed into one row export
   the same way, alongside an ASCII DXF drawing of copper, pads, zones,
   graphics and labels on named layers. Solder mask, silkscreen and paste
@@ -157,9 +158,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 109 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 111 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 133 MCP tools: every engine command plus library discovery/search/inspection,
+- 135 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

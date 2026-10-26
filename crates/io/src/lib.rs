@@ -605,18 +605,20 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         drill.push_str(&format!("T{}C{:.3}\n", n + 1, *d as f64 / 1000.0));
     }
     drill.push_str("%\nG90\nG05\n");
+    let origin = p.board.drill_origin;
     for (n, holes) in drills.values().enumerate() {
         drill.push_str(&format!("T{}\n", n + 1));
         for (x, y, ux, uy) in holes {
+            let (x, y) = (x - origin.x, y - origin.y);
             if *ux == 0.0 && *uy == 0.0 {
-                drill.push_str(&format!("X{:.3}Y{:.3}\n", x, y));
+                drill.push_str(&format!("X{x:.3}Y{y:.3}\n"));
             } else {
                 drill.push_str(&format!(
-                    "X{:.3}Y{:.3}G85X{:.3}Y{:.3}\n",
-                    x - ux,
-                    y - uy,
-                    x + ux,
-                    y + uy
+                    "X{a:.3}Y{b:.3}G85X{c:.3}Y{d:.3}\n",
+                    a = x - ux,
+                    b = y - uy,
+                    c = x + ux,
+                    d = y + uy
                 ));
             }
         }
@@ -2274,6 +2276,46 @@ mod tests {
             "a rotated footprint rotates its slot"
         );
         assert!(drill.ends_with("M30\n"));
+        Ok(())
+    }
+    #[test]
+    fn drill_origin_shifts_drill_coordinates_but_not_copper() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 7,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 9,
+            net: 7,
+            position: Point::new(30.0, 20.0),
+            diameter: 0.7,
+            drill: 0.3,
+        });
+        project.board.drill_origin = Point::new(20.0, 10.0);
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        let drill = &files["pcb-Drill.drl"];
+        assert!(
+            drill.contains("X10.000Y10.000\n"),
+            "drill coordinates are measured from the recorded origin"
+        );
+        assert!(
+            !drill.contains("X30.000Y20.000"),
+            "absolute coordinates are gone once an origin is recorded"
+        );
+        let copper = &files["pcb-F.Cu.gbr"];
+        assert!(
+            copper.contains("X30.000000Y20.000000") || copper.contains("X30.000Y20.000"),
+            "copper layers keep absolute coordinates"
+        );
+        project.board.drill_origin = Point::new(-5.0, 0.0);
+        let files = gerber_files(&project)?;
+        assert!(
+            files["pcb-Drill.drl"].contains("X35.000Y20.000\n"),
+            "a negative origin shifts the other way"
+        );
         Ok(())
     }
     #[test]

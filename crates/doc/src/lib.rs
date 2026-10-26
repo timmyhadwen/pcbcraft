@@ -613,6 +613,9 @@ fn board_finish() -> String {
 fn board_er() -> f64 {
     4.4
 }
+fn board_origin() -> Point {
+    Point::default()
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Board {
     pub width: f64,
@@ -625,6 +628,9 @@ pub struct Board {
     /// Relative permittivity of the substrate, used by impedance estimates.
     #[serde(default = "board_er")]
     pub er: f64,
+    /// Origin that drill file coordinates are measured from, in millimetres.
+    #[serde(default = "board_origin")]
+    pub drill_origin: Point,
     pub footprints: Vec<Footprint>,
     pub tracks: Vec<Track>,
     /// Plated through-hole vias joining front and back copper.
@@ -755,6 +761,7 @@ impl Default for Project {
                 clearance: 0.2,
                 finish: board_finish(),
                 er: board_er(),
+                drill_origin: board_origin(),
                 footprints: vec![],
                 tracks: vec![],
                 vias: vec![],
@@ -1341,6 +1348,9 @@ impl Project {
             || b.finish.is_empty()
             || b.finish.len() > 64
             || !(1.0..=20.0).contains(&b.er)
+            || !b.drill_origin.valid()
+            || b.drill_origin.x.abs() > 1000.0
+            || b.drill_origin.y.abs() > 1000.0
         {
             return Err("invalid board dimensions/rules".into());
         }
