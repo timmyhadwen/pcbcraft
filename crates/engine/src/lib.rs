@@ -608,6 +608,11 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"component":id_schema()}), &[]),
         ),
         (
+            "drill.chart",
+            "Report the board's drilled holes grouped by size: every drilled via and through-hole pad counted per round diameter or oval width and height, with the board thickness",
+            schema(json!({}), &[]),
+        ),
+        (
             "net.lengths",
             "Report routed copper length per net: track segments summed in millimetres, with via counts and unrouted nets listed",
             schema(json!({"net":id_schema()}), &[]),
@@ -3572,6 +3577,45 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let count = pads.len();
             Ok(json!({"pads": pads, "count": count, "unassigned": unassigned}))
         }
+        "drill.chart" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid("drill.chart takes an empty object".into()));
+            }
+            let mut groups: std::collections::BTreeMap<(i64, i64, i64), usize> =
+                std::collections::BTreeMap::new();
+            for v in &p.board.vias {
+                if v.drill > 0.0 {
+                    let d = (v.drill * 1000.0).round() as i64;
+                    *groups.entry((0, d, d)).or_default() += 1;
+                }
+            }
+            for f in &p.board.footprints {
+                for pad in &f.pads {
+                    let Some(size) = pad.geometry.as_ref().and_then(|g| g.drill.as_ref()) else {
+                        continue;
+                    };
+                    let w = (size.size.x * 1000.0).round() as i64;
+                    let h = (size.size.y * 1000.0).round() as i64;
+                    if w > 0 && h > 0 {
+                        let kind = if w == h { 0 } else { 1 };
+                        *groups.entry((kind, w, h)).or_default() += 1;
+                    }
+                }
+            }
+            let mut holes: Vec<Value> = Vec::new();
+            let mut total = 0usize;
+            for ((kind, w, h), count) in groups {
+                total += count;
+                let w = w as f64 / 1000.0;
+                let h = h as f64 / 1000.0;
+                holes.push(if kind == 0 {
+                    json!({"shape":"round","diameter":w,"count":count})
+                } else {
+                    json!({"shape":"oval","width":w,"height":h,"count":count})
+                });
+            }
+            Ok(json!({"holes": holes, "total": total, "board_thickness": p.board.thickness}))
+        }
         "net.lengths" => {
             let a: NetLengthsParams = parse(params)?;
             if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
@@ -6465,6 +6509,54 @@ mod tests {
         assert_eq!(pads[0]["size"]["x"], 1.6);
         assert_eq!(pads[0]["drill"]["x"], 0.8);
         assert_eq!(pads[7]["pad"], "8");
+        Ok(())
+    }
+    #[test]
+    fn drill_chart_groups_every_drilled_hole_by_size() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"N"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (x, d) in [(10.0, 0.3), (12.0, 0.3), (14.0, 0.35), (16.0, 0.0)] {
+            s.execute(
+                "via.place",
+                json!({"net":net,"position":{"x":x,"y":10.0},"diameter":0.6,"drill":d}),
+                None,
+            )?;
+        }
+        let chip = s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","position":{"x":20.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign",
+            json!({"id":chip,"path":library_fixture("DIP-8_W7.62mm.kicad_mod")}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let chart = s.execute("drill.chart", json!({}), None)?["result"].clone();
+        assert_eq!(chart["total"], 11, "three drilled vias and eight pads");
+        assert_eq!(chart["board_thickness"], 1.6);
+        let holes = chart["holes"].as_array().ok_or_else(missing)?;
+        assert_eq!(holes.len(), 3, "the unplated via has no hole to count");
+        assert_eq!(holes[0]["shape"], "round");
+        assert_eq!(holes[0]["diameter"], 0.3);
+        assert_eq!(holes[0]["count"], 2);
+        assert_eq!(holes[1]["diameter"], 0.35);
+        assert_eq!(holes[1]["count"], 1);
+        assert_eq!(holes[2]["diameter"], 0.8);
+        assert_eq!(holes[2]["count"], 8);
+        let before = s.inspect()["project"].clone();
+        assert!(s.execute("drill.chart", json!({"extra": 1}), None).is_err());
+        assert!(s.execute("drill.chart", json!([]), None).is_err());
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "the report changes no project data"
+        );
         Ok(())
     }
     #[test]

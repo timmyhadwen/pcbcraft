@@ -89,7 +89,10 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   undoable project-library definitions and reusable `.pcbcraft-lib` collections.
 - Schematic-to-PCB sync retains existing placements and reconciles pad nets.
   A pad table report lists every board pad by component reference with its net,
-  position, shape, size and drill, for the whole board or one component.
+  position, shape, size and drill, for the whole board or one component. A
+  drill chart report groups every drilled via and through-hole pad by size,
+  round diameters and oval width/height counted separately, with the board
+  thickness, for checking a fab's minimum-drill limits before ordering.
 - Real circle/rectangle/roundrect/oval front SMD and plated through-hole pads,
   circular/oval offset drills, plus generic starter pads;
   straight or two-segment orthogonal tracks;
@@ -118,9 +121,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 96 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 97 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 115 MCP tools: every engine command plus library discovery/search/inspection,
+- 116 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
