@@ -144,6 +144,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netlist.import",
+            "Import a netlist table: assign listed pins to named nets by reference, creating missing nets",
+            schema(
+                json!({"nets":{"type":"array","minItems":1,"maxItems":256,"items":{"type":"object","properties":{"name":{"type":"string"},"pins":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"reference":{"type":"string"},"pin":{"type":"string"}},"required":["reference","pin"],"additionalProperties":false}}},"required":["name","pins"],"additionalProperties":false}}}),
+                &["nets"],
+            ),
+        ),
+        (
             "wire.connect",
             "Connect two pins; infer their existing net or atomically create a net if neither is assigned",
             schema(
@@ -813,6 +821,23 @@ struct StitchParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct NetlistImportParams {
+    nets: Vec<NetlistNet>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetlistNet {
+    name: String,
+    pins: Vec<NetlistPin>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetlistPin {
+    reference: String,
+    pin: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ReferenceParams {
     id: Id,
     reference: String,
@@ -1376,6 +1401,101 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let a: Connect = parse(params)?;
             assign(p, a.net, &a.pins)?;
             Ok(json!({"net":a.net,"pins":a.pins.len()}))
+        }
+        "netlist.import" => {
+            let a: NetlistImportParams = parse(params)?;
+            if a.nets.is_empty() || a.nets.len() > 256 {
+                return Err(Error::Invalid("netlist must hold 1 to 256 nets".into()));
+            }
+            let total: usize = a.nets.iter().map(|n| n.pins.len()).sum();
+            if total > 4096 {
+                return Err(Error::Invalid("netlist has too many pins".into()));
+            }
+            let mut planned: std::collections::BTreeMap<(Id, String), String> =
+                std::collections::BTreeMap::new();
+            let mut plan: Vec<(&str, Vec<PinRef>)> = Vec::new();
+            for entry in &a.nets {
+                if entry.name.is_empty() || entry.name.len() > 128 {
+                    return Err(Error::Invalid("net name must be 1 to 128 bytes".into()));
+                }
+                if entry.pins.is_empty() || entry.pins.len() > 128 {
+                    return Err(Error::Invalid(
+                        "each netlist net must list 1 to 128 pins".into(),
+                    ));
+                }
+                let mut pins = Vec::with_capacity(entry.pins.len());
+                for listed in &entry.pins {
+                    if listed.reference.is_empty()
+                        || listed.reference.len() > 64
+                        || listed.pin.is_empty()
+                        || listed.pin.len() > 64
+                    {
+                        return Err(Error::Invalid(
+                            "netlist references must be 1 to 64 bytes".into(),
+                        ));
+                    }
+                    let component = p
+                        .components
+                        .iter()
+                        .find(|c| c.reference == listed.reference)
+                        .ok_or_else(|| {
+                            Error::Invalid(format!(
+                                "netlist names unknown reference {}",
+                                listed.reference
+                            ))
+                        })?;
+                    let pin = component
+                        .pins
+                        .iter()
+                        .find(|pin| pin.number == listed.pin)
+                        .ok_or_else(|| {
+                            Error::Invalid(format!(
+                                "{} has no pin {}",
+                                listed.reference, listed.pin
+                            ))
+                        })?;
+                    if pin.net.is_some_and(|other| {
+                        !p.nets.iter().any(|n| n.id == other && n.name == entry.name)
+                    }) {
+                        return Err(Error::Invalid(format!(
+                            "{} pin {} already belongs to another net",
+                            listed.reference, listed.pin
+                        )));
+                    }
+                    let previous =
+                        planned.insert((component.id, listed.pin.clone()), entry.name.clone());
+                    if previous.is_some_and(|previous| previous != entry.name) {
+                        return Err(Error::Invalid(format!(
+                            "{} pin {} is listed under two nets",
+                            listed.reference, listed.pin
+                        )));
+                    }
+                    pins.push(PinRef {
+                        component: component.id,
+                        pin: listed.pin.clone(),
+                    });
+                }
+                plan.push((&entry.name, pins));
+            }
+            let mut created = 0usize;
+            let mut assigned = 0usize;
+            for (name, pins) in &plan {
+                let id = match p.nets.iter().find(|n| &n.name == name).map(|n| n.id) {
+                    Some(id) => id,
+                    None => {
+                        let id = allocate(next)?;
+                        p.nets.push(Net {
+                            id,
+                            name: (*name).to_string(),
+                        });
+                        created += 1;
+                        id
+                    }
+                };
+                assign(p, id, pins)?;
+                assigned += pins.len();
+            }
+            Ok(json!({"nets": a.nets.len(), "created": created, "pins": assigned}))
         }
         "wire.connect" => {
             let a: WireParams = parse(params)?;
@@ -3674,6 +3794,73 @@ mod tests {
         assert_eq!(b, a + 1);
         s.undo()?;
         assert_eq!(s.project.nets[0].name, "A");
+        Ok(())
+    }
+    #[test]
+    fn importing_a_netlist_assigns_pins_by_reference() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?;
+        let result = s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"PWR","pins":[{"reference":"R1","pin":"1"},{"reference":"R2","pin":"1"}]},{"name":"GND","pins":[{"reference":"R1","pin":"2"},{"reference":"R2","pin":"2"}]}]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(result["created"], 2);
+        assert_eq!(result["pins"], 4);
+        assert_eq!(s.project.nets.len(), 2);
+        fn net_id(s: &Session, name: &str) -> Option<u64> {
+            s.project.nets.iter().find(|n| n.name == name).map(|n| n.id)
+        }
+        fn pin_net(s: &Session, component: u64, pin: &str) -> Option<u64> {
+            s.project
+                .component(component)?
+                .pins
+                .iter()
+                .find(|p| p.number == pin)?
+                .net
+        }
+        assert_eq!(pin_net(&s, r1, "1"), net_id(&s, "PWR"));
+        assert_eq!(pin_net(&s, r1, "2"), net_id(&s, "GND"));
+        assert!(s.project.validate().is_ok());
+        let again = s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"PWR","pins":[{"reference":"R1","pin":"1"}]}]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(again["created"], 0);
+        assert_eq!(again["pins"], 1);
+        for params in [
+            json!({"nets":[]}),
+            json!({"nets":[{"name":"X","pins":[]}]}),
+            json!({"nets":[{"name":"","pins":[{"reference":"R1","pin":"1"}]}]}),
+            json!({"nets":[{"name":"X","pins":[{"reference":"R9","pin":"1"}]}]}),
+            json!({"nets":[{"name":"X","pins":[{"reference":"R1","pin":"9"}]}]}),
+            json!({"nets":[{"name":"A","pins":[{"reference":"R1","pin":"1"}]},{"name":"B","pins":[{"reference":"R1","pin":"1"}]}]}),
+            json!({"nets":[{"name":"OTHER","pins":[{"reference":"R1","pin":"1"}]}]}),
+            json!({"nets":[{"name":"X","pins":[{"reference":"R1","pin":"1","extra":1}]}]}),
+        ] {
+            assert!(s.execute("netlist.import", params, None).is_err());
+        }
+        assert_eq!(s.project.nets.len(), 2);
+        assert_eq!(pin_net(&s, r1, "1"), net_id(&s, "PWR"));
+        assert_eq!(pin_net(&s, r1, "2"), net_id(&s, "GND"));
+        s.undo()?;
+        s.undo()?;
+        assert!(s.project.nets.is_empty());
+        assert_eq!(pin_net(&s, r1, "1"), None);
         Ok(())
     }
     #[test]
