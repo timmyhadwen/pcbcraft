@@ -637,6 +637,19 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({}), &[]),
         ),
         (
+            "board.statistics",
+            "Report board counts and totals: footprints, tracks and routed copper length per layer, vias, zones split into poured and outline-only, cutouts, labels, drilled holes, board area and the recorded surface finish",
+            schema(json!({}), &[]),
+        ),
+        (
+            "board.set_finish",
+            "Record the board's surface finish (for example HASL, ENIG or OSP) for reports and fabrication notes",
+            schema(
+                json!({"finish":{"type":"string","minLength":1,"maxLength":64}}),
+                &["finish"],
+            ),
+        ),
+        (
             "net.lengths",
             "Report routed copper length per net: track segments summed in millimetres, with via counts and unrouted nets listed",
             schema(json!({"net":id_schema()}), &[]),
@@ -874,7 +887,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1866,6 +1879,11 @@ struct TrackParams {
     width: Option<f64>,
     #[serde(default = "front")]
     layer: Layer,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FinishParams {
+    finish: String,
 }
 #[derive(Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
@@ -3924,6 +3942,65 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 });
             }
             Ok(json!({"holes": holes, "total": total, "board_thickness": p.board.thickness}))
+        }
+        "board.statistics" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "board.statistics takes an empty object".into(),
+                ));
+            }
+            let mut front_len = 0.0;
+            let mut back_len = 0.0;
+            let mut front_tracks = 0usize;
+            let mut back_tracks = 0usize;
+            for t in &p.board.tracks {
+                let len = t.start.distance(t.end);
+                if t.layer == Layer::Front {
+                    front_len += len;
+                    front_tracks += 1;
+                } else {
+                    back_len += len;
+                    back_tracks += 1;
+                }
+            }
+            let poured = p.board.zones.iter().filter(|z| z.filled).count();
+            let mut holes = p.board.vias.iter().filter(|v| v.drill > 0.0).count();
+            for f in &p.board.footprints {
+                for pad in &f.pads {
+                    if pad
+                        .geometry
+                        .as_ref()
+                        .and_then(|g| g.drill.as_ref())
+                        .is_some_and(|d| d.size.x > 0.0 && d.size.y > 0.0)
+                    {
+                        holes += 1;
+                    }
+                }
+            }
+            Ok(json!({
+                "footprints": p.board.footprints.len(),
+                "tracks": {"front": front_tracks, "back": back_tracks},
+                "routed_length": {
+                    "front": front_len,
+                    "back": back_len,
+                    "total": front_len + back_len
+                },
+                "vias": p.board.vias.len(),
+                "zones": {"poured": poured, "outline_only": p.board.zones.len() - poured},
+                "cutouts": p.board.cutouts.len(),
+                "texts": p.board.texts.len(),
+                "drilled_holes": holes,
+                "board_area": p.board.width * p.board.height,
+                "finish": p.board.finish
+            }))
+        }
+        "board.set_finish" => {
+            let a: FinishParams = parse(params)?;
+            if a.finish.is_empty() || a.finish.len() > 64 {
+                return Err(Error::Invalid("finish must be 1-64 bytes of text".into()));
+            }
+            p.board.finish = a.finish.clone();
+            Ok(json!({"finish": p.board.finish}))
         }
         "net.lengths" => {
             let a: NetLengthsParams = parse(params)?;
@@ -7085,6 +7162,87 @@ mod tests {
             before,
             "the report changes no project data"
         );
+        Ok(())
+    }
+    #[test]
+    fn board_statistics_count_objects_and_the_finish_is_recorded() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"N"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":0.3}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":0.0,"y":4.0},"width":0.3,"layer":"B.Cu"}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":5.0,"y":5.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":6.0,"y":5.0},"diameter":0.6,"drill":0.0}),
+            None,
+        )?;
+        s.execute(
+            "board.cutout.add",
+            json!({"center":{"x":30.0,"y":20.0},"radius":2.0}),
+            None,
+        )?;
+        s.execute(
+            "text.place",
+            json!({"text":"REV A","position":{"x":10.0,"y":35.0},"size":1.5}),
+            None,
+        )?;
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        assert_eq!(stats["tracks"]["front"], 1);
+        assert_eq!(stats["tracks"]["back"], 1);
+        assert_eq!(stats["routed_length"]["total"], 14.0);
+        assert_eq!(stats["vias"], 2);
+        assert_eq!(
+            stats["drilled_holes"], 1,
+            "vias without a drill are not holes"
+        );
+        assert_eq!(stats["cutouts"], 1);
+        assert_eq!(stats["texts"], 1);
+        assert_eq!(stats["board_area"], 2400.0);
+        assert_eq!(stats["finish"], "HASL", "a fresh board records a finish");
+        s.execute("board.set_finish", json!({"finish":"ENIG"}), None)?;
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        assert_eq!(stats["finish"], "ENIG");
+        let before = s.inspect()["project"].clone();
+        assert!(
+            s.execute("board.set_finish", json!({"finish":""}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("board.set_finish", json!({"finish":"x".repeat(65)}), None)
+                .is_err(),
+            "the finish stays bounded"
+        );
+        assert!(
+            s.execute("board.set_finish", json!({"finish":"ENIG","extra":1}), None)
+                .is_err(),
+            "unknown parameters are refused"
+        );
+        assert!(
+            s.execute("board.statistics", json!({"extra":1}), None)
+                .is_err()
+        );
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "refusals and reports change no project data"
+        );
+        s.undo()?; // steps back over the no-op statistics report
+        s.undo()?; // steps back over the finish change itself
+        assert_eq!(s.inspect()["project"]["board"]["finish"], "HASL");
         Ok(())
     }
     #[test]

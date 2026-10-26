@@ -607,12 +607,18 @@ pub struct BoardText {
     #[serde(default)]
     pub rotation: f64,
 }
+fn board_finish() -> String {
+    "HASL".into()
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Board {
     pub width: f64,
     pub height: f64,
     pub thickness: f64,
     pub clearance: f64,
+    /// Surface finish applied to exposed copper, for example HASL or ENIG.
+    #[serde(default = "board_finish")]
+    pub finish: String,
     pub footprints: Vec<Footprint>,
     pub tracks: Vec<Track>,
     /// Plated through-hole vias joining front and back copper.
@@ -741,6 +747,7 @@ impl Default for Project {
                 height: 40.0,
                 thickness: 1.6,
                 clearance: 0.2,
+                finish: board_finish(),
                 footprints: vec![],
                 tracks: vec![],
                 vias: vec![],
@@ -1324,6 +1331,8 @@ impl Project {
             || !positive(b.height)
             || !positive(b.thickness)
             || !positive(b.clearance)
+            || b.finish.is_empty()
+            || b.finish.len() > 64
         {
             return Err("invalid board dimensions/rules".into());
         }
