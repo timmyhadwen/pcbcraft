@@ -670,6 +670,21 @@ pub struct Board {
     #[serde(default)]
     pub texts: Vec<BoardText>,
 }
+/// One extra bill-of-materials column defined by the project: which
+/// component property to read and the header to print for it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct BomField {
+    /// Component property key to read, for example "MPN".
+    pub key: String,
+    /// Column header to print; falls back to the key when empty.
+    #[serde(default)]
+    pub label: String,
+}
+impl BomField {
+    fn valid(&self) -> bool {
+        !self.key.trim().is_empty() && self.key.len() <= 64 && self.label.len() <= 64
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -680,6 +695,9 @@ pub struct Project {
     /// Named net classes carrying clearance and default width rules.
     #[serde(default)]
     pub net_classes: Vec<NetClass>,
+    /// Extra bill-of-materials columns, in print order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bom_fields: Vec<BomField>,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -772,6 +790,7 @@ impl Default for Project {
             components: vec![],
             nets: vec![],
             net_classes: vec![],
+            bom_fields: vec![],
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
@@ -1108,6 +1127,15 @@ impl Project {
                 if !nets.contains(net) || !classified.insert(*net) {
                     return Err("net class membership is invalid".into());
                 }
+            }
+        }
+        if self.bom_fields.len() > 16 {
+            return Err("a bill of materials lists at most 16 properties".into());
+        }
+        let mut bom_keys = BTreeSet::new();
+        for f in &self.bom_fields {
+            if !f.valid() || !bom_keys.insert(&f.key) {
+                return Err("bill-of-materials fields need unique short keys".into());
             }
         }
         if self.rule_severity.len() > 64 {

@@ -641,7 +641,9 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     Ok(files)
 }
 /// Bill of materials as CSV: identical parts collapsed into one row with a
-/// sorted, quoted reference list. Requested property keys become extra columns.
+/// sorted, quoted reference list. Requested property keys become extra
+/// columns; with no request, the columns the project itself defines are
+/// printed under their labels.
 pub fn bom_csv(p: &Project, fields: &[String]) -> Result<String, String> {
     p.validate()?;
     if fields.len() > 16 {
@@ -652,15 +654,37 @@ pub fn bom_csv(p: &Project, fields: &[String]) -> Result<String, String> {
             return Err("property names must be 1 to 64 bytes".into());
         }
     }
+    // Columns come from the caller's list, or from the columns the project
+    // itself defines when the caller asks for none.
+    let columns: Vec<(String, String)> = if fields.is_empty() {
+        p.bom_fields
+            .iter()
+            .map(|f| {
+                (
+                    f.key.clone(),
+                    if f.label.is_empty() {
+                        f.key.clone()
+                    } else {
+                        f.label.clone()
+                    },
+                )
+            })
+            .collect()
+    } else {
+        fields
+            .iter()
+            .map(|key| (key.clone(), key.clone()))
+            .collect()
+    };
     let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
     for c in &p.components {
         let footprint = match &c.library_footprint {
             Some(footprint) => format!("{}:{}", footprint.library, footprint.definition.name),
             None => "starter pads".into(),
         };
-        let values: Vec<String> = fields
+        let values: Vec<String> = columns
             .iter()
-            .map(|key| c.field(key).unwrap_or("").to_string())
+            .map(|(key, _)| c.field(key).unwrap_or("").to_string())
             .collect();
         groups
             .entry((c.value.clone(), c.kind.clone(), footprint, values))
@@ -668,9 +692,9 @@ pub fn bom_csv(p: &Project, fields: &[String]) -> Result<String, String> {
             .push(c.reference.clone());
     }
     let mut out = String::from("quantity,references,value,kind,footprint");
-    for key in fields {
+    for (_, header) in &columns {
         out.push(',');
-        out.push_str(&csv_cell(key));
+        out.push_str(&csv_cell(header));
     }
     out.push('\n');
     for ((value, kind, footprint, values), mut references) in groups {
@@ -2697,6 +2721,85 @@ mod tests {
             )
             .is_err(),
             "too many properties"
+        );
+        Ok(())
+    }
+    #[test]
+    fn bom_csv_prints_project_defined_columns_under_their_labels() -> Result<(), String> {
+        let mut project = Project::default();
+        project.components.push(pcbcraft_doc::Component {
+            id: 1,
+            reference: "R1".into(),
+            value: "10k".into(),
+            kind: "resistor".into(),
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            pins: vec![
+                pcbcraft_doc::Pin {
+                    number: "1".into(),
+                    name: String::new(),
+                    offset: Point::new(-1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+                pcbcraft_doc::Pin {
+                    number: "2".into(),
+                    name: String::new(),
+                    offset: Point::new(1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+            ],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![
+                pcbcraft_doc::ComponentField {
+                    key: "MPN".into(),
+                    value: "RC0603-10K".into(),
+                },
+                pcbcraft_doc::ComponentField {
+                    key: "Rating".into(),
+                    value: "0.1W".into(),
+                },
+            ],
+        });
+        project.bom_fields = vec![
+            pcbcraft_doc::BomField {
+                key: "MPN".into(),
+                label: "Manufacturer part".into(),
+            },
+            pcbcraft_doc::BomField {
+                key: "Rating".into(),
+                label: String::new(),
+            },
+        ];
+        project.validate()?;
+        let text = bom_csv(&project, &[])?;
+        assert!(
+            text.starts_with("quantity,references,value,kind,footprint,Manufacturer part,Rating\n"),
+            "recorded columns print under their labels, falling back to the key"
+        );
+        assert!(
+            text.contains("RC0603-10K,0.1W"),
+            "recorded columns read the matching component properties"
+        );
+        let explicit = bom_csv(&project, &["MPN".to_string()])?;
+        assert!(
+            explicit.lines().next().is_some_and(|l| l.ends_with(",MPN")),
+            "an explicit request overrides the recorded columns"
+        );
+        project.bom_fields.push(pcbcraft_doc::BomField {
+            key: "MPN".into(),
+            label: String::new(),
+        });
+        assert!(
+            bom_csv(&project, &[]).is_err(),
+            "duplicate recorded keys are refused"
         );
         Ok(())
     }

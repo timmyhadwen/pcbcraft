@@ -768,6 +768,19 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "bom.set_fields",
+            "Define the extra bill-of-materials columns this project prints: each column names a component property and the header to show, falling back to the property key; at most 16 columns",
+            schema(
+                json!({"fields":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string","minLength":1,"maxLength":64},"label":{"type":"string","maxLength":64}},"required":["key"],"additionalProperties":false},"minItems":1,"maxItems":16}}),
+                &["fields"],
+            ),
+        ),
+        (
+            "bom.clear_fields",
+            "Remove the project-defined bill-of-materials columns",
+            schema(json!({}), &[]),
+        ),
+        (
             "bom.export",
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties",
             schema(
@@ -960,7 +973,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1503,6 +1516,11 @@ struct LayerRecordParams {
     name: String,
     kind: String,
     thickness: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BomFieldsParams {
+    fields: Vec<pcbcraft_doc::BomField>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4948,6 +4966,38 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
             }
         }
+        "bom.set_fields" => {
+            let a: BomFieldsParams = parse(params)?;
+            if a.fields.is_empty() || a.fields.len() > 16 {
+                return Err(Error::Invalid(
+                    "a bill of materials lists 1 to 16 properties".into(),
+                ));
+            }
+            let mut keys = std::collections::BTreeSet::new();
+            for f in &a.fields {
+                if f.key.trim().is_empty()
+                    || f.key.len() > 64
+                    || f.label.len() > 64
+                    || !keys.insert(f.key.clone())
+                {
+                    return Err(Error::Invalid(
+                        "bill-of-materials columns need unique short property keys".into(),
+                    ));
+                }
+            }
+            p.bom_fields = a.fields;
+            Ok(json!({"count": p.bom_fields.len()}))
+        }
+        "bom.clear_fields" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "bom.clear_fields takes an empty object".into(),
+                ));
+            }
+            let removed = p.bom_fields.len();
+            p.bom_fields.clear();
+            Ok(json!({"removed": removed}))
+        }
         "bom.export" => {
             let a: BomParams = parse(params)?;
             if a.fields.len() > 16 {
@@ -4962,6 +5012,12 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     ));
                 }
             }
+            // With no explicit request, the columns the project defines are used.
+            let keys: Vec<String> = if a.fields.is_empty() {
+                p.bom_fields.iter().map(|f| f.key.clone()).collect()
+            } else {
+                a.fields.clone()
+            };
             let mut groups: std::collections::BTreeMap<
                 (String, String, String, Vec<String>),
                 Vec<String>,
@@ -4973,8 +5029,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     }
                     None => "starter pads".into(),
                 };
-                let values: Vec<String> = a
-                    .fields
+                let values: Vec<String> = keys
                     .iter()
                     .map(|key| c.field(key).unwrap_or("").to_string())
                     .collect();
@@ -4987,7 +5042,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .into_iter()
                 .map(|((value, kind, footprint, values), mut references)| {
                     references.sort();
-                    let columns = a.fields.clone();
+                    let columns = keys.clone();
                     let mut fields = serde_json::Map::new();
                     for (key, value) in columns.into_iter().zip(values) {
                         fields.insert(key, json!(value));
@@ -8455,6 +8510,78 @@ mod tests {
             s.inspect()["project"]["board"]["layer_records"]
                 .as_array()
                 .map_or(0, |a| a.len()),
+            2,
+            "the clear undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn bom_fields_are_defined_used_by_exports_cleared_and_undone() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?;
+        let set = s.execute(
+            "bom.set_fields",
+            json!({"fields":[{"key":"MPN","label":"Manufacturer part"},{"key":"Rating"}]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(set["count"], 2, "columns are recorded in order");
+        let fields = s.inspect()["project"]["bom_fields"].clone();
+        assert_eq!(fields[0]["key"], "MPN");
+        assert_eq!(fields[0]["label"], "Manufacturer part");
+        assert_eq!(fields[1]["label"], "", "an omitted label defaults to empty");
+        s.execute(
+            "component.field",
+            json!({"id":1,"key":"MPN","value":"RC0603"}),
+            None,
+        )?;
+        let bom = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(
+            bom["items"][0]["fields"]["MPN"], "RC0603",
+            "the recorded columns feed the export"
+        );
+        let explicit =
+            s.execute("bom.export", json!({"fields":["Rating"]}), None)?["result"].clone();
+        assert_eq!(
+            explicit["items"][0]["fields"]["MPN"],
+            Value::Null,
+            "an explicit request overrides the recorded columns"
+        );
+        assert_eq!(explicit["items"][0]["fields"]["Rating"], "");
+        for bad in [
+            json!({"fields":[]}),
+            json!({"fields":[{"key":"","label":"x"}]}),
+            json!({"fields":[{"key":"A"},{"key":"A"}]}),
+            json!({"fields":[{"key":"A","label":"x".repeat(65)}]}),
+            json!({"fields":(1..=17).map(|i| json!({"key":format!("f{i}")})).collect::<Vec<Value>>()}),
+        ] {
+            assert!(
+                s.execute("bom.set_fields", bad, None).is_err(),
+                "bad column definitions are refused"
+            );
+        }
+        assert!(
+            s.execute("bom.clear_fields", json!({"fields":[]}), None)
+                .is_err(),
+            "bom.clear_fields takes an empty object"
+        );
+        let cleared = s.execute("bom.clear_fields", json!({}), None)?["result"].clone();
+        assert_eq!(cleared["removed"], 2, "clearing reports what it dropped");
+        assert!(
+            s.inspect()["project"]
+                .get("bom_fields")
+                .is_none_or(|f| f.as_array().is_some_and(|f| f.is_empty())),
+            "the project is left with no columns"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["bom_fields"]
+                .as_array()
+                .map_or(0, |f| f.len()),
             2,
             "the clear undoes"
         );
