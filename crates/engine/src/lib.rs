@@ -186,6 +186,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "via.move",
+            "Move a placed via to a new position; geometry and net are kept",
+            schema(
+                json!({"id":id_schema(),"position":point_schema()}),
+                &["id", "position"],
+            ),
+        ),
+        (
             "via.stitch",
             "Fill a rectangular area with a grid of stitched vias on an existing net",
             schema(
@@ -266,6 +274,14 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.split",
             "Split one copper segment into two at a point on the track",
             schema(json!({"id":id_schema(),"at":point_schema()}), &["id", "at"]),
+        ),
+        (
+            "track.move",
+            "Translate an existing copper segment by a delta; both ends move together",
+            schema(
+                json!({"id":id_schema(),"delta":point_schema()}),
+                &["id", "delta"],
+            ),
         ),
         (
             "track.route",
@@ -714,6 +730,18 @@ struct StitchParams {
     drill: f64,
     #[serde(default = "default_stitch_spacing")]
     spacing: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PositionParams {
+    id: Id,
+    position: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeltaParams {
+    id: Id,
+    delta: Point,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1290,6 +1318,20 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             });
             Ok(json!({"id":id}))
         }
+        "via.move" => {
+            let a: PositionParams = parse(params)?;
+            if !a.position.valid() {
+                return Err(Error::Invalid("via position is out of range".into()));
+            }
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
+            via.position = a.position;
+            Ok(json!({"id": a.id}))
+        }
         "via.stitch" => {
             let a: StitchParams = parse(params)?;
             if !p.nets.iter().any(|n| n.id == a.net) {
@@ -1511,6 +1553,23 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 layer,
             });
             Ok(json!({"id":id,"kept":a.id}))
+        }
+        "track.move" => {
+            let a: DeltaParams = parse(params)?;
+            let track = p
+                .board
+                .tracks
+                .iter_mut()
+                .find(|t| t.id == a.id)
+                .ok_or_else(missing)?;
+            let start = Point::new(track.start.x + a.delta.x, track.start.y + a.delta.y);
+            let end = Point::new(track.end.x + a.delta.x, track.end.y + a.delta.y);
+            if !start.valid() || !end.valid() {
+                return Err(Error::Invalid("track endpoint is out of range".into()));
+            }
+            track.start = start;
+            track.end = end;
+            Ok(json!({"id": a.id}))
         }
         "track.route" => {
             let a: Route = parse(params)?;
@@ -2442,6 +2501,82 @@ mod tests {
         assert!(s.project.drawn_wires.is_empty());
         s.undo()?;
         assert_eq!(s.project.labels[0].position, Point::new(30.0, 20.0));
+        Ok(())
+    }
+    #[test]
+    fn moving_tracks_and_vias_updates_clearance_checks() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let t1 = s.execute(
+            "track.add",
+            json!({"net":a,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let t2 = s.execute(
+            "track.add",
+            json!({"net":b,"start":{"x":10.0,"y":10.3},"end":{"x":30.0,"y":10.3},"width":0.2,"layer":"F.Cu"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            !s.checks()["drc"].as_array().ok_or_else(missing)?.is_empty(),
+            "parallel tracks closer than the clearance must be reported"
+        );
+        s.execute(
+            "track.move",
+            json!({"id":t2,"delta":{"x":0.0,"y":0.5}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.tracks[1].start, Point::new(10.0, 10.8));
+        assert_eq!(s.project.board.tracks[1].end, Point::new(30.0, 10.8));
+        assert!(
+            s.checks()["drc"].as_array().ok_or_else(missing)?.is_empty(),
+            "moving apart must clear the finding"
+        );
+        let via = s.execute(
+            "via.place",
+            json!({"net":a,"position":{"x":20.0,"y":20.0},"diameter":1.4,"drill":0.4}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "via.move",
+            json!({"id":via,"position":{"x":25.0,"y":30.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias[0].position, Point::new(25.0, 30.0));
+        assert_eq!(s.project.board.vias[0].diameter, 1.4);
+        for params in [
+            json!({"id":t1,"delta":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"delta":{"x":1.0,"y":1.0}}),
+            json!({"id":via,"position":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":t1,"delta":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("track.move", params.clone(), None).is_err());
+            assert!(s.execute("via.move", params, None).is_err());
+        }
+        assert_eq!(s.project.board.tracks[1].start, Point::new(10.0, 10.8));
+        assert_eq!(s.project.board.vias[0].position, Point::new(25.0, 30.0));
+        s.undo()?;
+        assert_eq!(s.project.board.vias[0].position, Point::new(20.0, 20.0));
+        s.undo()?;
+        assert!(s.project.board.vias.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.tracks[1].start, Point::new(10.0, 10.3));
+        assert!(
+            !s.checks()["drc"].as_array().ok_or_else(missing)?.is_empty(),
+            "undo restores the finding"
+        );
         Ok(())
     }
     #[test]
