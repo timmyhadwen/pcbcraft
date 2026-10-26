@@ -723,6 +723,27 @@ impl EmbeddedFile {
         !self.name.trim().is_empty() && self.name.len() <= 128 && self.data.len() <= 262_144
     }
 }
+/// An assembly variant of the design: a named alternate build in which a
+/// chosen set of components is marked do not populate.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Variant {
+    /// Variant name, unique within the project.
+    pub name: String,
+    /// Optional note describing what this variant changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// Ids of components this variant leaves unpopulated.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dnp: Vec<Id>,
+}
+impl Variant {
+    fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && self.note.as_ref().is_none_or(|n| n.len() <= 256)
+            && self.dnp.len() <= 2048
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -739,6 +760,9 @@ pub struct Project {
     /// Text files attached to the project, ordered by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<EmbeddedFile>,
+    /// Assembly variants, ordered by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variants: Vec<Variant>,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -833,6 +857,7 @@ impl Default for Project {
             net_classes: vec![],
             bom_fields: vec![],
             files: vec![],
+            variants: vec![],
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
@@ -1188,6 +1213,15 @@ impl Project {
         for f in &self.files {
             if !f.valid() || !file_names.insert(&f.name) {
                 return Err("attached files need unique short names and 256 KiB or less".into());
+            }
+        }
+        if self.variants.len() > 16 {
+            return Err("a project defines at most 16 variants".into());
+        }
+        let mut variant_names = BTreeSet::new();
+        for v in &self.variants {
+            if !v.valid() || !variant_names.insert(&v.name) {
+                return Err("variants need unique short names and 2048 flags or less".into());
             }
         }
         if self.rule_severity.len() > 64 {

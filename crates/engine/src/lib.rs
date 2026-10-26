@@ -818,6 +818,30 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "variant.create",
+            "Define a named assembly variant, optionally with a note and an initial set of component ids to leave unpopulated",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"note":{"type":"string","maxLength":256},"dnp":{"type":"array","items":id_schema(),"maxItems":512}}),
+                &["name"],
+            ),
+        ),
+        (
+            "variant.set_dnp",
+            "Set which components an assembly variant leaves unpopulated: with dnp true (default) the listed component ids join the set, with dnp false they leave it; an empty list with dnp true clears the set",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"ids":{"type":"array","items":id_schema(),"maxItems":512},"dnp":{"type":"boolean"}}),
+                &["name", "ids"],
+            ),
+        ),
+        (
+            "variant.remove",
+            "Delete an assembly variant by name",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name"],
+            ),
+        ),
+        (
             "bom.export",
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties",
             schema(
@@ -1010,7 +1034,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1575,6 +1599,28 @@ struct FileParams {
     name: String,
     #[serde(default)]
     data: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VariantCreateParams {
+    name: String,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    dnp: Vec<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VariantDnpParams {
+    name: String,
+    ids: Vec<Id>,
+    #[serde(default)]
+    dnp: Option<bool>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VariantNameParams {
+    name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5269,6 +5315,86 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             files.remove(index);
             Ok(json!({"name": name, "count": files.len()}))
         }
+        "variant.create" => {
+            let a: VariantCreateParams = parse(params)?;
+            let name = a.name.trim().to_string();
+            if name.is_empty() || name.len() > 64 {
+                return Err(Error::Invalid("variant names must be 1 to 64 bytes".into()));
+            }
+            if a.note.as_ref().is_some_and(|n| n.len() > 256) {
+                return Err(Error::Invalid(
+                    "a variant note holds at most 256 bytes".into(),
+                ));
+            }
+            if a.dnp.len() > 512 {
+                return Err(Error::Invalid(
+                    "a variant lists at most 512 components".into(),
+                ));
+            }
+            for id in &a.dnp {
+                if !p.components.iter().any(|c| c.id == *id) {
+                    return Err(Error::Invalid(format!("no component has id {id}")));
+                }
+            }
+            if p.variants.len() >= 16 {
+                return Err(Error::Invalid(
+                    "a project defines at most 16 variants".into(),
+                ));
+            }
+            if p.variants.iter().any(|v| v.name == name) {
+                return Err(Error::Invalid(format!("a variant named {name} exists")));
+            }
+            let mut dnp = a.dnp;
+            dnp.sort();
+            dnp.dedup();
+            p.variants.push(pcbcraft_doc::Variant {
+                name: name.clone(),
+                note: a.note,
+                dnp,
+            });
+            p.variants.sort_by(|x, y| x.name.cmp(&y.name));
+            Ok(json!({"name": name, "count": p.variants.len()}))
+        }
+        "variant.set_dnp" => {
+            let a: VariantDnpParams = parse(params)?;
+            let name = a.name.trim();
+            if a.ids.len() > 512 {
+                return Err(Error::Invalid(
+                    "a variant lists at most 512 components".into(),
+                ));
+            }
+            for id in &a.ids {
+                if !p.components.iter().any(|c| c.id == *id) {
+                    return Err(Error::Invalid(format!("no component has id {id}")));
+                }
+            }
+            let fitting = a.dnp.unwrap_or(true);
+            let Some(v) = p.variants.iter_mut().find(|v| v.name == name) else {
+                return Err(Error::Invalid(format!("no variant named {name}")));
+            };
+            if fitting && a.ids.is_empty() {
+                v.dnp.clear();
+            } else if fitting {
+                for id in a.ids {
+                    if !v.dnp.contains(&id) {
+                        v.dnp.push(id);
+                    }
+                }
+                v.dnp.sort();
+            } else {
+                v.dnp.retain(|x| !a.ids.contains(x));
+            }
+            Ok(json!({"name": name, "dnp": v.dnp.len()}))
+        }
+        "variant.remove" => {
+            let a: VariantNameParams = parse(params)?;
+            let name = a.name.trim();
+            let Some(index) = p.variants.iter().position(|v| v.name == name) else {
+                return Err(Error::Invalid(format!("no variant named {name}")));
+            };
+            p.variants.remove(index);
+            Ok(json!({"name": name, "count": p.variants.len()}))
+        }
         "bom.export" => {
             let a: BomParams = parse(params)?;
             if a.fields.len() > 16 {
@@ -8783,6 +8909,128 @@ mod tests {
                 .map_or(0, |a| a.len()),
             2,
             "the clear undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn variants_are_named_flagged_by_dnp_sets_removed_and_undone() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[0,0],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .clone();
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,0],"reference":"R2","value":"22k"}),
+            None,
+        )?["result"]["id"]
+            .clone();
+        let created = s.execute(
+            "variant.create",
+            json!({"name":"No LED build","note":"factory option","dnp":[r2]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(created["count"], 1, "the first variant is defined");
+        s.execute("variant.create", json!({"name":"Budget"}), None)?;
+        let variants = s.inspect()["project"]["variants"].clone();
+        assert_eq!(
+            variants[0]["name"], "Budget",
+            "variants stay ordered by name"
+        );
+        assert_eq!(variants[1]["dnp"][0], r2);
+        assert_eq!(variants[1]["note"], "factory option");
+        let added = s.execute(
+            "variant.set_dnp",
+            json!({"name":"No LED build","ids":[r1]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(added["dnp"], 2, "ids join the do-not-populate set");
+        let dropped = s.execute(
+            "variant.set_dnp",
+            json!({"name":"No LED build","ids":[r2],"dnp":false}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(dropped["dnp"], 1, "ids can leave the set");
+        let cleared = s.execute(
+            "variant.set_dnp",
+            json!({"name":"No LED build","ids":[]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(cleared["dnp"], 0, "an empty list clears the set");
+        for bad in [
+            json!({"name":"  "}),
+            json!({"name":"Budget"}),
+            json!({"name":"x","dnp":[999]}),
+            json!({"name":"x".repeat(65)}),
+            json!({"name":"y","note":"x".repeat(257)}),
+            json!({"name":"y","dnp": vec![1u64; 513]}),
+        ] {
+            assert!(
+                s.execute("variant.create", bad, None).is_err(),
+                "bad variant definitions are refused"
+            );
+        }
+        for bad in [
+            json!({"name":"absent","ids":[]}),
+            json!({"name":"Budget","ids":[999]}),
+            json!({"name":"Budget","ids":[1],"nope":true}),
+            json!({"name":"Budget"}),
+        ] {
+            assert!(
+                s.execute("variant.set_dnp", bad, None).is_err(),
+                "bad do-not-populate updates are refused"
+            );
+        }
+        assert!(
+            s.execute("variant.remove", json!({"name":"absent"}), None)
+                .is_err(),
+            "removing an absent variant is refused"
+        );
+        let removed =
+            s.execute("variant.remove", json!({"name":"Budget"}), None)?["result"].clone();
+        assert_eq!(removed["count"], 1, "the removal reports what remains");
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["variants"][0]["name"],
+            "Budget",
+            "the removal undoes"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["variants"][1]["dnp"]
+                .as_array()
+                .map_or(0, |d| d.len()),
+            1,
+            "the clear undoes"
+        );
+        s.undo()?;
+        s.undo()?;
+        assert_eq!(s.inspect()["project"]["variants"][1]["dnp"][0], r2);
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["variants"]
+                .as_array()
+                .map_or(0, |v| v.len()),
+            1,
+            "creating the second variant undoes too"
+        );
+        assert_eq!(
+            s.inspect()["project"]["variants"][0]["name"],
+            "No LED build"
+        );
+        for i in 0..15 {
+            s.execute("variant.create", json!({"name":format!("v{i:02}")}), None)?;
+        }
+        assert!(
+            s.execute("variant.create", json!({"name":"v15"}), None)
+                .is_err(),
+            "a seventeenth variant is refused"
         );
         Ok(())
     }
