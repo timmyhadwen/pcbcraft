@@ -21,6 +21,7 @@ pub fn tool_list() -> Value {
         json!({"name":"gerber.export","description":"Write fabrication outputs (Gerber RS-274X front and back copper, board outline, Excellon drill map) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"netlist.write","description":"Write a plain-text netlist, one line per net with its component pins, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"}}),&["path"])}),
+        json!({"name":"dxf.export","description":"Write the board drawing as an ASCII DXF file (copper tracks, vias, pads, zones, board graphics, outline and labels) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed KiCad symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a KiCad symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
@@ -155,6 +156,12 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             let text = pcbcraft_io::bom_csv(&s.project, &fields)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("bom.csv"), text.as_bytes())?;
             json!({"directory":directory,"files":["bom.csv"]})
+        }
+        "dxf.export" => {
+            let directory = string(args, "path")?;
+            let text = pcbcraft_io::dxf_board(&s.project)?;
+            pcbcraft_io::atomic_write(&Path::new(directory).join("pcb.dxf"), text.as_bytes())?;
+            json!({"directory":directory,"files":["pcb.dxf"]})
         }
         "list_commands" => {
             json!({"commands":pcbcraft_engine::commands(),"units":"millimetres and degrees"})
@@ -713,6 +720,60 @@ mod tests {
             plain.lines().next(),
             Some("quantity,references,value,kind,footprint"),
             "fields are optional"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "the export must not edit the design"
+        );
+        Ok(())
+    }
+    #[test]
+    fn dxf_export_writes_the_board_drawing_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"net.create","params":{"name":"SIG"}}),
+        );
+        let net_id = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"net.create","params":{"name":"GND"}}),
+        )
+        .pointer("/structuredContent/result/id")
+        .cloned()
+        .ok_or("missing net id")?;
+        let sig = session.lock().map_err(|_| "session unavailable")?.inspect()["project"]["nets"]
+            [0]["id"]
+            .clone();
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"track.add","params":{"net":sig,"start":[10.0,10.0],"end":[30.0,10.0],"width":0.3}}),
+        );
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"via.place","params":{"net":net_id,"position":[30.0,20.0],"diameter":0.7}}),
+        );
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(&session, "dxf.export", &json!({"path":directory.path()}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text =
+            std::fs::read_to_string(directory.path().join("pcb.dxf")).map_err(|e| e.to_string())?;
+        assert!(
+            text.starts_with("0\nSECTION\n2\nHEADER\n"),
+            "a DXF header first"
+        );
+        assert!(
+            text.contains("8\nF_Cu\n0\nLINE\n10\n10.000\n20\n10.000\n11\n30.000\n21\n10.000\n"),
+            "the routed track should be a line entity"
+        );
+        assert!(
+            text.contains("8\nEdge\n0\nLWPOLYLINE\n90\n4\n70\n1\n"),
+            "the board outline should be a closed polyline"
         );
         assert_eq!(
             session.lock().map_err(|_| "session unavailable")?.inspect(),

@@ -740,6 +740,250 @@ pub fn netlist_text(p: &Project) -> Result<String, String> {
     }
     Ok(out)
 }
+/// Board drawing as an ASCII DXF (R12 entities): tracks become lines, vias
+/// and round pads circles, oval and rectangular pads closed polylines, zones
+/// and board-layer graphics outlines, arcs three-point arcs, labels text.
+/// The board edge and circular cutouts are drawn on their own layer.
+pub fn dxf_board(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_ENTITIES: usize = 20_000;
+    struct Writer {
+        entities: String,
+        count: usize,
+        min_x: f64,
+        min_y: f64,
+        max_x: f64,
+        max_y: f64,
+    }
+    impl Writer {
+        fn follow(&mut self, x: f64, y: f64) {
+            if self.count == 0 {
+                self.min_x = x;
+                self.min_y = y;
+                self.max_x = x;
+                self.max_y = y;
+            } else {
+                self.min_x = self.min_x.min(x);
+                self.min_y = self.min_y.min(y);
+                self.max_x = self.max_x.max(x);
+                self.max_y = self.max_y.max(y);
+            }
+        }
+        fn keep(&mut self, layer: &str, body: String) -> Result<(), String> {
+            self.count += 1;
+            if self.count > MAX_ENTITIES {
+                return Err("DXF export exceeds the entity limit".into());
+            }
+            self.entities.push_str("0\nENTITY\n8\n");
+            self.entities.push_str(layer);
+            self.entities.push('\n');
+            self.entities.push_str(&body);
+            Ok(())
+        }
+        fn line(&mut self, layer: &str, a: (f64, f64), b: (f64, f64)) -> Result<(), String> {
+            self.follow(a.0, a.1);
+            self.follow(b.0, b.1);
+            self.keep(
+                layer,
+                format!(
+                    "0\nLINE\n10\n{:.3}\n20\n{:.3}\n11\n{:.3}\n21\n{:.3}\n",
+                    a.0, a.1, b.0, b.1
+                ),
+            )
+        }
+        fn circle(&mut self, layer: &str, x: f64, y: f64, r: f64) -> Result<(), String> {
+            self.follow(x - r, y - r);
+            self.follow(x + r, y + r);
+            self.keep(
+                layer,
+                format!("0\nCIRCLE\n10\n{x:.3}\n20\n{y:.3}\n40\n{r:.3}\n"),
+            )
+        }
+        fn polyline(
+            &mut self,
+            layer: &str,
+            points: &[(f64, f64)],
+            closed: bool,
+        ) -> Result<(), String> {
+            let mut body = format!(
+                "0\nLWPOLYLINE\n90\n{}\n70\n{}\n",
+                points.len(),
+                u8::from(closed)
+            );
+            for (x, y) in points {
+                self.follow(*x, *y);
+                body.push_str(&format!("10\n{x:.3}\n20\n{y:.3}\n"));
+            }
+            self.keep(layer, body)
+        }
+        fn text(
+            &mut self,
+            layer: &str,
+            x: f64,
+            y: f64,
+            height: f64,
+            rotation: f64,
+            value: &str,
+        ) -> Result<(), String> {
+            self.follow(x, y);
+            self.keep(
+                layer,
+                format!(
+                    "0\nTEXT\n10\n{x:.3}\n20\n{y:.3}\n40\n{height:.3}\n50\n{rotation:.1}\n1\n{value}\n"
+                ),
+            )
+        }
+    }
+    fn xy(q: &pcbcraft_geom::Point) -> (f64, f64) {
+        (q.x, q.y)
+    }
+    let mut w = Writer {
+        entities: String::new(),
+        count: 0,
+        min_x: 0.0,
+        min_y: 0.0,
+        max_x: 0.0,
+        max_y: 0.0,
+    };
+    let corners = [
+        (0.0, 0.0),
+        (p.board.width, 0.0),
+        (p.board.width, p.board.height),
+        (0.0, p.board.height),
+    ];
+    w.polyline("Edge", &corners, true)?;
+    for c in &p.board.cutouts {
+        w.circle("Edge", c.center.x, c.center.y, c.radius)?;
+    }
+    for t in &p.board.tracks {
+        let layer = if t.layer == pcbcraft_doc::Layer::Back {
+            "B_Cu"
+        } else {
+            "F_Cu"
+        };
+        w.line(layer, xy(&t.start), xy(&t.end))?;
+    }
+    for v in &p.board.vias {
+        w.circle("Via", v.position.x, v.position.y, v.diameter / 2.0)?;
+        if v.drill > 0.0 {
+            w.circle("Drill", v.position.x, v.position.y, v.drill / 2.0)?;
+        }
+    }
+    for f in &p.board.footprints {
+        for pad in &f.pads {
+            let world = f.position.offset(pad.offset.rotate(-f.rotation));
+            let back = pad.geometry.as_ref().is_some_and(|g| {
+                !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
+            });
+            let layer = if back { "B_Pads" } else { "F_Pads" };
+            let geometry = match &pad.geometry {
+                Some(g) => g,
+                None => {
+                    w.circle(layer, world.x, world.y, pad.diameter / 2.0)?;
+                    continue;
+                }
+            };
+            if geometry.shape == "circle" {
+                w.circle(
+                    layer,
+                    world.x,
+                    world.y,
+                    geometry.size.x.max(geometry.size.y) / 2.0,
+                )?;
+            } else {
+                let half_x = geometry.size.x / 2.0;
+                let half_y = geometry.size.y / 2.0;
+                w.polyline(
+                    layer,
+                    &[
+                        (world.x - half_x, world.y - half_y),
+                        (world.x + half_x, world.y - half_y),
+                        (world.x + half_x, world.y + half_y),
+                        (world.x - half_x, world.y + half_y),
+                    ],
+                    true,
+                )?;
+            }
+            if let Some(drill) = &geometry.drill {
+                w.circle(
+                    "Drill",
+                    world.x,
+                    world.y,
+                    drill.size.x.max(drill.size.y) / 2.0,
+                )?;
+            }
+        }
+    }
+    for z in &p.board.zones {
+        let layer = if z.layer == pcbcraft_doc::Layer::Back {
+            "B_Cu"
+        } else {
+            "F_Cu"
+        };
+        w.polyline(layer, &z.outline.iter().map(xy).collect::<Vec<_>>(), true)?;
+        for cutout in &z.cutouts {
+            w.polyline(layer, &cutout.iter().map(xy).collect::<Vec<_>>(), true)?;
+        }
+    }
+    for g in p.graphics.iter().filter(|g| g.layer == "board") {
+        let layer = "Board_Graphics";
+        if g.shape == "arc" && g.points.len() == 3 {
+            let (a, b, c) = (g.points[0], g.points[1], g.points[2]);
+            let d = 2.0 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+            if d.abs() > 1e-9 {
+                let a2 = a.x * a.x + a.y * a.y;
+                let b2 = b.x * b.x + b.y * b.y;
+                let c2 = c.x * c.x + c.y * c.y;
+                let ux = (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d;
+                let uy = (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d;
+                let angle = |x: f64, y: f64| (y - uy).atan2(x - ux).to_degrees().rem_euclid(360.0);
+                let x0 = angle(a.x, a.y);
+                let xm = angle(b.x, b.y);
+                let x1 = angle(c.x, c.y);
+                let ccw = (x1 - x0).rem_euclid(360.0);
+                let to_mid = (xm - x0).rem_euclid(360.0);
+                let (start, end) = if to_mid <= ccw { (x0, x1) } else { (x1, x0) };
+                let radius = ((a.x - ux).powi(2) + (a.y - uy).powi(2)).sqrt();
+                w.follow(ux - radius, uy - radius);
+                w.follow(ux + radius, uy + radius);
+                w.keep(
+                    layer,
+                    format!(
+                        "0\nARC\n10\n{ux:.3}\n20\n{uy:.3}\n40\n{radius:.3}\n50\n{start:.3}\n51\n{end:.3}\n"
+                    ),
+                )?;
+                continue;
+            }
+        }
+        if let Some(outline) = g.outline() {
+            let closed = g.shape != "line";
+            w.polyline(layer, &outline.iter().map(xy).collect::<Vec<_>>(), closed)?;
+        } else if g.shape == "text"
+            && let Some(anchor) = g.points.first()
+        {
+            w.text(layer, anchor.x, anchor.y, g.width, 0.0, &g.text)?;
+        }
+    }
+    for t in &p.board.texts {
+        let layer = if t.layer == pcbcraft_doc::Layer::Back {
+            "B_Silk"
+        } else {
+            "F_Silk"
+        };
+        w.text(
+            layer,
+            t.position.x,
+            t.position.y,
+            t.size,
+            t.rotation,
+            &t.text,
+        )?;
+    }
+    Ok(format!(
+        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n4\n9\n$EXTMIN\n10\n{:.3}\n20\n{:.3}\n9\n$EXTMAX\n10\n{:.3}\n20\n{:.3}\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{}0\nENDSEC\n0\nEOF\n",
+        w.min_x, w.min_y, w.max_x, w.max_y, w.entities
+    ))
+}
 pub fn svg(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
     if view != "pcb" && view != "schematic" {
@@ -2030,6 +2274,103 @@ mod tests {
             "a rotated footprint rotates its slot"
         );
         assert!(drill.ends_with("M30\n"));
+        Ok(())
+    }
+    #[test]
+    fn dxf_board_draws_tracks_vias_arcs_and_labels_as_entities() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 7,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 10,
+            net: 7,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.3,
+            layer: pcbcraft_doc::Layer::Front,
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 11,
+            net: 7,
+            position: Point::new(30.0, 20.0),
+            diameter: 0.7,
+            drill: 0.3,
+        });
+        project.graphics.push(pcbcraft_doc::Graphic {
+            id: 12,
+            layer: "board".into(),
+            shape: "arc".into(),
+            points: vec![
+                Point::new(40.0, 10.0),
+                Point::new(47.071, 17.071),
+                Point::new(54.0, 10.0),
+            ],
+            width: 0.2,
+            text: String::new(),
+        });
+        project.graphics.push(pcbcraft_doc::Graphic {
+            id: 13,
+            layer: "schematic".into(),
+            shape: "line".into(),
+            points: vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)],
+            width: 0.2,
+            text: String::new(),
+        });
+        project.board.texts.push(pcbcraft_doc::BoardText {
+            id: 14,
+            text: "TOP".into(),
+            position: Point::new(5.0, 5.0),
+            size: 1.5,
+            layer: pcbcraft_doc::Layer::Front,
+            rotation: 90.0,
+        });
+        project.validate()?;
+        let dxf = dxf_board(&project)?;
+        assert!(
+            dxf.starts_with("0\nSECTION\n2\nHEADER\n"),
+            "a DXF file starts with a header section"
+        );
+        assert!(dxf.contains("$INSUNITS\n70\n4\n"), "millimetre units");
+        assert!(
+            dxf.ends_with("0\nENDSEC\n0\nEOF\n"),
+            "a DXF file ends at EOF"
+        );
+        assert!(
+            dxf.contains("8\nEdge\n0\nLWPOLYLINE\n90\n4\n70\n1\n"),
+            "the board edge is a closed four-vertex polyline"
+        );
+        assert!(
+            dxf.contains("8\nF_Cu\n0\nLINE\n10\n10.000\n20\n10.000\n11\n30.000\n21\n10.000\n"),
+            "the front track becomes a line on the front copper layer"
+        );
+        assert!(
+            dxf.contains("8\nVia\n0\nCIRCLE\n10\n30.000\n20\n20.000\n40\n0.350\n"),
+            "the via pad becomes a circle"
+        );
+        assert!(
+            dxf.contains("8\nDrill\n0\nCIRCLE\n10\n30.000\n20\n20.000\n40\n0.150\n"),
+            "the via drill becomes its own circle"
+        );
+        assert!(
+            dxf.contains("8\nBoard_Graphics\n0\nARC\n10\n47.000\n20\n10.071\n40\n7.000\n50\n359.419\n51\n180.581\n"),
+            "a three-point board arc becomes a centre-radius arc"
+        );
+        assert!(
+            !dxf.contains("8\nBoard_Graphics\n0\nLINE\n"),
+            "schematic graphics stay out of the board drawing"
+        );
+        assert!(
+            dxf.contains("8\nF_Silk\n0\nTEXT\n10\n5.000\n20\n5.000\n40\n1.500\n50\n90.0\n1\nTOP\n"),
+            "board labels become rotated text entities"
+        );
+        assert_eq!(
+            dxf.matches("\n0\nENTITY\n").count(),
+            6,
+            "six entities in all"
+        );
         Ok(())
     }
     #[test]
