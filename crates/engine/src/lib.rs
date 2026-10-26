@@ -666,6 +666,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "board.set_stackup",
+            "Record the stackup used by impedance estimates: dielectric thickness in millimetres and substrate relative permittivity; give at least one",
+            schema(
+                json!({"thickness":{"type":"number"},"er":{"type":"number"}}),
+                &[],
+            ),
+        ),
+        (
             "net.lengths",
             "Report routed copper length per net: track segments summed in millimetres, with via counts and unrouted nets listed",
             schema(json!({"net":id_schema()}), &[]),
@@ -677,6 +685,11 @@ pub fn commands() -> Vec<CommandSpec> {
                 json!({"component":id_schema(),"pin":{"type":"string","minLength":1,"maxLength":16}}),
                 &["component", "pin"],
             ),
+        ),
+        (
+            "net.impedance",
+            "Report the approximate single-ended impedance of each routed net from its widest track and the recorded stackup; with a target ohm value also report the width that would meet it",
+            schema(json!({"net":id_schema(),"target":{"type":"number"}}), &[]),
         ),
         (
             "rules.severity",
@@ -911,7 +924,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, placed footprints step-and-repeatable across a grid in one undoable array with numbered references, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -970,6 +983,30 @@ impl Session {
 
 fn parse<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, Error> {
     serde_json::from_value(v.clone()).map_err(|e| Error::Invalid(e.to_string()))
+}
+/// Approximate single-ended microstrip impedance in ohms, widths and heights
+/// in millimetres, assuming a standard 35 um copper thickness.
+fn microstrip_ohms(width: f64, height: f64, er: f64) -> f64 {
+    const COPPER: f64 = 0.035;
+    if width <= height {
+        (87.0 / (er + 1.41).sqrt()) * (5.98 * height / (0.8 * width + COPPER)).ln()
+    } else {
+        let ratio = width / height;
+        (120.0 * std::f64::consts::PI / er.sqrt()) / (ratio + 1.393 + 0.667 * (ratio + 1.444).ln())
+    }
+}
+/// Track width that comes closest to a target impedance, found by bisection.
+fn width_for_ohms(target: f64, height: f64, er: f64) -> f64 {
+    let (mut lo, mut hi) = (0.01f64, 100.0f64);
+    for _ in 0..60 {
+        let mid = (lo + hi) / 2.0;
+        if microstrip_ohms(mid, height, er) > target {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    (lo + hi) / 2.0
 }
 fn allocate(next: &mut Id) -> Result<Id, Error> {
     let id = *next;
@@ -1402,6 +1439,22 @@ struct NetLengthsParams {
 struct NetChainParams {
     component: Id,
     pin: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StackupParams {
+    #[serde(default)]
+    thickness: Option<f64>,
+    #[serde(default)]
+    er: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetImpedanceParams {
+    #[serde(default)]
+    net: Option<Id>,
+    #[serde(default)]
+    target: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4130,6 +4183,27 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.board.finish = a.finish.clone();
             Ok(json!({"finish": p.board.finish}))
         }
+        "board.set_stackup" => {
+            let a: StackupParams = parse(params)?;
+            if a.thickness.is_none() && a.er.is_none() {
+                return Err(Error::Invalid(
+                    "give a thickness, a permittivity, or both".into(),
+                ));
+            }
+            if a.thickness.is_some_and(|v| !(0.2..=100.0).contains(&v)) {
+                return Err(Error::Invalid("thickness must be 0.2-100 mm".into()));
+            }
+            if a.er.is_some_and(|v| !(1.0..=20.0).contains(&v)) {
+                return Err(Error::Invalid("permittivity must be 1-20".into()));
+            }
+            if let Some(thickness) = a.thickness {
+                p.board.thickness = thickness;
+            }
+            if let Some(er) = a.er {
+                p.board.er = er;
+            }
+            Ok(json!({"thickness": p.board.thickness, "er": p.board.er}))
+        }
         "net.lengths" => {
             let a: NetLengthsParams = parse(params)?;
             if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
@@ -4299,6 +4373,50 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 current = (next.id, onward.number.clone());
             };
             Ok(json!({"steps": steps, "parts": steps.len(), "terminated": terminated}))
+        }
+        "net.impedance" => {
+            let a: NetImpedanceParams = parse(params)?;
+            if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
+                return Err(missing());
+            }
+            if a.target.is_some_and(|v| !(1.0..=1000.0).contains(&v)) {
+                return Err(Error::Invalid("target must be 1-1000 ohms".into()));
+            }
+            let height = p.board.thickness;
+            let er = p.board.er;
+            let mut rows: Vec<Value> = vec![];
+            for net in &p.nets {
+                if a.net.is_some_and(|id| id != net.id) {
+                    continue;
+                }
+                let width = p
+                    .board
+                    .tracks
+                    .iter()
+                    .filter(|t| t.net == net.id)
+                    .map(|t| t.width)
+                    .fold(0.0f64, f64::max);
+                if width <= 0.0 {
+                    continue;
+                }
+                let ohms = microstrip_ohms(width, height, er);
+                let mut row = json!({
+                    "net": net.id,
+                    "net_name": net.name,
+                    "width": width,
+                    "impedance_ohm": (ohms * 100.0).round() / 100.0,
+                });
+                if let Some(target) = a.target {
+                    row["delta_ohm"] = json!(((ohms - target) * 100.0).round() / 100.0);
+                    row["recommended_width"] =
+                        json!((width_for_ohms(target, height, er) * 1000.0).round() / 1000.0);
+                }
+                rows.push(row);
+            }
+            let count = rows.len();
+            Ok(
+                json!({"rows": rows, "count": count, "dielectric": height, "er": er, "target_ohm": a.target}),
+            )
         }
         "rules.severity" => {
             let a: RuleSeverityParams = parse(params)?;
@@ -7785,6 +7903,109 @@ mod tests {
         ] {
             assert!(s.execute("net.chain", bad, None).is_err());
         }
+        Ok(())
+    }
+    #[test]
+    fn recorded_stackup_drives_impedance_estimates_and_width_advice() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?;
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"SIG","pins":[{"reference":"R1","pin":"1"},{"reference":"R2","pin":"1"}]}]}),
+            None,
+        )?;
+        let net = s.inspect()["project"]["nets"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":12.0,"y":10.0},"end":{"x":28.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        let report = s.execute("net.impedance", json!({}), None)?["result"].clone();
+        assert_eq!(
+            report["count"], 1,
+            "only a net with copper has an impedance"
+        );
+        assert_eq!(report["rows"][0]["net_name"], "SIG");
+        assert_eq!(report["rows"][0]["width"], 0.3);
+        assert_eq!(report["dielectric"], 1.6, "the default board thickness");
+        assert_eq!(report["er"], 4.4, "the default glass-epoxy permittivity");
+        let wide = report["rows"][0]["impedance_ohm"]
+            .as_f64()
+            .ok_or_else(missing)?;
+        assert!((120.0..=140.0).contains(&wide), "a plausible 0.3 mm value");
+        let advised = s.execute("net.impedance", json!({"target":60.0}), None)?["result"].clone();
+        assert_eq!(
+            advised["rows"][0]["delta_ohm"],
+            ((wide - 60.0) * 100.0).round() / 100.0
+        );
+        let suggested = advised["rows"][0]["recommended_width"]
+            .as_f64()
+            .ok_or_else(missing)?;
+        assert!(
+            (1.5..=3.0).contains(&suggested),
+            "a wide track is needed for 60 ohms on this stackup"
+        );
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":12.0,"y":12.0},"end":{"x":28.0,"y":12.0},"width":0.6}),
+            None,
+        )?;
+        let thicker = s.execute("net.impedance", json!({}), None)?["result"].clone();
+        assert_eq!(thicker["rows"][0]["width"], 0.6, "the widest track decides");
+        assert!(
+            thicker["rows"][0]["impedance_ohm"]
+                .as_f64()
+                .ok_or_else(missing)?
+                < wide,
+            "wider copper means lower impedance"
+        );
+        let stack =
+            s.execute("board.set_stackup", json!({"thickness":0.8,"er":3.5}), None)?["result"]
+                .clone();
+        assert_eq!(stack["thickness"], 0.8);
+        assert_eq!(stack["er"], 3.5);
+        let thinner = s.execute("net.impedance", json!({}), None)?["result"].clone();
+        assert_eq!(thinner["dielectric"], 0.8);
+        assert_eq!(thinner["er"], 3.5);
+        assert_ne!(
+            thinner["rows"][0]["impedance_ohm"], thicker["rows"][0]["impedance_ohm"],
+            "the stackup feeds the estimate"
+        );
+        for bad in [
+            json!({}),
+            json!({"thickness":0.05}),
+            json!({"er":0.5}),
+            json!({"er":21.0}),
+            json!({"er":5.0,"extra":1}),
+        ] {
+            assert!(s.execute("board.set_stackup", bad, None).is_err());
+        }
+        for bad in [
+            json!({"net":9999}),
+            json!({"target":0.5}),
+            json!({"target":1001.0}),
+            json!({"width":0.3}),
+        ] {
+            assert!(s.execute("net.impedance", bad, None).is_err());
+        }
+        let before = s.inspect()["project"].clone();
+        s.undo()?;
+        s.undo()?;
+        let back = s.inspect()["project"].clone();
+        assert_ne!(back, before, "the stackup edit undoes");
+        assert_eq!(back["board"]["er"], 4.4);
+        assert_eq!(back["board"]["thickness"], 1.6);
         Ok(())
     }
     #[test]

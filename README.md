@@ -127,6 +127,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Board statistics reports: object counts, routed copper length per layer,
   drilled-hole totals and board area in one call, plus a recorded surface
   finish (HASL, ENIG, OSP...) that travels with the saved project.
+- Impedance estimates from the stackup: record the dielectric thickness and
+  substrate permittivity, then ask what impedance each routed net's widest
+  track gives and what width would hit a target ohm value.
 - One-call fabrication output: write RS-274X Gerber front and back copper
   layers, a board outline layer with circular cutouts, and an Excellon drill
   map into any directory. Poured zones, tracks, vias and pads flash with their
@@ -146,9 +149,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 105 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 107 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 126 MCP tools: every engine command plus library discovery/search/inspection,
+- 128 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
