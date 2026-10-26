@@ -91,8 +91,10 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   they stay inside the outline, and the copper-to-cutout checks follow.
   Constrained/parametric outline sketches are planned.
 - Free text labels on either copper side with a glyph height in millimetres,
-  for assembly notes and markings; move, re-edit, and delete them like any
-  other object, and they appear in previews and saved projects.
+  for assembly notes and markings; turn them to any angle about their anchor,
+  move, re-edit, and delete them like any other object, and they appear in
+  previews and saved projects. The angle is carried in saved projects and
+  exported previews; the desktop canvas still draws labels horizontally.
 - Initial pin assignment/net-population checks and copper short, clearance,
   board-edge, cutout and unrouted checks with affected object IDs.
 - Named net classes: group nets once and every clearance check between their
@@ -100,9 +102,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 83 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 84 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 101 MCP tools: every engine command plus library discovery/search/inspection,
+- 102 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

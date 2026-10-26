@@ -619,10 +619,18 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "text.set",
-            "Change a board text label's string, size, or layer",
+            "Change a board text label's string, size, layer, or rotation",
             schema(
-                json!({"id":id_schema(),"text":{"type":"string","minLength":1,"maxLength":128},"size":{"type":"number","minimum":0.1,"maximum":50},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"id":id_schema(),"text":{"type":"string","minLength":1,"maxLength":128},"size":{"type":"number","minimum":0.1,"maximum":50},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"rotation":{"type":"number","description":"text angle in degrees about the anchor"}}),
                 &["id"],
+            ),
+        ),
+        (
+            "text.rotate",
+            "Turn a board text label to an absolute angle in degrees about its anchor",
+            schema(
+                json!({"id":id_schema(),"degrees":{"type":"number"}}),
+                &["id", "degrees"],
             ),
         ),
     ];
@@ -741,7 +749,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, poured copper zones with cutouts, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags, and pins that can be released from a net again, with drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, poured copper zones with cutouts, rectangular outline and circular cutouts that stay editable after placement, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1441,6 +1449,14 @@ struct TextSetParams {
     size: Option<f64>,
     #[serde(default)]
     layer: Option<Layer>,
+    #[serde(default)]
+    rotation: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextRotateParams {
+    id: Id,
+    degrees: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4187,6 +4203,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 position: a.position,
                 size: a.size,
                 layer: a.layer,
+                rotation: 0.0,
             });
             Ok(json!({"id":id}))
         }
@@ -4206,9 +4223,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "text.set" => {
             let a: TextSetParams = parse(params)?;
-            if a.text.is_none() && a.size.is_none() && a.layer.is_none() {
+            if a.text.is_none() && a.size.is_none() && a.layer.is_none() && a.rotation.is_none() {
                 return Err(Error::Invalid(
-                    "provide a text, size, or layer to change".into(),
+                    "provide a text, size, layer or rotation to change".into(),
                 ));
             }
             if a.text
@@ -4223,6 +4240,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 return Err(Error::Invalid(
                     "text size must be between 0.1 and 50 mm".into(),
                 ));
+            }
+            if a.rotation
+                .is_some_and(|r| !r.is_finite() || r.abs() > 360_000.0)
+            {
+                return Err(Error::Invalid("invalid text rotation".into()));
             }
             let text = p
                 .board
@@ -4239,7 +4261,26 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if let Some(layer) = a.layer {
                 text.layer = layer;
             }
-            Ok(json!({"id":text.id,"text":text.text,"size":text.size,"layer":text.layer}))
+            if let Some(rotation) = a.rotation {
+                text.rotation = rotation;
+            }
+            Ok(
+                json!({"id":text.id,"text":text.text,"size":text.size,"layer":text.layer,"rotation":text.rotation}),
+            )
+        }
+        "text.rotate" => {
+            let a: TextRotateParams = parse(params)?;
+            if !a.degrees.is_finite() || a.degrees.abs() > 360_000.0 {
+                return Err(Error::Invalid("invalid text rotation".into()));
+            }
+            let text = p
+                .board
+                .texts
+                .iter_mut()
+                .find(|t| t.id == a.id)
+                .ok_or_else(missing)?;
+            text.rotation = a.degrees;
+            Ok(json!({"id":text.id,"rotation":text.rotation}))
         }
         _ => Err(Error::Invalid(format!("unknown command: {command}"))),
     }
@@ -7919,6 +7960,41 @@ mod tests {
         assert_eq!(s.project.board.texts[0].text, "Acme 2026");
         assert_eq!(s.project.board.texts[0].size, 2.5);
         assert_eq!(s.project.board.texts[0].layer, pcbcraft_doc::Layer::Back);
+        assert_eq!(
+            s.project.board.texts[0].rotation, 0.0,
+            "a placed label starts upright"
+        );
+        let turned = s.execute("text.rotate", json!({"id":id,"degrees":90.0}), None)?;
+        assert_eq!(turned["result"]["rotation"], 90.0);
+        s.execute("text.set", json!({"id":id,"rotation":-45.0}), None)?;
+        assert_eq!(s.project.board.texts[0].rotation, -45.0);
+        assert_eq!(
+            s.project.board.texts[0].text, "Acme 2026",
+            "turning a label leaves its string and size alone"
+        );
+        for params in [
+            json!({"id":id,"degrees":null}),
+            json!({"id":id,"degrees":1e9}),
+            json!({"id":id,"degrees":90.0,"extra":1}),
+            json!({"id":999,"degrees":90.0}),
+            json!({"id":id}),
+            json!({"id":id,"rotation":90.0}),
+        ] {
+            assert!(s.execute("text.rotate", params, None).is_err());
+        }
+        for params in [
+            json!({"id":id}),
+            json!({"id":id,"rotation":1e9}),
+            json!({"id":id,"rotation":null,"text":null}),
+        ] {
+            assert!(s.execute("text.set", params, None).is_err());
+        }
+        s.undo()?;
+        assert_eq!(
+            s.project.board.texts[0].rotation, 90.0,
+            "undo restores the previous angle"
+        );
+        assert!(s.project.validate().is_ok());
         for params in [
             json!({"text":"","position":{"x":1.0,"y":1.0}}),
             json!({"text":"x".repeat(200),"position":{"x":1.0,"y":1.0}}),

@@ -364,8 +364,16 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
             }
         }
         for t in &p.board.texts {
+            let spin = if t.rotation == 0.0 {
+                String::new()
+            } else {
+                format!(
+                    " transform=\"rotate({} {} {})\"",
+                    -t.rotation, t.position.x, t.position.y
+                )
+            };
             s.push_str(&format!(
-                "<text x=\"{}\" y=\"{}\" font-size=\"{}\" fill=\"{}\">{}</text>",
+                "<text x=\"{}\" y=\"{}\" font-size=\"{}\" fill=\"{}\"{}>{}</text>",
                 t.position.x,
                 t.position.y,
                 t.size,
@@ -374,6 +382,7 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                 } else {
                     "#9ec5ff"
                 },
+                spin,
                 escape(&t.text)
             ));
         }
@@ -1204,6 +1213,37 @@ mod tests {
         assert!(
             schematic.contains("points=\"10,10 20,10 20,20\""),
             "drawn wire vertices must render in order"
+        );
+        Ok(())
+    }
+    #[test]
+    fn rotated_board_text_carries_its_angle_in_the_pcb_preview() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.texts.push(pcbcraft_doc::BoardText {
+            id: 1,
+            text: "Acme Labs".into(),
+            position: Point::new(10.0, 5.0),
+            size: 2.0,
+            layer: pcbcraft_doc::Layer::Front,
+            rotation: 90.0,
+        });
+        project.board.texts.push(pcbcraft_doc::BoardText {
+            id: 2,
+            text: "Rev B".into(),
+            position: Point::new(30.0, 5.0),
+            size: 1.0,
+            layer: pcbcraft_doc::Layer::Back,
+            rotation: 0.0,
+        });
+        project.validate()?;
+        let pcb = svg(&project, "pcb")?;
+        assert!(
+            pcb.contains("<text x=\"10\" y=\"5\" font-size=\"2\" fill=\"#dbe7f2\" transform=\"rotate(-90 10 5)\">Acme Labs</text>"),
+            "a turned label must render with its angle about the anchor"
+        );
+        assert!(
+            pcb.contains("<text x=\"30\" y=\"5\" font-size=\"1\" fill=\"#9ec5ff\">Rev B</text>"),
+            "an upright label keeps the plain form"
         );
         Ok(())
     }

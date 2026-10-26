@@ -585,6 +585,9 @@ pub struct BoardText {
     pub size: f64,
     /// Board side the label belongs to.
     pub layer: Layer,
+    /// Text rotation in degrees about the anchor.
+    #[serde(default)]
+    pub rotation: f64,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Board {
@@ -1347,6 +1350,8 @@ impl Project {
                 || !t.size.is_finite()
                 || t.size < 0.1
                 || t.size > 50.0
+                || !t.rotation.is_finite()
+                || t.rotation.abs() > 360_000.0
             {
                 return Err("board text must be 1 to 128 bytes with a finite position and a size between 0.1 and 50 mm".into());
             }
