@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
     pub code: &'static str,
-    pub severity: &'static str,
+    pub severity: String,
     pub message: String,
     pub objects: Vec<Id>,
 }
@@ -374,7 +374,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             {
                 result.push(Finding {
                     code: "unassigned_pin",
-                    severity: "warning",
+                    severity: project.rule_severity("unassigned_pin", "warning"),
                     message: format!("{} pin {} has no net", c.reference, p.number),
                     objects: vec![c.id],
                 });
@@ -391,12 +391,13 @@ pub fn erc(project: &Project) -> Vec<Finding> {
         if pins < 2 {
             result.push(Finding {
                 code: "single_pin_net",
-                severity: "warning",
+                severity: project.rule_severity("single_pin_net", "warning"),
                 message: format!("{} has {pins} connected pins", net.name),
                 objects: vec![net.id],
             });
         }
     }
+    result.retain(|f| !project.rule_disabled(f.code));
     result
 }
 pub fn drc(project: &Project) -> Vec<Finding> {
@@ -413,15 +414,16 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 }
                 let separation = gap(a, b);
                 if separation + 1e-6 < required {
+                    let code = if a.conservative || b.conservative {
+                        "pad_clearance_bound"
+                    } else if separation <= 0.0 {
+                        "copper_short"
+                    } else {
+                        "clearance"
+                    };
                     result.push(Finding {
-                        code: if a.conservative || b.conservative {
-                            "pad_clearance_bound"
-                        } else if separation <= 0.0 {
-                            "copper_short"
-                        } else {
-                            "clearance"
-                        },
-                        severity: "error",
+                        code,
+                        severity: project.rule_severity(code, "error"),
                         message: format!(
                             "{} / {}: {:.3} mm clearance bound, {:.3} mm required",
                             project.net_name(a.net),
@@ -458,7 +460,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         if edge + 1e-6 < board.clearance {
             result.push(Finding {
                 code: "board_edge",
-                severity: "error",
+                severity: project.rule_severity("board_edge", "error"),
                 message: format!("Copper is {:.3} mm from the board edge", edge),
                 objects: vec![a.id],
             });
@@ -472,7 +474,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             if clearance + 1e-6 < board.clearance {
                 result.push(Finding {
                     code: "cutout_clearance",
-                    severity: "error",
+                    severity: project.rule_severity("cutout_clearance", "error"),
                     message: format!("Copper violates cutout clearance ({clearance:.3} mm)"),
                     objects: vec![a.id, cut.id],
                 });
@@ -482,7 +484,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     for wire in airwires(project) {
         result.push(Finding {
             code: "unrouted",
-            severity: "warning",
+            severity: project.rule_severity("unrouted", "warning"),
             message: format!(
                 "{} has disconnected copper islands",
                 project.net_name(wire.net)
@@ -494,12 +496,13 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         if !board.footprints.iter().any(|f| f.component == c.id) {
             result.push(Finding {
                 code: "missing_footprint",
-                severity: "warning",
+                severity: project.rule_severity("missing_footprint", "warning"),
                 message: format!("{} has no PCB footprint; sync the board", c.reference),
                 objects: vec![c.id],
             });
         }
     }
+    result.retain(|f| !project.rule_disabled(f.code));
     result
 }
 

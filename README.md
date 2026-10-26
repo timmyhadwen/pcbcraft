@@ -37,7 +37,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   replaced or cleared one at a time and travel with a duplicate, and a bill of
   materials groups the design by value, kind and footprint with any requested
   properties as extra grouping columns. Routed copper length is reported per
-  net, with via counts and a list of nets that have no copper at all.
+  net, with via counts and a list of nets that have no copper at all. Any
+  check code can be re-levelled between error and warning, or silenced
+  entirely, when its findings are normal for a particular design.
 - Original resistor, capacitor, LED and two-pin connector symbols; explicit
   logical nets, pin-to-pin orthogonal wire presentations and free-form drawn
   wires with explicit vertices that may be bound to a net and edited after
@@ -73,9 +75,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Named net classes: group nets once and every clearance check between their
   copper uses the strictest requirement involved, while new tracks and routes
   on a classified net start at that class's width unless a width is given.
-- 61 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 62 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 79 MCP tools: every engine command plus library discovery/search/inspection,
+- 80 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export and PNG previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

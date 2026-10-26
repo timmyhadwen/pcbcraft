@@ -419,6 +419,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"net":id_schema()}), &[]),
         ),
         (
+            "rules.severity",
+            "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
+            schema(
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, unrouted, missing_footprint"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                &["code"],
+            ),
+        ),
+        (
             "bom.export",
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties",
             schema(
@@ -571,10 +579,10 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -887,6 +895,13 @@ struct NetClassAssignParams {
 struct BomParams {
     #[serde(default)]
     fields: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuleSeverityParams {
+    code: String,
+    #[serde(default)]
+    severity: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2415,6 +2430,40 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 "unrouted": unrouted,
                 "total": total,
             }))
+        }
+        "rules.severity" => {
+            let a: RuleSeverityParams = parse(params)?;
+            if a.code.is_empty() || a.code.len() > 32 {
+                return Err(Error::Invalid("check code must be 1 to 32 bytes".into()));
+            }
+            if a.severity
+                .as_deref()
+                .is_some_and(|s| !matches!(s, "error" | "warning" | "off"))
+            {
+                return Err(Error::Invalid(
+                    "severity must be error, warning or off".into(),
+                ));
+            }
+            let set = match &a.severity {
+                Some(severity) => {
+                    if !p.rule_severity.contains_key(&a.code) && p.rule_severity.len() >= 64 {
+                        return Err(Error::Invalid(
+                            "severity overrides cover at most 64 check codes".into(),
+                        ));
+                    }
+                    p.rule_severity.insert(a.code.clone(), severity.clone());
+                    true
+                }
+                None => {
+                    if p.rule_severity.remove(&a.code).is_none() {
+                        return Err(Error::Invalid(
+                            "that check code has no severity override".into(),
+                        ));
+                    }
+                    false
+                }
+            };
+            Ok(json!({"code": a.code, "set": set}))
         }
         "bom.export" => {
             let a: BomParams = parse(params)?;
@@ -4571,6 +4620,109 @@ mod tests {
         s.execute("net.lengths", json!({"net": pwr}), None)?;
         assert_eq!(s.project, unchanged);
         assert!(r1 > 0 && r2 > 0);
+        Ok(())
+    }
+    #[test]
+    fn check_codes_can_be_relevelled_and_silenced() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":a,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":b,"start":{"x":10.0,"y":10.3},"end":{"x":30.0,"y":10.3},"width":0.2}),
+            None,
+        )?;
+        fn drc(s: &Session) -> Vec<Value> {
+            s.checks()["drc"].as_array().cloned().unwrap_or_default()
+        }
+        let findings = drc(&s);
+        let clearance = findings
+            .iter()
+            .find(|f| f["code"] == json!("clearance"))
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(clearance["severity"], "error");
+        s.execute(
+            "rules.severity",
+            json!({"code":"clearance","severity":"warning"}),
+            None,
+        )?;
+        let findings = drc(&s);
+        let downgraded = findings
+            .iter()
+            .find(|f| f["code"] == json!("clearance"))
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(downgraded["severity"], "warning");
+        assert_eq!(downgraded["message"], clearance["message"]);
+        s.execute(
+            "rules.severity",
+            json!({"code":"clearance","severity":"off"}),
+            None,
+        )?;
+        assert!(
+            drc(&s).iter().all(|f| f["code"] != json!("clearance")),
+            "a silenced code must not be reported"
+        );
+        s.execute("rules.severity", json!({"code":"clearance"}), None)?;
+        let findings = drc(&s);
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f["code"] == json!("clearance"))
+                .ok_or_else(missing)?["severity"],
+            "error"
+        );
+        let single_pin = {
+            let erc = s.checks()["erc"].as_array().ok_or_else(missing)?.clone();
+            erc.iter()
+                .find(|f| f["code"] == json!("single_pin_net"))
+                .cloned()
+                .ok_or_else(missing)?
+        };
+        assert_eq!(single_pin["severity"], "warning");
+        s.execute(
+            "rules.severity",
+            json!({"code":"single_pin_net","severity":"error"}),
+            None,
+        )?;
+        let erc = s.checks()["erc"].as_array().ok_or_else(missing)?.clone();
+        assert_eq!(
+            erc.iter()
+                .find(|f| f["code"] == json!("single_pin_net"))
+                .ok_or_else(missing)?["severity"],
+            "error"
+        );
+        assert!(s.project.validate().is_ok());
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert_eq!(loaded, s.project);
+        s.undo()?;
+        assert!(!s.project.rule_severity.contains_key("single_pin_net"));
+        let before = s.inspect();
+        for params in [
+            json!({"code":"","severity":"warning"}),
+            json!({"code":"x".repeat(33),"severity":"warning"}),
+            json!({"code":"clearance","severity":"fatal"}),
+            json!({"code":"nope"}),
+            json!({"code":"clearance","severity":"warning","extra":1}),
+        ] {
+            assert!(s.execute("rules.severity", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        assert!(s.project.validate().is_ok());
+        assert!(a > 0 && b > 0);
         Ok(())
     }
     #[test]

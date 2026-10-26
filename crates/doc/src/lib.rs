@@ -1,7 +1,7 @@
 //! Canonical project data. No UI or protocol dependencies.
 use pcbcraft_geom::{Point, positive};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub type Id = u64;
 pub const MAX_ITEMS: usize = 2048;
@@ -574,6 +574,10 @@ pub struct Project {
     /// Named net classes carrying clearance and default width rules.
     #[serde(default)]
     pub net_classes: Vec<NetClass>,
+    /// Per-check-code severity overrides: "error", "warning" or "off" to
+    /// silence a check whose findings this design accepts as normal.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub rule_severity: BTreeMap<String, String>,
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub drawn_wires: Vec<DrawnWire>,
@@ -654,6 +658,7 @@ impl Default for Project {
             components: vec![],
             nets: vec![],
             net_classes: vec![],
+            rule_severity: Default::default(),
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -791,6 +796,18 @@ impl Project {
     pub fn net_class(&self, net: Id) -> Option<&NetClass> {
         self.net_classes.iter().find(|c| c.nets.contains(&net))
     }
+    /// Severity a check code should report at: the project override when it
+    /// names one of the two real levels, otherwise the check's own default.
+    pub fn rule_severity(&self, code: &str, default: &str) -> String {
+        match self.rule_severity.get(code).map(String::as_str) {
+            Some("error") | Some("warning") => self.rule_severity[code].clone(),
+            _ => default.to_string(),
+        }
+    }
+    /// True when a check code has been silenced for this design.
+    pub fn rule_disabled(&self, code: &str) -> bool {
+        self.rule_severity.get(code).is_some_and(|s| s == "off")
+    }
     /// Minimum clearance required between copper on `a` and copper on `b`:
     /// the board default, raised by the class of either net when classified.
     pub fn required_clearance(&self, a: Id, b: Id) -> f64 {
@@ -888,6 +905,17 @@ impl Project {
                 if !nets.contains(net) || !classified.insert(*net) {
                     return Err("net class membership is invalid".into());
                 }
+            }
+        }
+        if self.rule_severity.len() > 64 {
+            return Err("severity overrides cover at most 64 check codes".into());
+        }
+        for (code, severity) in &self.rule_severity {
+            if code.is_empty()
+                || code.len() > 32
+                || !matches!(severity.as_str(), "error" | "warning" | "off")
+            {
+                return Err("invalid severity override".into());
             }
         }
         let mut refs = BTreeSet::new();
