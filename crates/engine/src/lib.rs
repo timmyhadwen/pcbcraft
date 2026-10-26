@@ -168,6 +168,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netclass.assign_pattern",
+            "Move every net whose name matches a wildcard pattern into a net class in one step; * matches any run of characters and ? matches one",
+            schema(
+                json!({"class":id_schema(),"pattern":{"type":"string","description":"case-sensitive name pattern, must contain * or ?","maxLength":64}}),
+                &["class", "pattern"],
+            ),
+        ),
+        (
             "netlist.import",
             "Import a netlist table: assign listed pins to named nets by reference, creating missing nets",
             schema(
@@ -579,7 +587,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels, junctions and no-connect flags; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, plated through-hole vias including stitch grids, poured copper zones with cutouts, rectangular outline and circular cutouts, named net classes carrying per-class clearance and default track width; bills of materials grouped by value and footprint with named component properties; classes filled by name pattern with * and ? wildcards","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -882,6 +890,42 @@ struct NetClassParams {
     width: f64,
     #[serde(default)]
     nets: Vec<Id>,
+}
+/// Case-sensitive net-name match: `*` matches any run of characters,
+/// `?` matches exactly one. Iterative so long patterns cannot recurse away.
+fn class_pattern_matches(pattern: &str, name: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let name: Vec<char> = name.chars().collect();
+    let mut p = 0usize;
+    let mut n = 0usize;
+    let mut star: Option<usize> = None;
+    let mut star_name = 0usize;
+    while n < name.len() {
+        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == name[n]) {
+            p += 1;
+            n += 1;
+        } else if p < pattern.len() && pattern[p] == '*' {
+            star = Some(p);
+            star_name = n;
+            p += 1;
+        } else if let Some(sp) = star {
+            p = sp + 1;
+            star_name += 1;
+            n = star_name;
+        } else {
+            return false;
+        }
+    }
+    while p < pattern.len() && pattern[p] == '*' {
+        p += 1;
+    }
+    p == pattern.len()
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetClassPatternParams {
+    class: Id,
+    pattern: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1630,6 +1674,49 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 target.nets.push(a.net);
             }
             Ok(json!({"net": a.net, "class": a.class}))
+        }
+        "netclass.assign_pattern" => {
+            let a: NetClassPatternParams = parse(params)?;
+            if a.pattern.is_empty() || a.pattern.len() > 64 {
+                return Err(Error::Invalid("pattern must be 1 to 64 bytes".into()));
+            }
+            if !a.pattern.contains(['*', '?']) {
+                return Err(Error::Invalid(
+                    "pattern must contain * or ?; a plain name is one netclass.assign".into(),
+                ));
+            }
+            if !p.net_classes.iter().any(|k| k.id == a.class) {
+                return Err(Error::Invalid("unknown net class".into()));
+            }
+            let matched: Vec<Id> = p
+                .nets
+                .iter()
+                .filter(|n| class_pattern_matches(&a.pattern, &n.name))
+                .map(|n| n.id)
+                .collect();
+            if matched.is_empty() {
+                return Err(Error::Invalid("no net name matches that pattern".into()));
+            }
+            let class = p
+                .net_classes
+                .iter()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            let outside = matched
+                .iter()
+                .filter(|net| !class.nets.contains(net))
+                .count();
+            if class.nets.len() + outside > 256 {
+                return Err(Error::Invalid("that class already holds 256 nets".into()));
+            }
+            for class in p.net_classes.iter_mut() {
+                class.nets.retain(|net| !matched.contains(net));
+            }
+            if let Some(target) = p.net_classes.iter_mut().find(|k| k.id == a.class) {
+                target.nets.extend(matched.iter().copied());
+            }
+            let count = matched.len();
+            Ok(json!({"class": a.class, "pattern": a.pattern, "matched": count}))
         }
         "netlist.import" => {
             let a: NetlistImportParams = parse(params)?;
@@ -4620,6 +4707,103 @@ mod tests {
         s.execute("net.lengths", json!({"net": pwr}), None)?;
         assert_eq!(s.project, unchanged);
         assert!(r1 > 0 && r2 > 0);
+        Ok(())
+    }
+    #[test]
+    fn net_classes_absorb_every_net_matching_a_wildcard_pattern() -> Result<(), Error> {
+        let mut s = Session::default();
+        let names = ["USB_DP", "USB_DM", "USB_STAT", "FB_IN", "OUT_FB", "usb_low"];
+        let mut ids = Vec::new();
+        for name in names {
+            ids.push(
+                s.execute("net.create", json!({"name": name}), None)?["result"]["id"]
+                    .as_u64()
+                    .ok_or_else(missing)?,
+            );
+        }
+        let power = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.5,"width":0.6}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let usb = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.3,"width":0.25}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let result = s.execute(
+            "netclass.assign_pattern",
+            json!({"class":power,"pattern":"*_IN"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(result["matched"], 1);
+        fn class_of(s: &Session, net: u64) -> Option<u64> {
+            s.project
+                .net_classes
+                .iter()
+                .find(|c| c.nets.contains(&net))
+                .map(|c| c.id)
+        }
+        assert_eq!(class_of(&s, ids[3]), Some(power));
+        assert_eq!(class_of(&s, ids[4]), None);
+        let result = s.execute(
+            "netclass.assign_pattern",
+            json!({"class":usb,"pattern":"USB*"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(result["matched"], 3);
+        for net in [ids[0], ids[1], ids[2]] {
+            assert_eq!(class_of(&s, net), Some(usb));
+        }
+        assert_eq!(class_of(&s, ids[3]), Some(power));
+        assert!(s.project.validate().is_ok());
+        s.execute(
+            "netclass.assign_pattern",
+            json!({"class":power,"pattern":"usb*"}),
+            None,
+        )?;
+        assert_eq!(class_of(&s, ids[5]), Some(power));
+        let single = s.execute(
+            "netclass.assign_pattern",
+            json!({"class":usb,"pattern":"*"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(single["matched"], 6);
+        for net in &ids {
+            assert_eq!(class_of(&s, *net), Some(usb), "one class holds them all");
+        }
+        s.execute(
+            "netclass.assign_pattern",
+            json!({"class":power,"pattern":"USB?DP"}),
+            None,
+        )?;
+        assert_eq!(class_of(&s, ids[0]), Some(power));
+        let before = s.inspect();
+        for params in [
+            json!({"class":power,"pattern":"POWER"}),
+            json!({"class":power,"pattern":"NOSUCH*"}),
+            json!({"class":9999,"pattern":"*"}),
+            json!({"class":power,"pattern":""}),
+            json!({"class":power,"pattern":"x".repeat(65)}),
+            json!({"class":power,"pattern":"*","extra":1}),
+        ] {
+            assert!(s.execute("netclass.assign_pattern", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        s.undo()?;
+        assert_eq!(class_of(&s, ids[0]), Some(usb));
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert_eq!(loaded, s.project);
         Ok(())
     }
     #[test]
