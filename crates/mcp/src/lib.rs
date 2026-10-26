@@ -18,6 +18,7 @@ pub fn tool_list() -> Value {
     let command = json!({"type":"object","properties":{"command":{"type":"string"},"params":{"type":"object"}},"required":["command","params"],"additionalProperties":false});
     let mut tools = vec![
         json!({"name":"library.save","description":"Atomically save the editable project library to a .pcbcraft-lib collection","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"gerber.export","description":"Write fabrication outputs (Gerber RS-274X front and back copper, board outline, Excellon drill map) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed KiCad symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a KiCad symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
@@ -110,6 +111,16 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             }
             pcbcraft_io::atomic_write(Path::new(path), &bytes)?;
             json!({"path":path})
+        }
+        "gerber.export" => {
+            let directory = string(args, "path")?;
+            let files = pcbcraft_io::gerber_files(&s.project)?;
+            let mut written = Vec::new();
+            for (name, text) in &files {
+                pcbcraft_io::atomic_write(&Path::new(directory).join(name), text.as_bytes())?;
+                written.push(name.clone());
+            }
+            json!({"directory":directory,"files":written})
         }
         "list_commands" => {
             json!({"commands":pcbcraft_engine::commands(),"units":"millimetres and degrees"})
@@ -530,6 +541,54 @@ mod tests {
         assert_eq!(
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before
+        );
+        Ok(())
+    }
+    #[test]
+    fn gerber_export_writes_fabrication_files_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        let net = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"net.create","params":{"name":"SIG"}}),
+        );
+        let net_id = net
+            .pointer("/structuredContent/result/id")
+            .cloned()
+            .ok_or("missing net id")?;
+        assert_eq!(
+            call_tool(
+                &session,
+                "execute",
+                &json!({"command":"track.add","params":{"net":net_id,"start":[10.0,10.0],"end":[30.0,10.0],"width":0.3}})
+            )
+            .get("isError"),
+            Some(&json!(false))
+        );
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(&session, "gerber.export", &json!({"path":directory.path()}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        for name in [
+            "pcb-F.Cu.gbr",
+            "pcb-B.Cu.gbr",
+            "pcb-Edge.gbr",
+            "pcb-Drill.drl",
+        ] {
+            let text =
+                std::fs::read_to_string(directory.path().join(name)).map_err(|e| e.to_string())?;
+            assert!(!text.is_empty(), "{name} should carry content");
+        }
+        let front = std::fs::read_to_string(directory.path().join("pcb-F.Cu.gbr"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            front.contains("X10.000000Y10.000000D02*\n"),
+            "the exported copper should contain the drawn track"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "exporting fabrication files does not edit history"
         );
         Ok(())
     }
