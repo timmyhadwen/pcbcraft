@@ -139,6 +139,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "components.reannotate",
+            "Renumber component references in placement order (top to bottom, left to right): optionally restrict to one letter prefix, choose the starting number, and dry-run to preview the mapping; any collision with a reference outside the renumbered group refuses the whole call",
+            schema(
+                json!({"prefix":{"type":"string","pattern":"^[A-Za-z]{1,16}$"},"start":{"type":"integer","minimum":1,"maximum":1000000},"dry_run":{"type":"boolean"}}),
+                &[],
+            ),
+        ),
+        (
             "component.field",
             "Set one named component property (datasheet, manufacturer, custom note), or clear it when value is null or omitted",
             schema(
@@ -887,7 +895,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, two copper layers, simple tracks and plated through-hole vias including stitch grids, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, named net classes carrying per-class clearance and default track width, retunable or deleted in place; bills of materials grouped by value and footprint with named component properties; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks, rectangular edge and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1882,6 +1890,16 @@ struct TrackParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ReannotateParams {
+    #[serde(default)]
+    prefix: Option<String>,
+    #[serde(default = "start_at_one")]
+    start: u64,
+    #[serde(default)]
+    dry_run: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FinishParams {
     finish: String,
 }
@@ -1915,6 +1933,9 @@ fn class_width(p: &Project, net: Id) -> f64 {
     p.net_class(net)
         .map(|class| class.width)
         .unwrap_or_else(default_width)
+}
+fn start_at_one() -> u64 {
+    1
 }
 fn front() -> Layer {
     Layer::Front
@@ -2416,6 +2437,82 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .ok_or_else(missing)?;
             c.reference = a.reference;
             Ok(json!({"id": a.id}))
+        }
+        "components.reannotate" => {
+            let a: ReannotateParams = parse(params)?;
+            if a.start == 0 || a.start > 1_000_000 {
+                return Err(Error::Invalid("start must be 1-1000000".into()));
+            }
+            if a.prefix.as_ref().is_some_and(|w| {
+                w.is_empty() || w.len() > 16 || !w.bytes().all(|b| b.is_ascii_alphabetic())
+            }) {
+                return Err(Error::Invalid("prefix must be 1-16 ASCII letters".into()));
+            }
+            let letters =
+                |r: &str| -> String { r.chars().take_while(char::is_ascii_alphabetic).collect() };
+            let mut groups: std::collections::BTreeMap<String, Vec<usize>> =
+                std::collections::BTreeMap::new();
+            for (i, c) in p.components.iter().enumerate() {
+                let pre = letters(&c.reference);
+                if pre.is_empty()
+                    || a.prefix
+                        .as_deref()
+                        .is_some_and(|w| !w.eq_ignore_ascii_case(&pre))
+                {
+                    continue;
+                }
+                groups.entry(pre).or_default().push(i);
+            }
+            if groups.is_empty() {
+                return Err(Error::Invalid("no letter-prefixed references match".into()));
+            }
+            for g in groups.values_mut() {
+                g.sort_by(|x, y| {
+                    let ca = &p.components[*x];
+                    let cb = &p.components[*y];
+                    ca.position
+                        .y
+                        .total_cmp(&cb.position.y)
+                        .then_with(|| ca.position.x.total_cmp(&cb.position.x))
+                        .then_with(|| ca.reference.cmp(&cb.reference))
+                });
+            }
+            let in_group: std::collections::BTreeSet<usize> =
+                groups.values().flatten().copied().collect();
+            let taken: std::collections::BTreeSet<&str> = p
+                .components
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !in_group.contains(i))
+                .map(|(_, c)| c.reference.as_str())
+                .collect();
+            let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+            let mut planned: Vec<(usize, Id, String, String)> = Vec::new();
+            for (pre, g) in &groups {
+                let pre = a.prefix.as_deref().unwrap_or(pre);
+                for (n, i) in g.iter().enumerate() {
+                    let to = format!("{pre}{}", a.start + n as u64);
+                    if to.len() > 64 || taken.contains(to.as_str()) || !used.insert(to.clone()) {
+                        return Err(Error::Invalid(format!("reference {to} is already in use")));
+                    }
+                    planned.push((
+                        *i,
+                        p.components[*i].id,
+                        p.components[*i].reference.clone(),
+                        to,
+                    ));
+                }
+            }
+            if !a.dry_run {
+                for (i, _, _, to) in &planned {
+                    p.components[*i].reference = to.clone();
+                }
+            }
+            let renamed: Vec<Value> = planned
+                .iter()
+                .map(|(_, id, from, to)| json!({"id": id, "from": from, "to": to}))
+                .collect();
+            Ok(json!({"dry_run": a.dry_run, "count": renamed.len(), "renamed": renamed}))
         }
         "component.field" => {
             let a: FieldParams = parse(params)?;
@@ -7243,6 +7340,87 @@ mod tests {
         s.undo()?; // steps back over the no-op statistics report
         s.undo()?; // steps back over the finish change itself
         assert_eq!(s.inspect()["project"]["board"]["finish"], "HASL");
+        Ok(())
+    }
+    #[test]
+    fn references_can_be_renumbered_in_placement_order_with_a_dry_run() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (reference, kind, x, y) in [
+            ("R5", "resistor", 30.0, 10.0),
+            ("R3", "resistor", 20.0, 20.0),
+            ("R1", "resistor", 10.0, 30.0),
+            ("C2", "capacitor", 5.0, 5.0),
+        ] {
+            s.execute(
+                "component.add",
+                json!({"kind":kind,"reference":reference,"value":"1","position":{"x":x,"y":y}}),
+                None,
+            )?;
+        }
+        let plan = s.execute(
+            "components.reannotate",
+            json!({"prefix":"R","dry_run":true}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(plan["dry_run"], true);
+        assert_eq!(plan["count"], 3);
+        assert_eq!(plan["renamed"][0]["from"], "R5", "topmost first");
+        assert_eq!(plan["renamed"][0]["to"], "R1");
+        assert_eq!(plan["renamed"][2]["to"], "R3");
+        let before = s.inspect()["project"].clone();
+        assert!(
+            s.execute(
+                "components.reannotate",
+                json!({"prefix":"R","start":0}),
+                None
+            )
+            .is_err(),
+            "the start number stays positive"
+        );
+        assert!(
+            s.execute("components.reannotate", json!({"prefix":"R9"}), None)
+                .is_err(),
+            "the prefix is letters only"
+        );
+        assert!(
+            s.execute("components.reannotate", json!({"prefix":"Q"}), None)
+                .is_err(),
+            "an empty group is an error, not a silent success"
+        );
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "dry runs and refusals change nothing"
+        );
+        s.execute("components.reannotate", json!({}), None)?;
+        let refs: Vec<String> = s.inspect()["project"]["components"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .map(|c| c["reference"].as_str().unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(
+            refs,
+            ["R1", "R2", "R3", "C1"],
+            "each prefix renumbers itself"
+        );
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"r7","value":"1","position":{"x":40.0,"y":40.0}}),
+            None,
+        )?;
+        let before = s.inspect()["project"].clone();
+        assert!(
+            s.execute(
+                "components.reannotate",
+                json!({"prefix":"R","start":1}),
+                None
+            )
+            .is_err(),
+            "two letter spellings that would produce the same names refuse the call"
+        );
+        assert_eq!(s.inspect()["project"], before);
         Ok(())
     }
     #[test]
