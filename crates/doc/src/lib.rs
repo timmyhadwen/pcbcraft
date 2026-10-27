@@ -785,7 +785,8 @@ pub struct BoardText {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct OutputJob {
     pub name: String,
-    /// Export kinds, each one of: gerbers, netlist, bom, placement, dxf.
+    /// Export kinds, each one of: gerbers, netlist, bom, placement, dxf,
+    /// cmp, idf, vrml, step, pdf, svg.
     pub kinds: Vec<String>,
 }
 impl OutputJob {
@@ -793,11 +794,21 @@ impl OutputJob {
         !self.name.trim().is_empty()
             && self.name.len() <= 64
             && !self.kinds.is_empty()
-            && self.kinds.len() <= 5
+            && self.kinds.len() <= 11
             && self.kinds.iter().all(|k| {
                 matches!(
                     k.as_str(),
-                    "gerbers" | "netlist" | "bom" | "placement" | "dxf"
+                    "gerbers"
+                        | "netlist"
+                        | "bom"
+                        | "placement"
+                        | "dxf"
+                        | "cmp"
+                        | "idf"
+                        | "vrml"
+                        | "step"
+                        | "pdf"
+                        | "svg"
                 )
             })
     }

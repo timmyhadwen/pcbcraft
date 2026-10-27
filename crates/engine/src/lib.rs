@@ -1311,9 +1311,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "output_job.add",
-            "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf) that can be re-run after any edit",
+            "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg) that can be re-run after any edit",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf"]},"minItems":1,"maxItems":5}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg"]},"minItems":1,"maxItems":11}}),
                 &["name", "kinds"],
             ),
         ),
@@ -8733,11 +8733,21 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "an output job name must be 1 to 64 bytes".into(),
                 ));
             }
-            if a.kinds.len() > 5
+            if a.kinds.len() > 11
                 || a.kinds.iter().any(|k| {
                     !matches!(
                         k.as_str(),
-                        "gerbers" | "netlist" | "bom" | "placement" | "dxf"
+                        "gerbers"
+                            | "netlist"
+                            | "bom"
+                            | "placement"
+                            | "dxf"
+                            | "cmp"
+                            | "idf"
+                            | "vrml"
+                            | "step"
+                            | "pdf"
+                            | "svg"
                     )
                 })
             {
@@ -8817,6 +8827,42 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         pcbcraft_io::atomic_write(&directory.join("pcb.dxf"), text.as_bytes())
                             .map_err(Error::Invalid)?;
                         written.push("pcb.dxf".into());
+                    }
+                    "cmp" => {
+                        let text = pcbcraft_io::cmp_text(p)?;
+                        pcbcraft_io::atomic_write(&directory.join("pcb.cmp"), text.as_bytes())
+                            .map_err(Error::Invalid)?;
+                        written.push("pcb.cmp".into());
+                    }
+                    "idf" => {
+                        let text = pcbcraft_io::idf_board(p)?;
+                        pcbcraft_io::atomic_write(&directory.join("board.idf"), text.as_bytes())
+                            .map_err(Error::Invalid)?;
+                        written.push("board.idf".into());
+                    }
+                    "vrml" => {
+                        let text = pcbcraft_io::vrml_board(p)?;
+                        pcbcraft_io::atomic_write(&directory.join("board.wrl"), text.as_bytes())
+                            .map_err(Error::Invalid)?;
+                        written.push("board.wrl".into());
+                    }
+                    "step" => {
+                        let text = pcbcraft_io::step_board(p)?;
+                        pcbcraft_io::atomic_write(&directory.join("board.step"), text.as_bytes())
+                            .map_err(Error::Invalid)?;
+                        written.push("board.step".into());
+                    }
+                    "pdf" => {
+                        let bytes = pcbcraft_io::pdf_document(p, "pcb")?;
+                        pcbcraft_io::atomic_write(&directory.join("board.pdf"), &bytes)
+                            .map_err(Error::Invalid)?;
+                        written.push("board.pdf".into());
+                    }
+                    "svg" => {
+                        let text = pcbcraft_io::svg(p, "pcb")?;
+                        pcbcraft_io::atomic_write(&directory.join("board.svg"), text.as_bytes())
+                            .map_err(Error::Invalid)?;
+                        written.push("board.svg".into());
                     }
                     other => {
                         return Err(Error::Invalid(format!("unknown export kind {other}")));
@@ -19246,6 +19292,39 @@ mod tests {
         assert_eq!(s.project.graphics.len(), before);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&empty);
+        Ok(())
+    }
+
+    #[test]
+    fn output_jobs_write_mechanical_and_drawing_kinds() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-mech-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"mech","kinds":["cmp","idf","vrml","step","pdf","svg"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"mech","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        for name in [
+            "pcb.cmp",
+            "board.idf",
+            "board.wrl",
+            "board.step",
+            "board.pdf",
+            "board.svg",
+        ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }
 
