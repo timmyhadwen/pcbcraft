@@ -7,6 +7,81 @@ use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
 
+/// Case-insensitive subsequence match: every character of the query must
+/// appear, in order, somewhere in the text.
+fn fuzzy_match(query: &str, text: &str) -> bool {
+    let mut text = text.chars();
+    query
+        .chars()
+        .all(|q| text.any(|t| t.eq_ignore_ascii_case(&q)))
+}
+
+/// A starter parameters object for a command: every required parameter gets
+/// a plausible sample value taken from its own schema (the schema default,
+/// the first listed option, the schema minimum, or a neutral stand-in), so
+/// picking a command in the palette immediately shows the shape its
+/// parameters must have; optional parameters are left out to be added.
+fn params_template(spec: &pcbcraft_engine::CommandSpec) -> String {
+    template_object(&spec.input_schema).to_string()
+}
+
+fn template_object(schema: &Value) -> Value {
+    let properties = schema.get("properties").cloned().unwrap_or(Value::Null);
+    let keys: Vec<String> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut object = serde_json::Map::new();
+    for key in keys {
+        if let Some(field) = properties.get(&key) {
+            object.insert(key, sample_value(field));
+        }
+    }
+    Value::Object(object)
+}
+
+fn sample_value(schema: &Value) -> Value {
+    if let Some(default) = schema.get("default") {
+        return default.clone();
+    }
+    if let Some(options) = schema.get("enum").and_then(Value::as_array)
+        && let Some(first) = options.first()
+    {
+        return first.clone();
+    }
+    match schema.get("type").and_then(Value::as_str) {
+        Some("integer") => schema.get("minimum").cloned().unwrap_or(json!(1)),
+        Some("number") => schema.get("minimum").cloned().unwrap_or(json!(0.0)),
+        Some("boolean") => json!(false),
+        Some("string") => json!(""),
+        Some("array") => {
+            let count = schema
+                .get("minItems")
+                .and_then(Value::as_u64)
+                .unwrap_or(2)
+                .clamp(2, 8);
+            let item = schema
+                .get("items")
+                .map(sample_value)
+                .unwrap_or(json!([0.0, 0.0]));
+            Value::Array(vec![item; count as usize])
+        }
+        _ => {
+            if schema.get("properties").is_some() {
+                template_object(schema)
+            } else {
+                json!("")
+            }
+        }
+    }
+}
+
 /// Hover text for a control that runs an engine command: the command
 /// registry description is the single source of truth for what the control
 /// does, so the UI explanation and the command documentation never drift.
@@ -105,6 +180,8 @@ pub struct App {
     command: String,
     params: String,
     command_open: bool,
+    command_query: String,
+    command_focus: bool,
     capture: Option<String>,
     frames: u32,
     library: library::Browser,
@@ -213,6 +290,8 @@ impl App {
             command: "component.add".into(),
             params: "{\"kind\":\"resistor\",\"position\":{\"x\":30,\"y\":20}}".into(),
             command_open: false,
+            command_query: String::new(),
+            command_focus: false,
             capture,
             frames: 0,
             library,
@@ -241,6 +320,16 @@ impl App {
             self.load_properties();
         }
     }
+    fn execute_palette_params(&mut self) {
+        match serde_json::from_str(&self.params.clone()) {
+            Ok(v) => {
+                let command = self.command.clone();
+                self.run(&command, v);
+            }
+            Err(e) => self.message = e.to_string(),
+        }
+    }
+
     fn run(&mut self, command: &str, params: Value) {
         let result = self
             .session
@@ -404,6 +493,7 @@ impl App {
                 }
                 if i.key_pressed(egui::Key::K) {
                     self.command_open = !self.command_open;
+                    self.command_focus = self.command_open;
                 }
                 return;
             }
@@ -639,6 +729,7 @@ impl App {
                 }
                 if ui.button("Commands  Ctrl+K").on_hover_text("Search every command by name and run it, with its parameters explained.").clicked() {
                     self.command_open = !self.command_open;
+        self.command_focus = self.command_open;
                 }
             });
         });
@@ -1050,27 +1141,76 @@ impl App {
         if self.command_open {
             egui::Panel::bottom("commands")
                 .resizable(true)
-                .default_size(130.0)
+                .default_size(220.0)
                 .show(ui, |ui| {
+                    let query = self.command_query.clone();
+                    let matches: Vec<_> = pcbcraft_engine::commands()
+                        .into_iter()
+                        .filter(|spec| {
+                            query.is_empty()
+                                || fuzzy_match(&query, spec.id)
+                                || fuzzy_match(&query, spec.description)
+                        })
+                        .collect();
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new("ENGINE COMMAND")
+                            egui::RichText::new("SEARCH")
                                 .small()
                                 .color(self.accent()),
                         );
-                        ui.text_edit_singleline(&mut self.command);
-                        ui.add(egui::TextEdit::singleline(&mut self.params).desired_width(500.0));
-                        if ui.button("Execute").on_hover_text("Run the command with the parameters you typed; the schema below explains each one.").clicked() {
-                            match serde_json::from_str(&self.params) {
-                                Ok(v) => self.run(&self.command.clone(), v),
-                                Err(e) => self.message = e.to_string(),
-                            }
+                        let search = ui.add(
+                            egui::TextEdit::singleline(&mut self.command_query)
+                                .hint_text("filter command names and descriptions")
+                                .desired_width(300.0),
+                        );
+                        if self.command_focus {
+                            search.request_focus();
+                            self.command_focus = false;
+                        }
+                        ui.label(
+                            egui::RichText::new("PARAMETERS")
+                                .small()
+                                .color(self.accent()),
+                        );
+                        let fields = ui.add(
+                            egui::TextEdit::singleline(&mut self.params)
+                                .hint_text("parameters as JSON")
+                                .desired_width(380.0),
+                        );
+                        if ui
+                            .button("Execute")
+                            .on_hover_text(
+                                "Run the command with the parameters you typed; selecting a command fills a starter parameter set.",
+                            )
+                            .clicked()
+                        {
+                            self.execute_palette_params();
+                        }
+                        let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if enter
+                            && search.lost_focus()
+                            && let Some(spec) = matches.first()
+                        {
+                            self.command = spec.id.into();
+                            self.params = params_template(spec);
+                            fields.request_focus();
+                        } else if enter && fields.lost_focus() {
+                            self.execute_palette_params();
                         }
                     });
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} of {} commands match; click one to load it with a starter parameter set, or press Enter in the search box to load the top match",
+                            matches.len(),
+                            pcbcraft_engine::commands().len()
+                        ))
+                        .small()
+                        .color(self.muted()),
+                    );
                     egui::ScrollArea::vertical()
-                        .max_height(85.0)
+                        .max_height(180.0)
                         .show(ui, |ui| {
-                            for spec in pcbcraft_engine::commands() {
+                            for spec in matches {
                                 if ui
                                     .selectable_label(
                                         self.command == spec.id,
@@ -1079,7 +1219,7 @@ impl App {
                                     .clicked()
                                 {
                                     self.command = spec.id.into();
-                                    self.params = "{}".into();
+                                    self.params = params_template(&spec);
                                 }
                             }
                         });
@@ -1276,6 +1416,55 @@ mod tests {
             "This control runs an engine command.",
             "an unmapped id still explains itself"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn palette_filtering_matches_subsequences_of_names_and_descriptions() {
+        assert!(fuzzy_match("sync", "board.sync"));
+        assert!(fuzzy_match("bre", "board.resize"));
+        assert!(fuzzy_match("PAD", "board.pad_stack"));
+        assert!(
+            !fuzzy_match("xyz", "board.sync"),
+            "characters that are not there never match"
+        );
+        assert!(
+            !fuzzy_match("copperplating", "component.value"),
+            "order matters in a subsequence"
+        );
+    }
+
+    #[test]
+    fn palette_templates_hold_exactly_the_required_parameters() -> Result<(), String> {
+        let mut checked = 0usize;
+        for spec in pcbcraft_engine::commands() {
+            let template: Value =
+                serde_json::from_str(&params_template(&spec)).map_err(|e| e.to_string())?;
+            let object = template
+                .as_object()
+                .ok_or_else(|| format!("{} template is not an object", spec.id))?;
+            let required = spec
+                .input_schema
+                .get("required")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            assert_eq!(
+                object.len(),
+                required.len(),
+                "{} template must hold exactly the required parameters",
+                spec.id
+            );
+            for key in required.iter().filter_map(Value::as_str) {
+                assert!(
+                    object.contains_key(key),
+                    "{} template misses the required parameter {key}",
+                    spec.id
+                );
+            }
+            checked += 1;
+        }
+        assert!(checked >= 150, "the sweep covered the whole registry");
         Ok(())
     }
     fn frame(
