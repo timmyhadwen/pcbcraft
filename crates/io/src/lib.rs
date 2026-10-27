@@ -736,6 +736,232 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     Ok(pdf)
 }
 
+/// A minimal AP214 (STEP) writer. The board outline and every placed pad
+/// outline become closed prisms (two caps and one planar side face per edge)
+/// in one shape representation. Coordinates are millimetres on the board
+/// plane; Z spans the board thickness. Written by hand, no dependency.
+const STEP_MAX_ENTITIES: u32 = 60_000;
+/// Polygon rings are thinned to at most this many corners so rounded pads
+/// stay affordable in one file.
+const STEP_MAX_RING: usize = 32;
+
+type Coords = (f64, f64, f64);
+
+struct StepDoc {
+    lines: Vec<String>,
+    next: u32,
+}
+
+impl StepDoc {
+    fn new() -> Self {
+        StepDoc {
+            lines: Vec::new(),
+            next: 1,
+        }
+    }
+    fn add(&mut self, body: &str) -> Result<u32, String> {
+        if self.next > STEP_MAX_ENTITIES {
+            return Err("the board is too complex for one STEP file".to_string());
+        }
+        let id = self.next;
+        self.next += 1;
+        self.lines.push(format!("#{id} = {body};"));
+        Ok(id)
+    }
+    fn set(&mut self, id: u32, body: &str) {
+        self.lines[id as usize - 1] = format!("#{id} = {body};");
+    }
+    fn n(v: f64) -> String {
+        format!("{:.4}", v + 0.0)
+    }
+    fn point(&mut self, c: Coords) -> Result<u32, String> {
+        self.add(&format!(
+            "CARTESIAN_POINT('',({},{},{}))",
+            Self::n(c.0),
+            Self::n(c.1),
+            Self::n(c.2)
+        ))
+    }
+    fn direction(&mut self, d: Coords) -> Result<u32, String> {
+        self.add(&format!(
+            "DIRECTION('',({},{},{}))",
+            Self::n(d.0),
+            Self::n(d.1),
+            Self::n(d.2)
+        ))
+    }
+    fn vector(&mut self, dir: u32, length: f64) -> Result<u32, String> {
+        self.add(&format!(
+            "VECTOR('',#{dir},{})",
+            Self::n(length.max(0.0001))
+        ))
+    }
+    /// One planar face bounded by a closed loop over the given corners, with
+    /// the plane normal and an in-plane reference direction.
+    fn face(
+        &mut self,
+        corners: &[Coords],
+        normal: Coords,
+        reference: Coords,
+    ) -> Result<u32, String> {
+        let count = corners.len();
+        let mut points = Vec::new();
+        for c in corners {
+            points.push(self.point(*c)?);
+        }
+        let mut vertices = Vec::new();
+        for p in &points {
+            vertices.push(self.add(&format!("VERTEX_POINT('',#{p})"))?);
+        }
+        let mut oriented = Vec::new();
+        for index in 0..count {
+            let next = (index + 1) % count;
+            let a = corners[index];
+            let b = corners[next];
+            let delta = (b.0 - a.0, b.1 - a.1, b.2 - a.2);
+            let length = (delta.0 * delta.0 + delta.1 * delta.1 + delta.2 * delta.2).sqrt();
+            let dir = self.direction(delta)?;
+            let vec = self.vector(dir, length)?;
+            let line = self.add(&format!("LINE('',#{},#{vec})", points[index]))?;
+            let edge = self.add(&format!(
+                "EDGE_LINE('',#{line},#{},#{})",
+                vertices[index], vertices[next]
+            ))?;
+            oriented.push(self.add(&format!("ORIENTED_EDGE('',*,*,#{edge},.T.)"))?);
+        }
+        let listed: Vec<String> = oriented.iter().map(|e| format!("#{e}")).collect();
+        let loop_id = self.add(&format!("EDGE_LOOP('',({}))", listed.join(",")))?;
+        let bound = self.add(&format!("FACE_OUTER_BOUND('',#{loop_id},.T.)"))?;
+        let axis = self.direction(normal)?;
+        let ref_dir = self.direction(reference)?;
+        let placement = self.add(&format!(
+            "AXIS2_PLACEMENT_3D('',#{},#{axis},#{ref_dir})",
+            points[0]
+        ))?;
+        let plane = self.add(&format!("PLANE('',#{placement})"))?;
+        self.add(&format!("ADVANCED_FACE((),(#{bound}),#{plane},.T.)"))
+    }
+    /// Extrude a closed polygon from z=0 to z=depth, returning the advanced
+    /// face ids that close the prism.
+    fn prism(&mut self, ring: &[Point], depth: f64) -> Result<Vec<u32>, String> {
+        let ring = thin_ring(ring);
+        let count = ring.len();
+        if count < 3 {
+            return Ok(Vec::new());
+        }
+        let mut faces = Vec::new();
+        for index in 0..count {
+            let next = (index + 1) % count;
+            let a = ring[index];
+            let b = ring[next];
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let length = (dx * dx + dy * dy).sqrt();
+            if length < 1e-9 {
+                continue;
+            }
+            let corners = [
+                (a.x, a.y, 0.0),
+                (b.x, b.y, 0.0),
+                (b.x, b.y, depth),
+                (a.x, a.y, depth),
+            ];
+            faces.push(self.face(
+                &corners,
+                (dy / length, -dx / length, 0.0),
+                (dx / length, dy / length, 0.0),
+            )?);
+        }
+        let bottom: Vec<Coords> = ring.iter().map(|p| (p.x, p.y, 0.0)).collect();
+        let mut top: Vec<Coords> = ring.iter().map(|p| (p.x, p.y, depth)).collect();
+        top.reverse();
+        faces.push(self.face(&bottom, (0.0, 0.0, -1.0), (1.0, 0.0, 0.0))?);
+        faces.push(self.face(&top, (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))?);
+        Ok(faces)
+    }
+}
+
+/// Drop the duplicated closing vertex and thin long rings so rounded pads
+/// stay affordable.
+fn thin_ring(points: &[Point]) -> Vec<Point> {
+    let mut ring: Vec<Point> = points.to_vec();
+    if let (Some(first), Some(last)) = (ring.first().copied(), ring.last().copied())
+        && ring.len() > 1
+        && (first.x - last.x).abs() < 1e-9
+        && (first.y - last.y).abs() < 1e-9
+    {
+        ring.pop();
+    }
+    while ring.len() > STEP_MAX_RING {
+        ring = ring.into_iter().step_by(2).collect();
+    }
+    ring
+}
+
+/// Export the board as an AP214 STEP file: the outline and every placed pad
+/// as a solid prism, in millimetres.
+pub fn step_board(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    let depth = p.board.thickness;
+    let outline: Vec<Point> = match &p.board.outline {
+        Some(o) if o.len() >= 3 => o.clone(),
+        _ => vec![
+            Point::new(0.0, 0.0),
+            Point::new(p.board.width, 0.0),
+            Point::new(p.board.width, p.board.height),
+            Point::new(0.0, p.board.height),
+        ],
+    };
+    let mut doc = StepDoc::new();
+    doc.add("PRODUCT('BOARD','pcbcraft board','',('Mechanical Design'))")?;
+    doc.add("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#1,.NOT_KNOWN.)")?;
+    doc.add("PRODUCT_CONTEXT('',#1,'mechanical')")?;
+    doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
+    doc.add("PRODUCT_DEFINITION_SHAPE('','',#4)")?;
+    let shape = doc.add("SHAPE_REPRESENTATION('board',(#14,#15),#7)")?;
+    doc.add("(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#16))GLOBAL_UNIT_ASSIGNED_CONTEXT((#8,#9,#10))REPRESENTATION_CONTEXT('','',''))")?;
+    doc.add("(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.)LENGTH_MEASURE())")?;
+    doc.add("(NAMED_UNIT(*)PLANE_ANGLE_UNIT()SI_UNIT($,.RADIAN.))")?;
+    doc.add("(NAMED_UNIT(*)SI_UNIT($,.STERADIAN.)SOLID_ANGLE_MEASURE())")?;
+    doc.add("UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(0.001),#8,'distance_accuracy_value','confusion accuracy')")?;
+    let origin = doc.point((0.0, 0.0, 0.0))?;
+    let axis = doc.direction((0.0, 0.0, 1.0))?;
+    let reference = doc.direction((1.0, 0.0, 0.0))?;
+    let base = doc.add(&format!(
+        "AXIS2_PLACEMENT_3D('',#{origin},#{axis},#{reference})"
+    ))?;
+    doc.add("SHAPE_DEFINITION_REPRESENTATION(#5,#6)")?;
+    let mut items = vec![base];
+    items.extend(doc.prism(&outline, depth)?);
+    for footprint in &p.board.footprints {
+        for pad in &footprint.pads {
+            let ring: Vec<Point> = pad
+                .outline_points()
+                .into_iter()
+                .map(|pos| footprint.position.offset(pos.rotate(-footprint.rotation)))
+                .collect();
+            items.extend(doc.prism(&ring, depth)?);
+        }
+    }
+    let listed: Vec<String> = items.iter().map(|i| format!("#{i}")).collect();
+    doc.set(
+        shape,
+        &format!("SHAPE_REPRESENTATION('board',({}),#7)", listed.join(",")),
+    );
+    let mut out = String::new();
+    out.push_str("ISO-10303-21;\nHEADER;\n");
+    out.push_str("FILE_DESCRIPTION(('pcbcraft board export'),'2;1');\n");
+    out.push_str("FILE_NAME('board.step','','','(pcbcraft)','pcbcraft','pcbcraft','');\n");
+    out.push_str("FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));\n");
+    out.push_str("ENDSEC;\nDATA;\n");
+    for line in &doc.lines {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
+    Ok(out)
+}
+
 pub fn kicad_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let b = &p.board;
@@ -3134,6 +3360,77 @@ mod tests {
         }
         assert!(pdf_document(&project, "layout").is_err());
         assert!(pdf_document(&Project::default(), "pcb")?.starts_with(b"%PDF-1.4"));
+        Ok(())
+    }
+
+    #[test]
+    fn step_board_extrudes_outline_and_pads_with_intact_references() -> Result<(), String> {
+        let project = real_library_project()?;
+        let step = step_board(&project)?;
+        assert!(step.starts_with("ISO-10303-21;\nHEADER;"));
+        assert!(step.ends_with("ENDSEC;\nEND-ISO-10303-21;\n"));
+        assert!(step.contains("AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }"));
+        let data = step
+            .split_once("DATA;\n")
+            .ok_or("data section missing")?
+            .1
+            .split_once("ENDSEC;")
+            .ok_or("data section unterminated")?
+            .0;
+        let mut defined = std::collections::BTreeSet::new();
+        for line in data.lines() {
+            if let Some(rest) = line.strip_prefix('#') {
+                let id: u32 = rest
+                    .split_whitespace()
+                    .next()
+                    .and_then(|t| t.split_whitespace().next())
+                    .unwrap_or_default()
+                    .parse()
+                    .map_err(|_| "entity ids must be numbers")?;
+                if !defined.insert(id) {
+                    return Err("duplicate entity ids".into());
+                }
+            }
+        }
+        assert_eq!(defined.iter().next(), Some(&1), "numbering starts at one");
+        assert_eq!(
+            defined.len(),
+            *defined.iter().next_back().unwrap_or(&0) as usize,
+            "every id up to the highest is defined"
+        );
+        let mut references = Vec::new();
+        let bytes = data.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            if bytes[index] == b'#' {
+                let mut end = index + 1;
+                while end < bytes.len() && bytes[end].is_ascii_digit() {
+                    end += 1;
+                }
+                let id: u32 = data[index + 1..end].parse().map_err(|_| "bad reference")?;
+                references.push(id);
+                index = end;
+            } else {
+                index += 1;
+            }
+        }
+        assert!(
+            references.iter().all(|r| defined.contains(r)),
+            "every reference names a defined entity"
+        );
+        let faces = data.matches("ADVANCED_FACE(").count();
+        let loops = data.matches("EDGE_LOOP(").count();
+        assert_eq!(faces, loops, "every face has exactly one outer bound");
+        assert!(
+            faces >= 18,
+            "the outline and both pads close at least six faces each"
+        );
+        assert!(data.contains("CARTESIAN_POINT('',(0.0000,0.0000,0.0000))"));
+        let ring = vec![Point::new(0.0, 0.0); 100];
+        assert!(
+            thin_ring(&ring).len() <= 32,
+            "long rounded rings are thinned for one file"
+        );
         Ok(())
     }
 
