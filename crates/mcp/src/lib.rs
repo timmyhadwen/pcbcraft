@@ -32,7 +32,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
-        json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs","inputSchema":object(json!({}),&[])}),
+        json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs. copper_only narrows the findings to the copper subset (clearance, width, unrouted, differential-pair checks) for a quick mid-layout pass","inputSchema":object(json!({"copper_only":{"type":"boolean","description":"report only copper-related findings, default false"}}),&[])}),
         json!({"name":"execute","description":"Execute one engine command atomically, optionally rejecting a stale revision","inputSchema":object(json!({"command":{"type":"string"},"params":{"type":"object"},"expected_revision":{"type":"integer","minimum":0}}),&["command","params"])}),
         json!({"name":"batch","description":"Execute 1–128 commands as one transaction and undo step; any failure rolls back everything","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
         json!({"name":"undo","description":"Undo one transaction","inputSchema":object(json!({}),&[])}),
@@ -195,7 +195,39 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             json!({"commands":pcbcraft_engine::commands(),"units":"millimetres and degrees"})
         }
         "inspect_design" => s.inspect(),
-        "checks" => s.checks(),
+        "checks" => {
+            let report = s.checks();
+            if args
+                .get("copper_only")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                const COPPER: [&str; 6] = [
+                    "clearance",
+                    "copper_short",
+                    "track_width",
+                    "unrouted",
+                    "diffpair_gap",
+                    "diffpair_skew",
+                ];
+                let keep = |key: &str| {
+                    report[key]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|f| f["code"].as_str().is_some_and(|c| COPPER.contains(&c)))
+                        .collect::<Vec<_>>()
+                };
+                return Ok(text_result(json!({
+                    "erc": keep("erc"),
+                    "drc": keep("drc"),
+                    "airwires": report["airwires"],
+                    "scope": "Quick copper-only pass: clearance, track width, unrouted copper and differential-pair checks; ERC findings are omitted. See checks.scope for the full rule set.",
+                })));
+            }
+            report
+        }
         "execute" => s
             .execute(
                 string(args, "command")?,
@@ -532,6 +564,90 @@ pub fn start_bridge(session: SharedSession, address: &str) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn checks_copper_only_reports_the_quick_copper_subset() -> Result<(), String> {
+        let session = shared(Session::default());
+        let a = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"net.create","params":{"name":"A"}}),
+        )
+        .pointer("/structuredContent/result/id")
+        .cloned()
+        .ok_or("missing net id")?;
+        let b = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"net.create","params":{"name":"B"}}),
+        )
+        .pointer("/structuredContent/result/id")
+        .cloned()
+        .ok_or("missing net id")?;
+        for (net, y) in [(&a, 10.0), (&b, 10.45)] {
+            call_tool(
+                &session,
+                "execute",
+                &json!({"command":"track.add","params":{"net":net,"start":[10.0,y],"end":[30.0,y],"width":0.3}}),
+            );
+        }
+        let full = call_tool(&session, "checks", &json!({}))["structuredContent"].clone();
+        let codes: Vec<String> = full["drc"]
+            .as_array()
+            .ok_or("missing drc")?
+            .iter()
+            .filter_map(|f| f["code"].as_str().map(str::to_string))
+            .collect();
+        let erc_codes: Vec<String> = full["erc"]
+            .as_array()
+            .ok_or("missing erc")?
+            .iter()
+            .filter_map(|f| f["code"].as_str().map(str::to_string))
+            .collect();
+        assert!(
+            codes.contains(&"clearance".to_string())
+                && erc_codes.contains(&"single_pin_net".to_string()),
+            "the full pass reports copper and non-copper findings, got {codes:?} {erc_codes:?}"
+        );
+        let quick =
+            call_tool(&session, "checks", &json!({"copper_only": true}))["structuredContent"]
+                .clone();
+        let quick_codes: Vec<String> = quick["drc"]
+            .as_array()
+            .ok_or("missing drc")?
+            .iter()
+            .filter_map(|f| f["code"].as_str().map(str::to_string))
+            .collect();
+        assert!(
+            quick_codes.contains(&"clearance".to_string()),
+            "the quick pass keeps the copper finding"
+        );
+        assert!(
+            !quick_codes.contains(&"single_pin_net".to_string())
+                && !quick_codes.contains(&"unrouted".to_string()),
+            "the quick pass drops non-copper findings, got {quick_codes:?}"
+        );
+        assert!(
+            quick["erc"]
+                .as_array()
+                .ok_or("missing erc")?
+                .iter()
+                .all(|f| f["code"] == "unassigned_pin" || f["code"] == "missing_footprint"),
+            "the quick pass keeps only copper-subset ERC findings"
+        );
+        assert!(
+            quick["airwires"].is_array(),
+            "airwires still travel with the quick pass"
+        );
+        assert!(
+            quick["scope"]
+                .as_str()
+                .unwrap_or("")
+                .contains("copper-only"),
+            "the quick pass says what it ran"
+        );
+        Ok(())
+    }
+
     #[test]
     fn native_library_save_load_preserves_original_data_and_rejects_unknown_fields()
     -> Result<(), String> {
