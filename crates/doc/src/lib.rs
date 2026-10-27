@@ -779,6 +779,10 @@ pub struct BoardText {
     /// Text rotation in degrees about the anchor.
     #[serde(default)]
     pub rotation: f64,
+    /// The component whose reference, value, footprint name and field keys
+    /// resolve `${...}` tokens in this text at draw and export time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component: Option<Id>,
 }
 /// A named fabrication output recipe: the export kinds a job writes when it
 /// runs.
@@ -2325,6 +2329,11 @@ impl Project {
                 || t.rotation.abs() > 360_000.0
             {
                 return Err("board text must be 1 to 128 bytes with a finite position and a size between 0.1 and 50 mm".into());
+            }
+            if let Some(bound) = t.component
+                && self.component(bound).is_none()
+            {
+                return Err("board text is bound to an unknown component".into());
             }
         }
         Ok(())

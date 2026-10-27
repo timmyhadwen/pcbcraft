@@ -1458,6 +1458,19 @@ pub fn commands() -> Vec<CommandSpec> {
                 &["id", "degrees"],
             ),
         ),
+        (
+            "text.bind",
+            "Bind a board text to a component so drawings resolve its ${REFERENCE}, ${VALUE}, ${FOOTPRINT} and field-key tokens; null detaches it",
+            schema(
+                json!({"id":id_schema(),"component":{"type":["integer","null"],"minimum":1,"description":"component to resolve tokens from; null detaches"}}),
+                &["id", "component"],
+            ),
+        ),
+        (
+            "text.expand",
+            "Write a bound component's values into one board text's ${...} tokens, or every bound text when no id is given; unknown tokens stay",
+            schema(json!({"id":{"type":"integer","minimum":1}}), &[]),
+        ),
     ];
     entries
         .into_iter()
@@ -3088,6 +3101,27 @@ struct TextPlaceParams {
     #[serde(default = "front")]
     layer: Layer,
 }
+/// Resolve `${REFERENCE}`, `${VALUE}`, `${FOOTPRINT}` and custom field-key
+/// tokens from the component a board text is bound to; unknown tokens stay.
+fn expand_tokens(text: &str, component: &pcbcraft_doc::Component) -> String {
+    let mut out = text
+        .replace("${REFERENCE}", &component.reference)
+        .replace("${VALUE}", &component.value);
+    if out.contains("${FOOTPRINT}") {
+        let name = component
+            .library_footprint
+            .as_ref()
+            .map_or("", |f| f.definition.name.as_str());
+        out = out.replace("${FOOTPRINT}", name);
+    }
+    for field in &component.fields {
+        let token = format!("${{{}}}", field.key);
+        if out.contains(&token) {
+            out = out.replace(&token, &field.value);
+        }
+    }
+    out
+}
 fn text_size() -> f64 {
     1.0
 }
@@ -3115,6 +3149,18 @@ struct TextSetParams {
 struct TextRotateParams {
     id: Id,
     degrees: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextBindParams {
+    id: Id,
+    component: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextExpandParams {
+    #[serde(default)]
+    id: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10303,6 +10349,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 size: a.size,
                 layer: a.layer,
                 rotation: 0.0,
+                component: None,
             });
             Ok(json!({"id":id}))
         }
@@ -10380,6 +10427,52 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .ok_or_else(missing)?;
             text.rotation = a.degrees;
             Ok(json!({"id":text.id,"rotation":text.rotation}))
+        }
+        "text.bind" => {
+            let a: TextBindParams = parse(params)?;
+            if let Some(bound) = a.component
+                && p.component(bound).is_none()
+            {
+                return Err(Error::Invalid("unknown component to bind".into()));
+            }
+            let text = p
+                .board
+                .texts
+                .iter_mut()
+                .find(|t| t.id == a.id)
+                .ok_or_else(missing)?;
+            text.component = a.component;
+            Ok(json!({"id":text.id,"component":text.component}))
+        }
+        "text.expand" => {
+            let a: TextExpandParams = parse(params)?;
+            if let Some(id) = a.id
+                && !p.board.texts.iter().any(|t| t.id == id)
+            {
+                return Err(missing());
+            }
+            let mut expanded: Vec<Id> = vec![];
+            for text in &mut p.board.texts {
+                if a.id.is_some_and(|id| id != text.id) {
+                    continue;
+                }
+                let Some(bound) = text.component else {
+                    continue;
+                };
+                let Some(component) = p.components.iter().find(|c| c.id == bound) else {
+                    return Err(Error::Invalid("bound component is missing".into()));
+                };
+                text.text = expand_tokens(&text.text, component);
+                expanded.push(text.id);
+            }
+            if expanded.is_empty() {
+                return Err(Error::Invalid(if a.id.is_some() {
+                    "that board text is not bound to a component".into()
+                } else {
+                    "no board text is bound to a component".into()
+                }));
+            }
+            Ok(json!({"ids":expanded,"count":expanded.len()}))
         }
         _ => Err(Error::Invalid(format!("unknown command: {command}"))),
     }
@@ -18804,6 +18897,65 @@ mod tests {
         s.undo()?;
         assert_eq!(s.project.board.texts.len(), 1);
         assert_eq!(s.project.board.texts[0].text, "Acme 2026");
+        Ok(())
+    }
+    #[test]
+    fn board_text_variables_bind_expand_and_stay_reversible() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let r1 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R1")
+            .ok_or_else(missing)?
+            .id;
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"note","value":"330 ohm link"}),
+            None,
+        )?;
+        let placed = s.execute(
+            "text.place",
+            json!({"text":"${REFERENCE}=${VALUE} ${note} ${MISSING}","position":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        let id = placed["result"]["id"].as_u64().ok_or_else(missing)?;
+        let bound = s.execute("text.bind", json!({"id":id,"component":r1}), None)?;
+        assert_eq!(bound["result"]["component"], r1);
+        let expanded = s.execute("text.expand", json!({"id":id}), None)?;
+        assert_eq!(expanded["result"]["count"], 1);
+        assert_eq!(
+            s.project.board.texts[0].text, "R1=330 \u{3a9} 330 ohm link ${MISSING}",
+            "known tokens resolve and unknown tokens stay"
+        );
+        s.execute("text.bind", json!({"id":id,"component":null}), None)?;
+        assert!(s.project.board.texts[0].component.is_none());
+        for params in [
+            json!({"id":id,"component":999}),
+            json!({"id":999,"component":r1}),
+            json!({"id":id,"component":r1,"extra":1}),
+            json!({"component":r1}),
+        ] {
+            assert!(s.execute("text.bind", params, None).is_err());
+        }
+        assert!(
+            s.execute("text.expand", json!({}), None).is_err(),
+            "nothing is bound to expand"
+        );
+        assert!(s.execute("text.expand", json!({"id":999}), None).is_err());
+        s.execute("text.bind", json!({"id":id,"component":r1}), None)?;
+        let all = s.execute("text.expand", json!({}), None)?;
+        assert_eq!(
+            all["result"]["count"], 1,
+            "expanding all finds the bound text"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.texts[0].component,
+            Some(r1),
+            "undo restores the binding"
+        );
+        assert!(s.project.validate().is_ok());
         Ok(())
     }
 

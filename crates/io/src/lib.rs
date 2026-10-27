@@ -540,7 +540,7 @@ fn pdf_draw(page: &mut PdfPage, p: &Project, view: &str) -> Result<(), String> {
             } else {
                 [0.2, 0.35, 0.6]
             };
-            page.text(t.position, t.size.max(1.0), rgb, &t.text)?;
+            page.text(t.position, t.size.max(1.0), rgb, &board_text(p, t))?;
         }
         for g in p.graphics.iter().filter(|g| g.layer == "board") {
             pdf_project_graphic(page, g)?;
@@ -2477,6 +2477,36 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
 /// and round pads circles, oval and rectangular pads closed polylines, zones
 /// and board-layer graphics outlines, arcs three-point arcs, labels text.
 /// The board edge and circular cutouts are drawn on their own layer.
+/// Resolve `${...}` tokens in a board text from the component it is bound
+/// to: `${REFERENCE}`, `${VALUE}`, `${FOOTPRINT}` and every custom field
+/// key. Unbound text and unknown tokens are returned unchanged.
+pub fn board_text(p: &Project, t: &pcbcraft_doc::BoardText) -> String {
+    let Some(bound) = t.component else {
+        return t.text.clone();
+    };
+    let Some(c) = p.component(bound) else {
+        return t.text.clone();
+    };
+    let mut out = t
+        .text
+        .replace("${REFERENCE}", &c.reference)
+        .replace("${VALUE}", &c.value);
+    if out.contains("${FOOTPRINT}") {
+        let name = c
+            .library_footprint
+            .as_ref()
+            .map_or("", |f| f.definition.name.as_str());
+        out = out.replace("${FOOTPRINT}", name);
+    }
+    for field in &c.fields {
+        let token = format!("${{{}}}", field.key);
+        if out.contains(&token) {
+            out = out.replace(&token, &field.value);
+        }
+    }
+    out
+}
+
 pub fn dxf_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_ENTITIES: usize = 20_000;
@@ -2740,7 +2770,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
             t.position.y,
             t.size,
             t.rotation,
-            &t.text,
+            &board_text(p, t),
         )?;
     }
     Ok(format!(
@@ -3117,7 +3147,7 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                     "#9ec5ff"
                 },
                 spin,
-                escape(&t.text)
+                escape(&board_text(p, t))
             ));
         }
         for g in p.graphics.iter().filter(|g| g.layer == "board") {
@@ -4329,6 +4359,7 @@ mod tests {
             rotation: 0.0,
             size: 1.0,
             layer: pcbcraft_doc::Layer::Front,
+            component: None,
         });
         project.drawn_wires.push(pcbcraft_doc::DrawnWire {
             id: 104,
@@ -4918,6 +4949,7 @@ mod tests {
             size: 2.0,
             layer: pcbcraft_doc::Layer::Front,
             rotation: 90.0,
+            component: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 2,
@@ -4926,6 +4958,7 @@ mod tests {
             size: 1.0,
             layer: pcbcraft_doc::Layer::Back,
             rotation: 0.0,
+            component: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -4936,6 +4969,55 @@ mod tests {
         assert!(
             pcb.contains("<text x=\"30\" y=\"5\" font-size=\"1\" fill=\"#9ec5ff\">Rev B</text>"),
             "an upright label keeps the plain form"
+        );
+        Ok(())
+    }
+    #[test]
+    fn bound_board_text_resolves_component_tokens_in_the_previews() -> Result<(), String> {
+        let mut project = real_library_project()?;
+        project.components[0]
+            .fields
+            .push(pcbcraft_doc::ComponentField {
+                key: "MPN".into(),
+                value: "RC0805".into(),
+            });
+        project.board.texts.push(pcbcraft_doc::BoardText {
+            id: 90,
+            text: "${REFERENCE} ${VALUE} ${MPN}".into(),
+            position: Point::new(12.0, 12.0),
+            size: 1.0,
+            layer: pcbcraft_doc::Layer::Front,
+            rotation: 0.0,
+            component: Some(1),
+        });
+        project.board.texts.push(pcbcraft_doc::BoardText {
+            id: 91,
+            text: "${FOOTPRINT} ${MYSTERY}".into(),
+            position: Point::new(14.0, 12.0),
+            size: 1.0,
+            layer: pcbcraft_doc::Layer::Front,
+            rotation: 0.0,
+            component: Some(1),
+        });
+        project.validate()?;
+        let pcb = svg(&project, "pcb")?;
+        assert!(
+            pcb.contains(">R1 1k RC0805</text>"),
+            "a bound label resolves reference, value and custom fields"
+        );
+        assert!(
+            pcb.contains(">R_0805_2012Metric ${MYSTERY}</text>"),
+            "the footprint token resolves and an unknown token stays put"
+        );
+        let dxf = dxf_board(&project)?;
+        assert!(
+            dxf.contains("R1 1k RC0805"),
+            "the drawing file carries the resolved string too"
+        );
+        let pdf = pdf_document(&project, "pcb")?;
+        assert!(
+            String::from_utf8_lossy(&pdf).contains("R1 1k RC0805"),
+            "the PDF drawing carries the resolved string"
         );
         Ok(())
     }
@@ -6236,6 +6318,7 @@ mod tests {
             size: 1.5,
             layer: pcbcraft_doc::Layer::Front,
             rotation: 90.0,
+            component: None,
         });
         project.validate()?;
         let dxf = dxf_board(&project)?;
