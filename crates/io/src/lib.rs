@@ -3361,6 +3361,7 @@ mod tests {
             net: None,
             layer: None,
             clearance: 0.5,
+            max_height: None,
             region: pcbcraft_doc::RuleRegion {
                 x: 5.0,
                 y: 5.0,

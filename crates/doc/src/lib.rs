@@ -270,6 +270,11 @@ pub struct RuleArea {
     pub layer: Option<Layer>,
     /// Minimum copper separation demanded inside the area, in millimetres.
     pub clearance: f64,
+    /// When set, components inside the area may not stand taller than this,
+    /// in millimetres: a height restriction for boards that must fit under a
+    /// cover or past another board.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_height: Option<f64>,
     /// The rectangle itself.
     pub region: RuleRegion,
 }
@@ -293,6 +298,7 @@ impl RuleArea {
             && self.region.y >= -1000.0
             && self.region.x + self.region.width <= 1000.0
             && self.region.y + self.region.height <= 1000.0
+            && self.max_height.is_none_or(|h| (0.1..=100.0).contains(&h))
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
