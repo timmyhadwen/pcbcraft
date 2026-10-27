@@ -269,6 +269,40 @@ struct PdfPage {
     scale: f64,
     origin_x: f64,
     origin_y: f64,
+    /// True emits PDF font resources; false emits PostScript font setup.
+    pdf_font: bool,
+}
+/// Any surface that can receive the shared view drawing: path outlines,
+/// circles and text, in millimetre design coordinates.
+trait DrawPage {
+    fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String>;
+    fn circle(
+        &mut self,
+        center: Point,
+        radius: f64,
+        rgb: [f64; 3],
+        w: f64,
+        fill: bool,
+    ) -> Result<(), String>;
+    fn text(&mut self, at: Point, size: f64, rgb: [f64; 3], value: &str) -> Result<(), String>;
+}
+impl DrawPage for PdfPage {
+    fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String> {
+        PdfPage::path(self, points, rgb, w, fill)
+    }
+    fn circle(
+        &mut self,
+        center: Point,
+        radius: f64,
+        rgb: [f64; 3],
+        w: f64,
+        fill: bool,
+    ) -> Result<(), String> {
+        PdfPage::circle(self, center, radius, rgb, w, fill)
+    }
+    fn text(&mut self, at: Point, size: f64, rgb: [f64; 3], value: &str) -> Result<(), String> {
+        PdfPage::text(self, at, size, rgb, value)
+    }
 }
 const PDF_MAX_OPS: usize = 20_000;
 const PDF_K: f64 = 72.0 / 25.4;
@@ -281,19 +315,22 @@ impl PdfPage {
             scale: 1.0,
             origin_x: 0.0,
             origin_y: 0.0,
+            pdf_font: true,
         }
     }
     fn fit(&mut self, min: Point, max: Point) {
+        self.fit_to(842.0, 595.0, 28.0, min, max);
+    }
+    fn fit_to(&mut self, page_w: f64, page_h: f64, margin: f64, min: Point, max: Point) {
         let design_w = (max.x - min.x).max(1.0);
         let design_h = (max.y - min.y).max(1.0);
-        let margin = 28.0;
-        let fit_w = (842.0 - 2.0 * margin) / (design_w * PDF_K);
-        let fit_h = (595.0 - 2.0 * margin) / (design_h * PDF_K);
+        let fit_w = (page_w - 2.0 * margin) / (design_w * PDF_K);
+        let fit_h = (page_h - 2.0 * margin) / (design_h * PDF_K);
         self.scale = fit_w.min(fit_h).clamp(0.02, 4.0);
         let draw_w = design_w * PDF_K * self.scale;
         let draw_h = design_h * PDF_K * self.scale;
-        self.origin_x = (842.0 - draw_w) / 2.0 - min.x * PDF_K * self.scale;
-        self.origin_y = (595.0 + draw_h) / 2.0 + min.y * PDF_K * self.scale;
+        self.origin_x = (page_w - draw_w) / 2.0 - min.x * PDF_K * self.scale;
+        self.origin_y = (page_h + draw_h) / 2.0 + min.y * PDF_K * self.scale;
     }
     fn at(&self, p: Point) -> (f64, f64) {
         (
@@ -430,8 +467,18 @@ impl PdfPage {
         let (x, y) = self.at(at);
         self.color(rgb, false)?;
         self.op(&format!(
-            "BT /F1 {} Tf {} {} Td ({}) Tj ET",
-            Self::n((size * PDF_K * self.scale).clamp(4.0, 72.0)),
+            "BT {} {} {} Td ({}) Tj ET",
+            if self.pdf_font {
+                format!(
+                    "/F1 {} Tf",
+                    Self::n((size * PDF_K * self.scale).clamp(4.0, 72.0))
+                )
+            } else {
+                format!(
+                    "/Helvetica findfont {} scalefont setfont",
+                    Self::n((size * PDF_K * self.scale).clamp(4.0, 72.0))
+                )
+            },
             Self::n(x),
             Self::n(y),
             Self::escape(value),
@@ -441,7 +488,7 @@ impl PdfPage {
 
 /// Draw one library graphic at a position.
 fn pdf_graphic(
-    page: &mut PdfPage,
+    page: &mut impl DrawPage,
     g: &pcbcraft_library::Graphic,
     at: Point,
     rotation: f64,
@@ -464,7 +511,7 @@ fn pdf_graphic(
 }
 
 /// Draw one project graphic (free board or schematic artwork).
-fn pdf_project_graphic(page: &mut PdfPage, g: &pcbcraft_doc::Graphic) -> Result<(), String> {
+fn pdf_project_graphic(page: &mut impl DrawPage, g: &pcbcraft_doc::Graphic) -> Result<(), String> {
     if g.shape == "text" {
         let anchor = g.points.first().copied().unwrap_or_default();
         return page.text(anchor, g.width.max(1.0), [0.0, 0.0, 0.0], &g.text);
@@ -474,7 +521,7 @@ fn pdf_project_graphic(page: &mut PdfPage, g: &pcbcraft_doc::Graphic) -> Result<
 }
 
 /// Render one view of the design onto the page.
-fn pdf_draw(page: &mut PdfPage, p: &Project, view: &str) -> Result<(), String> {
+fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), String> {
     let front = [0.85, 0.25, 0.15];
     let back = [0.2, 0.45, 0.8];
     let copper_edge = [0.0, 0.0, 0.0];
@@ -734,6 +781,32 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
         format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
     );
     Ok(pdf)
+}
+
+/// Draw one view as a standalone PostScript document: the same path, circle
+/// and text operations the PDF writer emits, wrapped in a PostScript header
+/// with a letter-size landscape page box and closed by showpage.
+pub fn postscript(p: &Project, view: &str) -> Result<String, String> {
+    p.validate()?;
+    if view != "pcb" && view != "schematic" {
+        return Err("view must be pcb or schematic".into());
+    }
+    let (min, max) = preview_bounds(p, view);
+    let mut page = PdfPage::new();
+    page.pdf_font = false;
+    page.fit_to(792.0, 612.0, 36.0, min, max);
+    page.color([1.0, 1.0, 1.0], false)?;
+    page.op("0 0 792 612 re f")?;
+    pdf_draw(&mut page, p, view)?;
+    let title = if p.name.trim().is_empty() {
+        "untitled board"
+    } else {
+        p.name.trim()
+    };
+    Ok(format!(
+        "%!PS-Adobe-3.0\n%%Title: PCBCraft {view} view of {title}\n%%BoundingBox: 0 0 792 612\n%%Pages: 1\n%%EndComments\n%%Page: 1 1\n{}showpage\n%%EOF\n",
+        page.ops
+    ))
 }
 
 /// A minimal AP214 (STEP) writer. The board outline and every placed pad
@@ -5549,6 +5622,86 @@ mod tests {
         assert!(
             archive_project(&wrong).is_err(),
             "a renamed design is not found"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn postscript_writes_a_printable_document_for_both_views() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 101,
+            net: 1,
+            start: Point::new(5.0, 5.0),
+            end: Point::new(40.0, 30.0),
+            width: 0.3,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: Some(Point::new(20.0, 20.0)),
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 102,
+            net: 1,
+            position: Point::new(40.0, 30.0),
+            diameter: 0.6,
+            drill: 0.3,
+        });
+        project.board.texts.push(pcbcraft_doc::BoardText {
+            id: 103,
+            text: "GND (pour) 100%".into(),
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            size: 1.0,
+            layer: pcbcraft_doc::Layer::Front,
+            component: None,
+        });
+        project.drawn_wires.push(pcbcraft_doc::DrawnWire {
+            id: 104,
+            net: None,
+            points: vec![Point::new(10.0, 5.0), Point::new(20.0, 5.0)],
+        });
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.labels.push(pcbcraft_doc::Label {
+            id: 105,
+            kind: "global".into(),
+            net: 1,
+            position: Point::new(10.0, 5.0),
+            rotation: 0.0,
+            text: String::new(),
+        });
+        project.validate()?;
+        let pcb = postscript(&project, "pcb")?;
+        assert!(
+            pcb.starts_with("%!PS-Adobe-3.0\n%%Title: PCBCraft pcb view of Untitled circuit\n"),
+            "the file opens as a PostScript document"
+        );
+        assert!(
+            pcb.contains("%%BoundingBox: 0 0 792 612"),
+            "the page box is declared for printers"
+        );
+        assert!(
+            pcb.contains(" findfont") && pcb.contains(" Tj"),
+            "text selects Helvetica rather than a PDF font resource"
+        );
+        assert!(
+            pcb.contains(" m\n") && pcb.contains("\nS\n"),
+            "copper paths are built and stroked"
+        );
+        assert!(
+            pcb.ends_with("showpage\n%%EOF\n"),
+            "the page is sent to the device"
+        );
+        let sch = postscript(&project, "schematic")?;
+        assert!(
+            sch.contains("%%Title: PCBCraft schematic view of"),
+            "the schematic view draws too"
+        );
+        assert!(
+            postscript(&project, "wrong").is_err(),
+            "only the two known views can be drawn"
         );
         Ok(())
     }

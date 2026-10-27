@@ -798,7 +798,7 @@ impl OutputJob {
         !self.name.trim().is_empty()
             && self.name.len() <= 64
             && !self.kinds.is_empty()
-            && self.kinds.len() <= 18
+            && self.kinds.len() <= 19
             && self.kinds.iter().all(|k| {
                 matches!(
                     k.as_str(),
@@ -820,6 +820,7 @@ impl OutputJob {
                         | "hyperlynx"
                         | "plot"
                         | "report"
+                        | "ps"
                 )
             })
     }

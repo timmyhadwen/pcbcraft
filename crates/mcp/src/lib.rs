@@ -25,6 +25,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_footprint_svg","description":"Write one project-library footprint to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_symbol_svg","description":"Write one project-library symbol to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist (net, component, pin and coordinates in fixed columns) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"ps.write","description":"Write a one-page PostScript drawing of either view with copper, pads, zones and text as real stroke and fill operators, without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"]}}),&["path"])}),
         json!({"name":"pdf.write","description":"Write a one-page vector PDF drawing of the board or schematic (outline, copper, pads, zones, wires, labels and text as real PDF paths) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"],"default":"pcb"}}),&["path"])}),
         json!({"name":"step.write","description":"Write an AP214 STEP file of the board (outline and every pad as solid prisms in millimetres) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"dsn.write","description":"Write a Specctra-style board file (nets, classes, placements, tracks, vias and keepouts as s-expressions) into a directory for external autorouters, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -291,6 +292,16 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             let text = pcbcraft_io::gencad_text(&s.project)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("board.gencad"), text.as_bytes())?;
             json!({"directory":directory,"file":"board.gencad","bytes":text.len()})
+        }
+        "ps.write" => {
+            let directory = string(args, "path")?;
+            let view = args.get("view").and_then(Value::as_str).unwrap_or("pcb");
+            let text = pcbcraft_io::postscript(&s.project, view)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join(format!("pcb-{view}.ps")),
+                text.as_bytes(),
+            )?;
+            json!({"directory":directory,"file":format!("pcb-{view}.ps"),"bytes":text.len()})
         }
         "pdf.write" => {
             let directory = string(args, "path")?;
@@ -1670,6 +1681,52 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing a test netlist must not change the project"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ps_write_exports_a_drawing_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(&session, "ps.write", &json!({"path":directory.path()}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        assert_eq!(export["structuredContent"]["file"], json!("pcb-pcb.ps"));
+        let text = std::fs::read_to_string(directory.path().join("pcb-pcb.ps"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            text.starts_with("%!PS-Adobe-3.0"),
+            "the drawing opens as PostScript"
+        );
+        assert!(
+            text.ends_with("showpage\n%%EOF\n"),
+            "the page ends with showpage"
+        );
+        let schematic = call_tool(
+            &session,
+            "ps.write",
+            &json!({"path":directory.path(),"view":"schematic"}),
+        );
+        assert_eq!(schematic.get("isError"), Some(&json!(false)));
+        assert_eq!(
+            schematic["structuredContent"]["file"],
+            json!("pcb-schematic.ps")
+        );
+        assert_eq!(
+            call_tool(
+                &session,
+                "ps.write",
+                &json!({"path":directory.path(),"view":"isometric"})
+            )
+            .get("isError"),
+            Some(&json!(true)),
+            "only the two known views can be drawn"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "writing the drawing must not change the project"
         );
         Ok(())
     }
