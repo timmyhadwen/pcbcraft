@@ -260,6 +260,482 @@ pub fn archive_project(bytes: &[u8]) -> Result<Project, String> {
     Ok(project)
 }
 
+/// A small vector PDF writer: the drawing is collected as path and text
+/// operations in page space (PostScript points, origin bottom left) and
+/// assembled into a one-page document without any external dependency.
+struct PdfPage {
+    ops: String,
+    count: usize,
+    scale: f64,
+    origin_x: f64,
+    origin_y: f64,
+}
+const PDF_MAX_OPS: usize = 20_000;
+const PDF_K: f64 = 72.0 / 25.4;
+
+impl PdfPage {
+    fn new() -> Self {
+        PdfPage {
+            ops: String::new(),
+            count: 0,
+            scale: 1.0,
+            origin_x: 0.0,
+            origin_y: 0.0,
+        }
+    }
+    fn fit(&mut self, min: Point, max: Point) {
+        let design_w = (max.x - min.x).max(1.0);
+        let design_h = (max.y - min.y).max(1.0);
+        let margin = 28.0;
+        let fit_w = (842.0 - 2.0 * margin) / (design_w * PDF_K);
+        let fit_h = (595.0 - 2.0 * margin) / (design_h * PDF_K);
+        self.scale = fit_w.min(fit_h).clamp(0.02, 4.0);
+        let draw_w = design_w * PDF_K * self.scale;
+        let draw_h = design_h * PDF_K * self.scale;
+        self.origin_x = (842.0 - draw_w) / 2.0 - min.x * PDF_K * self.scale;
+        self.origin_y = (595.0 + draw_h) / 2.0 + min.y * PDF_K * self.scale;
+    }
+    fn at(&self, p: Point) -> (f64, f64) {
+        (
+            self.origin_x + p.x * PDF_K * self.scale,
+            self.origin_y - p.y * PDF_K * self.scale,
+        )
+    }
+    fn n(v: f64) -> String {
+        format!("{:.3}", v + 0.0)
+    }
+    fn escape(s: &str) -> String {
+        let ascii: String = s
+            .chars()
+            .map(|c| {
+                if c.is_ascii_graphic() || c == ' ' {
+                    c
+                } else {
+                    '?'
+                }
+            })
+            .collect();
+        ascii
+            .replace('\\', r"\\")
+            .replace('(', r"\(")
+            .replace(')', r"\)")
+    }
+    fn op(&mut self, text: &str) -> Result<(), String> {
+        self.count += 1;
+        if self.count > PDF_MAX_OPS {
+            return Err("the drawing is too complex for one PDF page".into());
+        }
+        self.ops.push_str(text);
+        self.ops.push('\n');
+        Ok(())
+    }
+    fn color(&mut self, rgb: [f64; 3], stroke: bool) -> Result<(), String> {
+        let [r, g, b] = rgb;
+        self.op(&format!(
+            "{} {} {} {}",
+            Self::n(r),
+            Self::n(g),
+            Self::n(b),
+            if stroke { "RG" } else { "rg" }
+        ))
+    }
+    fn width(&mut self, w: f64) -> Result<(), String> {
+        self.op(&format!("{} w", Self::n((w * PDF_K * self.scale).max(0.2))))
+    }
+    /// Trace a polyline subpath; `close` connects the last point to the first.
+    fn subpath(&mut self, points: &[Point], close: bool) -> Result<(), String> {
+        if points.len() < 2 {
+            return Ok(());
+        }
+        let (x, y) = self.at(points[0]);
+        self.op(&format!("{} {} m", Self::n(x), Self::n(y)))?;
+        for p in &points[1..] {
+            let (x, y) = self.at(*p);
+            self.op(&format!("{} {} l", Self::n(x), Self::n(y)))?;
+        }
+        if close {
+            self.op("h")?;
+        }
+        Ok(())
+    }
+    fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String> {
+        if points.len() < 2 {
+            return Ok(());
+        }
+        self.color(rgb, true)?;
+        self.color(rgb, false)?;
+        self.width(w)?;
+        self.subpath(points, true)?;
+        self.op(if fill { "B" } else { "S" })
+    }
+    /// A circle approximated by four cubic Bézier quarters.
+    fn circle(
+        &mut self,
+        center: Point,
+        radius: f64,
+        rgb: [f64; 3],
+        w: f64,
+        fill: bool,
+    ) -> Result<(), String> {
+        const C: f64 = 0.552_284_749_8;
+        self.color(rgb, true)?;
+        self.color(rgb, false)?;
+        self.width(w)?;
+        let (x, y) = self.at(Point::new(center.x - radius, center.y));
+        self.op(&format!("{} {} m", Self::n(x), Self::n(y)))?;
+        let k = radius * C;
+        let arcs = [
+            (
+                Point::new(center.x - radius, center.y + k),
+                Point::new(center.x - k, center.y + radius),
+                Point::new(center.x, center.y + radius),
+            ),
+            (
+                Point::new(center.x + k, center.y + radius),
+                Point::new(center.x + radius, center.y + k),
+                Point::new(center.x + radius, center.y),
+            ),
+            (
+                Point::new(center.x + radius, center.y - k),
+                Point::new(center.x + k, center.y - radius),
+                Point::new(center.x, center.y - radius),
+            ),
+            (
+                Point::new(center.x - k, center.y - radius),
+                Point::new(center.x - radius, center.y - k),
+                Point::new(center.x - radius, center.y),
+            ),
+        ];
+        for (c1, c2, end) in arcs {
+            let (x1, y1) = self.at(c1);
+            let (x2, y2) = self.at(c2);
+            let (x3, y3) = self.at(end);
+            self.op(&format!(
+                "{} {} {} {} {} {} c",
+                Self::n(x1),
+                Self::n(y1),
+                Self::n(x2),
+                Self::n(y2),
+                Self::n(x3),
+                Self::n(y3)
+            ))?;
+        }
+        self.op("h")?;
+        self.op(if fill { "B" } else { "S" })
+    }
+    fn text(&mut self, at: Point, size: f64, rgb: [f64; 3], value: &str) -> Result<(), String> {
+        if value.is_empty() {
+            return Ok(());
+        }
+        let (x, y) = self.at(at);
+        self.color(rgb, false)?;
+        self.op(&format!(
+            "BT /F1 {} Tf {} {} Td ({}) Tj ET",
+            Self::n((size * PDF_K * self.scale).clamp(4.0, 72.0)),
+            Self::n(x),
+            Self::n(y),
+            Self::escape(value),
+        ))
+    }
+}
+
+/// Draw one library graphic at a position.
+fn pdf_graphic(
+    page: &mut PdfPage,
+    g: &pcbcraft_library::Graphic,
+    at: Point,
+    rotation: f64,
+) -> Result<(), String> {
+    let spin = |p: Point| at.offset(p.rotate(-rotation));
+    if let pcbcraft_library::Graphic::Text {
+        position,
+        size,
+        text,
+        ..
+    } = g
+    {
+        return page.text(spin(*position), size.y, [0.0, 0.0, 0.0], text);
+    }
+    let points: Vec<Point> = g.path_points().iter().map(|p| spin(*p)).collect();
+    let (width, fill, layer) = graphic_style(g);
+    let [r8, g8, b8] = layer_color(layer).1;
+    let rgb = [r8 as f64 / 255.0, g8 as f64 / 255.0, b8 as f64 / 255.0];
+    page.path(&points, rgb, width, fill)
+}
+
+/// Draw one project graphic (free board or schematic artwork).
+fn pdf_project_graphic(page: &mut PdfPage, g: &pcbcraft_doc::Graphic) -> Result<(), String> {
+    if g.shape == "text" {
+        let anchor = g.points.first().copied().unwrap_or_default();
+        return page.text(anchor, g.width.max(1.0), [0.0, 0.0, 0.0], &g.text);
+    }
+    let points = g.outline().unwrap_or_else(|| g.points.clone());
+    page.path(&points, [0.1, 0.45, 0.35], g.width.min(0.4), false)
+}
+
+/// Render one view of the design onto the page.
+fn pdf_draw(page: &mut PdfPage, p: &Project, view: &str) -> Result<(), String> {
+    let front = [0.85, 0.25, 0.15];
+    let back = [0.2, 0.45, 0.8];
+    let copper_edge = [0.0, 0.0, 0.0];
+    let pad_gold = [0.72, 0.55, 0.15];
+    let ink = [0.05, 0.05, 0.05];
+    let wire_green = [0.0, 0.45, 0.35];
+    if view == "pcb" {
+        match &p.board.outline {
+            Some(o) => page.path(o, copper_edge, 0.2, true)?,
+            None => {
+                let rect = [
+                    Point::new(0.0, 0.0),
+                    Point::new(p.board.width, 0.0),
+                    Point::new(p.board.width, p.board.height),
+                    Point::new(0.0, p.board.height),
+                ];
+                page.path(&rect, copper_edge, 0.2, true)?;
+            }
+        }
+        for c in &p.board.cutouts {
+            page.circle(c.center, c.radius, [1.0, 1.0, 1.0], 0.1, true)?;
+        }
+        for z in &p.board.zones {
+            let rgb = if z.layer == pcbcraft_doc::Layer::Front {
+                front
+            } else {
+                back
+            };
+            page.path(&z.outline, rgb, 0.1, z.filled)?;
+            for cut in &z.cutouts {
+                page.path(cut, rgb, 0.1, false)?;
+            }
+        }
+        for t in &p.board.tracks {
+            let rgb = if t.layer == pcbcraft_doc::Layer::Front {
+                front
+            } else {
+                back
+            };
+            match t.curve() {
+                Some(arc) => {
+                    let mut points = vec![t.start];
+                    let steps = 24;
+                    for i in 1..steps {
+                        let f = i as f64 / steps as f64;
+                        points.push(arc.point_at(f));
+                    }
+                    points.push(t.end);
+                    page.path(&points, rgb, t.width, false)?;
+                }
+                None => page.path(&[t.start, t.end], rgb, t.width, false)?,
+            }
+        }
+        for v in &p.board.vias {
+            page.circle(v.position, v.diameter / 2.0, front, 0.05, true)?;
+            if v.drill > 0.0 {
+                page.circle(v.position, v.drill / 2.0, [1.0, 1.0, 1.0], 0.0, true)?;
+            }
+        }
+        for t in &p.board.texts {
+            let rgb = if t.layer == pcbcraft_doc::Layer::Front {
+                ink
+            } else {
+                [0.2, 0.35, 0.6]
+            };
+            page.text(t.position, t.size.max(1.0), rgb, &t.text)?;
+        }
+        for g in p.graphics.iter().filter(|g| g.layer == "board") {
+            pdf_project_graphic(page, g)?;
+        }
+        for f in &p.board.footprints {
+            if let Some(library) = p
+                .component(f.component)
+                .and_then(|c| c.library_footprint.as_ref())
+            {
+                for g in &library.definition.graphics {
+                    let mut g = g.clone();
+                    if let pcbcraft_library::Graphic::Text { text, .. } = &mut g
+                        && let Some(c) = p.component(f.component)
+                    {
+                        *text = text
+                            .replace("${REFERENCE}", &c.reference)
+                            .replace("${VALUE}", &c.value)
+                            .replace("%R", &c.reference)
+                            .replace("%V", &c.value);
+                    }
+                    pdf_graphic(page, &g, f.position, f.rotation)?;
+                }
+            }
+            for pad in &f.pads {
+                let points: Vec<Point> = pad
+                    .outline_points()
+                    .into_iter()
+                    .map(|pos| f.position.offset(pos.rotate(-f.rotation)))
+                    .collect();
+                page.path(&points, pad_gold, 0.0, true)?;
+                let drill: Vec<Point> = pad
+                    .drill_outline_points()
+                    .into_iter()
+                    .map(|pos| f.position.offset(pos.rotate(-f.rotation)))
+                    .collect();
+                if !drill.is_empty() {
+                    page.path(&drill, [1.0, 1.0, 1.0], 0.0, true)?;
+                }
+            }
+            if let Some(c) = p.component(f.component) {
+                let (min, max) = footprint_bounds(p, f);
+                let label_x = (min.x + max.x) / 2.0;
+                for (label, y) in [(&c.reference, min.y - 1.2), (&c.value, max.y + 1.2)] {
+                    let point = f
+                        .position
+                        .offset(Point::new(label_x, y).rotate(-f.rotation));
+                    page.text(point, 1.0, ink, label)?;
+                }
+            }
+        }
+    } else {
+        for w in &p.wires {
+            if let Some(path) = p.wire_path(w) {
+                page.path(&path, wire_green, 0.2, false)?;
+            }
+        }
+        for w in &p.drawn_wires {
+            page.path(&w.points, wire_green, 0.2, false)?;
+        }
+        for g in p.graphics.iter().filter(|g| g.layer == "schematic") {
+            pdf_project_graphic(page, g)?;
+        }
+        for l in &p.labels {
+            if l.kind == "junction" {
+                page.circle(l.position, 0.35, wire_green, 0.0, true)?;
+            } else {
+                page.text(l.position, 1.5, ink, &label_text(l, p.net_name(l.net)))?;
+            }
+        }
+        for fc in &p.no_connects {
+            if let Some(point) = p.pin_position(&fc.pin) {
+                page.path(
+                    &[
+                        Point::new(point.x - 0.6, point.y - 0.6),
+                        Point::new(point.x + 0.6, point.y + 0.6),
+                    ],
+                    front,
+                    0.25,
+                    false,
+                )?;
+                page.path(
+                    &[
+                        Point::new(point.x - 0.6, point.y + 0.6),
+                        Point::new(point.x + 0.6, point.y - 0.6),
+                    ],
+                    front,
+                    0.25,
+                    false,
+                )?;
+            }
+        }
+        for c in p.components.iter().flat_map(|c| c.schematic_views()) {
+            if let Some(library) = &c.library_symbol {
+                for g in library
+                    .definition
+                    .graphics
+                    .iter()
+                    .filter(|g| (g.unit == 0 || g.unit == library.unit) && g.body_style <= 1)
+                {
+                    pdf_graphic(page, &g.primitive, c.position, c.rotation)?;
+                }
+                for pin in library.definition.pins.iter().filter(|pin| {
+                    (pin.unit == 0 && library.unit == 1 || pin.unit == library.unit)
+                        && pin.body_style <= 1
+                }) {
+                    let angle = pin.angle.to_radians();
+                    let local_end = pin.position.offset(Point::new(
+                        pin.length * angle.cos(),
+                        -pin.length * angle.sin(),
+                    ));
+                    let start = c.position.offset(pin.position.rotate(-c.rotation));
+                    let end = c.position.offset(local_end.rotate(-c.rotation));
+                    page.path(&[start, end], ink, 0.15, false)?;
+                    page.text(start, 0.9, ink, &pin.number)?;
+                }
+            } else {
+                let box_points = [
+                    Point::new(-3.0, -1.5),
+                    Point::new(3.0, -1.5),
+                    Point::new(3.0, 1.5),
+                    Point::new(-3.0, 1.5),
+                ];
+                let body: Vec<Point> = box_points
+                    .iter()
+                    .map(|p| c.position.offset(p.rotate(-c.rotation)))
+                    .collect();
+                page.path(&body, ink, 0.15, false)?;
+                for stub in [[-5.0, -3.0], [3.0, 5.0]] {
+                    let a = c
+                        .position
+                        .offset(Point::new(stub[0], 0.0).rotate(-c.rotation));
+                    let b = c
+                        .position
+                        .offset(Point::new(stub[1], 0.0).rotate(-c.rotation));
+                    page.path(&[a, b], ink, 0.2, false)?;
+                }
+            }
+            page.text(
+                Point::new(c.position.x, c.position.y - 3.0),
+                1.5,
+                ink,
+                &format!("{} {}", c.reference, c.value),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Export the design as a one-page vector PDF document, in bytes.
+pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
+    p.validate()?;
+    if view != "pcb" && view != "schematic" {
+        return Err("view must be pcb or schematic".into());
+    }
+    let (min, max) = preview_bounds(p, view);
+    let mut page = PdfPage::new();
+    page.fit(min, max);
+    page.color([1.0, 1.0, 1.0], false)?;
+    page.op("0 0 842 595 re f")?;
+    pdf_draw(&mut page, p, view)?;
+    let content = page.ops.as_bytes();
+    let mut pdf: Vec<u8> = Vec::new();
+    let mut offsets = [0u32; 5];
+    pdf.extend_from_slice(b"%PDF-1.4\n");
+    for (index, body) in [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>".to_string(),
+        format!(
+            "<< /Length {} >>\nstream\n{}endstream",
+            content.len(),
+            String::from_utf8_lossy(content)
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+    ]
+    .iter()
+    .enumerate()
+    {
+        offsets[index] = pdf.len() as u32;
+        pdf.extend_from_slice(
+            format!("{} 0 obj\n{}\nendobj\n", index + 1, body)
+                .as_bytes(),
+        );
+    }
+    let xref_at = pdf.len() as u32;
+    pdf.extend_from_slice(b"xref\n0 5\n0000000000 65535 f \n");
+    for offset in offsets.iter() {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
+    );
+    Ok(pdf)
+}
+
 pub fn kicad_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let b = &p.board;
@@ -2554,6 +3030,110 @@ mod tests {
             archive_project(&wrong).is_err(),
             "a renamed design is not found"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn pdf_documents_render_both_views_with_valid_cross_references() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 101,
+            net: 1,
+            start: Point::new(5.0, 5.0),
+            end: Point::new(40.0, 30.0),
+            width: 0.3,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: Some(Point::new(20.0, 20.0)),
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 102,
+            net: 1,
+            position: Point::new(40.0, 30.0),
+            diameter: 0.6,
+            drill: 0.3,
+        });
+        project.board.texts.push(pcbcraft_doc::BoardText {
+            id: 103,
+            text: "GND (pour) 100%".into(),
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            size: 1.0,
+            layer: pcbcraft_doc::Layer::Front,
+        });
+        project.drawn_wires.push(pcbcraft_doc::DrawnWire {
+            id: 104,
+            net: None,
+            points: vec![Point::new(10.0, 5.0), Point::new(20.0, 5.0)],
+        });
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.labels.push(pcbcraft_doc::Label {
+            id: 105,
+            kind: "global".into(),
+            net: 1,
+            position: Point::new(10.0, 5.0),
+            rotation: 0.0,
+            text: String::new(),
+        });
+        project.validate()?;
+        for view in ["pcb", "schematic"] {
+            let pdf = pdf_document(&project, view)?;
+            assert!(pdf.starts_with(b"%PDF-1.4"), "a PDF names its version");
+            assert!(pdf.windows(6).any(|w| w == b"%%EOF\n"));
+            let text = String::from_utf8(pdf.clone()).map_err(|_| "PDFs are ASCII")?;
+            let xref_at = text.find("\nxref\n").map(|at| at + 1).unwrap_or(usize::MAX);
+            let stated: usize = text
+                .rsplit_once("startxref\n")
+                .map(|(_, tail)| tail.lines().next().unwrap_or_default())
+                .and_then(|line| line.trim().parse().ok())
+                .unwrap_or(usize::MAX);
+            assert_eq!(
+                stated, xref_at,
+                "the trailer points exactly at the cross-reference table"
+            );
+            assert_eq!(
+                &text[xref_at..xref_at + 4],
+                "xref",
+                "the cross-reference table sits where the trailer says"
+            );
+            let entries: Vec<usize> = text[xref_at..]
+                .lines()
+                .skip(2)
+                .take(6)
+                .filter_map(|l| l.split(' ').next().and_then(|v| v.parse().ok()))
+                .collect();
+            assert_eq!(
+                entries.len(),
+                6,
+                "the free slot and the five objects are listed"
+            );
+            assert_eq!(entries[0], 0, "the first slot is the free entry");
+            for (index, offset) in entries[1..].iter().enumerate() {
+                assert!(
+                    text[*offset..].starts_with(&format!("{} 0 obj", index + 1)),
+                    "cross-reference entry {} points at object {}",
+                    index + 1,
+                    index + 1
+                );
+            }
+            assert!(text.contains("BT /F1"));
+            if view == "pcb" {
+                assert!(
+                    text.contains("(GND \\(pour\\) 100%)"),
+                    "board text lands on the page with brackets escaped"
+                );
+            } else {
+                assert!(
+                    text.contains("({GND})"),
+                    "the schematic page draws the global label"
+                );
+            }
+        }
+        assert!(pdf_document(&project, "layout").is_err());
+        assert!(pdf_document(&Project::default(), "pcb")?.starts_with(b"%PDF-1.4"));
         Ok(())
     }
 

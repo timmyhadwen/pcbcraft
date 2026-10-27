@@ -21,6 +21,7 @@ pub fn tool_list() -> Value {
         json!({"name":"gerber.export","description":"Write fabrication outputs (Gerber RS-274X front and back copper, board outline, Excellon drill map) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"netlist.write","description":"Write a plain-text netlist, one line per net with its component pins, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist (net, component, pin and coordinates in fixed columns) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"pdf.write","description":"Write a one-page vector PDF drawing of the board or schematic (outline, copper, pads, zones, wires, labels and text as real PDF paths) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"],"default":"pcb"}}),&["path"])}),
         json!({"name":"dsn.write","description":"Write a Specctra-style board file (nets, classes, placements, tracks, vias and keepouts as s-expressions) into a directory for external autorouters, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),&["path"])}),
         json!({"name":"dxf.export","description":"Write the board drawing as an ASCII DXF file (copper tracks, vias, pads, zones, board graphics, outline and labels) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -149,6 +150,16 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             let text = pcbcraft_io::specctra_dsn(&s.project)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("pcb.dsn"), text.as_bytes())?;
             json!({"directory":directory,"file":"pcb.dsn"})
+        }
+        "pdf.write" => {
+            let directory = string(args, "path")?;
+            let view = args.get("view").and_then(Value::as_str).unwrap_or("pcb");
+            let bytes = pcbcraft_io::pdf_document(&s.project, view)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join(format!("pcb-{view}.pdf")),
+                &bytes,
+            )?;
+            json!({"directory":directory,"file":format!("pcb-{view}.pdf"),"bytes":bytes.len()})
         }
         "ipc356.write" => {
             let directory = string(args, "path")?;
@@ -861,6 +872,42 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing a test netlist must not change the project"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn pdf_write_exports_a_drawing_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(&session, "pdf.write", &json!({"path":directory.path()}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let bytes =
+            std::fs::read(directory.path().join("pcb-pcb.pdf")).map_err(|e| e.to_string())?;
+        assert!(bytes.starts_with(b"%PDF-1.4"), "the file is a PDF");
+        assert!(bytes.windows(6).any(|w| w == b"%%EOF\n"));
+        let schematic = call_tool(
+            &session,
+            "pdf.write",
+            &json!({"path":directory.path(),"view":"schematic"}),
+        );
+        assert_eq!(schematic.get("isError"), Some(&json!(false)));
+        assert!(
+            std::fs::read(directory.path().join("pcb-schematic.pdf"))
+                .map_err(|e| e.to_string())?
+                .starts_with(b"%PDF-1.4")
+        );
+        let bad = call_tool(
+            &session,
+            "pdf.write",
+            &json!({"path":directory.path(),"view":"layout"}),
+        );
+        assert_eq!(bad.get("isError"), Some(&json!(true)));
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "writing a PDF must not change the project"
         );
         Ok(())
     }
