@@ -3,6 +3,21 @@ use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Layer};
 use pcbcraft_geom::point_segment;
 
+/// Net spotlight: copper on the spotlighted net takes the accent colour and
+/// everything else fades, so one click can trace a net across the board.
+fn spotlight(lit: Option<Id>, net: Option<Id>, base: Color32, hot: Color32) -> Color32 {
+    match lit {
+        None => base,
+        Some(hot_net) => {
+            if net == Some(hot_net) {
+                hot
+            } else {
+                base.gamma_multiply(0.25)
+            }
+        }
+    }
+}
+
 fn snap(p: Point) -> Point {
     Point::new((p.x * 2.0).round() / 2.0, (p.y * 2.0).round() / 2.0)
 }
@@ -94,6 +109,14 @@ fn polygon_contains(points: &[Point], pos: Point) -> bool {
     }
     inside
 }
+impl App {
+    /// Copper colour for one net under the current spotlight: the lit net
+    /// glows in the accent colour, other copper fades away.
+    fn copper(&self, net: Option<Id>, base: Color32) -> Color32 {
+        spotlight(self.highlight_net, net, base, self.accent())
+    }
+}
+
 impl App {
     pub(super) fn select_at(&mut self, pos: Point, zoom: f32) {
         let id = self.pick_object(pos, zoom);
@@ -999,9 +1022,9 @@ impl App {
                     if self.selected == Some(t.id) {
                         self.accent()
                     } else if t.layer == Layer::Front {
-                        Color32::from_rgb(245, 141, 121)
+                        self.copper(Some(t.net), Color32::from_rgb(245, 141, 121))
                     } else {
-                        Color32::from_rgb(116, 167, 236)
+                        self.copper(Some(t.net), Color32::from_rgb(116, 167, 236))
                     },
                 ),
             );
@@ -1015,7 +1038,7 @@ impl App {
                 if self.selected == Some(v.id) {
                     self.accent()
                 } else {
-                    Color32::from_rgb(245, 141, 121)
+                    self.copper(Some(v.net), Color32::from_rgb(245, 141, 121))
                 },
             );
             if v.drill > 0.0 {
@@ -1109,7 +1132,7 @@ impl App {
                             .into_iter()
                             .map(|p| camera.screen(f.position.offset(p.rotate(-f.rotation)), rect))
                             .collect(),
-                        Color32::from_rgb(230, 194, 125),
+                        self.copper(pad.net, Color32::from_rgb(230, 194, 125)),
                         Stroke::NONE,
                     ));
                     let hole = pad.drill_outline_points();
@@ -1252,6 +1275,38 @@ mod library_render_tests {
                 .shapes
                 .iter()
                 .any(|s| matches!(&s.shape,egui::Shape::Path(p) if p.fill==Color32::WHITE))
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_net_spotlight_lights_one_net_and_fades_the_rest() {
+        let copper = Color32::from_rgb(245, 141, 121);
+        let hot = Color32::from_rgb(255, 200, 0);
+        assert_eq!(
+            spotlight(None, Some(4), copper, hot),
+            copper,
+            "with no spotlight every net keeps its own colour"
+        );
+        assert_eq!(
+            spotlight(Some(4), Some(4), copper, hot),
+            hot,
+            "the lit net glows in the accent colour"
+        );
+        let faded = spotlight(Some(4), Some(9), copper, hot);
+        assert_ne!(faded, copper);
+        assert!(
+            faded.gamma_multiply(4.0) != copper,
+            "other copper is dimmed, not recoloured"
+        );
+        assert_eq!(
+            spotlight(Some(4), None, copper, hot),
+            copper.gamma_multiply(0.25),
+            "copper without a net fades while a net is lit"
         );
     }
 }

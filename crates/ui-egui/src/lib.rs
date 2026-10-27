@@ -263,6 +263,7 @@ pub struct App {
     tab: Tab,
     tool: Tool,
     selected: Option<Id>,
+    highlight_net: Option<Id>,
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
     preferences: Preferences,
@@ -368,6 +369,7 @@ impl App {
             },
             tool: Tool::Select,
             selected: None,
+            highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
             preferences,
@@ -956,14 +958,36 @@ impl App {
                 }
                 ui.add_space(20.0);
                 ui.label(egui::RichText::new("NETS").size(10.0).color(self.muted()));
-                for net in &self.project.nets {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("*").color(self.accent()));
-                        ui.label(&net.name);
-                    });
+                if let Some(lit) = self.highlight_net
+                    && !self.project.nets.iter().any(|n| n.id == lit)
+                {
+                    self.highlight_net = None;
+                }
+                for net in self.project.nets.clone() {
+                    let lit = self.highlight_net == Some(net.id);
+                    let row = ui
+                        .selectable_label(
+                            lit,
+                            format!("{}   {}", net.name, if lit { "\u{25cf}" } else { "" }),
+                        )
+                        .on_hover_text(
+                            "Spotlight this net: its copper, vias and pads light up on the board while everything else fades. Click again to clear the spotlight.",
+                        );
+                    if row.clicked() {
+                        self.highlight_net = if lit { None } else { Some(net.id) };
+                    }
                 }
                 if self.project.nets.is_empty() {
                     empty_state(ui, EMPTY_NETS, self.muted());
+                }
+                if let Some(lit) = self.highlight_net
+                    && let Some(net) = self.project.nets.iter().find(|n| n.id == lit)
+                {
+                    ui.label(
+                        egui::RichText::new(format!("Spotlighting {} on the board.", net.name))
+                            .size(10.0)
+                            .color(self.accent()),
+                    );
                 }
                 ui.add_space(20.0);
                 ui.label(egui::RichText::new("BOARD").size(10.0).color(self.muted()));
