@@ -21,6 +21,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
         ("library.footprint.pad_set","Add or replace one pad on a project-library footprint by its number, so custom packages gain exposed pads, thermal vias or extra terminals without rewriting the whole definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"object","description":"a full pad: number, shape, size, position, layers and optional drill, as library readers emit them"}}),&["name","pad"])),
         ("library.footprint.pad_remove","Remove one pad from a project-library footprint by its number; the footprint keeps at least one pad, and placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"}}),&["name","pad"])),
+        ("library.footprint.duplicate","Copy a project-library footprint under a new name as one undoable step, the starting point for a custom variant of a vendor package; the original and every placed copy stay untouched",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","description":"name for the copy, which must not exist yet"}}),&["name","new_name"])),
+        ("library.symbol.duplicate","Copy a project-library symbol under a new name as one undoable step, the starting point for a custom variant of a vendor symbol; the original and every placed copy stay untouched",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","description":"name for the copy, which must not exist yet"}}),&["name","new_name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
 }
 #[derive(Deserialize)]
@@ -57,6 +59,12 @@ struct FootprintParams {
 #[serde(deny_unknown_fields)]
 struct PathParams {
     path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DuplicateParams {
+    name: String,
+    new_name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -667,6 +675,63 @@ pub(super) fn run(
             };
             p.library.validate()?;
             Ok(json!({"name": name, "pad": a.pad, "pads": pads}))
+        }
+        "library.footprint.duplicate" | "library.symbol.duplicate" => {
+            let a: DuplicateParams = parse(params)?;
+            if a.name.is_empty()
+                || a.new_name.is_empty()
+                || a.name.len() > 128
+                || a.new_name.len() > 128
+            {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            if a.name == a.new_name {
+                return Err(Error::Invalid("the copy needs a name of its own".into()));
+            }
+            let foot = command == "library.footprint.duplicate";
+            if foot {
+                let source = p
+                    .library
+                    .footprints
+                    .iter()
+                    .find(|f| f.name == a.name)
+                    .ok_or_else(missing)?
+                    .clone();
+                if p.library.footprints.iter().any(|f| f.name == a.new_name) {
+                    return Err(Error::Invalid(format!(
+                        "a footprint named {} already exists",
+                        a.new_name
+                    )));
+                }
+                let mut copy = source;
+                copy.name = a.new_name.clone();
+                copy.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                p.library.footprints.push(copy);
+                p.library.footprints.sort_by(|x, y| x.name.cmp(&y.name));
+            } else {
+                let source = p
+                    .library
+                    .symbols
+                    .iter()
+                    .find(|f| f.name == a.name)
+                    .ok_or_else(missing)?
+                    .clone();
+                if p.library.symbols.iter().any(|f| f.name == a.new_name) {
+                    return Err(Error::Invalid(format!(
+                        "a symbol named {} already exists",
+                        a.new_name
+                    )));
+                }
+                let mut copy = source;
+                copy.name = a.new_name.clone();
+                copy.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                p.library.symbols.push(copy);
+                p.library.symbols.sort_by(|x, y| x.name.cmp(&y.name));
+            }
+            p.library.validate()?;
+            Ok(json!({"name": a.name, "new_name": a.new_name}))
         }
         "component.place_custom" => {
             let a: Place = parse(params)?;
