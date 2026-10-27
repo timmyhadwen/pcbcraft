@@ -237,6 +237,32 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "net.tie",
+            "Merge two nets into one: every pin, wire, label, track, via and zone on the source net joins the target net, net class and clearance pair memberships follow, and the source net is removed",
+            schema(
+                json!({"source":id_schema(),"target":id_schema()}),
+                &["source", "target"],
+            ),
+        ),
+        (
+            "net.swap",
+            "Exchange the names of two nets; each net keeps its id, members and copper, so two nets that crossed during a reassignment can be corrected in one step",
+            schema(
+                json!({"id_a":id_schema(),"id_b":id_schema()}),
+                &["id_a", "id_b"],
+            ),
+        ),
+        (
+            "pins.set_all_no_connect",
+            "Flag every pin of one component that is neither wired nor assigned, in a single undo step; pins already flagged are skipped",
+            schema(json!({"component":id_schema()}), &["component"]),
+        ),
+        (
+            "pins.clear_all_no_connect",
+            "Remove every no-connect flag of one component in a single undo step",
+            schema(json!({"component":id_schema()}), &["component"]),
+        ),
+        (
             "net.set_length",
             "Set a target routed length and tolerance for one net, or clear the target by omitting it; nets in a class follow their own target when they have one",
             schema(
@@ -1238,7 +1264,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags, and pins that can be released from a net again, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing and a pick-and-place centroid file, written straight to disk; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1767,6 +1793,23 @@ struct LabelParams {
 #[serde(deny_unknown_fields)]
 struct NoConnectParams {
     pin: PinRef,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetTieParams {
+    source: Id,
+    target: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetSwapParams {
+    id_a: Id,
+    id_b: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentRef {
+    component: Id,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3433,6 +3476,162 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .ok_or_else(missing)?;
             net.name = a.name;
             Ok(json!({"id": a.id}))
+        }
+        "net.tie" => {
+            let a: NetTieParams = parse(params)?;
+            if a.source == a.target {
+                return Err(Error::Invalid("a net cannot be merged into itself".into()));
+            }
+            if !p.nets.iter().any(|n| n.id == a.source) || !p.nets.iter().any(|n| n.id == a.target)
+            {
+                return Err(missing());
+            }
+            let mut moved = 0;
+            for c in p.components.iter_mut() {
+                for pin in c.pins.iter_mut() {
+                    if pin.net == Some(a.source) {
+                        pin.net = Some(a.target);
+                        moved += 1;
+                    }
+                }
+            }
+            for w in p.drawn_wires.iter_mut() {
+                if w.net == Some(a.source) {
+                    w.net = Some(a.target);
+                    moved += 1;
+                }
+            }
+            for w in p.wires.iter_mut() {
+                if w.net == a.source {
+                    w.net = a.target;
+                }
+            }
+            for l in p.labels.iter_mut() {
+                if l.net == a.source {
+                    l.net = a.target;
+                    moved += 1;
+                }
+            }
+            for t in p.board.tracks.iter_mut() {
+                if t.net == a.source {
+                    t.net = a.target;
+                    moved += 1;
+                }
+            }
+            for v in p.board.vias.iter_mut() {
+                if v.net == a.source {
+                    v.net = a.target;
+                    moved += 1;
+                }
+            }
+            for z in p.board.zones.iter_mut() {
+                if z.net == a.source {
+                    z.net = a.target;
+                    moved += 1;
+                }
+            }
+            for class in p.net_classes.iter_mut() {
+                if class.nets.contains(&a.source) {
+                    class.nets.retain(|n| *n != a.source && *n != a.target);
+                    class.nets.push(a.target);
+                    class.nets.sort_unstable();
+                    class.nets.dedup();
+                }
+            }
+            for rule in p.board.pair_rules.iter_mut() {
+                if rule.a == a.source {
+                    rule.a = a.target;
+                }
+                if rule.b == a.source {
+                    rule.b = a.target;
+                }
+            }
+            p.board.pair_rules.retain(|r| r.a != r.b);
+            p.nets.retain(|n| n.id != a.source);
+            Ok(json!({"merged":a.source,"into":a.target,"moved":moved}))
+        }
+        "net.swap" => {
+            let a: NetSwapParams = parse(params)?;
+            if a.id_a == a.id_b {
+                return Err(Error::Invalid("a net cannot be swapped with itself".into()));
+            }
+            let ia = p
+                .nets
+                .iter()
+                .position(|n| n.id == a.id_a)
+                .ok_or_else(missing)?;
+            let ib = p
+                .nets
+                .iter()
+                .position(|n| n.id == a.id_b)
+                .ok_or_else(missing)?;
+            let (na, nb) = p.nets.split_at_mut(ib.min(ia) + 1);
+            let (a_name, b_name) = if ia < ib {
+                (&mut na[ia].name, &mut nb[ib - ia - 1].name)
+            } else {
+                (&mut na[ib].name, &mut nb[ia - ib - 1].name)
+            };
+            std::mem::swap(a_name, b_name);
+            Ok(json!({"id_a":a.id_a,"id_b":a.id_b}))
+        }
+        "pins.set_all_no_connect" => {
+            let a: ComponentRef = parse(params)?;
+            let component = p.component(a.component).ok_or_else(missing)?;
+            let numbers: Vec<String> = component
+                .pins
+                .iter()
+                .map(|pin| pin.number.clone())
+                .collect();
+            let mut flagged = 0;
+            for number in numbers {
+                if p.no_connects
+                    .iter()
+                    .any(|f| f.pin.component == a.component && f.pin.pin == number)
+                {
+                    continue;
+                }
+                let connected = p.wires.iter().any(|w| {
+                    (w.from.component == a.component && w.from.pin == number)
+                        || (w.to.component == a.component && w.to.pin == number)
+                }) || p.components.iter().filter(|c| c.id == a.component).any(
+                    |c| {
+                        c.pins
+                            .iter()
+                            .any(|pin| pin.number == number && pin.net.is_some())
+                    },
+                );
+                if connected {
+                    continue;
+                }
+                let id = allocate(next)?;
+                p.no_connects.push(pcbcraft_doc::NoConnectFlag {
+                    id,
+                    pin: PinRef {
+                        component: a.component,
+                        pin: number,
+                    },
+                });
+                flagged += 1;
+            }
+            if flagged == 0 {
+                return Err(Error::Invalid(
+                    "no unassigned pins on that component need a no-connect flag".into(),
+                ));
+            }
+            Ok(json!({"component":a.component,"flagged":flagged}))
+        }
+        "pins.clear_all_no_connect" => {
+            let a: ComponentRef = parse(params)?;
+            p.component(a.component).ok_or_else(missing)?;
+            let before = p.no_connects.len();
+            p.no_connects.retain(|f| f.pin.component != a.component);
+            let cleared = before - p.no_connects.len();
+            if cleared == 0 {
+                return Err(Error::Invalid(
+                    "that component has no no-connect flags to clear".into(),
+                ));
+            }
+            Ok(json!({"component":a.component,"cleared":cleared}))
         }
         "net.set_length" => {
             let a: NetLengthParams = parse(params)?;
@@ -15430,6 +15629,169 @@ mod tests {
         s.execute("object.delete", json!({"id":id}), None)?;
         s.execute("object.delete", json!({"id":second}), None)?;
         assert!(s.project.board.holes.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn net_tie_merges_everything_and_net_swap_exchanges_names_only() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "wire.connect",
+            json!({"net":a,"from":{"component":r1,"pin":"1"},"to":{"component":r2,"pin":"1"}}),
+            None,
+        )?;
+        s.execute(
+            "wire.connect",
+            json!({"net":b,"from":{"component":r1,"pin":"2"},"to":{"component":r2,"pin":"2"}}),
+            None,
+        )?;
+        s.execute(
+            "board.set_pair_rule",
+            json!({"net_a":a,"net_b":b,"clearance":0.5}),
+            None,
+        )?;
+        // While both nets exist, a swap exchanges only their names.
+        s.execute("net.swap", json!({"id_a":a,"id_b":b}), None)?;
+        let name = |s: &Session, id: u64| {
+            s.project
+                .nets
+                .iter()
+                .find(|n| n.id == id)
+                .map(|n| n.name.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(name(&s, a), "B");
+        assert_eq!(name(&s, b), "A");
+        for c in &s.project.components {
+            for pin in &c.pins {
+                let expected = if pin.number == "1" { a } else { b };
+                assert_eq!(pin.net, Some(expected));
+            }
+        }
+        s.undo()?;
+        assert_eq!(name(&s, a), "A");
+        assert_eq!(name(&s, b), "B");
+        assert!(
+            s.execute("net.swap", json!({"id_a":a,"id_b":a}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("net.swap", json!({"id_a":a,"id_b":99}), None)
+                .is_err()
+        );
+        // Merging folds every member of one net into the other.
+        assert!(
+            s.execute("net.tie", json!({"source":a,"target":a}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("net.tie", json!({"source":b,"target":99}), None)
+                .is_err()
+        );
+        let moved = s.execute("net.tie", json!({"source":b,"target":a}), None)?["result"]["moved"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(moved >= 2, "the merge should report the members it moved");
+        assert!(!s.project.nets.iter().any(|n| n.id == b));
+        for c in &s.project.components {
+            for pin in &c.pins {
+                assert_eq!(pin.net, Some(a));
+            }
+        }
+        assert!(s.project.board.pair_rules.is_empty());
+        s.undo()?;
+        assert!(s.project.nets.iter().any(|n| n.id == b));
+        assert_eq!(s.project.board.pair_rules.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn batch_no_connect_flags_and_clears_a_whole_component() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R9","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?;
+        let r9 = s
+            .project
+            .components
+            .last()
+            .map(|c| c.id)
+            .unwrap_or_default();
+        let flagged = s.execute(
+            "pins.set_all_no_connect",
+            json!({"component":r9}),
+            None,
+        )?["result"]["flagged"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(flagged, 2);
+        assert_eq!(s.project.no_connects.len(), 2);
+        assert!(s.project.validate().is_ok());
+        assert!(
+            s.execute("pins.set_all_no_connect", json!({"component":r9}), None)
+                .is_err()
+        );
+        s.undo()?;
+        assert!(s.project.no_connects.is_empty());
+        s.execute("pins.set_all_no_connect", json!({"component":r9}), None)?;
+        let n1 = s.execute("net.create", json!({"name":"N1"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R8","position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let flag = s
+            .project
+            .no_connects
+            .iter()
+            .find(|f| f.pin.component == r9 && f.pin.pin == "1")
+            .map(|f| f.id)
+            .unwrap_or_default();
+        s.execute("object.delete", json!({"id":flag}), None)?;
+        s.execute(
+            "wire.connect",
+            json!({"net":n1,"from":{"component":r9,"pin":"1"},"to":{"component":r2,"pin":"1"}}),
+            None,
+        )?;
+        let cleared = s.execute(
+            "pins.clear_all_no_connect",
+            json!({"component":r9}),
+            None,
+        )?["result"]["cleared"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(cleared, 1);
+        assert!(s.project.no_connects.is_empty());
+        assert!(
+            s.execute("pins.clear_all_no_connect", json!({"component":r9}), None)
+                .is_err()
+        );
         Ok(())
     }
 }
