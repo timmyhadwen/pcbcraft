@@ -9,6 +9,7 @@ pub(super) struct Browser {
     pub(super) kind: bool,
     pub(super) path: String,
     pub(super) query: String,
+    pub(super) filter: String,
     pub(super) results: Option<Value>,
     pub(super) preview: Option<Value>,
     pub(super) pending: Option<std::sync::mpsc::Receiver<(String, Result<Value, String>)>>,
@@ -67,6 +68,21 @@ impl Browser {
         }
     }
 }
+/// True when a result entry should appear under a typed filter: an empty
+/// filter shows everything, otherwise the name or the description must
+/// contain the filter, ignoring case.
+pub(super) fn entry_matches(item: &Value, filter: &str) -> bool {
+    let filter = filter.trim().to_lowercase();
+    filter.is_empty()
+        || item
+            .get("name")
+            .and_then(Value::as_str)
+            .is_some_and(|name| name.to_lowercase().contains(&filter))
+        || item
+            .get("description")
+            .and_then(Value::as_str)
+            .is_some_and(|description| description.to_lowercase().contains(&filter))
+}
 impl App {
     pub(super) fn kicad_library(&mut self, ui: &mut egui::Ui) {
         self.library.poll();
@@ -94,6 +110,7 @@ impl App {
                     self.library.path.clear();
                     self.library.results = None;
                     self.library.preview = None;
+                    self.library.filter.clear();
                 }
             });
         });
@@ -102,6 +119,7 @@ impl App {
             self.library.results = None;
             self.library.preview = None;
             self.library.query.clear();
+            self.library.filter.clear();
         }
         let items = self
             .library
@@ -198,12 +216,19 @@ impl App {
         {
             ui.label("Some library folders exceeded the scan limit; use a specific library path.");
         }
+        let filter = self.library.filter.trim().to_lowercase();
         ui.columns(2,|cols| {
             let left=&mut cols[0];
             if let Some(total)=results.get("total").and_then(Value::as_u64) {left.label(format!("{total} matches in scanned entries · showing up to 100"));}
             if results.get("scan_truncated").and_then(Value::as_bool)==Some(true) {left.label("Directory scan reached its limit; more entries may exist.");}
+            let listed: Vec<Value> = results.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
+            let shown: Vec<&Value> = listed.iter().filter(|item| entry_matches(item, &filter)).collect();
+            let response = left.add(egui::TextEdit::singleline(&mut self.library.filter).hint_text("Filter shown results").desired_width(240.0));
+            let response = response.on_hover_text("Narrow the list below as you type; matches names and descriptions, ignoring case. Double-click to clear.");
+            if left.button("Clear filter").on_hover_text("Show every listed result again.").clicked() || response.double_clicked() {self.library.filter.clear();}
+            if !filter.is_empty() {left.label(format!("{} of {} listed entries match the filter", shown.len(), listed.len()));}
             egui::ScrollArea::vertical().id_salt("library-results").max_height(360.0).show(left,|ui| {
-                for item in results.get("entries").and_then(Value::as_array).into_iter().flatten() {
+                for item in shown {
                     let name=item.get("name").and_then(Value::as_str).unwrap_or("");
                     if ui.add_enabled(!busy,egui::Button::new(name).selected(self.library.preview.as_ref().and_then(|v|v.pointer("/definition/name")).and_then(Value::as_str)==Some(name))).clicked() {
                         self.library.preview=None;

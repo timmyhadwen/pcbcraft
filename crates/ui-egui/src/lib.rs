@@ -1625,6 +1625,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn library_filter_narrows_listed_entries_by_name_or_description() {
+        let led = json!({"name":"LED","description":"light emitting diode"});
+        let resistor = json!({"name":"R","description":"resistor"});
+        assert!(
+            library::entry_matches(&led, ""),
+            "an empty filter shows everything"
+        );
+        assert!(
+            library::entry_matches(&led, "lig"),
+            "descriptions match too"
+        );
+        assert!(
+            library::entry_matches(&resistor, "RESIST"),
+            "the filter ignores case"
+        );
+        assert!(!library::entry_matches(&resistor, "led"));
+        assert!(!library::entry_matches(&led, "9"));
+    }
+    #[test]
     fn control_tooltips_come_from_the_command_registry() -> Result<(), String> {
         let registry = pcbcraft_engine::commands();
         for id in [
