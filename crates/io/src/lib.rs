@@ -3508,6 +3508,373 @@ pub fn symbol_library_text(symbol: &pcbcraft_library::SymbolDefinition) -> Resul
     Ok(out)
 }
 
+/// Render one library footprint as a standalone SVG preview: copper pads
+/// with their holes, courtyard and other artwork, pad numbers, all in
+/// millimetre coordinates drawn y-up so the view matches the board.
+pub fn footprint_svg(footprint: &pcbcraft_library::FootprintDefinition) -> Result<String, String> {
+    footprint
+        .validate()
+        .map_err(|e| format!("footprint is invalid: {e}"))?;
+    let mut body = String::new();
+    let mut box_min = Point::new(-1.0, -1.0);
+    let mut box_max = Point::new(1.0, 1.0);
+    let mut grow = |p: Point| {
+        box_min.x = box_min.x.min(p.x);
+        box_min.y = box_min.y.min(p.y);
+        box_max.x = box_max.x.max(p.x);
+        box_max.y = box_max.y.max(p.y);
+    };
+    for g in &footprint.graphics {
+        lib_svg_graphic(g, &mut body, &mut grow);
+    }
+    for pad in &footprint.pads {
+        let hx = pad.size.x / 2.0;
+        let hy = pad.size.y / 2.0;
+        let spin = |p: Point| pad.position.offset(p.rotate(-pad.rotation));
+        let radius = match pad.shape.as_str() {
+            "circle" | "oval" => hx.min(hy),
+            "roundrect" => pad.size.x.min(pad.size.y) * pad.roundrect_ratio.unwrap_or(0.0),
+            _ => 0.0,
+        };
+        if pad.shape == "circle" {
+            grow(Point::new(
+                pad.position.x + hx.max(hy),
+                pad.position.y + hx.max(hy),
+            ));
+            grow(Point::new(
+                pad.position.x - hx.max(hy),
+                pad.position.y - hx.max(hy),
+            ));
+            body.push_str(&format!(
+                "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#b87333\"/>\n",
+                svg_num(pad.position.x),
+                svg_num(pad.position.y),
+                svg_num(hx.max(hy))
+            ));
+        } else if radius <= 1e-9 {
+            for corner in [
+                Point::new(-hx, -hy),
+                Point::new(hx, -hy),
+                Point::new(hx, hy),
+                Point::new(-hx, hy),
+            ] {
+                grow(spin(corner));
+            }
+            body.push_str(&format!(
+                "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#b87333\" transform=\"rotate({} {} {})\"/>\n",
+                svg_num(-hx),
+                svg_num(-hy),
+                svg_num(pad.size.x),
+                svg_num(pad.size.y),
+                svg_num(pad.rotation),
+                svg_num(pad.position.x),
+                svg_num(pad.position.y)
+            ));
+        } else {
+            let mut points = Vec::new();
+            for (x, y, start) in [
+                (hx - radius, hy - radius, 0.0),
+                (-hx + radius, hy - radius, 90.0),
+                (-hx + radius, -hy + radius, 180.0),
+                (hx - radius, -hy + radius, 270.0),
+            ] {
+                for i in 0..=16 {
+                    let angle = (start + f64::from(i) * 90.0 / 16.0).to_radians();
+                    points.push(spin(Point::new(
+                        x + radius * angle.cos(),
+                        y + radius * angle.sin(),
+                    )));
+                }
+            }
+            for p in &points {
+                grow(*p);
+            }
+            let outline = points
+                .iter()
+                .map(|p| format!("{},{}", svg_num(p.x), svg_num(p.y)))
+                .collect::<Vec<_>>()
+                .join(" ");
+            body.push_str(&format!(
+                "<polygon points=\"{outline}\" fill=\"#b87333\"/>\n"
+            ));
+        }
+        if let Some(drill) = &pad.drill {
+            let dr = (drill.size.x.max(drill.size.y)) / 2.0;
+            let center = pad.position.offset(drill.offset.rotate(-pad.rotation));
+            grow(Point::new(center.x + dr, center.y + dr));
+            grow(Point::new(center.x - dr, center.y - dr));
+            if drill.size.x != drill.size.y {
+                let along = Point::new(drill.size.x.max(drill.size.y) / 2.0 - dr, 0.0)
+                    .rotate(-pad.rotation);
+                body.push_str(&format!(
+                    "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#202020\" stroke-width=\"{}\" stroke-linecap=\"round\"/>\n",
+                    svg_num(center.x - along.x),
+                    svg_num(center.y - along.y),
+                    svg_num(center.x + along.x),
+                    svg_num(center.y + along.y),
+                    svg_num(dr * 2.0)
+                ));
+            } else {
+                body.push_str(&format!(
+                    "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#202020\"/>\n",
+                    svg_num(center.x),
+                    svg_num(center.y),
+                    svg_num(dr)
+                ));
+            }
+        }
+        if !pad.number.is_empty() {
+            body.push_str(&format!(
+                "<text x=\"{}\" y=\"{}\" font-size=\"{}\" text-anchor=\"middle\" fill=\"#202020\">{}</text>\n",
+                svg_num(pad.position.x),
+                svg_num(pad.position.y),
+                svg_num(hx.min(hy).clamp(0.3, 1.0) * 1.2),
+                lib_svg_escape(&pad.number)
+            ));
+        }
+    }
+    Ok(svg_document(&footprint.name, box_min, box_max, body))
+}
+
+/// Render one library symbol as a standalone SVG preview: body and unit
+/// artwork with pin lines and pin numbers, in millimetre coordinates drawn
+/// y-up like the schematic sheet.
+pub fn symbol_svg(symbol: &pcbcraft_library::SymbolDefinition) -> Result<String, String> {
+    if symbol.name.trim().is_empty() {
+        return Err("symbol is missing a name".into());
+    }
+    let mut body = String::new();
+    let mut box_min = Point::new(-1.0, -1.0);
+    let mut box_max = Point::new(1.0, 1.0);
+    let mut grow = |p: Point| {
+        box_min.x = box_min.x.min(p.x);
+        box_min.y = box_min.y.min(p.y);
+        box_max.x = box_max.x.max(p.x);
+        box_max.y = box_max.y.max(p.y);
+    };
+    for g in symbol.graphics.iter().filter(|g| g.body_style <= 1) {
+        lib_svg_graphic(&g.primitive, &mut body, &mut grow);
+    }
+    for pin in symbol.pins.iter().filter(|pin| pin.body_style <= 1) {
+        grow(pin.position);
+        let angle = pin.angle.to_radians();
+        let end = pin.position.offset(Point::new(
+            pin.length * angle.cos(),
+            -pin.length * angle.sin(),
+        ));
+        grow(end);
+        body.push_str(&format!(
+            "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\" stroke-width=\"0.25\"/>\n",
+            svg_num(pin.position.x),
+            svg_num(pin.position.y),
+            svg_num(end.x),
+            svg_num(end.y)
+        ));
+        body.push_str(&format!(
+            "<text x=\"{}\" y=\"{}\" font-size=\"0.8\" text-anchor=\"middle\" fill=\"black\">{}</text>\n",
+            svg_num(pin.position.x),
+            svg_num(pin.position.y),
+            lib_svg_escape(&pin.number)
+        ));
+    }
+    Ok(svg_document(&symbol.name, box_min, box_max, body))
+}
+
+fn svg_num(v: f64) -> String {
+    let r = (v * 1000.0).round() / 1000.0;
+    let r = if r == 0.0 { 0.0 } else { r };
+    r.to_string()
+}
+
+fn lib_svg_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn lib_svg_graphic(g: &pcbcraft_library::Graphic, body: &mut String, grow: &mut impl FnMut(Point)) {
+    match g {
+        pcbcraft_library::Graphic::Line {
+            start, end, width, ..
+        } => {
+            grow(*start);
+            grow(*end);
+            body.push_str(&format!(
+                "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\" stroke-width=\"{}\"/>\n",
+                svg_num(start.x),
+                svg_num(start.y),
+                svg_num(end.x),
+                svg_num(end.y),
+                svg_num(width.max(0.12))
+            ));
+        }
+        pcbcraft_library::Graphic::Rectangle {
+            start,
+            end,
+            width,
+            fill,
+            ..
+        } => {
+            grow(*start);
+            grow(*end);
+            body.push_str(&format!(
+                "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\" stroke=\"black\" stroke-width=\"{}\"/>\n",
+                svg_num(start.x.min(end.x)),
+                svg_num(start.y.min(end.y)),
+                svg_num((end.x - start.x).abs()),
+                svg_num((end.y - start.y).abs()),
+                svg_fill(fill),
+                svg_num(width.max(0.12))
+            ));
+        }
+        pcbcraft_library::Graphic::Circle {
+            center,
+            radius,
+            width,
+            fill,
+            ..
+        } => {
+            grow(Point::new(center.x + radius, center.y + radius));
+            grow(Point::new(center.x - radius, center.y - radius));
+            body.push_str(&format!(
+                "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"{}\" stroke=\"black\" stroke-width=\"{}\"/>\n",
+                svg_num(center.x),
+                svg_num(center.y),
+                svg_num(*radius),
+                svg_fill(fill),
+                svg_num(width.max(0.12))
+            ));
+        }
+        pcbcraft_library::Graphic::Arc {
+            start,
+            mid,
+            end,
+            width,
+            ..
+        } => {
+            grow(*start);
+            grow(*mid);
+            grow(*end);
+            let (center, radius) = match svg_arc_center(start, mid, end) {
+                Some(v) => v,
+                None => return,
+            };
+            let sweep = if lib_svg_arc_ccw(&center, start, mid, end) {
+                1
+            } else {
+                0
+            };
+            body.push_str(&format!(
+                "<path d=\"M {},{} A {},{} 0 0 {},{} {}\" fill=\"none\" stroke=\"black\" stroke-width=\"{}\"/>\n",
+                svg_num(start.x),
+                svg_num(start.y),
+                svg_num(radius),
+                svg_num(radius),
+                sweep,
+                svg_num(end.x),
+                svg_num(end.y),
+                svg_num(width.max(0.12))
+            ));
+        }
+        pcbcraft_library::Graphic::Polyline {
+            points,
+            width,
+            fill,
+            ..
+        } => {
+            if points.len() < 2 {
+                return;
+            }
+            for p in points {
+                grow(*p);
+            }
+            let list = points
+                .iter()
+                .map(|p| format!("{},{}", svg_num(p.x), svg_num(p.y)))
+                .collect::<Vec<_>>()
+                .join(" ");
+            body.push_str(&format!(
+                "<polyline points=\"{list}\" fill=\"{}\" stroke=\"black\" stroke-width=\"{}\"/>\n",
+                svg_fill(fill),
+                svg_num(width.max(0.12))
+            ));
+        }
+        pcbcraft_library::Graphic::Text {
+            position,
+            text,
+            size,
+            ..
+        } => {
+            grow(*position);
+            body.push_str(&format!(
+                "<text x=\"{}\" y=\"{}\" font-size=\"{}\" fill=\"black\">{}</text>\n",
+                svg_num(position.x),
+                svg_num(position.y),
+                svg_num(size.x.max(0.5)),
+                lib_svg_escape(text)
+            ));
+        }
+    }
+}
+
+fn svg_fill(fill: &str) -> &'static str {
+    if fill.is_empty() || fill.eq_ignore_ascii_case("none") || fill.eq_ignore_ascii_case("solid") {
+        "none"
+    } else {
+        "black"
+    }
+}
+
+fn svg_arc_center(start: &Point, mid: &Point, end: &Point) -> Option<(Point, f64)> {
+    let d =
+        2.0 * (start.x * (mid.y - end.y) + mid.x * (end.y - start.y) + end.x * (start.y - mid.y));
+    if d.abs() < 1e-12 {
+        return None;
+    }
+    let start2 = start.x * start.x + start.y * start.y;
+    let mid2 = mid.x * mid.x + mid.y * mid.y;
+    let end2 = end.x * end.x + end.y * end.y;
+    let ux = (start2 * (mid.y - end.y) + mid2 * (end.y - start.y) + end2 * (start.y - mid.y)) / d;
+    let uy = (start2 * (end.x - mid.x) + mid2 * (start.x - end.x) + end2 * (mid.x - start.x)) / d;
+    let center = Point::new(ux, uy);
+    let radius = ((center.x - start.x).powi(2) + (center.y - start.y).powi(2)).sqrt();
+    Some((center, radius))
+}
+
+fn lib_svg_arc_ccw(center: &Point, start: &Point, mid: &Point, end: &Point) -> bool {
+    let cross = |a: &Point, b: &Point| {
+        (a.x - center.x) * (b.y - center.y) - (a.y - center.y) * (b.x - center.x)
+    };
+    let quarter = |a: &Point, b: &Point| {
+        let dot = (a.x - center.x) * (b.x - center.x) + (a.y - center.y) * (b.y - center.y);
+        cross(a, b) >= 0.0 && dot >= 0.0
+    };
+    if quarter(start, mid) {
+        cross(start, mid) >= 0.0
+    } else if quarter(mid, end) {
+        cross(mid, end) >= 0.0
+    } else {
+        cross(start, end) >= 0.0
+    }
+}
+
+fn svg_document(name: &str, box_min: Point, box_max: Point, body: String) -> String {
+    let margin = 1.0;
+    let width = (box_max.x - box_min.x + 2.0 * margin) * 10.0;
+    let height = (box_max.y - box_min.y + 2.0 * margin) * 10.0;
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}mm\" height=\"{}mm\" viewBox=\"{} {} {} {}\">\n<title>{}</title>\n<g transform=\"scale(1,-1)\">\n{body}</g>\n</svg>\n",
+        svg_num(width),
+        svg_num(height),
+        svg_num((box_min.x - margin) * 10.0),
+        svg_num(-(box_max.y + margin) * 10.0),
+        svg_num(width),
+        svg_num(height),
+        lib_svg_escape(name)
+    )
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -5517,6 +5884,73 @@ mod tests {
         assert!(
             bom_csv(&project, &[], Some("")).is_ok(),
             "a blank variant name prints the plain bill"
+        );
+        Ok(())
+    }
+    #[test]
+    fn library_footprint_svg_shows_pads_holes_and_artwork() -> Result<(), String> {
+        let definition = pcbcraft_library::read_footprint(include_str!(
+            "../../library/tests/fixtures/DIP-8_W7.62mm.kicad_mod"
+        ))
+        .map_err(|e| e.to_string())?;
+        let svg = footprint_svg(&definition)?;
+        assert!(svg.starts_with("<?xml"), "the file is a real SVG document");
+        assert!(svg.contains("<title>DIP-8_W7.62mm</title>"));
+        let circles = svg.matches("<circle").count();
+        assert!(
+            (15..=16).contains(&circles),
+            "eight pads plus eight holes, oval drills drawn as slots: {circles}"
+        );
+        assert!(
+            svg.matches("<polygon").count() + svg.matches("<rect").count() >= 1,
+            "rectangular artwork or pad outlines are drawn"
+        );
+        assert!(svg.contains("scale(1,-1)"), "the view is drawn y-up");
+        assert!(
+            svg.contains("width=\"") && svg.contains("mm\""),
+            "sizes are in millimetres"
+        );
+        let empty = pcbcraft_library::FootprintDefinition {
+            name: "BLANK".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: Vec::new(),
+            graphics: Vec::new(),
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: Vec::new(),
+        };
+        let svg = footprint_svg(&empty)?;
+        assert!(svg.starts_with("<?xml"), "an empty footprint still renders");
+        Ok(())
+    }
+    #[test]
+    fn library_symbol_svg_shows_pins_and_body_artwork() -> Result<(), String> {
+        let symbol = pcbcraft_library::read_symbols(include_str!(
+            "../../library/tests/fixtures/lm358.kicad_sym"
+        ))
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|s| s.name == "LM358")
+        .ok_or("fixture symbol missing")?;
+        let svg = symbol_svg(&symbol)?;
+        assert!(svg.starts_with("<?xml"), "the file is a real SVG document");
+        assert!(svg.contains("<title>LM358</title>"));
+        assert!(symbol.pins.len() >= 8, "the fixture carries a full package");
+        assert!(
+            svg.matches("<line").count() >= symbol.pins.len(),
+            "every pin of every unit is drawn as a line"
+        );
+        assert!(svg.contains(">8<"), "pin numbers are labelled");
+        assert!(
+            svg.contains("<rect") || svg.contains("<polyline"),
+            "the body is drawn"
+        );
+        assert_eq!(
+            svg.matches("<svg").count(),
+            1,
+            "exactly one root element is opened"
         );
         Ok(())
     }

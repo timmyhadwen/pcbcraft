@@ -22,6 +22,8 @@ pub fn tool_list() -> Value {
         json!({"name":"netlist.write","description":"Write a plain-text netlist, one line per net with its component pins, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.export_footprint","description":"Write one project-library footprint to a .kicad_mod footprint library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_symbol","description":"Write one project-library symbol to a .kicad_sym symbol library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
+        json!({"name":"library.export_footprint_svg","description":"Write one project-library footprint to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
+        json!({"name":"library.export_symbol_svg","description":"Write one project-library symbol to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist (net, component, pin and coordinates in fixed columns) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"pdf.write","description":"Write a one-page vector PDF drawing of the board or schematic (outline, copper, pads, zones, wires, labels and text as real PDF paths) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"],"default":"pcb"}}),&["path"])}),
         json!({"name":"step.write","description":"Write an AP214 STEP file of the board (outline and every pad as solid prisms in millimetres) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -138,12 +140,20 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             pcbcraft_io::atomic_write(Path::new(path), &bytes)?;
             json!({"path":path})
         }
-        "library.export_footprint" | "library.export_symbol" => {
+        "library.export_footprint"
+        | "library.export_symbol"
+        | "library.export_footprint_svg"
+        | "library.export_symbol_svg" => {
             s.project.library.validate()?;
             let path = string(args, "path")?;
             let definition = string(args, "name")?;
-            let footprint = name == "library.export_footprint";
-            let suffix = if footprint { "kicad_mod" } else { "kicad_sym" };
+            let footprint =
+                name == "library.export_footprint" || name == "library.export_footprint_svg";
+            let suffix = match name {
+                "library.export_footprint" => "kicad_mod",
+                "library.export_symbol" => "kicad_sym",
+                _ => "svg",
+            };
             if Path::new(path).extension().and_then(|e| e.to_str()) != Some(suffix) {
                 return Err(format!("path must end in .{suffix}"));
             }
@@ -155,7 +165,11 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                     .iter()
                     .find(|f| f.name == definition)
                     .ok_or("unknown project-library footprint")?;
-                pcbcraft_io::footprint_library_text(item)?
+                if suffix == "svg" {
+                    pcbcraft_io::footprint_svg(item)?
+                } else {
+                    pcbcraft_io::footprint_library_text(item)?
+                }
             } else {
                 let item = s
                     .project
@@ -164,7 +178,11 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                     .iter()
                     .find(|f| f.name == definition)
                     .ok_or("unknown project-library symbol")?;
-                pcbcraft_io::symbol_library_text(item)?
+                if suffix == "svg" {
+                    pcbcraft_io::symbol_svg(item)?
+                } else {
+                    pcbcraft_io::symbol_library_text(item)?
+                }
             };
             pcbcraft_io::atomic_write(Path::new(path), text.as_bytes())?;
             json!({"path":path,"name":definition,"bytes":text.len()})
@@ -841,6 +859,41 @@ mod tests {
         assert_eq!(again[0].pins.len(), 1);
         assert_eq!(again[0].pins[0].position.x, -5.08);
         assert_eq!(again[0].graphics.len(), 1);
+        let fp_svg_path = directory.path().join("EXPORT-R.svg");
+        let export = call_tool(
+            &session,
+            "library.export_footprint_svg",
+            &json!({"path":fp_svg_path,"name":"EXPORT-R"}),
+        );
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let preview = std::fs::read_to_string(&fp_svg_path).map_err(|e| e.to_string())?;
+        assert!(preview.starts_with("<?xml"), "a real SVG document");
+        assert!(preview.contains("<title>EXPORT-R</title>"));
+        assert!(
+            preview.contains("<circle")
+                || preview.contains("<rect")
+                || preview.contains("<polygon"),
+            "the pad is drawn"
+        );
+        let sym_svg_path = directory.path().join("EXPORT-IC.svg");
+        let export = call_tool(
+            &session,
+            "library.export_symbol_svg",
+            &json!({"path":sym_svg_path,"name":"EXPORT-IC"}),
+        );
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let preview = std::fs::read_to_string(&sym_svg_path).map_err(|e| e.to_string())?;
+        assert!(preview.starts_with("<?xml"), "a real SVG document");
+        assert!(preview.contains("<line"), "the pin is drawn");
+        assert_eq!(
+            call_tool(
+                &session,
+                "library.export_footprint_svg",
+                &json!({"path":directory.path().join("wrong.txt"),"name":"EXPORT-R"})
+            )
+            .get("isError"),
+            Some(&json!(true))
+        );
         assert_eq!(
             call_tool(
                 &session,
