@@ -10,6 +10,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.load","Load and validate a .pcbcraft-lib collection into the project as one undoable transaction",schema(json!({"path":{"type":"string"}}),&["path"])),
         ("library.import_footprint_file","Read one footprint from a footprint library text file on disk and add or replace it in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
+        ("library.import_footprint_dir","Read every footprint library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("component.place_custom","Place a symbol from the editable project library",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"}}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
@@ -53,6 +54,11 @@ struct FootprintParams {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PathParams {
+    path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DirParams {
     path: String,
 }
 #[derive(Deserialize)]
@@ -535,6 +541,46 @@ pub(super) fn run(
             }
             p.library.validate()?;
             Ok(json!({"names": imported}))
+        }
+        "library.import_footprint_dir" => {
+            let a: DirParams = parse(params)?;
+            let dir = std::path::Path::new(&a.path);
+            let entries = std::fs::read_dir(dir).map_err(|e| Error::Invalid(e.to_string()))?;
+            let mut files: Vec<std::path::PathBuf> = Vec::new();
+            for entry in entries {
+                let entry = entry.map_err(|e| Error::Invalid(e.to_string()))?;
+                let path = entry.path();
+                if path.is_file()
+                    && path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|e| e.eq_ignore_ascii_case("kicad_mod"))
+                {
+                    files.push(path);
+                }
+            }
+            files.sort();
+            if files.is_empty() {
+                return Err(Error::Invalid(
+                    "the folder holds no footprint library text files".into(),
+                ));
+            }
+            if files.len() > 256 {
+                return Err(Error::Invalid(
+                    "a library folder may hold at most 256 footprint files".into(),
+                ));
+            }
+            let mut imported: Vec<String> = Vec::new();
+            for path in &files {
+                let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
+                let def = pcbcraft_library::read_footprint(&text)
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                imported.push(def.name.clone());
+                import_footprint(p, def);
+            }
+            p.library.validate()?;
+            Ok(json!({"imported": imported.len(), "names": imported}))
         }
         "component.place_custom" => {
             let a: Place = parse(params)?;
