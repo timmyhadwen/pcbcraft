@@ -981,6 +981,19 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
             package
         ));
     }
+    for (i, f) in p.board.fiducials.iter().enumerate() {
+        rows.push(format!(
+            "SMT,\"FID{:02}\",{:.3},{:.3},0.0,{},FIDUCIAL",
+            i + 1,
+            f.position.x,
+            f.position.y,
+            if f.layer == pcbcraft_doc::Layer::Back {
+                "B"
+            } else {
+                "T"
+            }
+        ));
+    }
     rows.sort_by(|a, b| {
         a.split('"')
             .nth(1)
@@ -3218,6 +3231,35 @@ mod tests {
         assert_eq!(rows.len(), 2, "one row per placed part");
         Ok(())
     }
+    #[test]
+    fn fiducial_marks_travel_in_the_pick_and_place_export() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.fiducials.extend([
+            pcbcraft_doc::Fiducial {
+                id: 901,
+                position: Point::new(2.0, 3.0),
+                diameter: 1.0,
+                layer: pcbcraft_doc::Layer::Front,
+            },
+            pcbcraft_doc::Fiducial {
+                id: 902,
+                position: Point::new(58.0, 37.0),
+                diameter: 1.2,
+                layer: pcbcraft_doc::Layer::Back,
+            },
+        ]);
+        let text = placement_text(&project)?;
+        assert!(
+            text.contains("SMT,\"FID01\",2.000,3.000,0.0,T,FIDUCIAL"),
+            "the front mark is listed as a top-side fiducial"
+        );
+        assert!(
+            text.contains("SMT,\"FID02\",58.000,37.000,0.0,B,FIDUCIAL"),
+            "the back mark is listed on the bottom side"
+        );
+        Ok(())
+    }
+
     #[test]
     fn specctra_dsn_carries_nets_placements_tracks_vias_and_keepouts() -> Result<(), String> {
         let mut project = Project::default();

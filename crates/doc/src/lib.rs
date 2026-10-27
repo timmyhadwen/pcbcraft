@@ -778,6 +778,27 @@ impl NetTie {
             && self.net_a != self.net_b
     }
 }
+/// An optical assembly mark: a bare copper circle, usually 1 mm, that the
+/// pick-and-place camera uses to locate and orient the board.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Fiducial {
+    pub id: Id,
+    /// Centre of the mark, in millimetres.
+    pub position: Point,
+    /// Diameter of the copper disc, in millimetres.
+    pub diameter: f64,
+    /// Copper layer the mark sits on.
+    #[serde(default = "front_layer")]
+    pub layer: Layer,
+}
+impl Fiducial {
+    fn valid(&self) -> bool {
+        self.position.valid() && (0.2..=10.0).contains(&self.diameter)
+    }
+}
+fn front_layer() -> Layer {
+    Layer::Front
+}
 /// An unplated through hole: a drill that passes through the board without
 /// plating or a net.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -888,6 +909,10 @@ pub struct Board {
     /// Plated through-hole vias joining front and back copper.
     #[serde(default)]
     pub vias: Vec<Via>,
+    /// Optical assembly marks: bare copper circles the pick-and-place camera
+    /// finds the board by.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fiducials: Vec<Fiducial>,
     /// Net-tie pads: two touching round pads bridging exactly two nets,
     /// ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1152,6 +1177,7 @@ impl Default for Project {
                 tracks: vec![],
                 vias: vec![],
                 holes: vec![],
+                fiducials: vec![],
                 netties: vec![],
                 zones: vec![],
                 cutouts: vec![],
@@ -1427,6 +1453,7 @@ impl Project {
             .chain(self.board.zones.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
             .chain(self.board.holes.iter().map(|x| x.id))
+            .chain(self.board.fiducials.iter().map(|x| x.id))
             .chain(self.board.netties.iter().map(|x| x.id))
             .chain(self.board.diff_pairs.iter().map(|x| x.id))
             .chain(self.board.rule_areas.iter().map(|x| x.id))
@@ -1533,6 +1560,14 @@ impl Project {
         for h in &self.board.holes {
             if !h.valid() {
                 return Err("unplated holes need a sane position and a 0.05 to 25 mm drill".into());
+            }
+        }
+        if self.board.fiducials.len() > 128 {
+            return Err("a board carries at most 128 fiducial marks".into());
+        }
+        for f in &self.board.fiducials {
+            if !f.valid() {
+                return Err("fiducial marks need a sane position and a 0.2 to 10 mm disc".into());
             }
         }
         if self.board.netties.len() > 128 {
