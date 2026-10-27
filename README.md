@@ -241,7 +241,7 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 204 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 205 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
 - 240 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
