@@ -7,6 +7,30 @@ use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
 
+/// What the mouse and keys will do next for the active tool. The strip is
+/// rendered under the toolbar so the next action is always visible instead
+/// of being something the user has to remember.
+fn tool_hint(tool: &Tool) -> String {
+    let common = " · middle-drag: pan · scroll: zoom · Esc: back to select";
+    match tool {
+        Tool::Select => format!("LMB: select an object · drag: move the selected object{common}"),
+        Tool::Place(_) => format!("LMB: place the symbol at the cursor{common}"),
+        Tool::LibraryPlace(..) | Tool::CustomPlace(..) => {
+            format!("LMB: place the symbol package at the cursor{common}")
+        }
+        Tool::Wire(None) => format!("LMB: pick the first pin of the new wire{common}"),
+        Tool::Wire(Some(_)) => {
+            format!("LMB: pick the second pin to complete the wire{common}")
+        }
+        Tool::Route(None) => format!("LMB: pick the first pad to start the track{common}"),
+        Tool::Route(Some(_)) => {
+            format!("LMB: pick the second pad to complete the track{common}")
+        }
+        Tool::Move => format!("LMB: drop the selected object at the cursor{common}"),
+        Tool::Cutout => format!("LMB: place a circular cutout at the cursor{common}"),
+    }
+}
+
 /// Case-insensitive subsequence match: every character of the query must
 /// appear, in order, somewhere in the text.
 fn fuzzy_match(query: &str, text: &str) -> bool {
@@ -572,7 +596,7 @@ impl App {
         });
     }
     fn header(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("header").exact_size(118.0).show(ui, |ui| {
+        egui::Panel::top("header").exact_size(140.0).show(ui, |ui| {
             ui.add_space(7.0);
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
@@ -713,9 +737,9 @@ impl App {
                     _ => {}
                 }
                 if ui
-                    .button("Move  M")
+                    .selectable_label(matches!(self.tool, Tool::Move), "Move  M")
                     .on_hover_text(
-                        "Drag the selected object to a new position; press M to switch to this tool.",
+                        "Click to drop the selected object at the cursor; press M to switch to this tool.",
                     )
                     .clicked()
                 {
@@ -731,6 +755,14 @@ impl App {
                     self.command_open = !self.command_open;
         self.command_focus = self.command_open;
                 }
+            });
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(
+                    egui::RichText::new(tool_hint(&self.tool))
+                        .small()
+                        .color(self.muted()),
+                );
             });
         });
     }
@@ -1417,6 +1449,37 @@ mod tests {
             "an unmapped id still explains itself"
         );
         Ok(())
+    }
+
+    #[test]
+    fn tool_hints_name_the_next_action_for_every_tool() {
+        let select = tool_hint(&Tool::Select);
+        assert!(
+            select.contains("select") && select.contains("drag") && select.contains("zoom"),
+            "the idle hint teaches navigation: {select}"
+        );
+        let cases = [
+            (Tool::Place("resistor".into()), "symbol"),
+            (Tool::Wire(None), "first pin"),
+            (
+                Tool::Wire(Some(PinRef {
+                    component: 1,
+                    pin: "1".into(),
+                })),
+                "second pin",
+            ),
+            (Tool::Route(None), "first pad"),
+            (Tool::Route(Some((1, "1".into()))), "second pad"),
+            (Tool::Move, "drop"),
+            (Tool::Cutout, "cutout"),
+        ];
+        for (tool, verb) in cases {
+            let hint = tool_hint(&tool);
+            assert!(
+                hint.contains(verb) && hint.contains("LMB") && hint.contains("Esc"),
+                "{verb} must be spelled out for the active tool: {hint}"
+            );
+        }
     }
 
     #[test]
