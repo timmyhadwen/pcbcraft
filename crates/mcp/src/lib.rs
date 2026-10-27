@@ -26,6 +26,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_symbol_svg","description":"Write one project-library symbol to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist (net, component, pin and coordinates in fixed columns) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ps.write","description":"Write a one-page PostScript drawing of either view with copper, pads, zones and text as real stroke and fill operators, without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"]}}),&["path"])}),
+        json!({"name":"stackup.write","description":"Write a plain-text board stackup sheet with recorded layer notes, substrate data, finish and machining tolerances, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"hpgl.write","description":"Write an HP-GL pen plotter drawing of either view as pen-up and pen-down moves with text label boxes, without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"]}}),&["path"])}),
         json!({"name":"odb.write","description":"Write an ODB++ style board package ZIP holding the layer matrix, polygon pad symbols, per-layer copper features and placed components, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"pdf.write","description":"Write a one-page vector PDF drawing of the board or schematic (outline, copper, pads, zones, wires, labels and text as real PDF paths) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"],"default":"pcb"}}),&["path"])}),
@@ -304,6 +305,15 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                 text.as_bytes(),
             )?;
             json!({"directory":directory,"file":format!("pcb-{view}.ps"),"bytes":text.len()})
+        }
+        "stackup.write" => {
+            let directory = string(args, "path")?;
+            let text = pcbcraft_io::stackup_text(&s.project)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("board-stackup.txt"),
+                text.as_bytes(),
+            )?;
+            json!({"directory":directory,"file":"board-stackup.txt","bytes":text.len()})
         }
         "hpgl.write" => {
             let directory = string(args, "path")?;
@@ -1699,6 +1709,35 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing a test netlist must not change the project"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stackup_write_exports_a_fabrication_sheet_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(&session, "stackup.write", &json!({"path":directory.path()}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        assert_eq!(
+            export["structuredContent"]["file"],
+            json!("board-stackup.txt")
+        );
+        let text = std::fs::read_to_string(directory.path().join("board-stackup.txt"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            text.starts_with("Stackup report for "),
+            "the sheet names the design"
+        );
+        assert!(
+            text.contains("NAME,KIND,THICKNESS_MM"),
+            "the layer note table is always present"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "writing the sheet must not change the project"
         );
         Ok(())
     }

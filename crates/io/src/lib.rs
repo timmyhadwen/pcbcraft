@@ -2720,6 +2720,55 @@ pub fn report_text(p: &Project) -> Result<String, String> {
 }
 /// Netlist as a HyperLynx-style simulation netlist CSV: one line per net,
 /// the net name followed by every `reference.pin` that sits on it, comma
+/// Board stackup report as plain text: board size, substrate and finish
+/// data, every recorded layer note with its role and thickness, and any
+/// machining tolerances, as one fabrication summary sheet.
+pub fn stackup_text(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    let title = if p.name.trim().is_empty() {
+        "untitled board"
+    } else {
+        p.name.trim()
+    };
+    let mut out = format!(
+        "Stackup report for {title}\n\
+         Board: {:.3} x {:.3} x {:.3} mm\n\
+         Substrate permittivity: {:.2}\n\
+         Surface finish: {}\n\
+         Drill origin: {:.3}, {:.3} mm\n\n\
+         Layer notes:\nNAME,KIND,THICKNESS_MM\n",
+        p.board.width,
+        p.board.height,
+        p.board.thickness,
+        p.board.er,
+        p.board.finish,
+        p.board.drill_origin.x,
+        p.board.drill_origin.y
+    );
+    if p.board.layer_records.is_empty() {
+        out.push_str("(none recorded)\n");
+    }
+    let mut total = 0.0;
+    for l in &p.board.layer_records {
+        out.push_str(&format!("{},{},{:.3}\n", l.name, l.kind, l.thickness));
+        total += l.thickness;
+    }
+    out.push_str(&format!("Total recorded thickness: {:.3} mm\n", total));
+    if let Some(m) = &p.board.machining {
+        out.push_str("\nMachining notes:\n");
+        if let Some(v) = m.edge_plating {
+            out.push_str(&format!("Edge plating: {}\n", if v { "yes" } else { "no" }));
+        }
+        if let Some(v) = m.drill_tolerance {
+            out.push_str(&format!("Drill tolerance: +/- {:.3} mm\n", v));
+        }
+        if let Some(v) = m.edge_tolerance {
+            out.push_str(&format!("Edge tolerance: +/- {:.3} mm\n", v));
+        }
+    }
+    Ok(out)
+}
+
 /// separated, nets sorted by name and pins sorted by reference and number.
 pub fn hyperlynx_csv(p: &Project) -> Result<String, String> {
     p.validate()?;
@@ -6160,6 +6209,54 @@ mod tests {
         assert!(
             postscript(&project, "wrong").is_err(),
             "only the two known views can be drawn"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stackup_text_lists_layer_notes_and_machining_tolerances() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.layer_records.push(pcbcraft_doc::LayerRecord {
+            name: "L1".into(),
+            kind: "copper".into(),
+            thickness: 0.035,
+        });
+        project.board.layer_records.push(pcbcraft_doc::LayerRecord {
+            name: "core".into(),
+            kind: "core".into(),
+            thickness: 1.2,
+        });
+        project.board.machining = Some(pcbcraft_doc::MachiningNotes {
+            edge_plating: Some(true),
+            drill_tolerance: Some(0.05),
+            edge_tolerance: None,
+        });
+        project.validate()?;
+        let text = stackup_text(&project)?;
+        assert!(
+            text.starts_with("Stackup report for Untitled circuit\n"),
+            "the sheet names the design"
+        );
+        assert!(
+            text.contains("L1,copper,0.035") && text.contains("core,core,1.200"),
+            "every recorded layer note is listed with its role and thickness"
+        );
+        assert!(
+            text.contains("Total recorded thickness: 1.235 mm"),
+            "the recorded layers are totalled"
+        );
+        assert!(
+            text.contains("Edge plating: yes") && text.contains("Drill tolerance: +/- 0.050 mm"),
+            "machining notes reach the fabrication sheet"
+        );
+        assert!(
+            !text.contains("Edge tolerance"),
+            "tolerances that were never recorded stay off the sheet"
+        );
+        let bare = stackup_text(&Project::default())?;
+        assert!(
+            bare.contains("(none recorded)"),
+            "a board without layer notes says so"
         );
         Ok(())
     }
