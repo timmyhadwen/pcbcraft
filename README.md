@@ -243,7 +243,7 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   board default rules.
 - 201 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 233 MCP tools: every engine command plus library discovery/search/inspection,
+- 234 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
   export, PNG previews and SVG vector previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.

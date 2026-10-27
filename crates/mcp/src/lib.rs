@@ -28,6 +28,7 @@ pub fn tool_list() -> Value {
         json!({"name":"pdf.write","description":"Write a one-page vector PDF drawing of the board or schematic (outline, copper, pads, zones, wires, labels and text as real PDF paths) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"],"default":"pcb"}}),&["path"])}),
         json!({"name":"step.write","description":"Write an AP214 STEP file of the board (outline and every pad as solid prisms in millimetres) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"dsn.write","description":"Write a Specctra-style board file (nets, classes, placements, tracks, vias and keepouts as s-expressions) into a directory for external autorouters, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"cmp.write","description":"Write a legacy board trace file listing every placed pad position in mils with a front or back layer code and every net's pad membership, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),&["path"])}),
         json!({"name":"dxf.export","description":"Write the board drawing as an ASCII DXF file (copper tracks, vias, pads, zones, board graphics, outline and labels) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"placement.write","description":"Write a pick-and-place centroid file (reference, position, rotation, side, package per placed part) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -202,6 +203,15 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             let text = pcbcraft_io::specctra_dsn(&s.project)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("pcb.dsn"), text.as_bytes())?;
             json!({"directory":directory,"file":"pcb.dsn"})
+        }
+        "cmp.write" => {
+            let path = string(args, "path")?;
+            if Path::new(&path).extension().and_then(|e| e.to_str()) != Some("cmp") {
+                return Err("path must end in .cmp".into());
+            }
+            let text = pcbcraft_io::cmp_text(&s.project)?;
+            pcbcraft_io::atomic_write(Path::new(&path), text.as_bytes())?;
+            json!({"path":path,"bytes":text.len()})
         }
         "step.write" => {
             let directory = string(args, "path")?;
@@ -1005,6 +1015,58 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing a board file must not change the project"
+        );
+        Ok(())
+    }
+    #[test]
+    fn cmp_write_lists_pads_and_nets_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        for reference in ["R1", "R2"] {
+            call_tool(
+                &session,
+                "execute",
+                &json!({"command":"component.add","params":{"kind":"resistor","reference":reference,"position":[10.0,10.0]}}),
+            );
+        }
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"netlist.import","params":{"nets":[{"name":"SIG","pins":[{"reference":"R1","pin":"1"},{"reference":"R2","pin":"1"}]}]}}),
+        );
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"board.sync","params":{}}),
+        );
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let path = directory.path().join("pcb.cmp");
+        let export = call_tool(&session, "cmp.write", &json!({"path":path}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        assert!(
+            text.starts_with("$FILE\nTYPE:BOARD\nCODE:ASCII\n"),
+            "the trace file starts with its header"
+        );
+        assert!(
+            text.contains("$COMPONENTS") && text.matches("$CD ").count() >= 4,
+            "every placed pad is listed"
+        );
+        assert!(text.contains("\nSIG\t"), "the named net lists its pads");
+        assert_eq!(
+            call_tool(
+                &session,
+                "cmp.write",
+                &json!({"path":directory.path().join("wrong.txt")})
+            )
+            .get("isError"),
+            Some(&json!(true)),
+            "the path must end in .cmp"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "writing a trace file must not change the project"
         );
         Ok(())
     }

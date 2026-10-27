@@ -1,7 +1,7 @@
 //! Native project persistence and original, limited KiCad PCB / preview writers.
 use pcbcraft_doc::Project;
 use pcbcraft_geom::Point;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
@@ -1883,6 +1883,74 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
         "File Format,ASCII,\n#\n#\tPick and Place File\t{}\n#\nSMT,THT,X,Y,Rotation,Side,Package\n{}\n",
         p.name,
         rows.join("\n")
+    ))
+}
+/// Board as a legacy trace file for legacy importers and viewers: every pad
+/// with its absolute position in whole mils and a front or back layer code,
+/// followed by every net with its member pads. Coordinates are whole mils.
+pub fn cmp_text(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_LINES: usize = 50_000;
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+    let mils = |v: f64| (v / 0.0254).round() as i64;
+    let mut components: Vec<String> = Vec::new();
+    for f in &p.board.footprints {
+        let c = refs
+            .get(&f.component)
+            .ok_or("footprint references an unknown component")?;
+        for pad in &f.pads {
+            let back = pad.geometry.as_ref().is_some_and(|g| {
+                !g.layers.is_empty()
+                    && if g.pad_type == "smd" {
+                        !g.layers.iter().any(|l| l.starts_with("F."))
+                    } else {
+                        g.layers.iter().any(|l| l == "B.Cu")
+                    }
+            });
+            let at = f.position.offset(pad.offset.rotate(-f.rotation));
+            components.push(format!(
+                "$CD {}\t{}\t{}\t{}\t{}\t{}\t0",
+                c.reference,
+                pad.number,
+                mils(at.x),
+                mils(at.y),
+                if back { 1 } else { 0 },
+                usize::from(pad.diameter.max(0.0) > 0.0)
+            ));
+        }
+    }
+    let mut nets: Vec<String> = Vec::new();
+    for n in &p.nets {
+        let mut members: BTreeSet<(u64, usize)> = BTreeSet::new();
+        for f in &p.board.footprints {
+            for (i, pad) in f.pads.iter().enumerate() {
+                if pad.net == Some(n.id) {
+                    members.insert((f.component, i + 1));
+                }
+            }
+        }
+        if members.is_empty() {
+            continue;
+        }
+        let list = members
+            .iter()
+            .map(|(c, i)| format!("{}\t{}", c, i))
+            .collect::<Vec<_>>()
+            .join("\t");
+        nets.push(format!("{}\t{}\t{}", n.name, members.len(), list));
+    }
+    if components.is_empty() && nets.is_empty() {
+        return Err("board has no placed pads or connected nets to export".into());
+    }
+    if components.len() + nets.len() > MAX_LINES {
+        return Err("trace file exceeds the element limit".into());
+    }
+    Ok(format!(
+        "$FILE\nTYPE:BOARD\nCODE:ASCII\n#\n{}\n$COMPONENTS\n{}\n$END\n#\n$NETS\n{}\n$END\n#\n$END\n",
+        p.name,
+        components.join("\n"),
+        nets.join("\n")
     ))
 }
 /// Board as a Specctra-style board file for external autorouters: the board
@@ -5049,6 +5117,159 @@ mod tests {
             "plated through-hole pads are listed as THT and the rotation wraps positive"
         );
         assert_eq!(rows.len(), 2, "one row per placed part");
+        Ok(())
+    }
+    #[test]
+    fn cmp_text_lists_every_pad_and_connected_net_in_mils() -> Result<(), String> {
+        let mut project = Project::default();
+        let geometry = |number: &str, x: f64, back: bool| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: if back { "thru_hole" } else { "smd" }.into(),
+            shape: "rect".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: if back {
+                vec![
+                    "F.Cu".into(),
+                    "B.Cu".into(),
+                    "F.Mask".into(),
+                    "B.Mask".into(),
+                ]
+            } else {
+                vec!["F.Cu".into(), "F.Mask".into()]
+            },
+            drill: back.then(|| pcbcraft_library::Drill {
+                size: Point::new(0.5, 0.5),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            raw_source: String::new(),
+        };
+        let component =
+            |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                sheet: 0,
+                id,
+                reference: reference.into(),
+                value: "1k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: vec![
+                    pcbcraft_doc::Pin {
+                        number: "1".into(),
+                        name: String::new(),
+                        offset: Point::new(-1.0, 0.0),
+                        net: Some(50),
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                    pcbcraft_doc::Pin {
+                        number: "2".into(),
+                        name: String::new(),
+                        offset: Point::new(1.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                ],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                    library: "Test".into(),
+                    definition: pcbcraft_library::FootprintDefinition {
+                        name: definition.into(),
+                        description: String::new(),
+                        keywords: String::new(),
+                        pads: vec![geometry("1", -1.0, back), geometry("2", 1.0, back)],
+                        graphics: vec![],
+                        model: None,
+                        rules: None,
+                        raw_source: String::new(),
+                        unsupported: vec![],
+                    },
+                }),
+                fields: vec![],
+            };
+        let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
+            pcbcraft_doc::Footprint {
+                id,
+                component,
+                position: Point::new(x, y),
+                rotation,
+                locked: None,
+                pads: vec![
+                    pcbcraft_doc::Pad {
+                        number: "1".into(),
+                        offset: Point::new(-1.0, 0.0),
+                        diameter: 1.0,
+                        net: Some(50),
+                        castellated: None,
+                        geometry: Some(geometry("1", -1.0, back)),
+                    },
+                    pcbcraft_doc::Pad {
+                        number: "2".into(),
+                        offset: Point::new(1.0, 0.0),
+                        diameter: 1.0,
+                        net: None,
+                        castellated: None,
+                        geometry: Some(geometry("2", 1.0, back)),
+                    },
+                ],
+            }
+        };
+        project.nets.push(pcbcraft_doc::Net {
+            id: 50,
+            name: "PWR".into(),
+            target_length: None,
+            length_tolerance: None,
+        });
+        project.components.push(component(1, "R5", "R0603", false));
+        project.components.push(component(2, "U1", "SOIC-2", true));
+        project
+            .board
+            .footprints
+            .push(footprint(10, 1, 12.0, 8.0, 0.0, false));
+        project
+            .board
+            .footprints
+            .push(footprint(11, 2, 20.0, 15.0, 0.0, true));
+        project.validate()?;
+        let text = cmp_text(&project)?;
+        assert!(
+            text.starts_with("$FILE\nTYPE:BOARD\nCODE:ASCII\n"),
+            "a trace file starts with its header"
+        );
+        let pads: Vec<&str> = text.lines().filter(|l| l.starts_with("$CD ")).collect();
+        assert_eq!(pads.len(), 4, "one line per placed pad");
+        assert!(
+            pads.contains(&"$CD R5\t1\t433\t315\t0\t1\t0"),
+            "front pad one of R5 sits at 11 mm, 8 mm in whole mils: {pads:?}"
+        );
+        assert!(
+            pads.iter()
+                .any(|l| l.starts_with("$CD U1\t1\t") && l.contains("\t1\t")),
+            "back-side pads carry the back layer code"
+        );
+        let net_line = text
+            .lines()
+            .find(|l| l.starts_with("PWR\t"))
+            .ok_or("the named net is missing")?;
+        assert!(
+            net_line.starts_with("PWR\t2\t1\t1\t2\t1"),
+            "the net lists both footprints' first pad: {net_line}"
+        );
+        assert!(
+            text.ends_with("$NETS\n") || text.contains("$NETS"),
+            "sections close"
+        );
+        assert_eq!(
+            cmp_text(&Project::default()).err(),
+            Some("board has no placed pads or connected nets to export".into()),
+            "an empty board is rejected"
+        );
         Ok(())
     }
     #[test]
