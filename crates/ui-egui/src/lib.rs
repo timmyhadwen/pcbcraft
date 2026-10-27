@@ -7,6 +7,56 @@ use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
 
+/// The complete input reference: every key binding the app installs, plus
+/// the canvas mouse gestures, with where each one applies. The overlay and
+/// the tests read this one table, so the list can never claim a key the
+/// handler does not install.
+fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
+    vec![
+        ("Ctrl+Z", "Undo the last action", "anywhere"),
+        ("Ctrl+Shift+Z", "Redo an undone action", "anywhere"),
+        ("Ctrl+Y", "Redo an undone action", "anywhere"),
+        ("Ctrl+S", "Save the design to its file", "anywhere"),
+        ("Ctrl+K", "Open the command palette", "anywhere"),
+        ("?", "Show or hide this shortcut list", "anywhere"),
+        ("A", "Open the symbol palette", "schematic tab"),
+        (
+            "W",
+            "Wire tool: click two pins to connect them",
+            "schematic tab",
+        ),
+        (
+            "X",
+            "Route tool: click two pads to start a track",
+            "pcb tab",
+        ),
+        (
+            "M",
+            "Move tool: drop the selection at the cursor",
+            "anywhere",
+        ),
+        (
+            "R",
+            "Rotate the hovered or selected object by 90 degrees",
+            "anywhere",
+        ),
+        (
+            "E",
+            "Load the hovered or selected object into the inspector",
+            "anywhere",
+        ),
+        ("Home", "Zoom the view so the whole design fits", "anywhere"),
+        ("Delete", "Delete the selected object", "anywhere"),
+        (
+            "Esc",
+            "Return to the select tool and close open palettes",
+            "anywhere",
+        ),
+        ("Middle-drag", "Pan the view", "canvas"),
+        ("Scroll", "Zoom the view", "canvas"),
+    ]
+}
+
 /// What the mouse and keys will do next for the active tool. The strip is
 /// rendered under the toolbar so the next action is always visible instead
 /// of being something the user has to remember.
@@ -205,6 +255,7 @@ pub struct App {
     params: String,
     command_open: bool,
     command_query: String,
+    shortcuts_open: bool,
     command_focus: bool,
     capture: Option<String>,
     frames: u32,
@@ -315,6 +366,7 @@ impl App {
             params: "{\"kind\":\"resistor\",\"position\":{\"x\":30,\"y\":20}}".into(),
             command_open: false,
             command_query: String::new(),
+            shortcuts_open: false,
             command_focus: false,
             capture,
             frames: 0,
@@ -550,6 +602,10 @@ impl App {
                 self.tool = Tool::Select;
                 self.drag = None;
                 self.palette = false;
+                self.shortcuts_open = false;
+            }
+            if i.key_pressed(egui::Key::Slash) {
+                self.shortcuts_open = !self.shortcuts_open;
             }
             if i.key_pressed(egui::Key::Delete)
                 && let Some(id) = self.selected
@@ -750,6 +806,13 @@ impl App {
                 }
                 if ui.button("Fit").on_hover_text("Zoom the view so the whole design fits.").clicked() {
                     self.fit();
+                }
+                if ui
+                    .button("Shortcuts  ?")
+                    .on_hover_text("Show every keyboard shortcut and mouse gesture in one list.")
+                    .clicked()
+                {
+                    self.shortcuts_open = !self.shortcuts_open;
                 }
                 if ui.button("Commands  Ctrl+K").on_hover_text("Search every command by name and run it, with its parameters explained.").clicked() {
                     self.command_open = !self.command_open;
@@ -1257,6 +1320,24 @@ impl App {
                         });
                 });
         }
+        if self.shortcuts_open {
+            let muted = self.muted();
+            egui::Window::new("Keyboard shortcuts")
+                .open(&mut self.shortcuts_open)
+                .show(ui, |ui| {
+                    egui::Grid::new("shortcut-list")
+                        .num_columns(3)
+                        .spacing([16.0, 4.0])
+                        .show(ui, |ui| {
+                            for (keys, action, context) in shortcut_rows() {
+                                ui.label(egui::RichText::new(keys).monospace().strong());
+                                ui.label(action);
+                                ui.label(egui::RichText::new(context).small().color(muted));
+                                ui.end_row();
+                            }
+                        });
+                });
+        }
     }
     fn library(&mut self, ui: &mut egui::Ui) {
         self.library_workspaces(ui);
@@ -1449,6 +1530,33 @@ mod tests {
             "an unmapped id still explains itself"
         );
         Ok(())
+    }
+
+    #[test]
+    fn shortcut_list_documents_every_binding_the_app_installs() {
+        let rows = shortcut_rows();
+        let keys: Vec<&str> = rows.iter().map(|(keys, _, _)| *keys).collect();
+        for wanted in ["Ctrl+Z", "Ctrl+K", "?", "W", "X", "Delete", "Esc"] {
+            assert!(
+                keys.contains(&wanted),
+                "the shortcut list must mention {wanted}"
+            );
+        }
+        let mut seen: Vec<&str> = keys.clone();
+        seen.sort_unstable();
+        let unique = {
+            let mut v = seen.clone();
+            v.dedup();
+            v
+        };
+        assert_eq!(seen.len(), unique.len(), "no key is listed twice");
+        for (keys, action, context) in &rows {
+            assert!(!keys.is_empty() && !action.is_empty());
+            assert!(
+                ["anywhere", "schematic tab", "pcb tab", "canvas"].contains(context),
+                "{keys} claims an unknown context {context}"
+            );
+        }
     }
 
     #[test]
