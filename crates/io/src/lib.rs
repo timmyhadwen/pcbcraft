@@ -2720,6 +2720,76 @@ pub fn report_text(p: &Project) -> Result<String, String> {
 }
 /// Netlist as a HyperLynx-style simulation netlist CSV: one line per net,
 /// the net name followed by every `reference.pin` that sits on it, comma
+/// Drill tool chart as CSV: one row per distinct drill diameter and slot
+/// span listing plating and hit count, with a total row and the recorded
+/// drill tolerance, so a drill press operator can pick tools at a glance.
+pub fn drill_chart_csv(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_TOOLS: usize = 64;
+    const MAX_HITS: usize = 50_000;
+    let mut tools: BTreeMap<(u64, u64, bool), usize> = BTreeMap::new();
+    let add = |d: u64, span: u64, plated: bool, tools: &mut BTreeMap<(u64, u64, bool), usize>| {
+        *tools.entry((d, span, plated)).or_default() += 1;
+    };
+    for v in &p.board.vias {
+        if v.drill > 0.0 {
+            add((v.drill * 1_000.0).round() as u64, 0, true, &mut tools);
+        }
+    }
+    for h in &p.board.holes {
+        add((h.diameter * 1_000.0).round() as u64, 0, false, &mut tools);
+    }
+    for f in &p.board.footprints {
+        for pad in &f.pads {
+            let Some(g) = pad.geometry.as_ref() else {
+                continue;
+            };
+            let Some(drill) = g.drill.as_ref() else {
+                continue;
+            };
+            let (wide, narrow) = (
+                drill.size.x.max(drill.size.y),
+                drill.size.x.min(drill.size.y),
+            );
+            let d = (narrow * 1_000.0).round() as u64;
+            if d == 0 {
+                continue;
+            }
+            let span = ((wide - narrow) * 1_000.0).round() as u64;
+            add(d, span, g.pad_type == "thru_hole", &mut tools);
+        }
+    }
+    if tools.len() > MAX_TOOLS {
+        return Err("drill chart needs 64 or fewer distinct drill tools".into());
+    }
+    let total: usize = tools.values().sum();
+    if total > MAX_HITS {
+        return Err("drill chart exceeds the drill hit limit".into());
+    }
+    let title = if p.name.trim().is_empty() {
+        "untitled board"
+    } else {
+        p.name.trim()
+    };
+    let mut out = format!("# Drill tool chart for {title}\n");
+    if let Some(t) = p.board.machining.as_ref().and_then(|m| m.drill_tolerance) {
+        out.push_str(&format!("# Drill tolerance +/-{t:.3} mm\n"));
+    }
+    out.push_str("TOOL,DIAMETER_MM,SLOT_MM,PLATED,HOLES\n");
+    for (n, ((d, span, plated), hits)) in tools.iter().enumerate() {
+        out.push_str(&format!(
+            "T{},{:.3},{:.3},{},{}\n",
+            n + 1,
+            *d as f64 / 1_000.0,
+            *span as f64 / 1_000.0,
+            if *plated { "yes" } else { "no" },
+            hits
+        ));
+    }
+    out.push_str(&format!("TOTAL,,,,{total}\n"));
+    Ok(out)
+}
+
 /// Board stackup report as plain text: board size, substrate and finish
 /// data, every recorded layer note with its role and thickness, and any
 /// machining tolerances, as one fabrication summary sheet.
@@ -6209,6 +6279,63 @@ mod tests {
         assert!(
             postscript(&project, "wrong").is_err(),
             "only the two known views can be drawn"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn drill_chart_csv_counts_holes_per_plated_and_unplated_tool() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 500,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 501,
+            net: 500,
+            position: Point::new(10.0, 10.0),
+            diameter: 0.6,
+            drill: 0.3,
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 502,
+            net: 500,
+            position: Point::new(20.0, 10.0),
+            diameter: 0.6,
+            drill: 0.3,
+        });
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 503,
+            position: Point::new(1.5, 1.5),
+            diameter: 3.2,
+        });
+        project.board.machining = Some(pcbcraft_doc::MachiningNotes {
+            edge_plating: None,
+            drill_tolerance: Some(0.05),
+            edge_tolerance: None,
+        });
+        project.validate()?;
+        let text = drill_chart_csv(&project)?;
+        assert!(
+            text.starts_with("# Drill tool chart for Untitled circuit\n"),
+            "the chart names the design"
+        );
+        assert!(
+            text.contains("# Drill tolerance +/-0.050 mm"),
+            "the recorded drill tolerance heads the sheet"
+        );
+        assert!(
+            text.contains("T1,0.300,0.000,yes,2"),
+            "the via drill is one plated tool with two hits"
+        );
+        assert!(
+            text.contains("T2,3.200,0.000,no,1"),
+            "the mounting hole is an unplated tool"
+        );
+        assert!(
+            text.contains("TOTAL,,,,3"),
+            "the total row counts every hit"
         );
         Ok(())
     }
