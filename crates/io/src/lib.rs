@@ -3809,6 +3809,228 @@ pub fn svg_entities(text: &str) -> Result<Vec<SvgEntity>, String> {
     Ok(out)
 }
 
+/// One component inside a sheet file, placed from a built-in symbol template.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct SheetComponent {
+    pub kind: String,
+    pub reference: Option<String>,
+    pub value: Option<String>,
+    pub position: Point,
+    pub rotation: f64,
+    pub fields: Vec<(String, String)>,
+}
+/// One hierarchy port inside a sheet file; the net is named, never an id.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct SheetPort {
+    pub name: String,
+    pub position: Point,
+    pub net: Option<String>,
+}
+/// A schematic page written as JSON that imports as a new sheet.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct SheetFile {
+    pub name: Option<String>,
+    pub components: Vec<SheetComponent>,
+    pub ports: Vec<SheetPort>,
+}
+
+const SHEET_MAX_COMPONENTS: usize = 256;
+const SHEET_MAX_PORTS: usize = 64;
+const SHEET_MAX_FIELDS: usize = 32;
+
+fn sheet_keys(
+    object: &serde_json::Map<String, serde_json::Value>,
+    allowed: &[&str],
+    what: &str,
+) -> Result<(), String> {
+    for key in object.keys() {
+        if !allowed.contains(&key.as_str()) {
+            return Err(format!("{what} has an unexpected key {key}"));
+        }
+    }
+    Ok(())
+}
+
+fn sheet_opt_text<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    max: usize,
+    what: &str,
+) -> Result<Option<&'a str>, String> {
+    match object.get(key) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(text)) if text.len() <= max => Ok(Some(text.as_str())),
+        Some(_) => Err(format!(
+            "{what} has a {key} that is not text or is longer than {max} bytes"
+        )),
+    }
+}
+
+fn sheet_text<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    max: usize,
+    what: &str,
+) -> Result<&'a str, String> {
+    sheet_opt_text(object, key, max, what)?
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| format!("{what} has no {key}"))
+}
+
+fn sheet_point(value: &serde_json::Value, what: &str) -> Result<Point, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| format!("{what} has a position that is not an object"))?;
+    sheet_keys(object, &["x", "y"], &format!("{what} position"))?;
+    let number = |key: &str| -> Result<f64, String> {
+        object
+            .get(key)
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| format!("{what} has a position {key} that is not a number"))
+    };
+    let point = Point::new(number("x")?, number("y")?);
+    if !point.valid() {
+        return Err(format!("{what} has a position outside the allowed range"));
+    }
+    Ok(point)
+}
+
+fn sheet_rotation(
+    object: &serde_json::Map<String, serde_json::Value>,
+    what: &str,
+) -> Result<f64, String> {
+    match object.get("rotation") {
+        None | Some(serde_json::Value::Null) => Ok(0.0),
+        Some(serde_json::Value::Number(n)) => n
+            .as_f64()
+            .filter(|v| v.is_finite())
+            .ok_or_else(|| format!("{what} has a rotation that is not a finite number")),
+        Some(_) => Err(format!("{what} has a rotation that is not a number")),
+    }
+}
+
+/// Read a schematic page written as JSON: components placed from the built-in
+/// symbol templates plus hierarchy ports named by their net. Unknown keys are
+/// refused and every count, name and position is bounded so a typo fails
+/// loudly instead of importing half a page.
+pub fn sheet_file(text: &str) -> Result<SheetFile, String> {
+    if text.len() > 1 << 20 {
+        return Err("sheet file exceeds 1 MiB".into());
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("sheet file is not valid JSON: {e}"))?;
+    let root = value
+        .as_object()
+        .ok_or_else(|| "sheet file is not a JSON object".to_string())?;
+    sheet_keys(root, &["name", "components", "ports"], "the sheet file")?;
+    let mut out = SheetFile {
+        name: sheet_opt_text(root, "name", 128, "the sheet file")?.map(str::to_owned),
+        ..Default::default()
+    };
+    match root.get("components") {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::Array(items)) if items.len() <= SHEET_MAX_COMPONENTS => {
+            for item in items {
+                let object = item
+                    .as_object()
+                    .ok_or_else(|| "a component is not a JSON object".to_string())?;
+                sheet_keys(
+                    object,
+                    &[
+                        "kind",
+                        "reference",
+                        "value",
+                        "position",
+                        "rotation",
+                        "fields",
+                    ],
+                    "a component",
+                )?;
+                let position = object
+                    .get("position")
+                    .ok_or_else(|| "a component has no position".to_string())
+                    .and_then(|v| sheet_point(v, "a component"))?;
+                let mut fields: Vec<(String, String)> = Vec::new();
+                match object.get("fields") {
+                    None | Some(serde_json::Value::Null) => {}
+                    Some(serde_json::Value::Array(list)) if list.len() <= SHEET_MAX_FIELDS => {
+                        let mut keys: Vec<String> = Vec::new();
+                        for entry in list {
+                            let object = entry
+                                .as_object()
+                                .ok_or_else(|| "a field is not a JSON object".to_string())?;
+                            sheet_keys(object, &["key", "value"], "a field")?;
+                            let key = sheet_text(object, "key", 64, "a field")?;
+                            if keys.iter().any(|k| k == key) {
+                                return Err(format!(
+                                    "field {key} is written twice on one component"
+                                ));
+                            }
+                            keys.push(key.to_owned());
+                            let value =
+                                sheet_opt_text(object, "value", 256, "a field")?.unwrap_or("");
+                            fields.push((key.to_owned(), value.to_owned()));
+                        }
+                    }
+                    Some(serde_json::Value::Array(_)) => {
+                        return Err("a component carries more than 32 fields".into());
+                    }
+                    Some(_) => return Err("component fields are not an array".into()),
+                }
+                out.components.push(SheetComponent {
+                    kind: sheet_text(object, "kind", 64, "a component")?.to_owned(),
+                    reference: sheet_opt_text(object, "reference", 64, "a component")?
+                        .filter(|text| !text.is_empty())
+                        .map(str::to_owned),
+                    value: sheet_opt_text(object, "value", 256, "a component")?.map(str::to_owned),
+                    position,
+                    rotation: sheet_rotation(object, "a component")?,
+                    fields,
+                });
+            }
+        }
+        Some(serde_json::Value::Array(_)) => {
+            return Err("the sheet file holds more than 256 components".into());
+        }
+        Some(_) => return Err("sheet components are not an array".into()),
+    }
+    match root.get("ports") {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::Array(items)) if items.len() <= SHEET_MAX_PORTS => {
+            for item in items {
+                let object = item
+                    .as_object()
+                    .ok_or_else(|| "a port is not a JSON object".to_string())?;
+                sheet_keys(object, &["name", "position", "net"], "a port")?;
+                let name = sheet_text(object, "name", 63, "a port")?;
+                if !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+                    return Err("a port name must be 1 to 63 letters, digits or underscores".into());
+                }
+                let position = object
+                    .get("position")
+                    .ok_or_else(|| "a port has no position".to_string())
+                    .and_then(|v| sheet_point(v, "a port"))?;
+                let net = sheet_opt_text(object, "net", 128, "a port")?
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_owned);
+                out.ports.push(SheetPort {
+                    name: name.to_owned(),
+                    position,
+                    net,
+                });
+            }
+        }
+        Some(serde_json::Value::Array(_)) => {
+            return Err("the sheet file holds more than 64 ports".into());
+        }
+        Some(_) => return Err("sheet ports are not an array".into()),
+    }
+    if out.components.is_empty() && out.ports.is_empty() {
+        return Err("the sheet file has nothing to import".into());
+    }
+    Ok(out)
+}
+
 /// A bounded CPU preview for headless MCP. The desktop has its own actual UI capture.
 pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     p.validate()?;
@@ -8040,6 +8262,55 @@ mod tests {
             other => Err(format!("expected text, got {other:?}"))?,
         }
         Ok(())
+    }
+
+    #[test]
+    fn sheet_file_reads_components_and_ports_with_defaults() -> Result<(), String> {
+        let file = sheet_file(
+            r#"{"name":"power","components":[
+                {"kind":"resistor","reference":"R1","position":{"x":10,"y":20},
+                 "fields":[{"key":"Datasheet","value":"x"}]},
+                {"kind":"led","position":{"x":-5,"y":2.5},"rotation":90,"value":""}],
+             "ports":[{"name":"VIN","position":{"x":0,"y":0},"net":"5V"},
+                      {"name":"GND","position":{"x":1,"y":1}}]}"#,
+        )?;
+        assert_eq!(file.name.as_deref(), Some("power"));
+        assert_eq!(file.components.len(), 2);
+        assert_eq!(file.components[0].reference.as_deref(), Some("R1"));
+        assert_eq!(
+            file.components[0].fields,
+            vec![("Datasheet".to_string(), "x".to_string())]
+        );
+        assert_eq!(file.components[1].rotation, 90.0);
+        assert!(file.components[1].reference.is_none());
+        assert_eq!(file.components[1].value.as_deref(), Some(""));
+        assert_eq!(file.ports.len(), 2);
+        assert_eq!(file.ports[0].net.as_deref(), Some("5V"));
+        assert!(file.ports[1].net.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn sheet_file_refuses_malformed_pages() {
+        let many = vec![r#"{"kind":"led","position":{"x":0,"y":0}}"#; 257].join(",");
+        for text in [
+            "not json",
+            "[]",
+            r#"{"components":[]}"#,
+            r#"{"extra":1,"components":[{"kind":"led","position":{"x":0,"y":0}}]}"#,
+            r#"{"components":[{"kind":"led","position":{"x":0,"y":0},"rot":0}]}"#,
+            r#"{"components":[{"position":{"x":0,"y":0}}]}"#,
+            r#"{"components":[{"kind":"led","position":{"x":0,"y":0},"rotation":"x"}]}"#,
+            r#"{"components":[{"kind":"led","position":{"x":0,"y":0},"z":1}]}"#,
+            r#"{"components":[{"kind":"led","position":{"x":0,"y":0},"fields":[
+                {"key":"a","value":"x"},{"key":"a"}]}]}"#,
+            r#"{"ports":[{"name":"VIN-1","position":{"x":0,"y":0}}]}"#,
+            r#"{"ports":[{"name":"A","position":{"x":1e12,"y":0}}]}"#,
+            r#"{"ports":[{"name":"A","position":{"x":0,"y":0},"extra":2}]}"#,
+            &format!(r#"{{"components":[{many}]}}"#),
+        ] {
+            assert!(sheet_file(text).is_err(), "{text} should fail");
+        }
     }
 
     #[test]

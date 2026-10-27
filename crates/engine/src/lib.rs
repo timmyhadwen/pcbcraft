@@ -599,6 +599,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"id":id_schema()}), &["id"]),
         ),
         (
+            "schematic.import_sheet",
+            "Import a sheet file from disk as a new schematic page: components built from the built-in symbol templates with their positions, rotations and properties, and hierarchy ports that join existing nets by name",
+            schema(
+                json!({"path":{"type":"string","minLength":1,"maxLength":1024},"name":{"type":"string","minLength":1,"maxLength":128}}),
+                &["path"],
+            ),
+        ),
+        (
             "graphic.scale",
             "Scale a graphic about an anchor point by a factor from 0.01 to 100; the stroke width follows the factor unless keep_width is set",
             schema(
@@ -1608,7 +1616,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand, and named hierarchy ports placed on pages that hand one net between pages, moving and removing without touching the net","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad renumbering maps that refuse collisions and carry embedded copies, placed pads and matching component pins along, and fiducial marks: bare copper discs placed, moved and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand, and named hierarchy ports placed on pages that hand one net between pages, moving and removing without touching the net, and a sheet file read from disk that arrives as a new page with template components, properties and ports that join existing nets by name","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad renumbering maps that refuse collisions and carry embedded copies, placed pads and matching component pins along, and fiducial marks: bare copper discs placed, moved and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -2271,6 +2279,13 @@ struct SvgImportParams {
     path: String,
     #[serde(default)]
     use_outline: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImportSheetParams {
+    path: String,
+    #[serde(default)]
+    name: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -6430,6 +6445,121 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .ok_or_else(missing)?;
             p.ports.remove(index);
             Ok(json!({"removed":a.id}))
+        }
+        "schematic.import_sheet" => {
+            let a: ImportSheetParams = parse(params)?;
+            let text =
+                pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
+            let file = pcbcraft_io::sheet_file(&text).map_err(Error::Invalid)?;
+            let name = a
+                .name
+                .or(file.name)
+                .or_else(|| {
+                    std::path::Path::new(&a.path)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .map(str::to_owned)
+                })
+                .unwrap_or_else(|| "imported sheet".into());
+            if name.is_empty() || name.len() > 128 {
+                return Err(Error::Invalid("sheet name must be 1 to 128 bytes".into()));
+            }
+            if p.sheets.iter().any(|sh| sh.name == name) {
+                return Err(Error::Invalid("sheet name already in use".into()));
+            }
+            let sheet = allocate(next)?;
+            p.sheets.push(Sheet {
+                id: sheet,
+                name: name.clone(),
+            });
+            let components = file.components.len();
+            let ports = file.ports.len();
+            for item in file.components {
+                let template = TEMPLATES
+                    .iter()
+                    .find(|t| t.kind == item.kind)
+                    .ok_or_else(|| Error::Invalid(format!("unknown symbol kind {}", item.kind)))?;
+                let reference = match item.reference {
+                    Some(r) => r,
+                    None => {
+                        let mut n = 1;
+                        while p
+                            .components
+                            .iter()
+                            .any(|c| c.reference == format!("{}{n}", template.prefix))
+                        {
+                            n += 1;
+                        }
+                        format!("{}{n}", template.prefix)
+                    }
+                };
+                if p.components.iter().any(|c| c.reference == reference) {
+                    return Err(Error::Invalid(format!(
+                        "reference {reference} is already in use"
+                    )));
+                }
+                let id = allocate(next)?;
+                let mut c = component_template(&item.kind, id, reference, item.position)
+                    .ok_or_else(missing)?;
+                c.rotation = item.rotation.rem_euclid(360.0);
+                c.sheet = sheet;
+                if let Some(value) = item.value {
+                    c.value = value;
+                }
+                c.fields = item
+                    .fields
+                    .into_iter()
+                    .map(|(key, value)| ComponentField { key, value })
+                    .collect();
+                p.components.push(c);
+            }
+            for item in file.ports {
+                if p.ports
+                    .iter()
+                    .any(|o| o.sheet == sheet && o.name == item.name)
+                {
+                    return Err(Error::Invalid(
+                        "that page already carries a port with this name".into(),
+                    ));
+                }
+                let net = match item.net {
+                    Some(wanted) => p
+                        .nets
+                        .iter()
+                        .find(|n| n.name == wanted)
+                        .map(|n| n.id)
+                        .ok_or_else(|| Error::Invalid(format!("net {wanted} does not exist")))?,
+                    None => p
+                        .ports
+                        .iter()
+                        .find(|o| o.name == item.name)
+                        .map(|o| o.net)
+                        .ok_or_else(|| {
+                            Error::Invalid(format!(
+                                "port {} needs a net name: no existing port shares its name",
+                                item.name
+                            ))
+                        })?,
+                };
+                if let Some(other) = p.ports.iter().find(|o| o.name == item.name)
+                    && other.net != net
+                {
+                    return Err(Error::Invalid(format!(
+                        "port {} already carries net {} on another page; a port name hands one net between pages",
+                        item.name,
+                        p.net_name(other.net)
+                    )));
+                }
+                let id = allocate(next)?;
+                p.ports.push(Port {
+                    id,
+                    name: item.name.clone(),
+                    net,
+                    sheet,
+                    position: item.position,
+                });
+            }
+            Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))
         }
         "schematic.cleanup" => {
             let mut merged = 0usize;
@@ -20056,6 +20186,162 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&empty);
         let _ = std::fs::remove_file(&curvy);
+        Ok(())
+    }
+
+    #[test]
+    fn import_sheet_arrives_as_a_new_page_with_components_and_ports() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute("net.create", json!({"name":"5V"}), None)?;
+        s.execute("schematic.new_sheet", json!({"name":"power"}), None)?;
+        let tmp = std::env::temp_dir();
+        let path = tmp.join(format!("pcbcraft-import-sheet-{}.json", std::process::id()));
+        std::fs::write(
+            &path,
+            r#"{"components":[
+                {"kind":"resistor","reference":"R9","value":"10k","position":{"x":10,"y":20},
+                 "rotation":90,"fields":[{"key":"Datasheet","value":"an12"}]},
+                {"kind":"led","position":{"x":30,"y":20}}],
+             "ports":[{"name":"VIN","position":{"x":0,"y":0},"net":"5V"}]}"#,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let lonely = tmp.join(format!(
+            "pcbcraft-import-lonely-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &lonely,
+            r#"{"ports":[{"name":"OUT","position":{"x":0,"y":0}}]}"#,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let wrong = tmp.join(format!("pcbcraft-import-wrong-{}.json", std::process::id()));
+        std::fs::write(
+            &wrong,
+            r#"{"ports":[{"name":"X","position":{"x":0,"y":0},"net":"9V"}]}"#,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let odd = tmp.join(format!("pcbcraft-import-odd-{}.json", std::process::id()));
+        std::fs::write(
+            &odd,
+            r#"{"components":[{"kind":"magic","position":{"x":0,"y":0}}]}"#,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        for bad in [
+            json!({}),
+            json!({"path": "", "nope": 1}),
+            json!({"path": "pcbcraft-missing-sheet.json"}),
+            json!({"path": path.to_string_lossy(), "name": "power"}),
+            json!({"path": lonely.to_string_lossy()}),
+            json!({"path": wrong.to_string_lossy()}),
+            json!({"path": odd.to_string_lossy()}),
+        ] {
+            let shown = format!("{bad:?}");
+            assert!(
+                s.execute("schematic.import_sheet", bad, None).is_err(),
+                "{shown} must fail"
+            );
+        }
+        let sheets_before = s.project.sheets.len();
+        let out = s.execute(
+            "schematic.import_sheet",
+            json!({"path": path.to_string_lossy(), "name": "input stage"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["components"], 2);
+        assert_eq!(out["ports"], 1);
+        assert_eq!(out["name"], "input stage");
+        let sheet = out["sheet"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("the result carries no sheet id".into()))?;
+        assert_eq!(s.project.sheets.len(), sheets_before + 1);
+        let r9 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R9")
+            .cloned()
+            .ok_or_else(|| Error::Invalid("R9 should have been imported".into()))?;
+        assert_eq!(r9.sheet, sheet);
+        assert_eq!(r9.value, "10k");
+        assert!((r9.rotation - 90.0).abs() < 1e-9);
+        assert_eq!(r9.field("Datasheet"), Some("an12"));
+        let d = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.kind == "led" && c.sheet == sheet)
+            .cloned()
+            .ok_or_else(|| Error::Invalid("the LED should have been imported".into()))?;
+        assert!(
+            d.reference.starts_with('D'),
+            "auto references follow the template prefix"
+        );
+        let net5 = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "5V")
+            .cloned()
+            .ok_or_else(|| Error::Invalid("the 5V net should exist".into()))?;
+        let vin = s
+            .project
+            .ports
+            .iter()
+            .find(|o| o.name == "VIN")
+            .cloned()
+            .ok_or_else(|| Error::Invalid("VIN should have been imported".into()))?;
+        assert_eq!(vin.sheet, sheet);
+        assert_eq!(vin.net, net5.id);
+        let joined = tmp.join(format!(
+            "pcbcraft-import-joined-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &joined,
+            r#"{"ports":[{"name":"VIN","position":{"x":1,"y":1}}]}"#,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let out = s.execute(
+            "schematic.import_sheet",
+            json!({"path": joined.to_string_lossy()}),
+            None,
+        )?["result"]
+            .clone();
+        let second = out["sheet"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("the result carries no sheet id".into()))?;
+        let vin2 = s
+            .project
+            .ports
+            .iter()
+            .find(|o| o.name == "VIN" && o.sheet == second)
+            .cloned()
+            .ok_or_else(|| Error::Invalid("the second VIN should have been imported".into()))?;
+        assert_eq!(
+            vin2.net, net5.id,
+            "a port without a net joins the net its name already carries"
+        );
+        assert!(
+            out["name"]
+                .as_str()
+                .is_some_and(|n| n.starts_with("pcbcraft-import-joined")),
+            "the file stem names the page when no name is given"
+        );
+        assert!(
+            s.execute(
+                "schematic.import_sheet",
+                json!({"path": path.to_string_lossy(), "name": "again"}),
+                None
+            )
+            .is_err(),
+            "references collide on the second import of the same file"
+        );
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lonely);
+        let _ = std::fs::remove_file(&wrong);
+        let _ = std::fs::remove_file(&odd);
+        let _ = std::fs::remove_file(&joined);
         Ok(())
     }
 
