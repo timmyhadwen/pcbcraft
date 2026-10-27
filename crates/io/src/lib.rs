@@ -878,6 +878,69 @@ pub fn netlist_text(p: &Project) -> Result<String, String> {
 /// Pick-and-place placement file: one row per placed footprint in the classic
 /// centroid format (`SMT|THT,reference,X,Y,rotation,side,package`), sorted by
 /// reference. Side comes from the pad layers; height is unknown to this tool.
+/// In-circuit test netlist in IPC-D-356A style fixed columns: five-digit net
+/// number, twelve-column component reference, ten-column pin name, a 000000
+/// operation code and eight-digit X and Y coordinates in micrometres, sorted
+/// by net number, then reference, then pin. Comment lines start with `*`.
+pub fn ipc356_netlist(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_PINS: usize = 50_000;
+    let numbers: BTreeMap<u64, usize> = p
+        .nets
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.id, i + 1))
+        .collect();
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+    let mut rows: Vec<(usize, String, String, i64, i64)> = Vec::new();
+    for f in &p.board.footprints {
+        let c = refs
+            .get(&f.component)
+            .ok_or("footprint references an unknown component")?;
+        if c.reference.len() > 12 {
+            return Err("reference is too long for the test netlist".into());
+        }
+        for pad in &f.pads {
+            if pad.number.len() > 10 {
+                return Err("pin name is too long for the test netlist".into());
+            }
+            let net = match pad.net {
+                Some(n) => *numbers.get(&n).ok_or("pad references an unknown net")?,
+                None => 0,
+            };
+            let world = f.position.offset(pad.offset.rotate(-f.rotation));
+            if !world.x.is_finite() || !world.y.is_finite() {
+                return Err("pad position is not a number".into());
+            }
+            let (x, y) = (
+                (world.x * 1000.0).round() as i64,
+                (world.y * 1000.0).round() as i64,
+            );
+            if x < 0 || y < 0 || x > 99_999_999 || y > 99_999_999 {
+                return Err("pad coordinates fall outside the test file range".into());
+            }
+            rows.push((net, c.reference.clone(), pad.number.clone(), x, y));
+        }
+    }
+    if rows.len() > MAX_PINS {
+        return Err("test netlist exceeds the pin limit".into());
+    }
+    rows.sort();
+    let mut out = format!(
+        "*- PCBCraft IPC-D-356A test netlist\n*- board {} x {} mm, {} nets\n",
+        p.board.width,
+        p.board.height,
+        p.nets.len()
+    );
+    for (net, reference, pin, x, y) in &rows {
+        out.push_str(&format!(
+            "{net:05}{reference:<12}{pin:<10}000000{x:08}{y:08}\n"
+        ));
+    }
+    Ok(out)
+}
+
 pub fn placement_text(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_PLACED: usize = 5_000;
@@ -2949,6 +3012,101 @@ mod tests {
         assert_eq!(rows.len(), 2, "one row per placed part");
         Ok(())
     }
+    #[test]
+    fn ipc356_netlist_orders_pads_by_net_and_prints_fixed_columns() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.extend([
+            pcbcraft_doc::Net {
+                id: 5,
+                name: "GND".into(),
+                ..Default::default()
+            },
+            pcbcraft_doc::Net {
+                id: 9,
+                name: "SIG".into(),
+                ..Default::default()
+            },
+        ]);
+        let component =
+            |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
+                id,
+                reference: reference.into(),
+                value: "1k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: ["1", "2"]
+                    .iter()
+                    .map(|number| pcbcraft_doc::Pin {
+                        number: (*number).into(),
+                        name: String::new(),
+                        offset: Point::default(),
+                        net: nets[if *number == "1" { 0 } else { 1 }],
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    })
+                    .collect(),
+                units: vec![],
+                library_symbol: None,
+                library_footprint: None,
+                fields: vec![],
+            };
+        project.components.push(component(1, "R2", [None, Some(9)]));
+        project
+            .components
+            .push(component(2, "R1", [Some(5), Some(9)]));
+        let pad = |number: &str, x: f64, y: f64, net: Option<u64>| pcbcraft_doc::Pad {
+            number: number.into(),
+            offset: Point::new(x, y),
+            diameter: 0.6,
+            net,
+            castellated: None,
+            geometry: None,
+        };
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 3,
+            component: 1,
+            position: Point::new(20.0, 10.0),
+            rotation: 90.0,
+            locked: None,
+            pads: vec![pad("1", -1.0, 0.0, None), pad("2", 1.0, 0.0, Some(9))],
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 4,
+            component: 2,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![pad("1", 0.0, 0.0, Some(5)), pad("2", 2.0, 0.0, Some(9))],
+        });
+        let text = ipc356_netlist(&project)?;
+        let lines: Vec<&str> = text.lines().filter(|l| !l.starts_with('*')).collect();
+        assert_eq!(lines.len(), 4, "one line per pad");
+        assert!(
+            lines[0].starts_with("00000R2"),
+            "unconnected pads sort first"
+        );
+        assert!(
+            lines[1].starts_with("00001R1"),
+            "nets number in project order"
+        );
+        assert!(lines[2].starts_with("00002R1"));
+        assert!(
+            lines[3].starts_with("00002R2"),
+            "same net sorts by reference"
+        );
+        for line in &lines {
+            assert_eq!(line.chars().count(), 49, "fixed 49-column records");
+        }
+        assert!(
+            lines[0].ends_with("0002000000011000"),
+            "pad coordinates follow the rotated footprint"
+        );
+        assert!(lines[1].ends_with("0001000000010000"));
+        Ok(())
+    }
+
     #[test]
     fn drill_origin_shifts_drill_coordinates_but_not_copper() -> Result<(), String> {
         let mut project = Project::default();
