@@ -23,6 +23,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.pad_remove","Remove one pad from a project-library footprint by its number; the footprint keeps at least one pad, and placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"}}),&["name","pad"])),
         ("library.footprint.duplicate","Copy a project-library footprint under a new name as one undoable step, the starting point for a custom variant of a vendor package; the original and every placed copy stay untouched",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","description":"name for the copy, which must not exist yet"}}),&["name","new_name"])),
         ("library.symbol.duplicate","Copy a project-library symbol under a new name as one undoable step, the starting point for a custom variant of a vendor symbol; the original and every placed copy stay untouched",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","description":"name for the copy, which must not exist yet"}}),&["name","new_name"])),
+        ("library.footprint.adopt","Copy a placed component's embedded footprint into the project library under a chosen name as one undoable step, so a package that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the package under"}}),&["id","name"])),
+        ("library.symbol.adopt","Copy a placed component's embedded symbol into the project library under a chosen name as one undoable step, so a symbol that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the symbol under"}}),&["id","name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
 }
 #[derive(Deserialize)]
@@ -59,6 +61,12 @@ struct FootprintParams {
 #[serde(deny_unknown_fields)]
 struct PathParams {
     path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdoptParams {
+    id: Id,
+    name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -732,6 +740,47 @@ pub(super) fn run(
             }
             p.library.validate()?;
             Ok(json!({"name": a.name, "new_name": a.new_name}))
+        }
+        "library.footprint.adopt" | "library.symbol.adopt" => {
+            let a: AdoptParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            let foot = command == "library.footprint.adopt";
+            let component = p
+                .components
+                .iter()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            if foot {
+                let source = component
+                    .library_footprint
+                    .as_ref()
+                    .map(|f| f.definition.clone())
+                    .ok_or_else(|| {
+                        Error::Invalid("that component carries no embedded footprint".into())
+                    })?;
+                let mut def = source;
+                def.name = a.name.clone();
+                def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                import_footprint(p, def);
+            } else {
+                let source = component
+                    .library_symbol
+                    .as_ref()
+                    .map(|f| f.definition.clone())
+                    .ok_or_else(|| {
+                        Error::Invalid("that component carries no embedded symbol".into())
+                    })?;
+                let mut def = source;
+                def.name = a.name.clone();
+                def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                import_symbol(p, def);
+            }
+            p.library.validate()?;
+            Ok(json!({"id": a.id, "name": a.name}))
         }
         "component.place_custom" => {
             let a: Place = parse(params)?;
