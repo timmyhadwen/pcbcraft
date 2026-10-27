@@ -697,6 +697,28 @@ pub struct BoardText {
     #[serde(default)]
     pub rotation: f64,
 }
+/// A named fabrication output recipe: the export kinds a job writes when it
+/// runs.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct OutputJob {
+    pub name: String,
+    /// Export kinds, each one of: gerbers, netlist, bom, placement, dxf.
+    pub kinds: Vec<String>,
+}
+impl OutputJob {
+    fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && !self.kinds.is_empty()
+            && self.kinds.len() <= 5
+            && self.kinds.iter().all(|k| {
+                matches!(
+                    k.as_str(),
+                    "gerbers" | "netlist" | "bom" | "placement" | "dxf"
+                )
+            })
+    }
+}
 /// An unplated through hole: a drill that passes through the board without
 /// plating or a net.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -917,6 +939,10 @@ pub struct Project {
     /// Groups of drawn graphics that translate together, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub graphic_groups: Vec<GraphicGroup>,
+    /// Named fabrication output recipes, ordered by name, re-runnable after
+    /// any edit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_jobs: Vec<OutputJob>,
     /// Free-form project metadata such as title, revision, company or notes,
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1028,6 +1054,7 @@ impl Default for Project {
             nets: vec![],
             net_classes: vec![],
             bom_fields: vec![],
+            output_jobs: vec![],
             files: vec![],
             variants: vec![],
             graphic_groups: vec![],
@@ -1449,6 +1476,15 @@ impl Project {
                 return Err(
                     "net pair clearance rules need known distinct nets, one rule per pair".into(),
                 );
+            }
+        }
+        if self.output_jobs.len() > 16 {
+            return Err("a project carries at most 16 output jobs".into());
+        }
+        let mut job_names = BTreeSet::new();
+        for j in &self.output_jobs {
+            if !j.valid() || !job_names.insert(&j.name) {
+                return Err("output jobs need a unique name and known export kinds".into());
             }
         }
         if self.bom_fields.len() > 16 {
