@@ -904,6 +904,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({}), &[]),
         ),
         (
+            "board.panel",
+            "Report a panel layout for the current board: a grid of copies separated by chosen gaps with rails around the edge, giving the finished panel size and every copy origin, without changing the design",
+            schema(
+                json!({"columns":{"type":"integer","minimum":1,"maximum":32},"rows":{"type":"integer","minimum":1,"maximum":32},"pitch_x":{"type":"number","minimum":0,"maximum":10000,"description":"clear gap between neighbouring copies horizontally, millimetres"},"pitch_y":{"type":"number","minimum":0,"maximum":10000,"description":"clear gap between neighbouring copies vertically, millimetres"},"rail":{"type":"number","minimum":0,"maximum":25,"description":"border kept clear around the outside copies, millimetres"}}),
+                &["columns", "rows", "pitch_x", "pitch_y"],
+            ),
+        ),
+        (
             "board.set_finish",
             "Record the board's surface finish (for example HASL, ENIG or OSP) for reports and fabrication notes",
             schema(
@@ -1383,7 +1391,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad renumbering maps that refuse collisions and carry embedded copies, placed pads and matching component pins along, and fiducial marks: bare copper discs placed, moved and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad renumbering maps that refuse collisions and carry embedded copies, placed pads and matching component pins along, and fiducial marks: bare copper discs placed, moved and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -2185,6 +2193,19 @@ struct RuleRegionLiftParams {
     code: String,
     #[serde(default)]
     index: Option<usize>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PanelParams {
+    columns: usize,
+    rows: usize,
+    pitch_x: f64,
+    pitch_y: f64,
+    #[serde(default = "default_rail")]
+    rail: f64,
+}
+fn default_rail() -> f64 {
+    3.0
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -6559,6 +6580,78 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     |o| pcbcraft_doc::outline_area(o),
                 ),
                 "finish": p.board.finish
+            }))
+        }
+        "board.panel" => {
+            let a: PanelParams = parse(params)?;
+            if a.columns < 1
+                || a.rows < 1
+                || a.columns > 32
+                || a.rows > 32
+                || a.columns * a.rows > 1024
+            {
+                return Err(Error::Invalid(
+                    "panels run 1 to 32 copies per side and at most 1024 in total".into(),
+                ));
+            }
+            let (board_w, board_h) = match p.board.outline.as_deref() {
+                Some(outline) if outline.len() >= 3 => {
+                    let min_x = outline.iter().map(|v| v.x).fold(f64::INFINITY, f64::min);
+                    let max_x = outline
+                        .iter()
+                        .map(|v| v.x)
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    let min_y = outline.iter().map(|v| v.y).fold(f64::INFINITY, f64::min);
+                    let max_y = outline
+                        .iter()
+                        .map(|v| v.y)
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    (max_x - min_x, max_y - min_y)
+                }
+                _ => (p.board.width, p.board.height),
+            };
+            if !board_w.is_finite() || !board_h.is_finite() || board_w <= 0.0 || board_h <= 0.0 {
+                return Err(Error::Invalid("the board has no size to panelise".into()));
+            }
+            if !a.pitch_x.is_finite()
+                || !a.pitch_y.is_finite()
+                || a.pitch_x < 0.0
+                || a.pitch_y < 0.0
+            {
+                return Err(Error::Invalid(
+                    "gaps between copies cannot be negative".into(),
+                ));
+            }
+            if !(0.0..=25.0).contains(&a.rail) {
+                return Err(Error::Invalid("rails must be 0 to 25 millimetres".into()));
+            }
+            let panel_w =
+                a.columns as f64 * board_w + (a.columns - 1) as f64 * a.pitch_x + 2.0 * a.rail;
+            let panel_h = a.rows as f64 * board_h + (a.rows - 1) as f64 * a.pitch_y + 2.0 * a.rail;
+            let copies: Vec<serde_json::Value> = (0..a.rows)
+                .flat_map(|row| (0..a.columns).map(move |column| (row, column)))
+                .map(|(row, column)| {
+                    let x = a.rail + column as f64 * (board_w + a.pitch_x);
+                    let y = a.rail + row as f64 * (board_h + a.pitch_y);
+                    json!({
+                        "row": row,
+                        "column": column,
+                        "x": x,
+                        "y": y,
+                        "center_x": x + board_w / 2.0,
+                        "center_y": y + board_h / 2.0,
+                    })
+                })
+                .collect();
+            Ok(json!({
+                "columns": a.columns,
+                "rows": a.rows,
+                "copies": copies.len(),
+                "board": {"width": board_w, "height": board_h},
+                "pitch": {"x": a.pitch_x, "y": a.pitch_y},
+                "rail": a.rail,
+                "panel": {"width": panel_w, "height": panel_h},
+                "layout": copies,
             }))
         }
         "board.set_finish" => {
@@ -12413,6 +12506,92 @@ mod tests {
         assert!(clear(&s), "and the finding returns with it");
         Ok(())
     }
+    #[test]
+    fn board_panel_reports_a_copy_grid_without_touching_the_design() -> Result<(), Error> {
+        let mut s = Session::default();
+        for bad in [
+            json!({"columns": 0, "rows": 2, "pitch_x": 61.0, "pitch_y": 41.0}),
+            json!({"columns": 33, "rows": 1, "pitch_x": 61.0, "pitch_y": 41.0}),
+            json!({"columns": 2, "rows": 2, "pitch_x": -1.0, "pitch_y": 41.0}),
+            json!({"columns": 2, "rows": 2, "pitch_x": 61.0, "pitch_y": -2.0}),
+            json!({"columns": 2, "rows": 2, "pitch_x": 61.0, "pitch_y": 41.0, "rail": 30.0}),
+        ] {
+            assert!(
+                s.execute("board.panel", bad, None).is_err(),
+                "impossible panel grids are refused"
+            );
+        }
+        let before = s.inspect()["project"].clone();
+        let panel = s.execute(
+            "board.panel",
+            json!({"columns": 2, "rows": 2, "pitch_x": 60.0, "pitch_y": 40.0}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(panel["copies"], 4);
+        assert_eq!(panel["board"]["width"], 60.0);
+        assert_eq!(
+            panel["panel"]["width"], 186.0,
+            "two copies, one gap and two rails"
+        );
+        assert_eq!(panel["panel"]["height"], 126.0);
+        assert_eq!(
+            panel["layout"][0]["x"], 3.0,
+            "the first copy starts inside the rail"
+        );
+        assert_eq!(panel["layout"][3]["x"], 123.0);
+        assert_eq!(panel["layout"][3]["y"], 83.0);
+        assert_eq!(
+            panel["layout"][3]["center_x"], 153.0,
+            "copy centres are reported for drill-and-break planning"
+        );
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "a report changes no part of the design"
+        );
+        // A zero rail makes the panel exactly the copy grid.
+        let panel = s.execute(
+            "board.panel",
+            json!({"columns": 2, "rows": 1, "pitch_x": 60.0, "pitch_y": 40.0, "rail": 0.0}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(panel["panel"]["width"], 180.0);
+        // An outlined board panels by its outline bounding box.
+        s.execute(
+            "board.set_outline",
+            json!({"points": [
+                {"x": 5.0, "y": 5.0},
+                {"x": 35.0, "y": 5.0},
+                {"x": 35.0, "y": 25.0},
+                {"x": 5.0, "y": 25.0}
+            ]}),
+            None,
+        )?;
+        let panel = s.execute(
+            "board.panel",
+            json!({"columns": 3, "rows": 1, "pitch_x": 30.0, "pitch_y": 20.0, "rail": 2.0}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(panel["board"]["width"], 30.0);
+        assert_eq!(panel["board"]["height"], 20.0);
+        assert_eq!(
+            panel["panel"]["width"], 154.0,
+            "three copies, two gaps and two rails"
+        );
+        assert!(
+            s.execute(
+                "board.panel",
+                json!({"columns": 1, "rows": 1, "pitch_x": -1.0, "pitch_y": 19.0}),
+                None
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+
     #[test]
     fn rule_areas_carry_height_restrictions_reported_in_statistics() -> Result<(), Error> {
         let mut s = Session::default();
