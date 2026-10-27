@@ -814,6 +814,110 @@ pub fn postscript(p: &Project, view: &str) -> Result<String, String> {
     ))
 }
 
+/// Page surface for a pen plotter: every path becomes one pen-up move and
+/// one pen-down polyline in plotter units, circles become 32-segment
+/// polygons, fills plot as outlines and text becomes a box of its own
+/// approximate width so label positions still reach the paper.
+struct Hpgl {
+    body: String,
+    ops: usize,
+    scale: f64,
+    ox: f64,
+    oy: f64,
+}
+impl Hpgl {
+    fn new() -> Self {
+        Self {
+            body: String::new(),
+            ops: 0,
+            scale: 1.0,
+            ox: 0.0,
+            oy: 0.0,
+        }
+    }
+    fn fit(&mut self, min: Point, max: Point) {
+        let w = (max.x - min.x).max(0.001);
+        let h = (max.y - min.y).max(0.001);
+        self.scale = (950.0 / w).min(700.0 / h);
+        self.ox = 25.0 - min.x * self.scale;
+        self.oy = 25.0 - min.y * self.scale;
+    }
+    fn xy(&self, x: f64, y: f64) -> (i64, i64) {
+        (
+            (x * self.scale + self.ox).round() as i64,
+            (y * self.scale + self.oy).round() as i64,
+        )
+    }
+}
+impl DrawPage for Hpgl {
+    fn path(
+        &mut self,
+        points: &[Point],
+        _rgb: [f64; 3],
+        _w: f64,
+        _fill: bool,
+    ) -> Result<(), String> {
+        self.ops += 1;
+        if self.ops > 20_000 {
+            return Err("plot file exceeds the pen-move limit".into());
+        }
+        if points.len() < 2 {
+            return Ok(());
+        }
+        let pts: Vec<(i64, i64)> = points.iter().map(|q| self.xy(q.x, q.y)).collect();
+        let rest: Vec<String> = pts[1..].iter().map(|(x, y)| format!("{x},{y}")).collect();
+        self.body.push_str(&format!(
+            "PU{},{};PD{};\n",
+            pts[0].0,
+            pts[0].1,
+            rest.join(",")
+        ));
+        Ok(())
+    }
+    fn circle(
+        &mut self,
+        center: Point,
+        radius: f64,
+        rgb: [f64; 3],
+        w: f64,
+        fill: bool,
+    ) -> Result<(), String> {
+        let ring: Vec<Point> = (0..=32)
+            .map(|i| {
+                let a = std::f64::consts::TAU * i as f64 / 32.0;
+                Point::new(center.x + radius * a.cos(), center.y + radius * a.sin())
+            })
+            .collect();
+        self.path(&ring, rgb, w, fill)
+    }
+    fn text(&mut self, at: Point, size: f64, rgb: [f64; 3], value: &str) -> Result<(), String> {
+        let w = size * 0.62 * value.chars().count().max(1) as f64;
+        let box_points = [
+            at,
+            Point::new(at.x + w, at.y),
+            Point::new(at.x + w, at.y + size),
+            Point::new(at.x, at.y + size),
+            at,
+        ];
+        self.path(&box_points, rgb, size * 0.1, false)
+    }
+}
+
+/// Draw one view as an HP-GL pen plotter file that a classic vector plotter
+/// can run directly, with copper, pads, zones and text label boxes reduced
+/// to pen moves.
+pub fn hpgl_plot(p: &Project, view: &str) -> Result<String, String> {
+    p.validate()?;
+    if view != "pcb" && view != "schematic" {
+        return Err("view must be pcb or schematic".into());
+    }
+    let (min, max) = preview_bounds(p, view);
+    let mut page = Hpgl::new();
+    page.fit(min, max);
+    pdf_draw(&mut page, p, view)?;
+    Ok(format!("IN;SP1;\n{}PU;\n", page.body))
+}
+
 /// An ODB++ style board package: a stored ZIP holding one job tree with a
 /// layer matrix, polygon pad symbols, per-layer copper features and placed
 /// components with their pad stacks, written without any compression
@@ -6056,6 +6160,50 @@ mod tests {
         assert!(
             postscript(&project, "wrong").is_err(),
             "only the two known views can be drawn"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn hpgl_plot_writes_pen_moves_for_both_views() -> Result<(), String> {
+        let mut project = real_library_project()?;
+        project.nets.push(pcbcraft_doc::Net {
+            id: 500,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 501,
+            net: 500,
+            start: Point::new(5.0, 5.0),
+            end: Point::new(40.0, 30.0),
+            width: 0.3,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: None,
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 502,
+            net: 500,
+            position: Point::new(12.0, 12.0),
+            diameter: 0.6,
+            drill: 0.3,
+        });
+        project.validate()?;
+        let pcb = hpgl_plot(&project, "pcb")?;
+        assert!(pcb.starts_with("IN;SP1;\n"), "the plotter is initialised");
+        assert!(
+            pcb.contains("PU") && pcb.contains(";PD"),
+            "copper is drawn with pen-down polylines"
+        );
+        assert!(pcb.ends_with("PU;\n"), "the pen is lifted at the end");
+        let sch = hpgl_plot(&project, "schematic")?;
+        assert!(
+            sch.contains("PU") && sch.contains(";PD"),
+            "the schematic view plots too"
+        );
+        assert!(
+            hpgl_plot(&project, "side").is_err(),
+            "only the two known views can be plotted"
         );
         Ok(())
     }
