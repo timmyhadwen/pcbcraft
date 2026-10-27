@@ -3864,6 +3864,8 @@ mod tests {
                 Point::new(30.0, 15.0),
             ]],
             filled: true,
+
+            kind: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -3990,6 +3992,8 @@ mod tests {
             ],
             cutouts: vec![],
             filled: true,
+
+            kind: None,
         });
         project.board.cutouts.push(pcbcraft_doc::Cutout {
             id: 6,

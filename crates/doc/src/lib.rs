@@ -742,6 +742,11 @@ pub struct CopperZone {
     /// inside it nor demands clearance from it until it is filled again.
     #[serde(default = "poured")]
     pub filled: bool,
+    /// Optional tag naming the tool that generated this copper, such as
+    /// "teardrop", so the pass can find and redo its own shapes. Absent for
+    /// hand-drawn zones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Cutout {
@@ -2183,6 +2188,11 @@ impl Project {
             validate_closed_outline(&z.outline)?;
             for cut in &z.cutouts {
                 validate_closed_outline(cut)?;
+            }
+            if let Some(kind) = &z.kind
+                && (kind.is_empty() || kind.len() > 32)
+            {
+                return Err("zone kind must be 1 to 32 characters".into());
             }
         }
         for c in &b.cutouts {

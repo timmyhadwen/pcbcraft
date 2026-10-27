@@ -978,6 +978,8 @@ mod tests {
             outline: square,
             cutouts: vec![],
             filled: true,
+
+            kind: None,
         });
         p.board.tracks.push(Track {
             id: 5,
