@@ -29,6 +29,7 @@ pub fn tool_list() -> Value {
         json!({"name":"step.write","description":"Write an AP214 STEP file of the board (outline and every pad as solid prisms in millimetres) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"dsn.write","description":"Write a Specctra-style board file (nets, classes, placements, tracks, vias and keepouts as s-expressions) into a directory for external autorouters, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"cmp.write","description":"Write a legacy board trace file listing every placed pad position in mils with a front or back layer code and every net's pad membership, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"report.write","description":"Write a plain-text design report summarizing the board, every component with its package and placement, and every net with its pins, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ipc2581.write","description":"Write a single-file IPC-2581 style assembly exchange XML with the board outline, nets and their pins, placed components, drill holes and copper by layer, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"idf.write","description":"Write a board-level mechanical drawing (board size plus every placed part's position, side and rotation, with default component heights) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"wrl.write","description":"Write a VRML 2.0 scene extruding the board outline and every placed pad into solid prisms into a directory for mechanical viewers, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -240,6 +241,15 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                 return Err("path must end in .cmp".into());
             }
             let text = pcbcraft_io::cmp_text(&s.project)?;
+            pcbcraft_io::atomic_write(Path::new(&path), text.as_bytes())?;
+            json!({"path":path,"bytes":text.len()})
+        }
+        "report.write" => {
+            let path = string(args, "path")?;
+            if Path::new(&path).extension().and_then(|e| e.to_str()) != Some("txt") {
+                return Err("path must end in .txt".into());
+            }
+            let text = pcbcraft_io::report_text(&s.project)?;
             pcbcraft_io::atomic_write(Path::new(&path), text.as_bytes())?;
             json!({"path":path,"bytes":text.len()})
         }
@@ -1189,6 +1199,55 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing a trace file must not change the project"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn report_write_summarizes_parts_and_nets_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        for reference in ["R1", "R2"] {
+            call_tool(
+                &session,
+                "execute",
+                &json!({"command":"component.add","params":{"kind":"resistor","reference":reference,"position":[10.0,10.0]}}),
+            );
+        }
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"netlist.import","params":{"nets":[{"name":"SIG","pins":[{"reference":"R1","pin":"1"},{"reference":"R2","pin":"1"}]}]}}),
+        );
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let path = directory.path().join("report.txt");
+        let export = call_tool(&session, "report.write", &json!({"path":path}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        assert!(
+            text.starts_with("Design report for "),
+            "the report opens with the design summary"
+        );
+        assert!(
+            text.contains("COMPONENTS")
+                && text.contains("R1")
+                && text.contains("SIG,\"R1.1 R2.1\""),
+            "the report lists parts and the net with its pins: {text}"
+        );
+        assert_eq!(
+            call_tool(
+                &session,
+                "report.write",
+                &json!({"path":directory.path().join("wrong.md")})
+            )
+            .get("isError"),
+            Some(&json!(true)),
+            "the path must end in .txt"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "writing the report must not change the project"
         );
         Ok(())
     }

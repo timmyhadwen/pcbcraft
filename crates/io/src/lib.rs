@@ -2107,6 +2107,86 @@ pub fn netlist_text(p: &Project) -> Result<String, String> {
     }
     Ok(out)
 }
+/// Plain-text design report: a board summary, one row per component with
+/// its package and placement, and one row per net listing every pin that
+/// sits on it.
+pub fn report_text(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_PINS: usize = 50_000;
+    const MAX_ROWS: usize = 20_000;
+    let names: BTreeMap<u64, String> = p.nets.iter().map(|n| (n.id, n.name.clone())).collect();
+    let mut rows: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut pins = 0usize;
+    for c in &p.components {
+        for pin in &c.pins {
+            let Some(net) = pin.net else {
+                continue;
+            };
+            pins += 1;
+            if pins > MAX_PINS {
+                return Err("report exceeds the pin limit".into());
+            }
+            let name = names
+                .get(&net)
+                .ok_or("pin references an unknown net")?
+                .clone();
+            rows.entry(name)
+                .or_default()
+                .push(format!("{}.{}", c.reference, pin.number));
+        }
+    }
+    if p.components.len() + rows.len() > MAX_ROWS {
+        return Err("report exceeds the row limit".into());
+    }
+    let title = p.name.trim();
+    let mut out = format!(
+        "Design report for {}\n",
+        if title.is_empty() {
+            "untitled board"
+        } else {
+            title
+        }
+    );
+    out.push_str(&format!(
+        "Board: {:.3} x {:.3} mm, thickness {:.3} mm, clearance {:.3} mm, finish {}\n",
+        p.board.width, p.board.height, p.board.thickness, p.board.clearance, p.board.finish
+    ));
+    out.push_str(&format!(
+        "Counts: {} components, {} nets, {} tracks, {} vias, {} zones, {} holes\n\n",
+        p.components.len(),
+        p.nets.len(),
+        p.board.tracks.len(),
+        p.board.vias.len(),
+        p.board.zones.len(),
+        p.board.holes.len()
+    ));
+    out.push_str("COMPONENTS\nREF,VALUE,PACKAGE,X,Y,ROTATION\n");
+    let mut refs: Vec<&pcbcraft_doc::Component> = p.components.iter().collect();
+    refs.sort_by(|a, b| a.reference.cmp(&b.reference));
+    for c in refs {
+        let package = c
+            .library_footprint
+            .as_ref()
+            .map(|f| f.definition.name.as_str())
+            .unwrap_or("-");
+        out.push_str(&format!(
+            "{},{},{},{:.3},{:.3},{:.1}\n",
+            c.reference,
+            if c.value.is_empty() { "-" } else { &c.value },
+            package,
+            c.position.x,
+            c.position.y,
+            c.rotation.rem_euclid(360.0)
+        ));
+    }
+    out.push_str("\nNETS\nNET,PINS\n");
+    for (name, list) in &rows {
+        let mut list = list.clone();
+        list.sort();
+        out.push_str(&format!("{},\"{}\"\n", name, list.join(" ")));
+    }
+    Ok(out)
+}
 /// Netlist as a HyperLynx-style simulation netlist CSV: one line per net,
 /// the net name followed by every `reference.pin` that sits on it, comma
 /// separated, nets sorted by name and pins sorted by reference and number.
@@ -6728,6 +6808,73 @@ mod tests {
         assert_eq!(rows.len(), 2, "one row per placed part");
         Ok(())
     }
+    #[test]
+    fn report_text_lists_parts_and_net_pins_under_a_board_summary() -> Result<(), String> {
+        let mut project = Project {
+            name: "LED indicator".into(),
+            ..Default::default()
+        };
+        for (id, reference) in [(1, "R1"), (2, "D1")] {
+            project.components.push(pcbcraft_doc::Component {
+                sheet: 0,
+                id,
+                reference: reference.into(),
+                value: "2V".into(),
+                kind: "led".into(),
+                position: Point::new(10.0, 5.0),
+                rotation: -90.0,
+                pins: vec![
+                    pcbcraft_doc::Pin {
+                        number: "1".into(),
+                        name: String::new(),
+                        offset: Point::new(-1.0, 0.0),
+                        net: Some(7),
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                    pcbcraft_doc::Pin {
+                        number: "2".into(),
+                        name: String::new(),
+                        offset: Point::new(1.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                ],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: None,
+                fields: vec![],
+            });
+        }
+        project.nets.push(pcbcraft_doc::Net {
+            id: 7,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.validate()?;
+        let text = report_text(&project)?;
+        assert!(
+            text.starts_with("Design report for LED indicator\n"),
+            "the report opens with the design name"
+        );
+        assert!(
+            text.contains("Board: ") && text.contains("Counts: 2 components, 1 nets"),
+            "the summary counts the design: {text}"
+        );
+        assert!(
+            text.contains("D1,2V,-,10.000,5.000,270.0\nR1"),
+            "parts sort by reference and the rotation wraps positive: {text}"
+        );
+        assert!(
+            text.contains("SIG,\"D1.1 R1.1\"\n"),
+            "the net lists every pin on it: {text}"
+        );
+        Ok(())
+    }
+
     #[test]
     fn cmp_text_lists_every_pad_and_connected_net_in_mils() -> Result<(), String> {
         let mut project = Project::default();
