@@ -7,6 +7,22 @@ use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
 
+/// Guidance shown when a panel section has no content yet: what belongs
+/// there and the command that fills it, so a first-run user is never left
+/// staring at a blank list.
+const EMPTY_SYMBOLS: &str =
+    "No symbols yet. Press A to open the symbol palette, or run component.add to add one.";
+const EMPTY_NETS: &str = "No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import and board.sync will create the packages.";
+const EMPTY_BOARD: &str =
+    "No packages on the board yet. Run board.sync to place a package for every symbol.";
+const EMPTY_CHECKS: &str =
+    "Checks run automatically on every edit; findings are listed here as soon as one appears.";
+
+/// Render an empty-state line in the small muted style.
+fn empty_state(ui: &mut egui::Ui, text: &str, muted: egui::Color32) {
+    ui.label(egui::RichText::new(text).small().color(muted));
+}
+
 /// Help copy shown under the inspector's editable fields. Each line names
 /// what the field is for and the limit the engine will enforce, so the
 /// requirement is visible before the first rejected edit.
@@ -936,11 +952,7 @@ impl App {
                     }
                 }
                 if self.project.components.is_empty() {
-                    ui.label(
-                        egui::RichText::new("Press A to place your first symbol")
-                            .small()
-                            .color(self.muted()),
-                    );
+                    empty_state(ui, EMPTY_SYMBOLS, self.muted());
                 }
                 ui.add_space(20.0);
                 ui.label(egui::RichText::new("NETS").size(10.0).color(self.muted()));
@@ -950,6 +962,9 @@ impl App {
                         ui.label(&net.name);
                     });
                 }
+                if self.project.nets.is_empty() {
+                    empty_state(ui, EMPTY_NETS, self.muted());
+                }
                 ui.add_space(20.0);
                 ui.label(egui::RichText::new("BOARD").size(10.0).color(self.muted()));
                 ui.label(format!(
@@ -957,6 +972,9 @@ impl App {
                     self.project.board.width, self.project.board.height
                 ));
                 ui.label("2 copper layers · 1.6 mm");
+                if self.project.board.footprints.is_empty() {
+                    empty_state(ui, EMPTY_BOARD, self.muted());
+                }
                 ui.label(format!(
                     "{} footprints · {} segments",
                     self.project.board.footprints.len(),
@@ -1393,6 +1411,19 @@ impl App {
         ui.add_space(24.0);
         ui.heading("Design checks");
         ui.label("Select a finding to inspect its affected object in the editor.");
+        if self
+            .checks
+            .get("erc")
+            .and_then(Value::as_array)
+            .is_none_or(|v| v.is_empty())
+            && self
+                .checks
+                .get("drc")
+                .and_then(Value::as_array)
+                .is_none_or(|v| v.is_empty())
+        {
+            empty_state(ui, EMPTY_CHECKS, self.muted());
+        }
         ui.add_space(16.0);
         let checks = self.checks.clone();
         for (key, label) in [("erc", "Electrical"), ("drc", "Board")] {
@@ -1549,6 +1580,30 @@ mod tests {
             "an unmapped id still explains itself"
         );
         Ok(())
+    }
+
+    #[test]
+    fn empty_states_name_the_command_that_fills_the_panel() {
+        // Guidance must reference commands that actually exist, so a novice
+        // who follows the hint always finds a real command to run.
+        let registry: Vec<&str> = pcbcraft_engine::commands()
+            .iter()
+            .map(|spec| spec.id)
+            .collect();
+        for copy in [EMPTY_SYMBOLS, EMPTY_NETS, EMPTY_BOARD] {
+            for name in ["component.add", "netlist.import", "board.sync"] {
+                if copy.contains(name) {
+                    assert!(registry.contains(&name), "{name} must exist");
+                }
+            }
+            assert!(
+                copy.contains("component.add")
+                    || copy.contains("netlist.import")
+                    || copy.contains("board.sync"),
+                "empty guidance must name a filling command: {copy}"
+            );
+        }
+        assert!(EMPTY_CHECKS.contains("automatically"));
     }
 
     #[test]
