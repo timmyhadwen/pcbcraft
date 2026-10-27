@@ -14,6 +14,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
+        ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
 }
 #[derive(Deserialize)]
@@ -21,6 +22,12 @@ pub(super) fn commands() -> Vec<CommandSpec> {
 struct SymbolParams {
     definition: SymbolDefinition,
     notice: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CourtyardParams {
+    name: String,
+    margin: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -244,6 +251,108 @@ pub(super) fn run(
             def.rules = None;
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name}))
+        }
+        "library.footprint.generate_courtyard" => {
+            let a: CourtyardParams = parse(params)?;
+            if !a.margin.is_finite() || !(0.0..=5.0).contains(&a.margin) {
+                return Err(Error::Invalid(
+                    "the courtyard margin must be 0 to 5 millimetres".into(),
+                ));
+            }
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            let mut min = Point::new(f64::MAX, f64::MAX);
+            let mut max = Point::new(f64::MIN, f64::MIN);
+            let grow = |p: &mut Point, q: &mut Point, at: Point, radius: f64| {
+                if !at.valid() || !radius.is_finite() || radius < 0.0 {
+                    return;
+                }
+                p.x = p.x.min(at.x - radius);
+                p.y = p.y.min(at.y - radius);
+                q.x = q.x.max(at.x + radius);
+                q.y = q.y.max(at.y + radius);
+            };
+            for pad in &def.pads {
+                let half_x = pad.size.x / 2.0;
+                let half_y = pad.size.y / 2.0;
+                let (c, s) = (
+                    pad.rotation.to_radians().cos(),
+                    pad.rotation.to_radians().sin(),
+                );
+                let reach = (half_x * c).abs() + (half_y * s).abs();
+                let reach_y = (half_x * s).abs() + (half_y * c).abs();
+                grow(&mut min, &mut max, pad.position, reach.max(reach_y));
+            }
+            for graphic in &def.graphics {
+                if matches!(
+                    graphic,
+                    pcbcraft_library::Graphic::Rectangle { layer, .. }
+                        if layer == "pcbcraft.courtyard"
+                ) {
+                    continue;
+                }
+                let (points, radius): (Vec<Point>, f64) = match graphic {
+                    pcbcraft_library::Graphic::Line {
+                        start, end, width, ..
+                    } => (vec![*start, *end], *width / 2.0),
+                    pcbcraft_library::Graphic::Rectangle {
+                        start, end, width, ..
+                    } => (vec![*start, *end], *width / 2.0),
+                    pcbcraft_library::Graphic::Circle {
+                        center,
+                        radius,
+                        width,
+                        ..
+                    } => (vec![*center], *radius + width / 2.0),
+                    pcbcraft_library::Graphic::Arc {
+                        start,
+                        mid,
+                        end,
+                        width,
+                        ..
+                    } => (vec![*start, *mid, *end], *width / 2.0),
+                    pcbcraft_library::Graphic::Polyline { points, width, .. } => {
+                        (points.clone(), *width / 2.0)
+                    }
+                    _ => (vec![], 0.0),
+                };
+                for at in points {
+                    grow(&mut min, &mut max, at, radius);
+                }
+            }
+            if min.x > max.x || min.y > max.y {
+                return Err(Error::Invalid(
+                    "this footprint has no pads or artwork to surround".into(),
+                ));
+            }
+            let before = def.graphics.len();
+            def.graphics
+                .retain(|g| !matches!(g, pcbcraft_library::Graphic::Rectangle { layer, .. } if layer == "pcbcraft.courtyard"));
+            def.graphics.push(pcbcraft_library::Graphic::Rectangle {
+                start: Point::new(min.x - a.margin, min.y - a.margin),
+                end: Point::new(max.x + a.margin, max.y + a.margin),
+                width: 0.1,
+                fill: String::new(),
+                layer: "pcbcraft.courtyard".into(),
+            });
+            if let Err(e) = def.validate() {
+                def.graphics.truncate(before);
+                return Err(Error::Invalid(e.to_string()));
+            }
+            Ok(json!({
+                "name": a.name,
+                "courtyard": [
+                    min.x - a.margin,
+                    min.y - a.margin,
+                    max.x + a.margin,
+                    max.y + a.margin
+                ],
+                "margin": a.margin
+            }))
         }
         "library.load" => {
             let a: PathParams = parse(params)?;
