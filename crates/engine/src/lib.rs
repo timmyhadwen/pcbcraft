@@ -459,6 +459,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "graphic.to_track",
+            "Convert a drawn line or polyline into copper tracks, one segment per vertex pair, on a chosen net and layer; the graphic is replaced by the copper, and the width follows the stroke unless given",
+            schema(
+                json!({"id":id_schema(),"net":id_schema(),"width":{"type":"number","exclusiveMinimum":0,"description":"track width, millimetres; default the graphic stroke width"},"layer":{"type":"string","enum":["F.Cu","B.Cu"],"description":"copper layer, default F.Cu"}}),
+                &["id", "net"],
+            ),
+        ),
+        (
             "graphic.set",
             "Change an existing graphic's layer, stroke width or radius, or its text; omitted fields stay as they were",
             schema(
@@ -1367,7 +1375,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad renumbering maps that refuse collisions and carry embedded copies, placed pads and matching component pins along, and fiducial marks: bare copper discs placed, moved and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad renumbering maps that refuse collisions and carry embedded copies, placed pads and matching component pins along, and fiducial marks: bare copper discs placed, moved and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -1872,6 +1880,16 @@ struct GraphicScaleParams {
     factor: f64,
     around: Option<Point>,
     keep_width: Option<bool>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicToTrackParams {
+    id: Id,
+    net: Id,
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default = "front")]
+    layer: Layer,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5111,6 +5129,54 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             graphic.points = scaled;
             graphic.width = width;
             Ok(json!({"id": a.id, "width": width}))
+        }
+        "graphic.to_track" => {
+            let a: GraphicToTrackParams = parse(params)?;
+            if p.nets.iter().all(|n| n.id != a.net) {
+                return Err(Error::Invalid("unknown net".into()));
+            }
+            let index = p
+                .graphics
+                .iter()
+                .position(|g| g.id == a.id)
+                .ok_or_else(missing)?;
+            let graphic = &p.graphics[index];
+            if graphic.shape != "line" && graphic.shape != "polygon" {
+                return Err(Error::Invalid(
+                    "only lines and polylines can become tracks".into(),
+                ));
+            }
+            if graphic.points.len() < 2 {
+                return Err(Error::Invalid("a drawable line needs two vertices".into()));
+            }
+            let width = a.width.unwrap_or(graphic.width);
+            if !positive(width) {
+                return Err(Error::Invalid("track width must be positive".into()));
+            }
+            let mut ids = Vec::with_capacity(graphic.points.len() - 1);
+            for pair in graphic.points.windows(2) {
+                if !pair[0].valid() || !pair[1].valid() {
+                    return Err(Error::Invalid("track point is out of range".into()));
+                }
+                if pair[0] == pair[1] {
+                    return Err(Error::Invalid(
+                        "zero-length segments cannot become copper".into(),
+                    ));
+                }
+                let id = allocate(next)?;
+                p.board.tracks.push(Track {
+                    id,
+                    net: a.net,
+                    start: pair[0],
+                    end: pair[1],
+                    width,
+                    layer: a.layer,
+                    arc: None,
+                });
+                ids.push(id);
+            }
+            p.graphics.remove(index);
+            Ok(json!({"tracks": ids, "width": width}))
         }
         "graphic.set" => {
             let a: GraphicSetParams = parse(params)?;
@@ -8999,6 +9065,97 @@ mod tests {
         assert_eq!(s.project.drawn_wires.len(), 2);
         Ok(())
     }
+    #[test]
+    fn lines_and_polylines_convert_into_copper_and_replace_themselves() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"USB"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let line = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"line","points":[{"x":1.0,"y":1.0},{"x":9.0,"y":1.0}],"width":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let bad = [
+            json!({"id": line, "net": 999_999}),
+            json!({"id": 999_999, "net": net}),
+            json!({"id": line, "net": net, "width": 0.0}),
+        ]
+        .into_iter()
+        .map(|params| s.execute("graphic.to_track", params, None).is_err())
+        .collect::<Vec<_>>();
+        assert!(
+            bad.iter().all(|refused| *refused),
+            "bad conversions are refused"
+        );
+        let circle = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"circle","points":[{"x":5.0,"y":5.0}],"width":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute("graphic.to_track", json!({"id": circle, "net": net}), None)
+                .is_err(),
+            "a circle is not a straight line"
+        );
+        let ids = s.execute("graphic.to_track", json!({"id": line, "net": net}), None)?["result"]
+            ["tracks"]
+            .as_array()
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(ids.len(), 1, "one segment becomes one track");
+        assert!(
+            s.project.graphics.iter().all(|g| g.id != line),
+            "the graphic is replaced by the copper"
+        );
+        let first = ids[0].as_u64().ok_or_else(missing)?;
+        let track = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.id == first)
+            .ok_or_else(missing)?;
+        assert_eq!(
+            (track.width, track.net, track.start.x, track.end.x),
+            (0.3, net, 1.0, 9.0)
+        );
+        assert_eq!(track.layer, pcbcraft_doc::Layer::Front);
+        // A polyline becomes one track per vertex pair; an explicit width wins.
+        let polyline = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"polygon","points":[{"x":0.0,"y":0.0},{"x":4.0,"y":0.0},{"x":4.0,"y":3.0}],"width":0.1}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let ids = s.execute(
+            "graphic.to_track",
+            json!({"id": polyline, "net": net, "width": 0.5, "layer": "B.Cu"}),
+            None,
+        )?["result"]["tracks"]
+            .as_array()
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(ids.len(), 2, "a three-vertex polyline becomes two segments");
+        assert_eq!(s.project.board.tracks.len(), 3);
+        assert_eq!(s.project.board.tracks[1].width, 0.5);
+        assert_eq!(s.project.board.tracks[1].layer, pcbcraft_doc::Layer::Back);
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), 1);
+        assert_eq!(
+            s.project.graphics.len(),
+            2,
+            "the polyline comes back on undo"
+        );
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+
     #[test]
     fn graphic_scaling_moves_vertices_and_follows_or_keeps_the_width() -> Result<(), Error> {
         let mut s = Session::default();
