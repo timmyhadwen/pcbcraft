@@ -1,5 +1,5 @@
 use super::*;
-use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
+use pcbcraft_library::{FootprintDefinition, FootprintPad, SymbolDefinition};
 
 pub(super) fn commands() -> Vec<CommandSpec> {
     [
@@ -19,6 +19,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.renumber_pads","Renumber pads on a project-library footprint with an ordered old-to-new map; embedded copies, their placed pads and matching component pins follow, and a target number already held by an untouched pad is refused",schema(json!({"name":{"type":"string"},"renames":{"type":"array","maxItems":512,"items":{"type":"object","properties":{"old":{"type":"string","maxLength":32},"new":{"type":"string","maxLength":32}},"required":["old","new"],"additionalProperties":false}}}),&["name","renames"])),
         ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
+        ("library.footprint.pad_set","Add or replace one pad on a project-library footprint by its number, so custom packages gain exposed pads, thermal vias or extra terminals without rewriting the whole definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"object","description":"a full pad: number, shape, size, position, layers and optional drill, as library readers emit them"}}),&["name","pad"])),
+        ("library.footprint.pad_remove","Remove one pad from a project-library footprint by its number; the footprint keeps at least one pad, and placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"}}),&["name","pad"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
 }
 #[derive(Deserialize)]
@@ -55,6 +57,18 @@ struct FootprintParams {
 #[serde(deny_unknown_fields)]
 struct PathParams {
     path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PadSetParams {
+    name: String,
+    pad: FootprintPad,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PadRemoveParams {
+    name: String,
+    pad: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -581,6 +595,78 @@ pub(super) fn run(
             }
             p.library.validate()?;
             Ok(json!({"imported": imported.len(), "names": imported}))
+        }
+        "library.footprint.pad_set" => {
+            let a: PadSetParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "footprint name must be 1 to 128 bytes".into(),
+                ));
+            }
+            if a.pad.number.is_empty() || a.pad.number.len() > 32 {
+                return Err(Error::Invalid("pad number must be 1 to 32 bytes".into()));
+            }
+            let number = a.pad.number.clone();
+            let pads = {
+                let footprint = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|f| f.name == a.name)
+                    .ok_or_else(missing)?;
+                let replaced = footprint.pads.iter().any(|q| q.number == number);
+                if let Some(existing) = footprint.pads.iter_mut().find(|q| q.number == number) {
+                    *existing = a.pad;
+                } else {
+                    footprint.pads.push(a.pad);
+                }
+                footprint
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                (footprint.pads.len(), !replaced)
+            };
+            p.library.validate()?;
+            Ok(json!({"name": a.name, "pad": number, "added": pads.1, "pads": pads.0}))
+        }
+        "library.footprint.pad_remove" => {
+            let a: PadRemoveParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "footprint name must be 1 to 128 bytes".into(),
+                ));
+            }
+            if a.pad.is_empty() || a.pad.len() > 32 {
+                return Err(Error::Invalid("pad number must be 1 to 32 bytes".into()));
+            }
+            let name = a.name.clone();
+            let pads = {
+                let footprint = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let before = footprint.pads.len();
+                footprint.pads.retain(|q| q.number != a.pad);
+                if footprint.pads.len() == before {
+                    return Err(Error::Invalid(format!(
+                        "footprint {name} has no pad {}",
+                        a.pad
+                    )));
+                }
+                if footprint.pads.is_empty() {
+                    return Err(Error::Invalid(
+                        "a footprint keeps at least one pad; remove the footprint itself instead"
+                            .into(),
+                    ));
+                }
+                footprint
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                footprint.pads.len()
+            };
+            p.library.validate()?;
+            Ok(json!({"name": name, "pad": a.pad, "pads": pads}))
         }
         "component.place_custom" => {
             let a: Place = parse(params)?;
