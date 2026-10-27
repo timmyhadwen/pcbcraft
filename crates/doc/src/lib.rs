@@ -342,9 +342,20 @@ pub struct Label {
     pub position: Point,
     /// Text rotation in degrees, ignored for junctions.
     pub rotation: f64,
+    /// Bus notation carried by a bus label, like DB*8; empty for every other
+    /// kind. A bus label names a group of nets, so it carries no single net.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
 }
 impl Label {
-    pub const KINDS: [&'static str; 5] = ["label", "global", "hierarchical", "power", "junction"];
+    pub const KINDS: [&'static str; 6] = [
+        "label",
+        "global",
+        "hierarchical",
+        "power",
+        "junction",
+        "bus",
+    ];
 }
 /// A flag marking a pin intentionally unconnected, that
 /// suppresses its unconnected-pin violation.
@@ -1961,7 +1972,11 @@ impl Project {
             if !Label::KINDS.iter().any(|k| *k == l.kind) {
                 return Err("unknown label kind".into());
             }
-            if !self.nets.iter().any(|n| n.id == l.net) {
+            if l.kind == "bus" {
+                if l.net != 0 || l.text.is_empty() || l.text.len() > 128 {
+                    return Err("bus label carries its notation text and no single net".into());
+                }
+            } else if !self.nets.iter().any(|n| n.id == l.net) {
                 return Err("label references an unknown net".into());
             }
             if !l.position.valid() {

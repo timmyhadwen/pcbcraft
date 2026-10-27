@@ -676,6 +676,7 @@ impl App {
                 let text = match l.kind.as_str() {
                     "global" => format!("{{{}}}", p.net_name(l.net)),
                     "hierarchical" => format!("/{}", p.net_name(l.net)),
+                    "bus" => l.text.clone(),
                     _ => p.net_name(l.net).to_string(),
                 };
                 painter.text(

@@ -85,6 +85,7 @@ fn label_text(l: &pcbcraft_doc::Label, net_name: &str) -> String {
     match l.kind.as_str() {
         "global" => format!("{{{net_name}}}"),
         "hierarchical" => format!("/{net_name}"),
+        "bus" => l.text.clone(),
         _ => net_name.to_string(),
     }
 }
@@ -4295,6 +4296,7 @@ mod tests {
             net: 1,
             position: Point::new(10.0, 5.0),
             rotation: 0.0,
+            text: String::new(),
         });
         project.labels.push(pcbcraft_doc::Label {
             id: 5,
@@ -4302,6 +4304,7 @@ mod tests {
             net: 1,
             position: Point::new(20.0, 5.0),
             rotation: 0.0,
+            text: String::new(),
         });
         project.no_connects.push(pcbcraft_doc::NoConnectFlag {
             id: 6,
