@@ -1205,6 +1205,267 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         w.min_x, w.min_y, w.max_x, w.max_y, w.entities
     ))
 }
+/// A drawable entity read back from a DXF drawing file.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DxfShape {
+    Line {
+        start: Point,
+        end: Point,
+    },
+    Circle {
+        center: Point,
+        radius: f64,
+    },
+    Arc {
+        center: Point,
+        radius: f64,
+        start_deg: f64,
+        end_deg: f64,
+    },
+    Polyline {
+        points: Vec<Point>,
+        closed: bool,
+    },
+    Text {
+        at: Point,
+        height: f64,
+        rotation: f64,
+        value: String,
+    },
+}
+/// One entity of a DXF drawing, with the layer name it was drawn on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DxfEntity {
+    pub layer: String,
+    pub shape: DxfShape,
+}
+
+#[derive(Default)]
+struct DxfAcc {
+    name: String,
+    layer: String,
+    points: Vec<Point>,
+    pending_x: Option<f64>,
+    pending_y: Option<f64>,
+    end: Option<Point>,
+    end_x: Option<f64>,
+    end_y: Option<f64>,
+    radius: Option<f64>,
+    start_deg: Option<f64>,
+    end_deg: Option<f64>,
+    closed: bool,
+    value: String,
+}
+
+impl DxfAcc {
+    fn finish(&self) -> Result<Option<DxfShape>, String> {
+        let number = |v: Option<f64>, what: &str| -> Result<f64, String> {
+            v.filter(|v| v.is_finite())
+                .ok_or_else(|| format!("DXF {what} is missing or not a number"))
+        };
+        match self.name.as_str() {
+            "LINE" => {
+                if self.points.len() != 1 {
+                    return Err("DXF line needs one start point".into());
+                }
+                let end = self
+                    .end
+                    .filter(|p| p.valid())
+                    .ok_or("DXF line needs a valid end point")?;
+                let start = self.points[0];
+                if !start.valid() {
+                    return Err("DXF line start is out of range".into());
+                }
+                Ok(Some(DxfShape::Line { start, end }))
+            }
+            "CIRCLE" => {
+                if self.points.len() != 1 {
+                    return Err("DXF circle needs one centre".into());
+                }
+                let radius = number(self.radius, "circle radius")?;
+                if radius <= 0.0 || radius > 100_000.0 {
+                    return Err("DXF circle radius is out of range".into());
+                }
+                if !self.points[0].valid() {
+                    return Err("DXF circle centre is out of range".into());
+                }
+                Ok(Some(DxfShape::Circle {
+                    center: self.points[0],
+                    radius,
+                }))
+            }
+            "ARC" => {
+                if self.points.len() != 1 {
+                    return Err("DXF arc needs one centre".into());
+                }
+                let radius = number(self.radius, "arc radius")?;
+                let start_deg = number(self.start_deg, "arc start angle")?;
+                let end_deg = number(self.end_deg, "arc end angle")?;
+                if radius <= 0.0 || radius > 100_000.0 {
+                    return Err("DXF arc radius is out of range".into());
+                }
+                if !self.points[0].valid() {
+                    return Err("DXF arc centre is out of range".into());
+                }
+                Ok(Some(DxfShape::Arc {
+                    center: self.points[0],
+                    radius,
+                    start_deg,
+                    end_deg,
+                }))
+            }
+            "LWPOLYLINE" | "POLYLINE" => {
+                if self.points.len() < 2 || self.points.len() > 4096 {
+                    return Err("DXF polylines need 2 to 4096 vertices".into());
+                }
+                if !self.points.iter().all(|p| p.valid()) {
+                    return Err("DXF polyline vertex is out of range".into());
+                }
+                Ok(Some(DxfShape::Polyline {
+                    points: self.points.clone(),
+                    closed: self.closed,
+                }))
+            }
+            "TEXT" => {
+                if self.points.len() != 1 {
+                    return Err("DXF text needs one anchor".into());
+                }
+                if !self.points[0].valid() {
+                    return Err("DXF text anchor is out of range".into());
+                }
+                let height = number(self.radius, "text height")?;
+                if height <= 0.0 || height > 10_000.0 {
+                    return Err("DXF text height is out of range".into());
+                }
+                if self.value.len() > 1024 {
+                    return Err("DXF text is too long".into());
+                }
+                Ok(Some(DxfShape::Text {
+                    at: self.points[0],
+                    height,
+                    rotation: self.start_deg.unwrap_or(0.0),
+                    value: self.value.clone(),
+                }))
+            }
+            _ => Ok(None),
+        }
+    }
+}
+
+/// Read the drawable entities of an ASCII DXF drawing file. Entities on
+/// unsupported entity types are skipped; malformed or oversized geometry is
+/// rejected. Units are taken as millimetres, matching the exporter.
+pub fn dxf_entities(text: &str) -> Result<Vec<DxfEntity>, String> {
+    const MAX_ENTITIES: usize = 20_000;
+    let mut out: Vec<DxfEntity> = Vec::new();
+    let mut in_entities = false;
+    let mut section = false;
+    let mut acc: Option<DxfAcc> = None;
+    let mut carried_layer: Option<String> = None;
+    let flush = |acc: &mut Option<DxfAcc>, out: &mut Vec<DxfEntity>| -> Result<(), String> {
+        let Some(a) = acc.take() else { return Ok(()) };
+        if let Some(shape) = a.finish()? {
+            if out.len() >= MAX_ENTITIES {
+                return Err("DXF drawing exceeds 20000 entities".into());
+            }
+            out.push(DxfEntity {
+                layer: a.layer.clone(),
+                shape,
+            });
+        }
+        Ok(())
+    };
+    let mut lines = text.lines().map(|l| l.trim_end_matches('\r'));
+    while let Some(first) = lines.next() {
+        let second = match lines.next() {
+            Some(s) => s,
+            None => return Err("DXF file has an odd number of lines".into()),
+        };
+        let Ok(what) = first.trim().parse::<i32>() else {
+            return Err(format!("DXF group code \"{first}\" is not a number"));
+        };
+        let value = second.trim();
+        match what {
+            0 => {
+                flush(&mut acc, &mut out)?;
+                let name = value.to_string();
+                if name == "SECTION" {
+                    section = true;
+                    in_entities = false;
+                } else if name == "ENDSEC" || name == "ENDTAB" || name == "EOF" {
+                    section = false;
+                    in_entities = false;
+                } else if in_entities && name != "ENTITY" {
+                    acc = Some(DxfAcc {
+                        layer: carried_layer.take().unwrap_or_default(),
+                        name,
+                        ..Default::default()
+                    });
+                }
+            }
+            2 if section => {
+                in_entities = value == "ENTITIES";
+                section = false;
+            }
+            _ if in_entities => {
+                if acc.is_none() {
+                    if what == 8 {
+                        carried_layer = Some(value.to_string());
+                    }
+                    continue;
+                }
+                let Some(a) = acc.as_mut() else { continue };
+                match what {
+                    8 => a.layer = value.to_string(),
+                    10 | 20 | 11 | 21 => {
+                        let v = value
+                            .parse::<f64>()
+                            .ok()
+                            .filter(|v| v.is_finite())
+                            .ok_or_else(|| format!("DXF coordinate \"{value}\" is not a number"))?;
+                        match what {
+                            10 => a.pending_x = Some(v),
+                            20 => a.pending_y = Some(v),
+                            11 => a.end_x = Some(v),
+                            _ => a.end_y = Some(v),
+                        }
+                        if let (Some(x), Some(y)) = (a.pending_x, a.pending_y) {
+                            a.pending_x = None;
+                            a.pending_y = None;
+                            a.points.push(Point::new(x, y));
+                        }
+                        if let (Some(x), Some(y)) = (a.end_x, a.end_y) {
+                            a.end_x = None;
+                            a.end_y = None;
+                            a.end = Some(Point::new(x, y));
+                        }
+                    }
+                    40 => {
+                        a.radius = value.parse::<f64>().ok().filter(|v| v.is_finite());
+                    }
+                    50 => {
+                        a.start_deg = value.parse::<f64>().ok().filter(|v| v.is_finite());
+                    }
+                    51 => {
+                        a.end_deg = value.parse::<f64>().ok().filter(|v| v.is_finite());
+                    }
+                    70 => {
+                        a.closed = value
+                            .parse::<i64>()
+                            .map(|flags| flags & 1 == 1)
+                            .unwrap_or(false);
+                    }
+                    1 => a.value = value.to_string(),
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    flush(&mut acc, &mut out)?;
+    Ok(out)
+}
+
 pub fn svg(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
     if view != "pcb" && view != "schematic" {
@@ -2903,6 +3164,109 @@ mod tests {
         );
         Ok(())
     }
+    #[test]
+    fn dxf_entities_reads_back_the_shape_kinds_it_exports() -> Result<(), String> {
+        let text = "0\nSECTION\n2\nENTITIES\n\
+            0\nLINE\n8\nF_Cu\n10\n1.5\n20\n2.5\n11\n6.0\n21\n2.5\n\
+            0\nCIRCLE\n8\nDrill\n10\n30\n20\n20\n40\n0.15\n\
+            0\nARC\n8\nF_Cu\n10\n47\n20\n10\n40\n7\n50\n359\n51\n180\n\
+            0\nLWPOLYLINE\n8\nEdge\n90\n4\n70\n1\n10\n0\n20\n0\n10\n60\n20\n0\n10\n60\n20\n40\n10\n0\n20\n40\n\
+            0\nTEXT\n8\nF_Silk\n10\n5\n20\n5\n40\n1.5\n50\n90\n1\nR7\n\
+            0\nSPLINE\n8\nX\n10\n1\n20\n1\n\
+            0\nENDSEC\n0\nEOF\n";
+        let entities = dxf_entities(text)?;
+        assert_eq!(entities.len(), 5, "the unsupported spline is skipped");
+        assert_eq!(
+            entities[0],
+            DxfEntity {
+                layer: "F_Cu".into(),
+                shape: DxfShape::Line {
+                    start: Point::new(1.5, 2.5),
+                    end: Point::new(6.0, 2.5),
+                }
+            }
+        );
+        assert!(matches!(
+            entities[1].shape,
+            DxfShape::Circle {
+                center: Point { x: 30.0, y: 20.0 },
+                radius: 0.15
+            }
+        ));
+        assert!(matches!(
+            entities[2].shape,
+            DxfShape::Arc {
+                radius: 7.0,
+                start_deg: 359.0,
+                end_deg: 180.0,
+                ..
+            }
+        ));
+        match &entities[3].shape {
+            DxfShape::Polyline { points, closed } => {
+                assert!(*closed, "the closed polyline reads back closed");
+                assert_eq!(points.len(), 4);
+                assert_eq!(points[3], Point::new(0.0, 40.0));
+            }
+            _ => return Err("a polyline should read back as a polyline".into()),
+        }
+        assert_eq!(
+            entities[4],
+            DxfEntity {
+                layer: "F_Silk".into(),
+                shape: DxfShape::Text {
+                    at: Point::new(5.0, 5.0),
+                    height: 1.5,
+                    rotation: 90.0,
+                    value: "R7".into(),
+                }
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dxf_entities_reads_the_paired_export_format_with_layers() -> Result<(), String> {
+        let mut project = Project::default();
+        project.graphics.push(pcbcraft_doc::Graphic {
+            id: 1,
+            layer: "board".into(),
+            shape: "line".into(),
+            points: vec![Point::new(1.0, 2.0), Point::new(9.0, 2.0)],
+            width: 0.2,
+            text: String::new(),
+        });
+        let text = dxf_board(&project)?;
+        let entities = dxf_entities(&text)?;
+        assert!(
+            entities.iter().any(|e| e.layer == "Edge"
+                && matches!(&e.shape, DxfShape::Polyline { closed: true, points } if points.len() == 4)),
+            "the board outline reads back as a closed rectangle"
+        );
+        assert!(
+            entities.iter().any(|e| e.layer == "Board_Graphics"
+                && matches!(&e.shape, DxfShape::Polyline { points, closed: false }
+                    if points == &vec![Point::new(1.0, 2.0), Point::new(9.0, 2.0)])),
+            "the board graphic reads back on its layer"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dxf_entities_rejects_malformed_drawings() {
+        let bad = [
+            "0\nSECTION\n2\nENTITIES\n0\nLINE\n8\nX\n",
+            "0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n1\n20\n2\n",
+            "0\nSECTION\n2\nENTITIES\n0\nCIRCLE\n10\n1\n20\n2\n40\n0\n",
+            "0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n70\n1\n10\n1\n20\n1\n",
+            "0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n1e999\n20\n2\n11\n3\n21\n4\n",
+            "0\nSECTION\n2\nENTITIES\n0\nLINE\n10\nnot-a-number\n20\n2\n11\n3\n21\n4\n",
+        ];
+        for text in bad {
+            assert!(dxf_entities(text).is_err(), "{text} should be rejected");
+        }
+    }
+
     #[test]
     fn bom_csv_groups_identical_parts_and_quotes_tricky_cells() -> Result<(), String> {
         let mut project = Project::default();
