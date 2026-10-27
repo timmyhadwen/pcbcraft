@@ -1147,17 +1147,25 @@ impl App {
                             Stroke::NONE,
                         ));
                     }
-                    painter.text(
-                        center,
-                        Align2::CENTER_CENTER,
-                        &pad.number,
-                        FontId::monospace(10.0),
-                        if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
-                            Color32::from_rgb(230, 194, 125)
-                        } else {
-                            Color32::from_rgb(48, 44, 32)
-                        },
-                    );
+                    if self.preferences.pad_labels != PadLabels::Off {
+                        let label = match self.preferences.pad_labels {
+                            PadLabels::Net => p.net_name(pad.net.unwrap_or_default()).to_string(),
+                            _ => pad.number.clone(),
+                        };
+                        if !label.is_empty() {
+                            painter.text(
+                                center,
+                                Align2::CENTER_CENTER,
+                                label,
+                                FontId::monospace(10.0),
+                                if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
+                                    Color32::from_rgb(230, 194, 125)
+                                } else {
+                                    Color32::from_rgb(48, 44, 32)
+                                },
+                            );
+                        }
+                    }
                 }
             }
             if let Some(c) = p.component(f.component) {
@@ -1276,6 +1284,100 @@ mod library_render_tests {
                 .iter()
                 .any(|s| matches!(&s.shape,egui::Shape::Path(p) if p.fill==Color32::WHITE))
         );
+    }
+    #[test]
+    fn pad_display_mode_switches_between_number_net_and_nothing() -> Result<(), String> {
+        let mut project = pcbcraft_doc::Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 3,
+            name: "SPOT".into(),
+            ..Default::default()
+        });
+        project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
+            id: 1,
+            reference: "ZZ8".into(),
+            value: "9".into(),
+            kind: "resistor".into(),
+            position: Point::new(5.0, 5.0),
+            rotation: 0.0,
+            pins: vec![],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 2,
+            component: 1,
+            position: Point::new(5.0, 5.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "7".into(),
+                offset: Point::new(1.0, 0.0),
+                diameter: 1.5,
+                net: Some(3),
+                castellated: None,
+                geometry: None,
+            }],
+        });
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        let labels = |app: &App| -> Vec<String> {
+            let ctx = egui::Context::default();
+            let mut output = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+                egui::CentralPanel::default().show(root_ui, |ui| {
+                    app.paint_board(
+                        ui.painter(),
+                        Rect::from_min_max(Pos2::ZERO, Pos2::new(500.0, 500.0)),
+                        Camera {
+                            center: Point::default(),
+                            zoom: 20.0,
+                        },
+                        &project,
+                    );
+                });
+            });
+            output.textures_delta.clear();
+            output
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_owned()),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(
+            app.preferences.pad_labels,
+            PadLabels::Number,
+            "pad numbers are the default display mode"
+        );
+        let numbers = labels(&app);
+        assert!(
+            numbers.iter().any(|t| t == "7"),
+            "pad numbers show in number mode: {numbers:?}"
+        );
+        assert!(
+            !numbers.iter().any(|t| t == "SPOT"),
+            "nets stay hidden in number mode"
+        );
+        app.preferences.pad_labels = PadLabels::Net;
+        let nets = labels(&app);
+        assert!(
+            nets.iter().any(|t| t == "SPOT"),
+            "net mode names the net sitting on the pad: {nets:?}"
+        );
+        assert!(!nets.iter().any(|t| t == "7"), "pad numbers step aside");
+        app.preferences.pad_labels = PadLabels::Off;
+        let bare = labels(&app);
+        assert!(!bare.iter().any(|t| t == "7"), "off hides pad labels");
+        assert!(
+            bare.iter().any(|t| t == "ZZ8"),
+            "the reference label stays in every mode"
+        );
+        Ok(())
     }
 }
 

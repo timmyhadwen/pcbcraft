@@ -209,11 +209,32 @@ enum Tab {
     Libraries,
     Checks,
 }
+/// What the board canvas draws at each pad centre.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
+enum PadLabels {
+    /// The pad's own number, the default assembly view.
+    #[default]
+    Number,
+    /// The net the pad sits on, blank for unconnected pads.
+    Net,
+    /// Nothing, for a clean copper picture.
+    Off,
+}
+impl PadLabels {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Number => "Pads: number",
+            Self::Net => "Pads: net",
+            Self::Off => "Pads: off",
+        }
+    }
+}
 #[derive(Clone, Serialize, Deserialize)]
 struct Preferences {
     dark: bool,
     grid: bool,
     accent: [u8; 3],
+    pad_labels: PadLabels,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -221,6 +242,7 @@ impl Default for Preferences {
             dark: true,
             grid: true,
             accent: [91, 224, 188],
+            pad_labels: PadLabels::Number,
         }
     }
 }
@@ -822,6 +844,29 @@ impl App {
                         {
                             self.tool = Tool::Cutout;
                         }
+                        egui::ComboBox::from_id_salt("pad-labels")
+                            .selected_text(self.preferences.pad_labels.name())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.preferences.pad_labels,
+                                    PadLabels::Number,
+                                    PadLabels::Number.name(),
+                                );
+                                ui.selectable_value(
+                                    &mut self.preferences.pad_labels,
+                                    PadLabels::Net,
+                                    PadLabels::Net.name(),
+                                );
+                                ui.selectable_value(
+                                    &mut self.preferences.pad_labels,
+                                    PadLabels::Off,
+                                    PadLabels::Off.name(),
+                                );
+                            })
+                            .response
+                            .on_hover_text(
+                                "Pad display mode: pick what sits at each pad centre on the board, its number, the net it belongs to, or nothing. The choice is remembered between sessions.",
+                            );
                     }
                     _ => {}
                 }
