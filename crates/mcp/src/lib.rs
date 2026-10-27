@@ -30,6 +30,7 @@ pub fn tool_list() -> Value {
         json!({"name":"dsn.write","description":"Write a Specctra-style board file (nets, classes, placements, tracks, vias and keepouts as s-expressions) into a directory for external autorouters, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"cmp.write","description":"Write a legacy board trace file listing every placed pad position in mils with a front or back layer code and every net's pad membership, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"idf.write","description":"Write a board-level mechanical drawing (board size plus every placed part's position, side and rotation, with default component heights) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"wrl.write","description":"Write a VRML 2.0 scene extruding the board outline and every placed pad into solid prisms into a directory for mechanical viewers, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),&["path"])}),
         json!({"name":"dxf.export","description":"Write the board drawing as an ASCII DXF file (copper tracks, vias, pads, zones, board graphics, outline and labels) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"placement.write","description":"Write a pick-and-place centroid file (reference, position, rotation, side, package per placed part) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -225,6 +226,12 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             let text = pcbcraft_io::step_board(&s.project)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("board.step"), text.as_bytes())?;
             json!({"directory":directory,"file":"board.step","bytes":text.len()})
+        }
+        "wrl.write" => {
+            let directory = string(args, "path")?;
+            let text = pcbcraft_io::vrml_board(&s.project)?;
+            pcbcraft_io::atomic_write(&Path::new(directory).join("board.wrl"), text.as_bytes())?;
+            json!({"directory":directory,"file":"board.wrl","bytes":text.len()})
         }
         "pdf.write" => {
             let directory = string(args, "path")?;
@@ -1074,6 +1081,47 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing a trace file must not change the project"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn wrl_write_exports_a_vrml_scene_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        for reference in ["R1", "R2"] {
+            call_tool(
+                &session,
+                "execute",
+                &json!({"command":"component.add","params":{"kind":"resistor","reference":reference,"position":[10.0,10.0]}}),
+            );
+        }
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"board.sync","params":{}}),
+        );
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(&session, "wrl.write", &json!({"path":directory.path()}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(directory.path().join("board.wrl"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            text.starts_with("#VRML V2.0 utf8\n"),
+            "the scene declares VRML 2.0"
+        );
+        assert!(
+            text.matches("IndexedFaceSet").count() >= 3,
+            "the outline and the placed pads each become a solid"
+        );
+        assert!(
+            text.matches("Shape {").count() == text.matches("IndexedFaceSet").count(),
+            "every shape carries exactly one solid"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "writing a VRML scene must not change the project"
         );
         Ok(())
     }

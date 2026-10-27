@@ -961,6 +961,111 @@ pub fn step_board(p: &Project) -> Result<String, String> {
     out.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
     Ok(out)
 }
+/// Board as a VRML 2.0 scene for mechanical viewers: one solid prism for the
+/// board outline (the rectangle when no free-form outline is recorded) and one
+/// prism per placed pad, each an indexed face set with a bottom cap, four side
+/// faces per ring segment and a top cap.
+pub fn vrml_board(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_PRISMS: usize = 20_000;
+    const MAX_FACES: usize = 200_000;
+    let depth = p.board.thickness;
+    let outline: Vec<Point> = match &p.board.outline {
+        Some(o) if o.len() >= 3 => o.clone(),
+        _ => vec![
+            Point::new(0.0, 0.0),
+            Point::new(p.board.width, 0.0),
+            Point::new(p.board.width, p.board.height),
+            Point::new(0.0, p.board.height),
+        ],
+    };
+    let mut rings = vec![outline];
+    for footprint in &p.board.footprints {
+        for pad in &footprint.pads {
+            rings.push(
+                pad.outline_points()
+                    .into_iter()
+                    .map(|pos| footprint.position.offset(pos.rotate(-footprint.rotation)))
+                    .collect(),
+            );
+        }
+    }
+    if rings.len() > MAX_PRISMS {
+        return Err("mechanical scene exceeds the solid limit".into());
+    }
+    let mut out = String::new();
+    out.push_str("#VRML V2.0 utf8\n# pcbcraft board\n");
+    let mut faces = 0usize;
+    for ring in &rings {
+        let base = 0usize;
+        let ring = thin_ring(ring);
+        let count = ring.len();
+        if count < 3 {
+            continue;
+        }
+        faces += 4 * count;
+        if faces > MAX_FACES {
+            return Err("mechanical scene exceeds the face limit".into());
+        }
+        let mut coords = String::new();
+        for index in 0..count {
+            let next = (index + 1) % count;
+            let a = ring[index];
+            let b = ring[next];
+            coords.push_str(&format!(
+                "{} {} {},{} {} {},{} {} {},{} {} {},",
+                f64s(a.x),
+                f64s(a.y),
+                "0",
+                f64s(b.x),
+                f64s(b.y),
+                "0",
+                f64s(b.x),
+                f64s(b.y),
+                f64s(depth),
+                f64s(a.x),
+                f64s(a.y),
+                f64s(depth),
+            ));
+        }
+
+        let mut idx = Vec::new();
+        for quad in 0..count {
+            let q = base + quad * 4;
+            idx.push(format!("{} {} {} {} -1", q, q + 1, q + 2, q + 3));
+        }
+        let cap: Vec<usize> = (0..count).map(|index| base + index * 4).collect();
+        idx.push(format!(
+            "{} -1",
+            cap.iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
+        let topcap: Vec<usize> = (0..count).rev().map(|index| base + index * 4 + 2).collect();
+        idx.push(format!(
+            "{} -1",
+            topcap
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
+        out.push_str(&format!(
+            "Shape {{\n  appearance Appearance {{ material Material {{ diffuseColor 0.13 0.55 0.13 }} }}\n  geometry IndexedFaceSet {{\n    coord Coordinate {{ point [\n      {}\n    ] }}\n    coordIndex [\n      {}\n    ] solid\n  }}\n}}\n",
+            coords,
+            idx.join("\n      "),
+        ));
+    }
+    if out.matches("IndexedFaceSet").count() == 0 {
+        return Err("board has no solids to export".into());
+    }
+    Ok(out)
+}
+fn f64s(v: f64) -> String {
+    let r = (v * 1000.0).round() / 1000.0;
+    if r == 0.0 { "0".into() } else { format!("{r}") }
+}
 
 pub fn kicad_board(p: &Project) -> Result<String, String> {
     p.validate()?;
@@ -4161,6 +4266,64 @@ mod tests {
         }
         assert!(pdf_document(&project, "layout").is_err());
         assert!(pdf_document(&Project::default(), "pcb")?.starts_with(b"%PDF-1.4"));
+        Ok(())
+    }
+
+    #[test]
+    fn vrml_board_extrudes_outline_and_pads_as_indexed_solids() -> Result<(), String> {
+        let project = real_library_project()?;
+        let scene = vrml_board(&project)?;
+        assert!(
+            scene.starts_with("#VRML V2.0 utf8\n"),
+            "the scene declares VRML 2.0"
+        );
+        assert!(
+            scene.matches("Shape {").count() == scene.matches("IndexedFaceSet").count(),
+            "every shape carries exactly one solid"
+        );
+        assert!(
+            scene.matches("IndexedFaceSet").count() >= 3,
+            "the outline and both pads each become a solid"
+        );
+        for chunk in scene.split("Shape {").skip(1) {
+            let points = chunk
+                .split_once("point [")
+                .ok_or("a solid is missing its points")?
+                .1
+                .split_once("]")
+                .ok_or("points unterminated")?
+                .0;
+            let count = points
+                .split(',')
+                .map(str::trim)
+                .filter(|p| !p.is_empty() && p.split_whitespace().count() == 3)
+                .count();
+            let indices = chunk
+                .split_once("coordIndex [")
+                .ok_or("a solid is missing its indices")?
+                .1
+                .split_once(']')
+                .ok_or("indices unterminated")?
+                .0;
+            let highest = indices
+                .split_whitespace()
+                .filter(|t| *t != "-1")
+                .map(|t| t.parse::<usize>().unwrap_or(usize::MAX))
+                .max()
+                .ok_or("a solid has no indices")?;
+            assert!(
+                highest < count,
+                "every index names a point inside the solid"
+            );
+            assert!(
+                indices.matches("-1").count() >= count / 4 + 2,
+                "every quad and both caps are terminated"
+            );
+        }
+        assert!(
+            scene.contains("diffuseColor 0.13 0.55 0.13"),
+            "copper solids are tinted"
+        );
         Ok(())
     }
 
