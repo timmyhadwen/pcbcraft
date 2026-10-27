@@ -721,6 +721,32 @@ impl OutputJob {
 }
 /// An unplated through hole: a drill that passes through the board without
 /// plating or a net.
+/// A net tie: two touching round pads that bridge exactly two nets at one
+/// point, used to split a plane while keeping a single controlled crossing.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct NetTie {
+    pub id: Id,
+    /// The two nets this tie bridges; they must differ.
+    pub net_a: Id,
+    pub net_b: Id,
+    /// Centre of the bridge, midway between the two pads, in millimetres.
+    pub position: Point,
+    /// Angle of the pad-to-pad axis in degrees from the x axis.
+    #[serde(default)]
+    pub rotation: f64,
+    /// Diameter of each of the two round pads, in millimetres.
+    pub diameter: f64,
+}
+impl NetTie {
+    fn valid(&self) -> bool {
+        self.position.valid()
+            && (0.3..=20.0).contains(&self.diameter)
+            && self.rotation.is_finite()
+            && self.net_a != self.net_b
+    }
+}
+/// An unplated through hole: a drill that passes through the board without
+/// plating or a net.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Hole {
     pub id: Id,
@@ -825,6 +851,10 @@ pub struct Board {
     /// Plated through-hole vias joining front and back copper.
     #[serde(default)]
     pub vias: Vec<Via>,
+    /// Net-tie pads: two touching round pads bridging exactly two nets,
+    /// ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub netties: Vec<NetTie>,
     /// Unplated through holes drilled for mounting or clearance; they carry
     /// no copper and belong to no net.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1084,6 +1114,7 @@ impl Default for Project {
                 tracks: vec![],
                 vias: vec![],
                 holes: vec![],
+                netties: vec![],
                 zones: vec![],
                 cutouts: vec![],
                 texts: vec![],
@@ -1358,6 +1389,7 @@ impl Project {
             .chain(self.board.zones.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
             .chain(self.board.holes.iter().map(|x| x.id))
+            .chain(self.board.netties.iter().map(|x| x.id))
             .chain(self.board.rule_areas.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
     }
@@ -1462,6 +1494,14 @@ impl Project {
         for h in &self.board.holes {
             if !h.valid() {
                 return Err("unplated holes need a sane position and a 0.05 to 25 mm drill".into());
+            }
+        }
+        if self.board.netties.len() > 128 {
+            return Err("a board carries at most 128 net ties".into());
+        }
+        for t in &self.board.netties {
+            if !t.valid() || !nets.contains(&t.net_a) || !nets.contains(&t.net_b) {
+                return Err("net ties bridge two known nets with sane 0.3 to 20 mm pads".into());
             }
         }
         for r in &self.board.rule_areas {

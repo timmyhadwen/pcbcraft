@@ -121,6 +121,30 @@ fn copper(project: &Project) -> Vec<Copper> {
             }
         }
     }
+    for t in &project.board.netties {
+        let half = t.diameter / 2.0;
+        let axis = Point::new(half, 0.0).rotate(t.rotation);
+        for (net, sign) in [(t.net_a, 1.0), (t.net_b, -1.0)] {
+            let centre = t.position.offset(Point::new(axis.x * sign, axis.y * sign));
+            result.push(Copper {
+                id: t.id,
+                net,
+                start: centre,
+                end: centre,
+                radius: half,
+                contact_radius: half,
+                conservative: false,
+                outline: None,
+                outline_error: 0.0,
+                layer: Layer::Front,
+                pad: true,
+                clearance: None,
+                bridge: Some((t.id, "net tie".into())),
+                hole: None,
+                cutouts: vec![],
+            });
+        }
+    }
     for t in &project.board.tracks {
         let straight = |a: Point, b: Point, radius: f64| Copper {
             id: t.id,
@@ -512,6 +536,11 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     let board = &project.board;
     for (i, a) in items.iter().enumerate() {
         for b in items.iter().skip(i + 1) {
+            if a.bridge.is_some() && a.bridge == b.bridge {
+                // A declared net tie's own pads touch on purpose; the pair is
+                // the bridge, never a short.
+                continue;
+            }
             if (a.net != b.net || a.net == 0) && a.layer == b.layer {
                 let mid = |c: &Copper| {
                     Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0)

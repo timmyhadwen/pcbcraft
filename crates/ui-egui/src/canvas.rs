@@ -1015,6 +1015,27 @@ impl App {
                 );
             }
         }
+        for t in &p.board.netties {
+            let half = t.diameter / 2.0;
+            let axis = pcbcraft_geom::Point::new(half, 0.0).rotate(t.rotation);
+            for sign in [1.0, -1.0] {
+                let centre = t
+                    .position
+                    .offset(pcbcraft_geom::Point::new(axis.x * sign, axis.y * sign));
+                painter.circle_stroke(
+                    camera.screen(centre, rect),
+                    (half as f32 * camera.zoom).max(2.0),
+                    Stroke::new(
+                        1.5,
+                        if self.selected == Some(t.id) {
+                            self.accent()
+                        } else {
+                            Color32::from_rgb(216, 180, 255)
+                        },
+                    ),
+                );
+            }
+        }
         for f in &p.board.footprints {
             let points = f
                 .drawing_points(p)
