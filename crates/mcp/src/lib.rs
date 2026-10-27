@@ -36,6 +36,7 @@ pub fn tool_list() -> Value {
         json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),&["path"])}),
         json!({"name":"dxf.export","description":"Write the board drawing as an ASCII DXF file (copper tracks, vias, pads, zones, board graphics, outline and labels) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"placement.write","description":"Write a pick-and-place centroid file (reference, position, rotation, side, package per placed part) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"plot_csv.write","description":"Write a fabrication plot report CSV (per copper layer: element counts and bounding box in millimetres, plus a totals row) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed KiCad symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a KiCad symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
@@ -297,6 +298,15 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                 text.as_bytes(),
             )?;
             json!({"directory":directory,"files":["placement.txt"]})
+        }
+        "plot_csv.write" => {
+            let directory = string(args, "path")?;
+            let text = pcbcraft_io::plot_csv(&s.project)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("plot-report.csv"),
+                text.as_bytes(),
+            )?;
+            json!({"directory":directory,"file":"plot-report.csv"})
         }
         "list_commands" => {
             json!({"commands":pcbcraft_engine::commands(),"units":"millimetres and degrees"})
@@ -1189,6 +1199,72 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing an interchange text must not change the project"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn plot_csv_write_reports_each_copper_layer_without_editing() -> Result<(), String> {
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(
+            &session,
+            "plot_csv.write",
+            &json!({"path":directory.path()}),
+        );
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(directory.path().join("plot-report.csv"))
+            .map_err(|e| e.to_string())?;
+        let rows: Vec<Vec<&str>> = text
+            .trim_end()
+            .lines()
+            .map(|line| line.split(',').collect())
+            .collect();
+        assert_eq!(
+            rows.len(),
+            4,
+            "header, both copper layers, and a totals row"
+        );
+        assert_eq!(rows[1][0], "B.Cu");
+        assert_eq!(rows[2][0], "F.Cu");
+        assert_eq!(rows[3][0], "total");
+        let plotted: usize = rows[3][1..8]
+            .iter()
+            .map(|cell| cell.parse::<usize>().map_err(|e| e.to_string()))
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .sum();
+        assert_eq!(plotted, 0, "a schematic-only sample plots no copper");
+        assert_eq!(
+            call_tool(&session, "plot_csv.write", &json!({})).get("isError"),
+            Some(&json!(true)),
+            "a missing directory is refused"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "writing the plot report must not change the project"
+        );
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"track.add","params":{"net":4,"start":[1.0,2.0],"end":[8.0,2.0],"width":0.25,"layer":"F.Cu"}}),
+        );
+        let export = call_tool(
+            &session,
+            "plot_csv.write",
+            &json!({"path":directory.path()}),
+        );
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(directory.path().join("plot-report.csv"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            text.lines()
+                .nth(2)
+                .ok_or_else(|| "missing front layer row".to_string())?
+                .contains("F.Cu,0,1,0,0,0,0,0,1.000,2.000,8.000,2.000"),
+            "a front track appears on the front row with its extent"
         );
         Ok(())
     }

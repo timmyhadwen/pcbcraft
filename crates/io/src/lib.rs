@@ -2032,6 +2032,165 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
         rows.join("\n")
     ))
 }
+/// Fabrication plot report as CSV: one row per copper layer counting the
+/// elements a plot of that layer would draw (pads, tracks, vias, zones,
+/// text, fiducials and holes) with the bounding box of that layer's
+/// elements in millimetres, plus a totals row. Through-hole elements are
+/// listed on both copper layers, as both would be plotted.
+pub fn plot_csv(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_ELEMENTS: usize = 50_000;
+    #[derive(Default)]
+    struct LayerPlot {
+        pads: usize,
+        tracks: usize,
+        vias: usize,
+        zones: usize,
+        texts: usize,
+        fiducials: usize,
+        holes: usize,
+        min: Option<(f64, f64)>,
+        max: Option<(f64, f64)>,
+    }
+    let mut layers: BTreeMap<&str, LayerPlot> = BTreeMap::new();
+    layers.insert("F.Cu", LayerPlot::default());
+    layers.insert("B.Cu", LayerPlot::default());
+    let mut elements = 0usize;
+    let mut touch = |layers: &mut BTreeMap<&str, LayerPlot>,
+                     layer: &str,
+                     seen: &mut dyn FnMut(&mut LayerPlot),
+                     points: &[(f64, f64)]|
+     -> Result<(), String> {
+        elements += 1;
+        if elements > MAX_ELEMENTS {
+            return Err("board exceeds the plot element limit".into());
+        }
+        let plot = layers
+            .get_mut(layer)
+            .ok_or_else(|| format!("unknown layer {layer}"))?;
+        seen(plot);
+        for &(x, y) in points {
+            plot.min = Some(match plot.min {
+                Some((mx, my)) => (mx.min(x), my.min(y)),
+                None => (x, y),
+            });
+            plot.max = Some(match plot.max {
+                Some((mx, my)) => (mx.max(x), my.max(y)),
+                None => (x, y),
+            });
+        }
+        Ok(())
+    };
+    for f in &p.board.footprints {
+        for pad in &f.pads {
+            let Some(geometry) = &pad.geometry else {
+                continue;
+            };
+            let centre = f.position.offset(geometry.position.rotate(-f.rotation));
+            let points = [(centre.x, centre.y)];
+            for layer in &geometry.layers {
+                let name = match layer.as_str() {
+                    "F.Cu" | "B.Cu" => Some(layer.as_str()),
+                    "*.Cu" => None,
+                    _ => continue,
+                };
+                match name {
+                    Some(name) => touch(&mut layers, name, &mut |plot| plot.pads += 1, &points)?,
+                    None => {
+                        for name in ["F.Cu", "B.Cu"] {
+                            touch(&mut layers, name, &mut |plot| plot.pads += 1, &points)?
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for track in &p.board.tracks {
+        let points = [(track.start.x, track.start.y), (track.end.x, track.end.y)];
+        touch(
+            &mut layers,
+            track.layer.name(),
+            &mut |plot| plot.tracks += 1,
+            &points,
+        )?;
+    }
+    for via in &p.board.vias {
+        let points = [(via.position.x, via.position.y)];
+        for name in ["F.Cu", "B.Cu"] {
+            touch(&mut layers, name, &mut |plot| plot.vias += 1, &points)?;
+        }
+    }
+    for zone in &p.board.zones {
+        let points: Vec<(f64, f64)> = zone.outline.iter().map(|pt| (pt.x, pt.y)).collect();
+        touch(
+            &mut layers,
+            zone.layer.name(),
+            &mut |plot| plot.zones += 1,
+            &points,
+        )?;
+    }
+    for text in &p.board.texts {
+        let points = [(text.position.x, text.position.y)];
+        touch(
+            &mut layers,
+            text.layer.name(),
+            &mut |plot| plot.texts += 1,
+            &points,
+        )?;
+    }
+    for fiducial in &p.board.fiducials {
+        let points = [(fiducial.position.x, fiducial.position.y)];
+        touch(
+            &mut layers,
+            fiducial.layer.name(),
+            &mut |plot| plot.fiducials += 1,
+            &points,
+        )?;
+    }
+    for hole in &p.board.holes {
+        let points = [(hole.position.x, hole.position.y)];
+        for name in ["F.Cu", "B.Cu"] {
+            touch(&mut layers, name, &mut |plot| plot.holes += 1, &points)?;
+        }
+    }
+    let coord = |v: Option<(f64, f64)>, first: bool| -> String {
+        match v {
+            Some((x, y)) => format!("{:.3}", if first { x } else { y }),
+            None => String::new(),
+        }
+    };
+    let mut out =
+        String::from("layer,pads,tracks,vias,zones,text,fiducials,holes,min_x,min_y,max_x,max_y\n");
+    let mut totals = [0usize; 7];
+    for (name, plot) in &layers {
+        let counts = [
+            plot.pads,
+            plot.tracks,
+            plot.vias,
+            plot.zones,
+            plot.texts,
+            plot.fiducials,
+            plot.holes,
+        ];
+        for (total, value) in totals.iter_mut().zip(counts) {
+            *total += value;
+        }
+        let mut row = vec![name.to_string()];
+        row.extend(counts.iter().map(|v| v.to_string()));
+        row.push(coord(plot.min, true));
+        row.push(coord(plot.min, false));
+        row.push(coord(plot.max, true));
+        row.push(coord(plot.max, false));
+        out.push_str(&row.join(","));
+        out.push('\n');
+    }
+    let mut row = vec!["total".to_string()];
+    row.extend(totals.iter().map(|v| v.to_string()));
+    row.extend(std::iter::repeat_n(String::new(), 4));
+    out.push_str(&row.join(","));
+    out.push('\n');
+    Ok(out)
+}
 /// Board as a legacy trace file for legacy importers and viewers: every pad
 /// with its absolute position in whole mils and a front or back layer code,
 /// followed by every net with its member pads. Coordinates are whole mils.
@@ -7776,6 +7935,199 @@ mod tests {
             gencad_text(&Project::default()).err(),
             Some("board has no placed footprints to export".into()),
             "an empty board is rejected"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn plot_csv_counts_each_copper_layer_and_totals() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 5,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        let geometry = pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::new(2.0, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.7, 1.7),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.9, 0.9),
+                offset: Point::new(0.0, 0.0),
+            }),
+            roundrect_ratio: None,
+            raw_source: String::new(),
+        };
+        let geometry_two = pcbcraft_library::FootprintPad {
+            number: "2".into(),
+            position: Point::new(-2.0, 0.0),
+            ..geometry.clone()
+        };
+        project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
+            id: 1,
+            reference: "R1".into(),
+            value: "1k".into(),
+            kind: "resistor".into(),
+            position: Point::new(10.0, 20.0),
+            rotation: 0.0,
+            pins: vec![
+                pcbcraft_doc::Pin {
+                    number: "1".into(),
+                    name: String::new(),
+                    offset: Point::new(8.0, 20.0),
+                    net: Some(5),
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+                pcbcraft_doc::Pin {
+                    number: "2".into(),
+                    name: String::new(),
+                    offset: Point::new(12.0, 20.0),
+                    net: Some(5),
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+            ],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "TEST-TH".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![geometry.clone(), geometry_two.clone()],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            }),
+            fields: vec![],
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 11,
+            component: 1,
+            position: Point::new(10.0, 20.0),
+            rotation: 90.0,
+            locked: None,
+            pads: vec![
+                pcbcraft_doc::Pad {
+                    number: "1".into(),
+                    offset: Point::new(2.0, 0.0),
+                    diameter: 1.7,
+                    net: Some(5),
+                    castellated: None,
+                    geometry: Some(geometry),
+                },
+                pcbcraft_doc::Pad {
+                    number: "2".into(),
+                    offset: Point::new(-2.0, 0.0),
+                    diameter: 1.7,
+                    net: Some(5),
+                    castellated: None,
+                    geometry: Some(geometry_two),
+                },
+            ],
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 21,
+            net: 5,
+            start: Point::new(1.0, 2.0),
+            end: Point::new(8.0, 2.0),
+            width: 0.25,
+            layer: pcbcraft_doc::Layer::Back,
+            arc: None,
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 31,
+            net: 5,
+            position: Point::new(4.0, 5.0),
+            diameter: 0.8,
+            drill: 0.4,
+        });
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 41,
+            position: Point::new(0.5, 0.5),
+            diameter: 3.0,
+        });
+        project.board.texts.push(pcbcraft_doc::BoardText {
+            id: 51,
+            text: "TOP".into(),
+            position: Point::new(9.0, 9.0),
+            size: 1.0,
+            layer: pcbcraft_doc::Layer::Front,
+            rotation: 0.0,
+            component: None,
+        });
+        project.validate().map_err(|e| format!("validate: {e}"))?;
+        let text = plot_csv(&project)?;
+        let rows: Vec<Vec<&str>> = text
+            .trim_end()
+            .lines()
+            .map(|line| line.split(',').collect())
+            .collect();
+        assert_eq!(
+            rows[0],
+            vec![
+                "layer",
+                "pads",
+                "tracks",
+                "vias",
+                "zones",
+                "text",
+                "fiducials",
+                "holes",
+                "min_x",
+                "min_y",
+                "max_x",
+                "max_y"
+            ]
+        );
+        // the through-hole pad, via and hole land on both copper layers;
+        // the track is back-only and the text is front-only
+        assert_eq!(rows[1][0], "B.Cu");
+        assert_eq!(rows[2][0], "F.Cu");
+        for row in &rows[1..3] {
+            assert_eq!(row[1], "2", "{name}: two through-hole pads", name = row[0]);
+            assert_eq!(row[3], "1", "{name}: one via", name = row[0]);
+            assert_eq!(row[7], "1", "{name}: one hole", name = row[0]);
+        }
+        assert_eq!(rows[1][2], "1", "the back-only track is on the back row");
+        assert_eq!(
+            rows[2][2], "0",
+            "the back-only track is not on the front row"
+        );
+        assert_eq!(rows[1][5], "0");
+        assert_eq!(rows[2][5], "1", "the front-only text is on the front row");
+        // the pad sits at (10, 22): offset (2, 0) rotated 90 degrees about (10, 20)
+        assert_eq!(
+            rows[2][8], "0.500",
+            "the hole at (0.5, 0.5) sets the minimum"
+        );
+        assert_eq!(rows[2][11], "22.000", "the rotated pad sets the maximum y");
+        assert_eq!(rows[3][0], "total");
+        assert_eq!(rows[3][1], "4", "two pads counted on both layers each");
+        assert_eq!(rows[3][2], "1");
+        assert_eq!(rows[3][3], "2");
+        assert_eq!(rows[3][5], "1");
+        assert_eq!(rows[3][7], "2");
+        let empty = plot_csv(&Project::default())?;
+        assert!(
+            empty
+                .lines()
+                .nth(1)
+                .ok_or_else(|| "missing back layer row".to_string())?
+                .contains(",0,0,0,0,0,0,0,"),
+            "an empty board plots nothing on either layer"
         );
         Ok(())
     }
