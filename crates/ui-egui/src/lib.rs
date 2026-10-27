@@ -1320,6 +1320,15 @@ impl App {
                     self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
                 }
                 if ui
+                    .button("Copy plot to clipboard")
+                    .on_hover_text(
+                        "Copy a PNG snapshot of the current view, the same picture a plotter would draw, so it can be pasted into a document.",
+                    )
+                    .clicked()
+                {
+                    self.copy_plot_to_clipboard(&ui.ctx().clone());
+                }
+                if ui
                     .button("LED example")
                     .on_hover_text(
                         "Start from a small worked example: a battery, resistor and LED.",
@@ -1574,6 +1583,35 @@ impl App {
     }
 }
 impl App {
+    fn copy_plot_to_clipboard(&mut self, ctx: &egui::Context) {
+        let view = if matches!(self.tab, Tab::Schematic) {
+            "schematic"
+        } else {
+            "pcb"
+        };
+        let bytes = self
+            .session
+            .lock()
+            .ok()
+            .and_then(|session| pcbcraft_io::preview_png(&session.project, view).ok())
+            .and_then(|bytes| {
+                let mut reader = std::io::Cursor::new(bytes);
+                image::load(&mut reader, image::ImageFormat::Png)
+                    .map(|image| image.into_rgba8())
+                    .ok()
+            });
+        match bytes {
+            Some(image) => {
+                ctx.copy_image(egui::ColorImage::from_rgba_unmultiplied(
+                    [image.width() as usize, image.height() as usize],
+                    image.as_raw(),
+                ));
+                self.message = "plot copied to the clipboard".into();
+            }
+            None => self.message = "copy failed: no plot to copy".into(),
+        }
+    }
+
     fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.refresh();
@@ -1833,6 +1871,21 @@ mod tests {
         output.textures_delta.clear();
         output
     }
+    #[test]
+    fn copy_plot_renders_the_current_view_for_the_clipboard() -> Result<(), String> {
+        let session =
+            pcbcraft_mcp::shared(pcbcraft_engine::Session::sample().map_err(|e| e.to_string())?);
+        let mut app = App::create(session, Preferences::default(), None, None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        app.copy_plot_to_clipboard(&ctx);
+        assert_eq!(app.message, "plot copied to the clipboard");
+        app.tab = Tab::Schematic;
+        app.copy_plot_to_clipboard(&ctx);
+        assert_eq!(app.message, "plot copied to the clipboard");
+        Ok(())
+    }
+
     #[test]
     fn tab_click_preserves_component_identity_and_rotation_undo_works() -> Result<(), String> {
         let session =

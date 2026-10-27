@@ -1845,6 +1845,7 @@ dependencies = [
  "pcbcraft-doc",
  "pcbcraft-engine",
  "pcbcraft-geom",
+ "pcbcraft-io",
  "pcbcraft-library",
  "pcbcraft-mcp",
  "pcbcraft-rules",
