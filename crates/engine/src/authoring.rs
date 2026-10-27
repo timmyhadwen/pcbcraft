@@ -31,6 +31,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.graphic_clear","Remove artwork from a project-library footprint in one undoable step: give a layer to clear just that layer's graphics, or omit it to clear every graphic, so stale silk and fab art can be wiped before redrawing",schema(json!({"name":{"type":"string"},"layer":{"type":"string","description":"layer to clear; omit to clear all graphics"}}),&["name"])),
         ("library.symbol.graphic_add","Draw one graphic (line, rectangle, circle, arc, polyline or text) onto one unit of a project-library symbol as one undoable step, the way a symbol gains body art, pin decorations or documentation text; it travels with every embedded copy until symbol.refresh spreads it",schema(json!({"name":{"type":"string"},"unit":{"type":"integer","description":"symbol unit the graphic belongs to; defaults to 1"},"body_style":{"type":"integer","description":"body style the graphic belongs to; defaults to 1"},"graphic":{"type":"object","description":"a graphic primitive as library readers emit it: kind with its points, width, layer and optional fill"}}),&["name","graphic"])),
         ("library.symbol.graphic_clear","Remove one unit's artwork from a project-library symbol in one undoable step, so stale symbol art can be wiped before redrawing; the unit keeps its pins",schema(json!({"name":{"type":"string"},"unit":{"type":"integer","description":"symbol unit whose graphics clear; defaults to 1"}}),&["name"])),
+        ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords or linked footprint one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"}}),&["name"])),
+        ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
         ("library.footprint.adopt","Copy a placed component's embedded footprint into the project library under a chosen name as one undoable step, so a package that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the package under"}}),&["id","name"])),
         ("library.symbol.adopt","Copy a placed component's embedded symbol into the project library under a chosen name as one undoable step, so a symbol that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the symbol under"}}),&["id","name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
@@ -87,6 +89,21 @@ struct DuplicateParams {
 struct PadSetParams {
     name: String,
     pad: FootprintPad,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetPropertyParams {
+    name: String,
+    #[serde(default)]
+    reference: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    keywords: Option<String>,
+    #[serde(default)]
+    footprint: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1033,6 +1050,93 @@ pub(super) fn run(
                 "removed": graphics.0 - graphics.1,
                 "graphics": graphics.1
             }))
+        }
+        "library.symbol.set_properties" | "library.footprint.set_properties" => {
+            let a: SetPropertyParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            let symbol = command == "library.symbol.set_properties";
+            let touched = a.reference.is_some()
+                || a.value.is_some()
+                || a.description.is_some()
+                || a.keywords.is_some()
+                || a.footprint.is_some();
+            if !touched {
+                return Err(Error::Invalid(
+                    "give at least one property to change".into(),
+                ));
+            }
+            for text in [
+                a.reference.as_deref(),
+                a.value.as_deref(),
+                a.description.as_deref(),
+                a.keywords.as_deref(),
+                a.footprint.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if text.len() > 128 * 1024 {
+                    return Err(Error::Invalid(
+                        "library text fields are capped at 128 KiB".into(),
+                    ));
+                }
+            }
+            let name = a.name.clone();
+            let item = if symbol {
+                let symbol = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                if let Some(v) = a.reference {
+                    symbol.reference = v;
+                }
+                if let Some(v) = a.value {
+                    symbol.value = v;
+                }
+                if let Some(v) = a.description {
+                    symbol.description = v;
+                }
+                if let Some(v) = a.keywords {
+                    symbol.keywords = v;
+                }
+                if let Some(v) = a.footprint {
+                    symbol.footprint = v;
+                }
+                symbol
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                symbol.name.clone()
+            } else {
+                let footprint = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                if a.reference.is_some() || a.value.is_some() || a.footprint.is_some() {
+                    return Err(Error::Invalid(
+                        "footprints carry description and keywords only".into(),
+                    ));
+                }
+                if let Some(v) = a.description {
+                    footprint.description = v;
+                }
+                if let Some(v) = a.keywords {
+                    footprint.keywords = v;
+                }
+                footprint
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                footprint.name.clone()
+            };
+            p.library.validate()?;
+            Ok(json!({"name": item}))
         }
         "component.place_custom" => {
             let a: Place = parse(params)?;
