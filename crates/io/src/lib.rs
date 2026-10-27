@@ -28,6 +28,17 @@ pub fn read_text(path: &Path) -> Result<String, String> {
     }
     Ok(text)
 }
+pub fn read_bytes(path: &Path) -> Result<Vec<u8>, String> {
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    file.take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err("file exceeds 8 MiB".into());
+    }
+    Ok(bytes)
+}
 #[cfg(not(target_arch = "wasm32"))]
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path
@@ -108,6 +119,145 @@ fn footprint_bounds(p: &Project, f: &pcbcraft_doc::Footprint) -> (Point, Point) 
     } else {
         (Point::new(-3.4, -1.4), Point::new(3.4, 1.4))
     }
+}
+
+/// CRC-32 (IEEE, reflected polynomial) over a byte slice, for ZIP entries.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = !0u32;
+    for byte in bytes {
+        crc = (crc >> 8) ^ CRC_TABLE[((crc as u8) ^ byte) as usize];
+    }
+    !crc
+}
+const CRC_TABLE: [u32; 256] = {
+    let mut table = [0u32; 256];
+    let mut i = 0;
+    while i < 256 {
+        let mut crc = i as u32;
+        let mut bit = 0;
+        while bit < 8 {
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xedb8_8320
+            } else {
+                crc >> 1
+            };
+            bit += 1;
+        }
+        table[i] = crc;
+        i += 1;
+    }
+    table
+};
+
+/// A self-contained project archive: a ZIP file (stored, no compression)
+/// holding design.json plus one entry per attached text file, written
+/// without any compression dependency.
+pub fn archive_zip(p: &Project) -> Result<Vec<u8>, String> {
+    let design = serde_json::to_string_pretty(p).map_err(|e| e.to_string())?;
+    let mut entries: Vec<(String, Vec<u8>)> = vec![("design.json".into(), design.into_bytes())];
+    for file in &p.files {
+        entries.push((
+            format!("files/{}", file.name),
+            file.data.clone().into_bytes(),
+        ));
+    }
+    let mut zip: Vec<u8> = Vec::new();
+    let mut central: Vec<u8> = Vec::new();
+    let mut offset = 0u32;
+    for (name, data) in &entries {
+        if name.len() > 255 {
+            return Err("archive entry name is too long".into());
+        }
+        let crc = crc32(data);
+        let mut local = Vec::new();
+        local.extend_from_slice(b"PK\x03\x04");
+        local.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        local.extend_from_slice(&crc.to_le_bytes());
+        local.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        local.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        local.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        local.extend_from_slice(&0u16.to_le_bytes());
+        local.extend_from_slice(name.as_bytes());
+        local.extend_from_slice(data);
+        let mut dir = Vec::new();
+        dir.extend_from_slice(b"PK\x01\x02");
+        dir.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        dir.extend_from_slice(&crc.to_le_bytes());
+        dir.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        dir.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        dir.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        dir.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        dir.extend_from_slice(&offset.to_le_bytes());
+        dir.extend_from_slice(name.as_bytes());
+        zip.extend_from_slice(&local);
+        central.extend_from_slice(&dir);
+        offset += local.len() as u32;
+    }
+    let directory_start = zip.len() as u32;
+    zip.extend_from_slice(&central);
+    zip.extend_from_slice(b"PK\x05\x06");
+    zip.extend_from_slice(&[0, 0, 0, 0]);
+    zip.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    zip.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    zip.extend_from_slice(&(central.len() as u32).to_le_bytes());
+    zip.extend_from_slice(&directory_start.to_le_bytes());
+    zip.extend_from_slice(&0u16.to_le_bytes());
+    Ok(zip)
+}
+
+/// Read back the project stored in an archive written by `archive_zip`.
+pub fn archive_project(bytes: &[u8]) -> Result<Project, String> {
+    let eocd = bytes
+        .windows(22)
+        .rposition(|w| w.starts_with(b"PK\x05\x06"))
+        .ok_or_else(|| "not a project archive: no archive directory".to_string())?;
+    let read_u16 = |at: usize| -> u16 { u16::from_le_bytes([bytes[at], bytes[at + 1]]) };
+    let read_u32 = |at: usize| -> u32 {
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+    };
+    let entries = read_u16(eocd + 10) as usize;
+    let mut at = read_u32(eocd + 16) as usize;
+    let mut design: Option<&[u8]> = None;
+    for _ in 0..entries {
+        if !bytes[at..].starts_with(b"PK\x01\x02") || at + 46 > bytes.len() {
+            return Err("corrupt archive directory entry".into());
+        }
+        let size = read_u32(at + 20) as usize;
+        let name_len = read_u16(at + 28) as usize;
+        let extra_len = read_u16(at + 30) as usize;
+        let comment_len = read_u16(at + 32) as usize;
+        let local_at = read_u32(at + 42) as usize;
+        if name_len == 0 || at + 46 + name_len > bytes.len() {
+            return Err("corrupt archive directory entry".into());
+        }
+        let name = &bytes[at + 46..at + 46 + name_len];
+        if name == b"design.json" {
+            if local_at + 30 > bytes.len() || !bytes[local_at..].starts_with(b"PK\x03\x04") {
+                return Err("corrupt archive entry header".into());
+            }
+            let local_name = read_u16(local_at + 26) as usize;
+            let local_extra = read_u16(local_at + 28) as usize;
+            if local_at + 30 + local_name > bytes.len()
+                || &bytes[local_at + 30..local_at + 30 + local_name] != name
+            {
+                return Err("archive entry headers disagree about the name".into());
+            }
+            let data_at = local_at + 30 + local_name + local_extra;
+            if data_at + size > bytes.len() {
+                return Err("archive entry runs past the end of the file".into());
+            }
+            design = Some(&bytes[data_at..data_at + size]);
+        }
+        at += 46 + name_len + extra_len + comment_len;
+    }
+    let design = design.ok_or_else(|| "archive holds no design.json".to_string())?;
+    let text = std::str::from_utf8(design).map_err(|_| "design.json is not UTF-8".to_string())?;
+    let project: Project =
+        serde_json::from_str(text).map_err(|e| format!("design.json is invalid: {e}"))?;
+    project
+        .validate()
+        .map_err(|e| format!("archived design is invalid: {e}"))?;
+    Ok(project)
 }
 
 pub fn kicad_board(p: &Project) -> Result<String, String> {
@@ -2367,6 +2517,46 @@ fn fill_polygon(image: &mut image::RgbImage, points: &[Point], color: [u8; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn archive_round_trips_a_project_and_its_attached_files() -> Result<(), String> {
+        let mut project = Project {
+            name: "Archive test".into(),
+            ..Project::default()
+        };
+        project.files.push(pcbcraft_doc::EmbeddedFile {
+            name: "notes.txt".into(),
+            data: "hello from the archive".into(),
+        });
+        let zip = archive_zip(&project)?;
+        assert!(
+            zip.starts_with(b"PK\x03\x04"),
+            "a ZIP starts with a local header"
+        );
+        assert!(zip.windows(4).any(|w| w == b"PK\x05\x06"));
+        assert_eq!(
+            crc32(b"123456789"),
+            0xcbf4_3926,
+            "the CRC must match the value every unzip tool expects"
+        );
+        let back = archive_project(&zip)?;
+        assert_eq!(back, project, "the archive must restore the exact design");
+        assert!(archive_project(b"not a zip at all").is_err());
+        let mut truncated = zip.clone();
+        truncated.truncate(zip.len() - 30);
+        assert!(archive_project(&truncated).is_err());
+        let mut wrong = zip.clone();
+        let at = wrong
+            .windows(11)
+            .position(|w| w == b"design.json")
+            .ok_or("entry name missing")?;
+        wrong[at] = b"x"[0];
+        assert!(
+            archive_project(&wrong).is_err(),
+            "a renamed design is not found"
+        );
+        Ok(())
+    }
+
     fn real_library_project() -> Result<Project, String> {
         let definition = pcbcraft_library::read_symbols(include_str!(
             "../../library/tests/fixtures/device.kicad_sym"
