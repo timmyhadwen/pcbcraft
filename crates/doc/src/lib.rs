@@ -64,6 +64,21 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
+    /// The schematic sheet this component belongs to. Sheet 0 is the implicit
+    /// root page that every design starts with.
+    #[serde(default, skip_serializing_if = "is_root_sheet")]
+    pub sheet: Id,
+}
+fn is_root_sheet(id: &Id) -> bool {
+    *id == 0
+}
+/// A named schematic page. Every component belongs to exactly one sheet;
+/// sheet 0 is the implicit root page and is not listed here.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Sheet {
+    pub id: Id,
+    pub name: String,
 }
 /// One named property on a component. A blank value is still a real property:
 /// it says the key applies to this component and has not been filled in.
@@ -1033,6 +1048,9 @@ pub struct Project {
     /// Named net classes carrying clearance and default width rules.
     #[serde(default)]
     pub net_classes: Vec<NetClass>,
+    /// Named schematic pages, ordered by id; sheet 0 is the implicit root.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sheets: Vec<Sheet>,
     /// Extra bill-of-materials columns, in print order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bom_fields: Vec<BomField>,
@@ -1160,6 +1178,7 @@ impl Default for Project {
             components: vec![],
             nets: vec![],
             net_classes: vec![],
+            sheets: vec![],
             bom_fields: vec![],
             output_jobs: vec![],
             files: vec![],
@@ -1259,6 +1278,7 @@ pub fn component_template(
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sheet: 0,
         pins: names
             .iter()
             .enumerate()
@@ -1457,6 +1477,7 @@ impl Project {
         self.components
             .iter()
             .map(|x| x.id)
+            .chain(self.sheets.iter().map(|x| x.id))
             .chain(self.nets.iter().map(|x| x.id))
             .chain(self.net_classes.iter().map(|x| x.id))
             .chain(self.wires.iter().map(|x| x.id))
@@ -1495,6 +1516,18 @@ impl Project {
         }
         if self.name.is_empty() || self.name.len() > 256 {
             return Err("project name must be 1–256 bytes".into());
+        }
+        if self.sheets.len() > 128 {
+            return Err("a schematic supports at most 128 sheets".into());
+        }
+        let mut sheet_names = BTreeSet::new();
+        for s in &self.sheets {
+            if s.name.is_empty() || s.name.len() > 128 {
+                return Err("sheet name must be 1–128 bytes".into());
+            }
+            if !sheet_names.insert(&s.name) {
+                return Err("duplicate sheet name".into());
+            }
         }
         if self.ids().count() > MAX_ITEMS {
             return Err("project object limit reached (2048)".into());
@@ -2225,6 +2258,7 @@ pub fn library_component(
         pins,
         units,
         fields: vec![],
+        sheet: 0,
         library_symbol: Some(LibrarySymbol {
             library,
             unit: 1,

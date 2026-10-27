@@ -2406,6 +2406,7 @@ mod tests {
             .collect();
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -2969,6 +2970,7 @@ mod tests {
             pads: vec![through_pad, pad2],
         });
         project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -3122,6 +3124,7 @@ mod tests {
         };
         for id in 1..=2u64 {
             project.components.push(pcbcraft_doc::Component {
+                sheet: 0,
                 id,
                 reference: format!("J{id}"),
                 value: "slot".into(),
@@ -3205,6 +3208,7 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                sheet: 0,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -3370,6 +3374,7 @@ mod tests {
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
+                sheet: 0,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -3510,6 +3515,7 @@ mod tests {
         ]);
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
+                sheet: 0,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -3916,6 +3922,7 @@ mod tests {
             (4, "C1", "100n"),
         ] {
             project.components.push(pcbcraft_doc::Component {
+                sheet: 0,
                 id,
                 reference: reference.into(),
                 value: value.into(),
@@ -4011,6 +4018,7 @@ mod tests {
     fn bom_csv_prints_project_defined_columns_under_their_labels() -> Result<(), String> {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
             id: 1,
             reference: "R1".into(),
             value: "10k".into(),
@@ -4091,6 +4099,7 @@ mod tests {
         let mut project = Project::default();
         for (id, reference) in [(1, "R1"), (2, "R2")] {
             project.components.push(pcbcraft_doc::Component {
+                sheet: 0,
                 id,
                 reference: reference.into(),
                 value: "10k".into(),
@@ -4156,6 +4165,7 @@ mod tests {
         }
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
+                sheet: 0,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -4242,6 +4252,7 @@ mod tests {
             ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
             id: 3,
             reference: "R9".into(),
             value: "1 k".into(),
