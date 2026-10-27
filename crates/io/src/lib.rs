@@ -3298,6 +3298,517 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
     Ok(s)
 }
 
+/// One drawable entity read from an SVG drawing. Coordinates are board-space
+/// millimetres, y up, normalised by the importer.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SvgShape {
+    Line {
+        start: Point,
+        end: Point,
+    },
+    Polyline {
+        points: Vec<Point>,
+        closed: bool,
+    },
+    Circle {
+        center: Point,
+        radius: f64,
+    },
+    Text {
+        at: Point,
+        height: f64,
+        value: String,
+    },
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct SvgEntity {
+    /// The element's stroke colour, kept only so importers can honour layer hints.
+    pub layer: String,
+    pub shape: SvgShape,
+}
+/// Parse one attribute value out of a tag body, honouring word boundaries so
+/// `x1` never satisfies a search for `x`.
+fn svg_attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let bytes = tag.as_bytes();
+    let mut from = 0usize;
+    while let Some(offset) = tag[from..].find(name) {
+        let start = from + offset;
+        let end = start + name.len();
+        let before_ok = start == 0
+            || !bytes[start - 1].is_ascii_alphanumeric()
+                && bytes[start - 1] != b'-'
+                && bytes[start - 1] != b':';
+        let mut after = end;
+        while after < tag.len() && tag.as_bytes()[after].is_ascii_whitespace() {
+            after += 1;
+        }
+        if before_ok && tag.as_bytes().get(after) == Some(&b'=') {
+            let quote = tag.as_bytes().get(after + 1).copied()?;
+            if quote != b'"' && quote != b'\'' {
+                return None;
+            }
+            let value_start = after + 2;
+            let value_end = tag[value_start..].find(quote as char)? + value_start;
+            return Some(&tag[value_start..value_end]);
+        }
+        from = end;
+    }
+    None
+}
+/// Read a numeric attribute, converting the common physical units to millimetres.
+fn svg_length(tag: &str, name: &str) -> Result<Option<f64>, String> {
+    let Some(raw) = svg_attr(tag, name) else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    let digits = trimmed
+        .find(|c: char| {
+            !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+' || c == 'e' || c == 'E')
+        })
+        .unwrap_or(trimmed.len());
+    let (number, unit) = trimmed.split_at(digits);
+    let value: f64 = number
+        .parse()
+        .map_err(|_| format!("SVG attribute {name} is not a number"))?;
+    if !value.is_finite() {
+        return Err(format!("SVG attribute {name} is not finite"));
+    }
+    let scale: f64 = match unit.trim() {
+        "" | "px" => 25.4 / 96.0,
+        "mm" => 1.0,
+        "cm" => 10.0,
+        "in" => 25.4,
+        "pt" => 25.4 / 72.0,
+        other => {
+            return Err(format!(
+                "SVG attribute {name} has unsupported unit \"{other}\""
+            ));
+        }
+    };
+    Ok(Some(value * scale))
+}
+/// Undo the five predefined XML entities.
+fn svg_unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        let tail = &rest[i + 1..];
+        let replaced = match tail.strip_prefix("amp;") {
+            Some(t) => Some(('&', t)),
+            None => match tail.strip_prefix("lt;") {
+                Some(t) => Some(('<', t)),
+                None => match tail.strip_prefix("gt;") {
+                    Some(t) => Some(('>', t)),
+                    None => match tail.strip_prefix("quot;") {
+                        Some(t) => Some(('"', t)),
+                        None => tail.strip_prefix("apos;").map(|t| ('\'', t)),
+                    },
+                },
+            },
+        };
+        match replaced {
+            Some((ch, t)) => {
+                out.push(ch);
+                rest = t;
+            }
+            None => {
+                out.push('&');
+                rest = tail;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+fn svg_point(x: f64, y: f64, height: f64) -> Result<Point, String> {
+    let p = Point::new(x, height - y);
+    if !p.valid() {
+        return Err("SVG coordinates are out of range".into());
+    }
+    Ok(p)
+}
+fn svg_numbers(list: &str) -> Result<Vec<f64>, String> {
+    let mut out = Vec::new();
+    for piece in list
+        .split([' ', ',', '\t', '\n', '\r'])
+        .filter(|p| !p.is_empty())
+    {
+        let value: f64 = piece
+            .parse()
+            .map_err(|_| format!("SVG coordinate list holds \"{piece}\""))?;
+        if !value.is_finite() {
+            return Err("SVG coordinate list holds a non-finite number".into());
+        }
+        out.push(value);
+    }
+    Ok(out)
+}
+/// Split path data into command letters and numbers, including the sign-flush
+/// form where "-7" starts a new number without a separator.
+fn svg_path_tokens(d: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    for c in d.chars() {
+        if c.is_ascii_alphabetic() || c == ',' || c.is_ascii_whitespace() {
+            if !current.is_empty() {
+                out.push(std::mem::take(&mut current));
+            }
+            if c.is_ascii_alphabetic() {
+                out.push(c.to_string());
+            }
+        } else if c == '-' || c == '+' {
+            if current.ends_with('e') || current.ends_with('E') {
+                current.push(c);
+            } else {
+                if !current.is_empty() {
+                    out.push(std::mem::take(&mut current));
+                }
+                current.push(c);
+            }
+        } else if c == '.'
+            && current.contains('.')
+            && !current.ends_with('e')
+            && !current.ends_with('E')
+        {
+            if !current.is_empty() {
+                out.push(std::mem::take(&mut current));
+            }
+            current.push(c);
+        } else {
+            current.push(c);
+        }
+    }
+    if !current.is_empty() {
+        out.push(current);
+    }
+    out
+}
+const SVG_MAX_POINTS: usize = 256;
+/// Execute a path's d commands into subpaths. Lines, moves, axis-aligned
+/// segments and closes are honoured; curves and arcs are rejected outright so
+/// an importer never silently drops geometry.
+fn svg_path_polylines(d: &str, height: f64) -> Result<Vec<(Vec<Point>, bool)>, String> {
+    let tokens = svg_path_tokens(d);
+    let mut subs: Vec<(Vec<Point>, bool)> = Vec::new();
+    let mut current: Vec<Point> = Vec::new();
+    let mut pen = Point::default();
+    let mut origin = Point::default();
+    let mut index = 0usize;
+    let mut command = ' ';
+    let number = |tokens: &Vec<String>, i: &mut usize| -> Result<f64, String> {
+        let value: f64 = tokens
+            .get(*i)
+            .ok_or_else(|| "SVG path ends mid-command".to_string())?
+            .parse()
+            .map_err(|_| "SVG path holds a non-number".to_string())?;
+        if !value.is_finite() {
+            return Err("SVG path holds a non-finite number".into());
+        }
+        *i += 1;
+        Ok(value)
+    };
+    while index < tokens.len() {
+        if let Some(letter) = tokens[index]
+            .chars()
+            .next()
+            .filter(|c| c.is_ascii_alphabetic())
+        {
+            command = letter;
+            index += 1;
+        }
+        match command {
+            'M' | 'm' => {
+                let x = number(&tokens, &mut index)?;
+                let y = number(&tokens, &mut index)?;
+                pen = if command == 'M' {
+                    Point::new(x, y)
+                } else {
+                    Point::new(pen.x + x, pen.y + y)
+                };
+                if current.len() > 1 {
+                    subs.push((std::mem::take(&mut current), false));
+                } else {
+                    current.clear();
+                }
+                origin = pen;
+                current.push(pen);
+                command = if command == 'M' { 'L' } else { 'l' };
+            }
+            'L' | 'l' => {
+                let x = number(&tokens, &mut index)?;
+                let y = number(&tokens, &mut index)?;
+                pen = if command == 'L' {
+                    Point::new(x, y)
+                } else {
+                    Point::new(pen.x + x, pen.y + y)
+                };
+                if current.len() >= SVG_MAX_POINTS {
+                    return Err("SVG path subpath exceeds 256 points".into());
+                }
+                current.push(pen);
+            }
+            'H' | 'h' => {
+                let x = number(&tokens, &mut index)?;
+                pen = Point::new(if command == 'H' { x } else { pen.x + x }, pen.y);
+                if current.len() >= SVG_MAX_POINTS {
+                    return Err("SVG path subpath exceeds 256 points".into());
+                }
+                current.push(pen);
+            }
+            'V' | 'v' => {
+                let y = number(&tokens, &mut index)?;
+                pen = Point::new(pen.x, if command == 'V' { y } else { pen.y + y });
+                if current.len() >= SVG_MAX_POINTS {
+                    return Err("SVG path subpath exceeds 256 points".into());
+                }
+                current.push(pen);
+            }
+            'Z' | 'z' => {
+                if current.len() > 1 {
+                    pen = origin;
+                    current.push(pen);
+                    subs.push((std::mem::take(&mut current), true));
+                } else {
+                    current.clear();
+                }
+            }
+            other => {
+                return Err(format!(
+                    "SVG path command '{other}' is not supported, only M L H V Z"
+                ));
+            }
+        }
+    }
+    if current.len() > 1 {
+        subs.push((current, false));
+    }
+    subs.into_iter()
+        .map(|(points, closed)| -> Result<(Vec<Point>, bool), String> {
+            Ok((
+                points
+                    .iter()
+                    .map(|q| svg_point(q.x, q.y, height))
+                    .collect::<Result<Vec<_>, _>>()?,
+                closed,
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()
+}
+/// Read the drawable entities of an SVG drawing as board graphics material.
+/// Lines, polylines, polygons, rectangles, circles, simple paths and text are
+/// honoured; groups are descended into and unsupported elements are skipped.
+/// The page height from the root tag flips y so the drawing lands y-up, and
+/// units convert to millimetres.
+pub fn svg_entities(text: &str) -> Result<Vec<SvgEntity>, String> {
+    const MAX_ENTITIES: usize = 512;
+    if text.len() > 1_048_576 {
+        return Err("SVG drawing exceeds 1 MiB".into());
+    }
+    let open = text
+        .find("<svg")
+        .ok_or_else(|| "not an SVG drawing: no <svg> root".to_string())?;
+    let open_end = text[open..]
+        .find('>')
+        .ok_or_else(|| "unclosed <svg> tag".to_string())?;
+    let root = &text[open..open + open_end];
+    let height = match svg_length(root, "height")? {
+        Some(h) => h,
+        None => match svg_attr(root, "viewBox").map(svg_numbers) {
+            Some(Ok(v)) if v.len() >= 4 => v[3],
+            _ => 100.0,
+        },
+    };
+    if !(height.is_finite() && height > 0.0 && height <= 100_000.0) {
+        return Err("SVG page height is out of range".into());
+    }
+    let mut out: Vec<SvgEntity> = Vec::new();
+    let mut depth = 0usize;
+    let mut cursor = open + open_end + 1;
+    let push = |shape: SvgShape, layer: String, out: &mut Vec<SvgEntity>| -> Result<(), String> {
+        if out.len() >= MAX_ENTITIES {
+            return Err("SVG drawing exceeds 512 entities".into());
+        }
+        out.push(SvgEntity { layer, shape });
+        Ok(())
+    };
+    while let Some(lt) = text[cursor..].find('<') {
+        let at = cursor + lt;
+        let rest = &text[at..];
+        if rest.starts_with("<!--") {
+            let end = rest
+                .find("-->")
+                .ok_or_else(|| "unterminated SVG comment".to_string())?;
+            cursor = at + end + 3;
+            continue;
+        }
+        if rest.starts_with("<?") || rest.starts_with("<!") {
+            let end = rest
+                .find('>')
+                .ok_or_else(|| "unclosed SVG tag".to_string())?;
+            cursor = at + end + 1;
+            continue;
+        }
+        if rest.starts_with("</") {
+            let end = rest
+                .find('>')
+                .ok_or_else(|| "unclosed SVG tag".to_string())?;
+            depth = depth.saturating_sub(1);
+            cursor = at + end + 1;
+            continue;
+        }
+        let end = rest
+            .find('>')
+            .ok_or_else(|| "unclosed SVG tag".to_string())?;
+        let self_closed = rest.as_bytes()[end - 1] == b'/';
+        let tag = rest[1..end - if self_closed { 1 } else { 0 }].trim_start();
+        let name_len = tag
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == ':'))
+            .unwrap_or(tag.len());
+        let name = tag[..name_len].to_ascii_lowercase();
+        let inside = depth == 0;
+        if !self_closed {
+            depth += 1;
+        }
+        cursor = at + end + 1;
+        if !inside {
+            continue;
+        }
+        let stroke = svg_attr(tag, "stroke").unwrap_or("");
+        let layer = if stroke.eq_ignore_ascii_case("none") {
+            String::new()
+        } else {
+            stroke.to_string()
+        };
+        match name.as_str() {
+            "line" => {
+                let (Some(x1), Some(y1), Some(x2), Some(y2)) = (
+                    svg_length(tag, "x1")?,
+                    svg_length(tag, "y1")?,
+                    svg_length(tag, "x2")?,
+                    svg_length(tag, "y2")?,
+                ) else {
+                    return Err("SVG line needs x1 y1 x2 y2".into());
+                };
+                push(
+                    SvgShape::Line {
+                        start: svg_point(x1, y1, height)?,
+                        end: svg_point(x2, y2, height)?,
+                    },
+                    layer,
+                    &mut out,
+                )?;
+            }
+            "polyline" | "polygon" => {
+                let raw = svg_attr(tag, "points")
+                    .ok_or_else(|| "SVG polygon has no points".to_string())?;
+                let numbers = svg_numbers(raw)?;
+                if numbers.len() < 4 || numbers.len() % 2 != 0 {
+                    return Err("SVG points list needs at least two pairs".into());
+                }
+                if numbers.len() / 2 > SVG_MAX_POINTS {
+                    return Err("SVG polygon exceeds 256 points".into());
+                }
+                let points = numbers
+                    .chunks(2)
+                    .map(|q| svg_point(q[0], q[1], height))
+                    .collect::<Result<Vec<_>, _>>()?;
+                push(
+                    SvgShape::Polyline {
+                        points,
+                        closed: name == "polygon",
+                    },
+                    layer,
+                    &mut out,
+                )?;
+            }
+            "rect" => {
+                let x = svg_length(tag, "x")?.unwrap_or(0.0);
+                let y = svg_length(tag, "y")?.unwrap_or(0.0);
+                let (Some(w), Some(h)) = (svg_length(tag, "width")?, svg_length(tag, "height")?)
+                else {
+                    return Err("SVG rect needs width and height".into());
+                };
+                if w <= 0.0 || h <= 0.0 || w > 100_000.0 || h > 100_000.0 {
+                    return Err("SVG rect size is out of range".into());
+                }
+                let corners = [
+                    svg_point(x, y, height)?,
+                    svg_point(x + w, y, height)?,
+                    svg_point(x + w, y + h, height)?,
+                    svg_point(x, y + h, height)?,
+                ];
+                push(
+                    SvgShape::Polyline {
+                        points: corners.to_vec(),
+                        closed: true,
+                    },
+                    layer,
+                    &mut out,
+                )?;
+            }
+            "circle" => {
+                let cx = svg_length(tag, "cx")?.ok_or_else(|| "SVG circle needs cx".to_string())?;
+                let cy = svg_length(tag, "cy")?.ok_or_else(|| "SVG circle needs cy".to_string())?;
+                let r = svg_length(tag, "r")?.ok_or_else(|| "SVG circle needs r".to_string())?;
+                if r <= 0.0 || r > 1_000.0 {
+                    return Err("SVG circle radius is out of range".into());
+                }
+                push(
+                    SvgShape::Circle {
+                        center: svg_point(cx, cy, height)?,
+                        radius: r,
+                    },
+                    layer,
+                    &mut out,
+                )?;
+            }
+            "path" => {
+                let d = svg_attr(tag, "d").ok_or_else(|| "SVG path has no d".to_string())?;
+                for (points, closed) in svg_path_polylines(d, height)? {
+                    if points.len() < 2 {
+                        continue;
+                    }
+                    push(
+                        SvgShape::Polyline { points, closed },
+                        layer.to_string(),
+                        &mut out,
+                    )?;
+                }
+            }
+            "text" => {
+                let x = svg_length(tag, "x")?.unwrap_or(0.0);
+                let y = svg_length(tag, "y")?.unwrap_or(0.0);
+                let size = svg_length(tag, "font-size")?.unwrap_or(2.5);
+                if size <= 0.0 || size > 1_000.0 {
+                    return Err("SVG text size is out of range".into());
+                }
+                let close = text[cursor..]
+                    .find("</text>")
+                    .ok_or_else(|| "unclosed SVG text".to_string())?;
+                let value = svg_unescape(&text[cursor..cursor + close]);
+                cursor += close + 7;
+                depth = depth.saturating_sub(1);
+                if value.len() > 128 {
+                    return Err("SVG text is too long".into());
+                }
+                push(
+                    SvgShape::Text {
+                        at: svg_point(x, y, height)?,
+                        height: size,
+                        value,
+                    },
+                    layer,
+                    &mut out,
+                )?;
+            }
+            "g" => {}
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
 /// A bounded CPU preview for headless MCP. The desktop has its own actual UI capture.
 pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     p.validate()?;
@@ -7458,5 +7969,158 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn svg_entities_reads_shape_kinds_with_a_y_flip_and_unit_conversion() -> Result<(), String> {
+        let drawing = "<svg width=\"2in\" height=\"5cm\">\
+            <line x1=\"10mm\" y1=\"10mm\" x2=\"1pt\" y2=\"0mm\" stroke=\"#ff0000\"/>\
+            <!-- a comment between shapes -->\
+            <polyline points=\"1,2 3,4 5,6\"/>\
+            <polygon points=\"1,2 3,4 5,6 7,8\" stroke=\"EDGE\"/>\
+            <rect x=\"0mm\" y=\"40mm\" width=\"3mm\" height=\"2mm\"/>\
+            <circle cx=\"5mm\" cy=\"45mm\" r=\"2mm\"/>\
+            <text x=\"5mm\" y=\"45mm\" font-size=\"2mm\">A &amp; B</text>\
+            <g><line x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"/></g>\
+            <ellipse cx=\"1\" cy=\"1\" rx=\"1\" ry=\"1\"/>\
+            </svg>";
+        let out = svg_entities(drawing)?;
+        assert_eq!(
+            out.len(),
+            6,
+            "grouped shapes and unknown shapes are skipped"
+        );
+        assert_eq!(out[0].layer, "#ff0000");
+        match &out[0].shape {
+            SvgShape::Line { start, end } => {
+                assert!((start.x - 10.0).abs() < 1e-9, "mm suffix");
+                assert!((start.y - 40.0).abs() < 1e-9, "50mm page flips y up");
+                assert!((end.x - 25.4 / 72.0).abs() < 1e-9, "pt scale");
+                assert!((end.y - 50.0).abs() < 1e-9);
+            }
+            other => Err(format!("expected a line, got {other:?}"))?,
+        }
+        match &out[1].shape {
+            SvgShape::Polyline { points, closed } => {
+                assert_eq!(points.len(), 3);
+                assert!(!closed, "polylines stay open");
+            }
+            other => Err(format!("expected a polyline, got {other:?}"))?,
+        }
+        match &out[2].shape {
+            SvgShape::Polyline { points, closed } => {
+                assert_eq!(points.len(), 4);
+                assert!(closed, "polygons close");
+                assert_eq!(out[2].layer, "EDGE");
+            }
+            other => Err(format!("expected a polygon, got {other:?}"))?,
+        }
+        match &out[3].shape {
+            SvgShape::Polyline { points, closed } => {
+                assert!(closed);
+                assert_eq!(points.len(), 4);
+                assert!((points[0].y - 10.0).abs() < 1e-9, "y 40mm flips to 10mm");
+                assert!((points[2].x - 3.0).abs() < 1e-9);
+            }
+            other => Err(format!("expected a rect outline, got {other:?}"))?,
+        }
+        match &out[4].shape {
+            SvgShape::Circle { center, radius } => {
+                assert!((center.y - 5.0).abs() < 1e-9);
+                assert!((radius - 2.0).abs() < 1e-9);
+            }
+            other => Err(format!("expected a circle, got {other:?}"))?,
+        }
+        match &out[5].shape {
+            SvgShape::Text { at, height, value } => {
+                assert_eq!(value, "A & B", "the five predefined entities decode");
+                assert!((height - 2.0).abs() < 1e-9);
+                assert!((at.y - 5.0).abs() < 1e-9);
+            }
+            other => Err(format!("expected text, got {other:?}"))?,
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn svg_entities_runs_paths_and_falls_back_to_the_view_box_height() -> Result<(), String> {
+        let drawing =
+            "<svg viewBox=\"0 0 10 30\"><path d=\"M1 2h3l-3-4v-2zM 4 4 5,5 6,6M 8 8 9 9\"/></svg>";
+        let out = svg_entities(drawing)?;
+        assert_eq!(out.len(), 3, "each subpath becomes one polyline");
+        match &out[0].shape {
+            SvgShape::Polyline { points, closed } => {
+                assert!(closed, "Z closes the subpath");
+                assert_eq!(points.len(), 5);
+                assert!(
+                    (points[1].x - 4.0).abs() < 1e-9,
+                    "h is relative and sign-flush"
+                );
+                assert!((points[2].x - 1.0).abs() < 1e-9 && (points[2].y - 32.0).abs() < 1e-9);
+                assert!((points[3].y - 34.0).abs() < 1e-9, "v is relative");
+                assert!(
+                    (points[0].x - points[4].x).abs() < 1e-9
+                        && (points[0].y - points[4].y).abs() < 1e-9,
+                    "Z returns to the subpath start"
+                );
+            }
+            other => Err(format!("expected a closed subpath, got {other:?}"))?,
+        }
+        match &out[1].shape {
+            SvgShape::Polyline { points, closed } => {
+                assert!(!closed);
+                assert_eq!(points.len(), 3, "M keeps collecting implicit Ls");
+                assert!((points[0].x - 4.0).abs() < 1e-9 && (points[2].x - 6.0).abs() < 1e-9);
+            }
+            other => Err(format!("expected an open subpath, got {other:?}"))?,
+        }
+        match &out[2].shape {
+            SvgShape::Polyline { points, closed } => {
+                assert_eq!(points.len(), 2, "the third M starts a new subpath");
+                assert!(!closed);
+                assert!(
+                    (points[0].x - 8.0).abs() < 1e-9 && (points[0].y - 22.0).abs() < 1e-9,
+                    "viewBox height 30 flips y"
+                );
+            }
+            other => Err(format!("expected the last subpath, got {other:?}"))?,
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn svg_entities_rejects_malformed_drawings() {
+        let bad = [
+            "no markup at all",
+            "<svg width=\"1mm\" height=\"0mm\"><line x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"/></svg>",
+            "<svg width=\"1mm\" height=\"1pc\"><line x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"/></svg>",
+            "<svg><path d=\"M0 0 C1 1 2 2 3 3\"/></svg>",
+            "<svg><path d=\"M0 0 Q1 1 2 2\"/></svg>",
+            "<svg><polyline points=\"1,2 3\"/></svg>",
+            "<svg><polyline points=\"1,2 x,4\"/></svg>",
+            "<svg><polygon points=\"1,2 3,4 5,6 7,8 9,10 11,12 13,14 15,16 17,18 19,20 21,22 23,24 25,26 27,28 29,30 31,32 33,34 35,36 37,38 39,40 41,42 43,44 45,46 47,48 49,50 51,52 53,54 55,56 57,58 59,60 61,62 63,64 65,66 67,68 69,70 71,72 73,74 75,76 77,78 79,80 81,82 83,84 85,86 87,88 89,90 91,92 93,94 95,96 97,98 99,100 101,102 103,104 105,106 107,108 109,110 111,112 113,114 115,116 117,118 119,120 121,122 123,124 125,126 127,128 129,130 131,132 133,134 135,136 137,138 139,140 141,142 143,144 145,146 147,148 149,150 151,152 153,154 155,156 157,158 159,160 161,162 163,164 165,166 167,168 169,170 171,172 173,174 175,176 177,178 179,180 181,182 183,184 185,186 187,188 189,190 191,192 193,194 195,196 197,198 199,200 201,202 203,204 205,206 207,208 209,210 211,212 213,214 215,216 217,218 219,220 221,222 223,224 225,226 227,228 229,230 231,232 233,234 235,236 237,238 239,240 241,242 243,244 245,246 247,248 249,250 251,252 253,254 255,256 257,258 259,260 261,262 263,264 265,266 267,268 269,270 271,272 273,274 275,276 277,278 279,280 281,282 283,284 285,286 287,288 289,290 291,292 293,294 295,296 297,298 299,300 301,302 303,304 305,306 307,308 309,310 311,312 313,314 315,316 317,318 319,320 321,322 323,324 325,326 327,328 329,330 331,332 333,334 335,336 337,338 339,340 341,342 343,344 345,346 347,348 349,350 351,352 353,354 355,356 357,358 359,360 361,362 363,364 365,366 367,368 369,370 371,372 373,374 375,376 377,378 379,380 381,382 383,384 385,386 387,388 389,390 391,392 393,394 395,396 397,398 399,400 401,402 403,404 405,406 407,408 409,410 411,412 413,414 415,416 417,418 419,420 421,422 423,424 425,426 427,428 429,430 431,432 433,434 435,436 437,438 439,440 441,442 443,444 445,446 447,448 449,450 451,452 453,454 455,456 457,458 459,460 461,462 463,464 465,466 467,468 469,470 471,472 473,474 475,476 477,478 479,480 481,482 483,484 485,486 487,488 489,490 491,492 493,494 495,496 497,498 499,500 501,502 503,504 505,506 507,508 509,510 511,512 513,514\"/></svg>",
+            "<svg><circle cx=\"1\" cy=\"1\" r=\"0\"/></svg>",
+            "<svg><circle cx=\"1\" cy=\"1\" r=\"1001mm\"/></svg>",
+            "<svg><rect x=\"0\" y=\"0\" width=\"0\" height=\"2\"/></svg>",
+            "<svg><text x=\"1\" y=\"1\">abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz</text></svg>",
+            "<svg><line x1=\"0\" y1=\"0\" x2=\"1\"/></svg>",
+            "<svg><line x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"",
+            "<svg><!-- oops <line x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"/></svg>",
+            "<svg><line x1=\"1e999\" y1=\"0\" x2=\"1\" y2=\"1\"/></svg>",
+        ];
+        for text in bad {
+            let e = svg_entities(text);
+            assert!(e.is_err(), "{text} should be rejected, got {e:?}");
+        }
+        let many = format!(
+            "<svg>{}</svg>",
+            "<line x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"/>".repeat(513)
+        );
+        assert!(svg_entities(&many).is_err(), "the entity cap is 512");
+        let fits = format!(
+            "<svg>{}</svg>",
+            "<line x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"/>".repeat(512)
+        );
+        assert_eq!(svg_entities(&fits).map(|v| v.len()), Ok(512));
     }
 }

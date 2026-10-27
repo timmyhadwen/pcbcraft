@@ -459,6 +459,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "svg.import",
+            "Import an SVG drawing from disk as board graphics (lines, polylines, polygons, rectangles, circles, simple paths and text, in millimetres with the page flipping y up); with use_outline a closed polygon also traces the board outline and the whole drawing shifts to the first quadrant",
+            schema(
+                json!({"path":{"type":"string","minLength":1,"maxLength":1024},"use_outline":{"type":"boolean"}}),
+                &["path"],
+            ),
+        ),
+        (
             "wire.connect",
             "Connect two pins; infer their existing net or atomically create a net if neither is assigned",
             schema(
@@ -1600,7 +1608,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand, and named hierarchy ports placed on pages that hand one net between pages, moving and removing without touching the net","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad renumbering maps that refuse collisions and carry embedded copies, placed pads and matching component pins along, and fiducial marks: bare copper discs placed, moved and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand, and named hierarchy ports placed on pages that hand one net between pages, moving and removing without touching the net","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad renumbering maps that refuse collisions and carry embedded copies, placed pads and matching component pins along, and fiducial marks: bare copper discs placed, moved and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -2253,6 +2261,13 @@ struct OutputJobRef {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DxfImportParams {
+    path: String,
+    #[serde(default)]
+    use_outline: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SvgImportParams {
     path: String,
     #[serde(default)]
     use_outline: bool,
@@ -5357,6 +5372,225 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     pcbcraft_io::DxfShape::Text {
                         at, height, value, ..
                     } => {
+                        if value.is_empty() {
+                            continue;
+                        }
+                        if height > &1_000.0 {
+                            return Err(Error::Invalid(
+                                "imported text sizes must stay within 1000mm".into(),
+                            ));
+                        }
+                        push(
+                            pcbcraft_doc::Graphic {
+                                id: allocate(next)?,
+                                layer: "board".into(),
+                                shape: "text".into(),
+                                points: vec![shift(*at)?],
+                                width: *height,
+                                text: value.clone(),
+                            },
+                            p,
+                        );
+                    }
+                }
+            }
+            Ok(json!({
+                "graphics": added,
+                "outline": p.board.outline.as_ref().map(|o| o.len()),
+            }))
+        }
+        "svg.import" => {
+            let a: SvgImportParams = parse(params)?;
+            let text =
+                pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
+            let entities = pcbcraft_io::svg_entities(&text).map_err(Error::Invalid)?;
+            if entities.is_empty() {
+                return Err(Error::Invalid(
+                    "the drawing has no importable geometry".into(),
+                ));
+            }
+            let closed_at = |e: &pcbcraft_io::SvgEntity| {
+                matches!(&e.shape, pcbcraft_io::SvgShape::Polyline { points, closed: true }
+                    if points.len() >= 3 && points.len() <= 64)
+            };
+            let mut outline_index: Option<usize> = None;
+            let min_x_of = |items: &[pcbcraft_io::SvgEntity]| {
+                items
+                    .iter()
+                    .map(|e| match &e.shape {
+                        pcbcraft_io::SvgShape::Line { start, end } => start.x.min(end.x),
+                        pcbcraft_io::SvgShape::Polyline { points, .. } => {
+                            points.iter().map(|q| q.x).fold(f64::INFINITY, f64::min)
+                        }
+                        pcbcraft_io::SvgShape::Circle { center, .. } => center.x,
+                        pcbcraft_io::SvgShape::Text { at, .. } => at.x,
+                    })
+                    .fold(f64::INFINITY, f64::min)
+            };
+            let min_y_of = |items: &[pcbcraft_io::SvgEntity]| {
+                items
+                    .iter()
+                    .map(|e| match &e.shape {
+                        pcbcraft_io::SvgShape::Line { start, end } => start.y.min(end.y),
+                        pcbcraft_io::SvgShape::Polyline { points, .. } => {
+                            points.iter().map(|q| q.y).fold(f64::INFINITY, f64::min)
+                        }
+                        pcbcraft_io::SvgShape::Circle { center, .. } => center.y,
+                        pcbcraft_io::SvgShape::Text { at, .. } => at.y,
+                    })
+                    .fold(f64::INFINITY, f64::min)
+            };
+            let offset = if a.use_outline {
+                let index = entities
+                    .iter()
+                    .position(|e| closed_at(e) && e.layer.eq_ignore_ascii_case("edge"))
+                    .or_else(|| entities.iter().position(closed_at))
+                    .ok_or_else(|| {
+                        Error::Invalid(
+                            "no closed polygon of 3 to 64 vertices to trace as an outline".into(),
+                        )
+                    })?;
+                let pcbcraft_io::SvgShape::Polyline { points, .. } = &entities[index].shape else {
+                    return Err(Error::Invalid("outline candidate changed".into()));
+                };
+                let distinct: std::collections::BTreeSet<(u64, u64)> = points
+                    .iter()
+                    .map(|q| (q.x.to_bits(), q.y.to_bits()))
+                    .collect();
+                if distinct.len() != points.len() {
+                    return Err(Error::Invalid("outline vertices must be distinct".into()));
+                }
+                let min_x = points.iter().map(|q| q.x).fold(f64::INFINITY, f64::min);
+                let min_y = points.iter().map(|q| q.y).fold(f64::INFINITY, f64::min);
+                let max_x = points.iter().map(|q| q.x).fold(0.0, f64::max);
+                let max_y = points.iter().map(|q| q.y).fold(0.0, f64::max);
+                let shifted: Vec<pcbcraft_geom::Point> = points
+                    .iter()
+                    .map(|q| pcbcraft_geom::Point::new(q.x - min_x, q.y - min_y))
+                    .collect();
+                if pcbcraft_doc::outline_area(&shifted) < 0.01 {
+                    return Err(Error::Invalid("the imported outline has no area".into()));
+                }
+                p.board.outline = Some(shifted);
+                p.board.width = max_x - min_x;
+                p.board.height = max_y - min_y;
+                outline_index = Some(index);
+                pcbcraft_geom::Point::new(min_x, min_y)
+            } else {
+                pcbcraft_geom::Point::new(min_x_of(&entities), min_y_of(&entities))
+            };
+            let stroke = 0.15;
+            let planned: usize = entities
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| Some(*i) != outline_index)
+                .map(|(_, e)| match &e.shape {
+                    pcbcraft_io::SvgShape::Polyline { points, closed } => {
+                        if *closed {
+                            1
+                        } else {
+                            points.len() - 1
+                        }
+                    }
+                    pcbcraft_io::SvgShape::Text { value, .. } if value.is_empty() => 0,
+                    _ => 1,
+                })
+                .sum();
+            if planned == 0 {
+                return Err(Error::Invalid(
+                    "the drawing has no importable geometry".into(),
+                ));
+            }
+            if p.graphics.len() + planned > 4096 {
+                return Err(Error::Invalid(
+                    "the board holds at most 4096 graphics".into(),
+                ));
+            }
+            let shift = |q: pcbcraft_geom::Point| {
+                let moved = pcbcraft_geom::Point::new(q.x - offset.x, q.y - offset.y);
+                if !moved.valid() {
+                    return Err(Error::Invalid(
+                        "imported geometry spans too large an area".into(),
+                    ));
+                }
+                Ok(moved)
+            };
+            let mut added = 0;
+            for (index, e) in entities.iter().enumerate() {
+                if Some(index) == outline_index {
+                    continue;
+                }
+                let mut push = |g: pcbcraft_doc::Graphic, p: &mut pcbcraft_doc::Project| {
+                    p.graphics.push(g);
+                    added += 1;
+                };
+                match &e.shape {
+                    pcbcraft_io::SvgShape::Line { start, end } => push(
+                        pcbcraft_doc::Graphic {
+                            id: allocate(next)?,
+                            layer: "board".into(),
+                            shape: "line".into(),
+                            points: vec![shift(*start)?, shift(*end)?],
+                            width: stroke,
+                            text: String::new(),
+                        },
+                        p,
+                    ),
+                    pcbcraft_io::SvgShape::Circle { center, radius } => {
+                        if radius > &1_000.0 {
+                            return Err(Error::Invalid(
+                                "imported radii must stay within 1000mm".into(),
+                            ));
+                        }
+                        push(
+                            pcbcraft_doc::Graphic {
+                                id: allocate(next)?,
+                                layer: "board".into(),
+                                shape: "circle".into(),
+                                points: vec![shift(*center)?],
+                                width: *radius,
+                                text: String::new(),
+                            },
+                            p,
+                        );
+                    }
+                    pcbcraft_io::SvgShape::Polyline { points, closed } => {
+                        if *closed {
+                            if points.len() > 256 {
+                                return Err(Error::Invalid(
+                                    "closed polylines have at most 256 vertices".into(),
+                                ));
+                            }
+                            let vertices: Result<Vec<_>, _> =
+                                points.iter().copied().map(shift).collect();
+                            push(
+                                pcbcraft_doc::Graphic {
+                                    id: allocate(next)?,
+                                    layer: "board".into(),
+                                    shape: "polygon".into(),
+                                    points: vertices?,
+                                    width: stroke,
+                                    text: String::new(),
+                                },
+                                p,
+                            );
+                        } else {
+                            for pair in points.windows(2) {
+                                push(
+                                    pcbcraft_doc::Graphic {
+                                        id: allocate(next)?,
+                                        layer: "board".into(),
+                                        shape: "line".into(),
+                                        points: vec![shift(pair[0])?, shift(pair[1])?],
+                                        width: stroke,
+                                        text: String::new(),
+                                    },
+                                    p,
+                                );
+                            }
+                        }
+                    }
+                    pcbcraft_io::SvgShape::Text { at, height, value } => {
                         if value.is_empty() {
                             continue;
                         }
@@ -19711,6 +19945,117 @@ mod tests {
         assert_eq!(s.project.graphics.len(), before);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&empty);
+        Ok(())
+    }
+
+    #[test]
+    fn svg_import_draws_files_in_as_graphics_and_can_trace_the_outline() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let path =
+            std::env::temp_dir().join(format!("pcbcraft-svg-import-{}.svg", std::process::id()));
+        let drawing = "<svg width=\"60mm\" height=\"50mm\" stroke=\"none\">\
+            <line x1=\"-10mm\" y1=\"15mm\" x2=\"0mm\" y2=\"15mm\" stroke=\"red\"/>\
+            <polygon points=\"-10,60 50,60 50,20 -10,20\" stroke=\"edge\"/>\
+            <circle cx=\"10mm\" cy=\"10mm\" r=\"2mm\"/>\
+            <text x=\"5mm\" y=\"45mm\" font-size=\"2mm\">HELLO</text>\
+            <path d=\"M-10 30 L50 30 L50 -10 Z\"/>\
+            <g><line x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"/></g>\
+            <polyline points=\"-10,45 0,45 0,35\"/>\
+            </svg>\n";
+        std::fs::write(&path, drawing).map_err(|e| Error::Invalid(e.to_string()))?;
+        let empty =
+            std::env::temp_dir().join(format!("pcbcraft-svg-empty-{}.svg", std::process::id()));
+        std::fs::write(&empty, "<svg width=\"10mm\" height=\"10mm\"></svg>\n")
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let curvy =
+            std::env::temp_dir().join(format!("pcbcraft-svg-curvy-{}.svg", std::process::id()));
+        std::fs::write(
+            &curvy,
+            "<svg width=\"10mm\" height=\"10mm\"><path d=\"M0 0 C1 1 2 2 3 3\"/></svg>\n",
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        for bad in [
+            json!({}),
+            json!({"path": "", "nope": 1}),
+            json!({"path": "pcbcraft-svg-missing-file.svg"}),
+            json!({"path": path.to_string_lossy(), "use_outline": "yes"}),
+            json!({"path": empty.to_string_lossy()}),
+            json!({"path": curvy.to_string_lossy()}),
+        ] {
+            let shown = format!("{bad:?}");
+            assert!(
+                s.execute("svg.import", bad, None).is_err(),
+                "{shown} must fail"
+            );
+        }
+        let before = s.project.graphics.len();
+        let outline_before = s.project.board.outline.clone();
+        let out = s.execute("svg.import", json!({"path": path}), None)?["result"].clone();
+        assert_eq!(
+            out["graphics"], 7,
+            "groups are skipped and open polylines split into segments"
+        );
+        assert_eq!(out["outline"], serde_json::Value::Null);
+        assert!(
+            s.project
+                .graphics
+                .iter()
+                .any(|g| g.shape == "polygon" && g.points[0].x.abs() < 1e-9),
+            "without use_outline coordinates are kept as drawn"
+        );
+        assert!(
+            s.project
+                .graphics
+                .iter()
+                .any(|g| g.shape == "text" && g.text == "HELLO"),
+            "text elements become text graphics"
+        );
+        s.undo()?;
+        assert_eq!(s.project.graphics.len(), before, "undo removes the import");
+        let out = s.execute(
+            "svg.import",
+            json!({"path": path, "use_outline": true}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(
+            out["graphics"], 6,
+            "the outline polygon is not also a graphic"
+        );
+        assert_eq!(out["outline"], 4);
+        assert_eq!(s.project.board.width, 60.0);
+        assert_eq!(s.project.board.height, 40.0);
+        let outline = s
+            .project
+            .board
+            .outline
+            .clone()
+            .ok_or_else(|| Error::Invalid("the outline should be set".into()))?;
+        assert!(
+            !outline.iter().any(|q| q.x < 0.0 || q.y < 0.0),
+            "the outline shifts to the first quadrant"
+        );
+        assert!(
+            s.project.graphics.iter().any(|g| g.shape == "circle"
+                && (g.points[0].x - 20.0).abs() < 1e-9
+                && (g.points[0].y - 50.0).abs() < 1e-9),
+            "the page flips y and every graphic shifts by the same amount as the outline"
+        );
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .filter(|g| g.shape == "polygon")
+                .count(),
+            1,
+            "the traced polygon is not duplicated as a graphic"
+        );
+        s.undo()?;
+        assert_eq!(s.project.board.outline, outline_before);
+        assert_eq!(s.project.graphics.len(), before);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&empty);
+        let _ = std::fs::remove_file(&curvy);
         Ok(())
     }
 
