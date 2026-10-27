@@ -20,6 +20,8 @@ pub fn tool_list() -> Value {
         json!({"name":"library.save","description":"Atomically save the editable project library to a .pcbcraft-lib collection","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"gerber.export","description":"Write fabrication outputs (Gerber RS-274X front and back copper, board outline, Excellon drill map) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"netlist.write","description":"Write a plain-text netlist, one line per net with its component pins, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"library.export_footprint","description":"Write one project-library footprint to a .kicad_mod footprint library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
+        json!({"name":"library.export_symbol","description":"Write one project-library symbol to a .kicad_sym symbol library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist (net, component, pin and coordinates in fixed columns) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"pdf.write","description":"Write a one-page vector PDF drawing of the board or schematic (outline, copper, pads, zones, wires, labels and text as real PDF paths) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"],"default":"pcb"}}),&["path"])}),
         json!({"name":"step.write","description":"Write an AP214 STEP file of the board (outline and every pad as solid prisms in millimetres) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -135,6 +137,37 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             }
             pcbcraft_io::atomic_write(Path::new(path), &bytes)?;
             json!({"path":path})
+        }
+        "library.export_footprint" | "library.export_symbol" => {
+            s.project.library.validate()?;
+            let path = string(args, "path")?;
+            let definition = string(args, "name")?;
+            let footprint = name == "library.export_footprint";
+            let suffix = if footprint { "kicad_mod" } else { "kicad_sym" };
+            if Path::new(path).extension().and_then(|e| e.to_str()) != Some(suffix) {
+                return Err(format!("path must end in .{suffix}"));
+            }
+            let text = if footprint {
+                let item = s
+                    .project
+                    .library
+                    .footprints
+                    .iter()
+                    .find(|f| f.name == definition)
+                    .ok_or("unknown project-library footprint")?;
+                pcbcraft_io::footprint_library_text(item)?
+            } else {
+                let item = s
+                    .project
+                    .library
+                    .symbols
+                    .iter()
+                    .find(|f| f.name == definition)
+                    .ok_or("unknown project-library symbol")?;
+                pcbcraft_io::symbol_library_text(item)?
+            };
+            pcbcraft_io::atomic_write(Path::new(path), text.as_bytes())?;
+            json!({"path":path,"name":definition,"bytes":text.len()})
         }
         "gerber.export" => {
             let directory = string(args, "path")?;
@@ -739,6 +772,91 @@ mod tests {
         let before = session.lock().map_err(|_| "session unavailable")?.inspect();
         assert_eq!(
             call_tool(&session, "library.load", &json!({"path":file})).get("isError"),
+            Some(&json!(true))
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before
+        );
+        Ok(())
+    }
+    #[test]
+    fn library_export_tools_write_files_the_reader_reparses() -> Result<(), String> {
+        let session = shared(Session::default());
+        let upsert = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"library.footprint.upsert","params":{"definition":{
+                "name":"EXPORT-R","description":"test resistor","keywords":"r",
+                "pads":[{"number":"1","pad_type":"smd","shape":"roundrect",
+                    "position":{"x":-1.0,"y":0.0},"rotation":0.0,
+                    "size":{"x":1.0,"y":1.2},
+                    "layers":["F.Cu","F.Mask","F.Paste"],
+                    "drill":null,"roundrect_ratio":0.25,"raw_source":""}],
+                "graphics":[],"raw_source":"","unsupported":[]}}}),
+        );
+        assert_eq!(upsert.get("isError"), Some(&json!(false)));
+        let upsert = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"library.symbol.upsert","params":{"definition":{
+                "name":"EXPORT-IC","reference":"U?","value":"EXPORT-IC",
+                "description":"two-pin test symbol","keywords":"test",
+                "footprint":"EXPORT-R",
+                "pins":[{"number":"1","name":"IN","position":{"x":-5.08,"y":0.0},
+                    "angle":0.0,"length":2.54,"electrical_type":"input",
+                    "unit":1,"body_style":1}],
+                "graphics":[{"unit":1,"body_style":1,"primitive":
+                    {"Rectangle":{"start":{"x":-2.54,"y":2.54},
+                    "end":{"x":2.54,"y":-2.54},"width":0.254,"fill":"none",
+                    "layer":"0"}}}],
+                "raw_source":"","unsupported":[]}}}),
+        );
+        assert_eq!(upsert.get("isError"), Some(&json!(false)));
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let mod_path = directory.path().join("EXPORT-R.kicad_mod");
+        let export = call_tool(
+            &session,
+            "library.export_footprint",
+            &json!({"path":mod_path,"name":"EXPORT-R"}),
+        );
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(&mod_path).map_err(|e| e.to_string())?;
+        let again = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
+        assert_eq!(again.name, "EXPORT-R");
+        assert_eq!(again.pads.len(), 1);
+        assert_eq!(again.pads[0].size.x, 1.0);
+        assert_eq!(again.pads[0].roundrect_ratio, Some(0.25));
+        let sym_path = directory.path().join("EXPORT-IC.kicad_sym");
+        let export = call_tool(
+            &session,
+            "library.export_symbol",
+            &json!({"path":sym_path,"name":"EXPORT-IC"}),
+        );
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(&sym_path).map_err(|e| e.to_string())?;
+        let again = pcbcraft_library::read_symbols(&text).map_err(|e| e.to_string())?;
+        assert_eq!(again.len(), 1);
+        assert_eq!(again[0].pins.len(), 1);
+        assert_eq!(again[0].pins[0].position.x, -5.08);
+        assert_eq!(again[0].graphics.len(), 1);
+        assert_eq!(
+            call_tool(
+                &session,
+                "library.export_footprint",
+                &json!({"path":directory.path().join("wrong.txt"),"name":"EXPORT-R"})
+            )
+            .get("isError"),
+            Some(&json!(true))
+        );
+        assert_eq!(
+            call_tool(
+                &session,
+                "library.export_symbol",
+                &json!({"path":sym_path,"name":"NOPE"})
+            )
+            .get("isError"),
             Some(&json!(true))
         );
         assert_eq!(

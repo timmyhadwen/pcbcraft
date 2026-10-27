@@ -3216,8 +3216,301 @@ fn fill_polygon(image: &mut image::RgbImage, points: &[Point], color: [u8; 3]) {
     }
 }
 
+// ---- Library text writers -------------------------------------------------
+
+/// Quote a value as a library text token, or emit it bare when it is a
+/// simple word.
+fn lib_token(value: &str, default: &str) -> String {
+    let value = if value.is_empty() { default } else { value };
+    if value
+        .chars()
+        .any(|c| matches!(c, ' ' | '\t' | '\n' | '\r' | '"' | '(' | ')' | '\0'))
+    {
+        lib_text(value)
+    } else {
+        value.to_owned()
+    }
+}
+
+/// Quote a value as a library text string with escapes the reader decodes.
+fn lib_text(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for c in value.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {}
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn lib_xy(x: f64, y: f64) -> String {
+    format!("{x} {y}")
+}
+
+/// Emit one artwork primitive. Library symbol bodies are stored y-up while
+/// the file frame is y-down, so `flip` mirrors every ordinate back.
+fn lib_graphic(graphic: &pcbcraft_library::Graphic, flip: bool) -> String {
+    use pcbcraft_library::Graphic;
+    let y = |v: f64| if flip { -v } else { v };
+    match graphic {
+        Graphic::Line {
+            start,
+            end,
+            width,
+            layer,
+        } => format!(
+            "(fp_line (start {}) (end {}) (stroke (width {width})) (layer {}))",
+            lib_xy(start.x, y(start.y)),
+            lib_xy(end.x, y(end.y)),
+            lib_layer(layer)
+        ),
+        Graphic::Rectangle {
+            start,
+            end,
+            width,
+            fill,
+            layer,
+        } => format!(
+            "(fp_rect (start {}) (end {}) (stroke (width {width})) (fill (type {})) (layer {}))",
+            lib_xy(start.x, y(start.y)),
+            lib_xy(end.x, y(end.y)),
+            lib_token(fill, "none"),
+            lib_layer(layer)
+        ),
+        Graphic::Circle {
+            center,
+            radius,
+            width,
+            fill,
+            layer,
+        } => format!(
+            "(fp_circle (center {}) (end {}) (stroke (width {width})) (fill (type {})) (layer {}))",
+            lib_xy(center.x, y(center.y)),
+            lib_xy(center.x + radius, y(center.y)),
+            lib_token(fill, "none"),
+            lib_layer(layer)
+        ),
+        Graphic::Arc {
+            start,
+            mid,
+            end,
+            width,
+            layer,
+        } => format!(
+            "(fp_arc (start {}) (mid {}) (end {}) (stroke (width {width})) (layer {}))",
+            lib_xy(start.x, y(start.y)),
+            lib_xy(mid.x, y(mid.y)),
+            lib_xy(end.x, y(end.y)),
+            lib_layer(layer)
+        ),
+        Graphic::Polyline {
+            points,
+            width,
+            fill,
+            layer,
+        } => format!(
+            "(fp_poly (pts {}) (stroke (width {width})) (fill (type {})) (layer {}))",
+            points
+                .iter()
+                .map(|p| format!("(xy {} {})", p.x, y(p.y)))
+                .collect::<Vec<_>>()
+                .join(" "),
+            lib_token(fill, "none"),
+            lib_layer(layer)
+        ),
+        Graphic::Text {
+            position,
+            angle,
+            text,
+            size,
+            layer,
+        } => format!(
+            "(fp_text graphics {} (at {} {} {angle}) (effects (font (size {} {}))) (layer {}))",
+            lib_text(text),
+            position.x,
+            y(position.y),
+            size.x,
+            size.y,
+            lib_layer(layer)
+        ),
+    }
+}
+
+fn lib_layer(layer: &str) -> String {
+    lib_text(layer)
+}
+
+/// Format one footprint definition as a footprint library text file. The
+/// result re-parses to the same pads, artwork, model reference and rule
+/// overrides; placed footprint and board state are untouched.
+pub fn footprint_library_text(
+    footprint: &pcbcraft_library::FootprintDefinition,
+) -> Result<String, String> {
+    footprint
+        .validate()
+        .map_err(|e| format!("footprint is invalid: {e}"))?;
+    let mut out = format!(
+        "(footprint {}\n  (version 20260206)\n  (generator pcbcraft)\n  (layer \"F.Cu\")\n",
+        lib_text(&footprint.name)
+    );
+    if !footprint.description.is_empty() {
+        out.push_str(&format!("  (descr {})\n", lib_text(&footprint.description)));
+    }
+    if !footprint.keywords.is_empty() {
+        out.push_str(&format!("  (tags {})\n", lib_text(&footprint.keywords)));
+    }
+    out.push_str("  (property \"Reference\" \"REF**\" (at 0 0 0) (layer \"F.SilkS\") (effects (font (size 1.27 1.27) (thickness 0.15))))\n");
+    out.push_str(&format!(
+        "  (property \"Value\" {} (at 0 0 0) (layer \"F.Fab\") (effects (font (size 1.27 1.27) (thickness 0.15))))\n",
+        lib_text(&footprint.name)
+    ));
+    let smd = footprint.pads.iter().any(|p| p.pad_type == "smd");
+    out.push_str(&format!(
+        "  (attr {})\n",
+        if smd { "smd" } else { "through_hole" }
+    ));
+    for pad in &footprint.pads {
+        out.push_str(&format!(
+            "  (pad {} {} {} (at {} {} {}) (size {} {})",
+            lib_text(&pad.number),
+            lib_token(&pad.pad_type, "smd"),
+            lib_token(&pad.shape, "circle"),
+            pad.position.x,
+            pad.position.y,
+            pad.rotation,
+            pad.size.x,
+            pad.size.y
+        ));
+        if let Some(drill) = &pad.drill {
+            if drill.size.x != drill.size.y {
+                out.push_str(&format!(" (drill oval {} {}", drill.size.x, drill.size.y));
+            } else {
+                out.push_str(&format!(" (drill {}", drill.size.x));
+            }
+            if drill.offset.x != 0.0 || drill.offset.y != 0.0 {
+                out.push_str(&format!(" (offset {} {})", drill.offset.x, drill.offset.y));
+            }
+            out.push(')');
+        }
+        out.push_str(" (layers");
+        for layer in &pad.layers {
+            out.push_str(&format!(" {}", lib_text(layer)));
+        }
+        out.push(')');
+        if let Some(ratio) = pad.roundrect_ratio {
+            out.push_str(&format!(" (roundrect_rratio {ratio})"));
+        }
+        out.push_str(")\n");
+    }
+    for graphic in &footprint.graphics {
+        out.push_str(&format!("  {}\n", lib_graphic(graphic, false)));
+    }
+    if let Some(model) = &footprint.model {
+        let triple = |v: &[f64; 3]| format!("(xyz {} {} {})", v[0], v[1], v[2]);
+        out.push_str(&format!(
+            "  (model {} (offset {}) (scale {}) (rotate {}))\n",
+            lib_text(&model.path),
+            triple(&model.offset),
+            triple(&model.scale),
+            triple(&model.rotate)
+        ));
+    }
+    if let Some(rules) = &footprint.rules {
+        if let Some(value) = rules.clearance {
+            out.push_str(&format!("  (clearance {value})\n"));
+        }
+        if let Some(value) = rules.mask_margin {
+            out.push_str(&format!("  (solder_mask_margin {value})\n"));
+        }
+        if let Some(value) = rules.paste_margin {
+            out.push_str(&format!("  (solder_paste_margin {value})\n"));
+        }
+    }
+    out.push_str("  (embedded_fonts no)\n)\n");
+    if out.len() as u64 > MAX_FILE_BYTES {
+        return Err("footprint library text exceeds the file size limit".into());
+    }
+    Ok(out)
+}
+
+/// Format one symbol definition as a symbol library text file. Pins and
+/// artwork regroup into unit/body sub-symbols and the stored y-up drawing
+/// coordinates mirror back to the file frame; the result re-parses to the
+/// same pins and artwork.
+pub fn symbol_library_text(symbol: &pcbcraft_library::SymbolDefinition) -> Result<String, String> {
+    symbol
+        .validate()
+        .map_err(|e| format!("symbol is invalid: {e}"))?;
+    let mut out = String::from("(kicad_symbol_lib (version 20260206) (generator pcbcraft)\n");
+    out.push_str(&format!("  (symbol {}\n", lib_text(&symbol.name)));
+    for (key, value) in [
+        ("Reference", &symbol.reference),
+        ("Value", &symbol.value),
+        ("Description", &symbol.description),
+        ("ki_keywords", &symbol.keywords),
+        ("Footprint", &symbol.footprint),
+    ] {
+        if !value.is_empty() {
+            out.push_str(&format!(
+                "    (property \"{key}\" {} (at 0 0 0) (effects (font (size 1.27 1.27) (thickness 0.15))))\n",
+                lib_text(value)
+            ));
+        }
+    }
+    let mut units: std::collections::BTreeSet<(u32, u32)> =
+        symbol.pins.iter().map(|p| (p.unit, p.body_style)).collect();
+    units.extend(symbol.graphics.iter().map(|g| (g.unit, g.body_style)));
+    for (unit, body_style) in units {
+        out.push_str(&format!(
+            "    (symbol {}\n",
+            lib_text(&format!("{}_{}_{}", symbol.name, unit, body_style))
+        ));
+        for pin in symbol
+            .pins
+            .iter()
+            .filter(|p| p.unit == unit && p.body_style == body_style)
+        {
+            out.push_str(&format!(
+                "      (pin {} line (at {} {} {}) (length {}) (name {}) (number {}))\n",
+                lib_token(&pin.electrical_type, "passive"),
+                pin.position.x,
+                -pin.position.y,
+                pin.angle,
+                pin.length,
+                lib_text(&pin.name),
+                lib_text(&pin.number)
+            ));
+        }
+        for graphic in symbol
+            .graphics
+            .iter()
+            .filter(|g| g.unit == unit && g.body_style == body_style)
+        {
+            out.push_str(&format!(
+                "      {}\n",
+                lib_graphic(&graphic.primitive, true)
+            ));
+        }
+        out.push_str("    )\n");
+    }
+    out.push_str("  )\n)\n");
+    if out.len() as u64 > MAX_FILE_BYTES {
+        return Err("symbol library text exceeds the file size limit".into());
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
     #[test]
     fn archive_round_trips_a_project_and_its_attached_files() -> Result<(), String> {
@@ -5576,5 +5869,71 @@ mod tests {
         let mut bad = p;
         bad.version = 999;
         assert!(bad.validate().is_err());
+    }
+    #[test]
+    fn footprint_library_text_round_trips_through_the_reader() -> Result<(), String> {
+        for source in [
+            include_str!("../../library/tests/fixtures/R_0805_2012Metric.kicad_mod"),
+            include_str!("../../library/tests/fixtures/DIP-8_W7.62mm.kicad_mod"),
+        ] {
+            let footprint = pcbcraft_library::read_footprint(source).map_err(|e| e.to_string())?;
+            let text = footprint_library_text(&footprint)?;
+            let again = pcbcraft_library::read_footprint(&text).map_err(|e| e.to_string())?;
+            assert_eq!(again.name, footprint.name);
+            assert_eq!(again.description, footprint.description);
+            assert_eq!(again.keywords, footprint.keywords);
+            assert_eq!(again.pads.len(), footprint.pads.len());
+            for (a, b) in again.pads.iter().zip(&footprint.pads) {
+                assert_eq!(a.number, b.number);
+                assert_eq!(a.pad_type, b.pad_type);
+                assert_eq!(a.shape, b.shape);
+                assert_eq!(a.position, b.position);
+                assert_eq!(a.rotation, b.rotation);
+                assert_eq!(a.size, b.size);
+                assert_eq!(a.layers, b.layers);
+                assert_eq!(a.drill, b.drill);
+                assert_eq!(a.roundrect_ratio, b.roundrect_ratio);
+            }
+            assert_eq!(again.graphics, footprint.graphics);
+            assert_eq!(
+                again
+                    .model
+                    .as_ref()
+                    .map(|m| (&m.path, m.offset, m.scale, m.rotate)),
+                footprint
+                    .model
+                    .as_ref()
+                    .map(|m| (&m.path, m.offset, m.scale, m.rotate))
+            );
+            assert_eq!(again.rules, footprint.rules);
+        }
+        Ok(())
+    }
+    #[test]
+    fn symbol_library_text_round_trips_through_the_reader() -> Result<(), String> {
+        for source in [
+            include_str!("../../library/tests/fixtures/device.kicad_sym"),
+            include_str!("../../library/tests/fixtures/lm358.kicad_sym"),
+        ] {
+            let symbols = pcbcraft_library::read_symbols(source).map_err(|e| e.to_string())?;
+            for symbol in symbols
+                .iter()
+                .filter(|s| !s.pins.is_empty() && !s.graphics.is_empty())
+            {
+                let text = symbol_library_text(symbol)?;
+                let again = pcbcraft_library::read_symbols(&text).map_err(|e| e.to_string())?;
+                assert_eq!(again.len(), 1, "{} wrote stray symbols", symbol.name);
+                let again = &again[0];
+                assert_eq!(again.name, symbol.name);
+                assert_eq!(again.reference, symbol.reference);
+                assert_eq!(again.value, symbol.value);
+                assert_eq!(again.description, symbol.description);
+                assert_eq!(again.keywords, symbol.keywords);
+                assert_eq!(again.footprint, symbol.footprint);
+                assert_eq!(again.pins, symbol.pins);
+                assert_eq!(again.graphics, symbol.graphics);
+            }
+        }
+        Ok(())
     }
 }

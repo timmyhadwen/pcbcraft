@@ -1819,6 +1819,7 @@ dependencies = [
  "base64",
  "pcbcraft-engine",
  "pcbcraft-io",
+ "pcbcraft-library",
  "serde_json",
  "tempfile",
 ]
