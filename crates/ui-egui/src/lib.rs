@@ -7,6 +7,21 @@ use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
 
+/// Help copy shown under the inspector's editable fields. Each line names
+/// what the field is for and the limit the engine will enforce, so the
+/// requirement is visible before the first rejected edit.
+const FIELD_HELP_VALUE: &str = "Free text: a name or value, like R1 or 10k. It updates the symbol or package immediately when Apply is pressed.";
+const FIELD_HELP_POSITION: &str =
+    "Absolute millimetres from the design origin; Apply moves just this symbol or package.";
+const FIELD_HELP_BOARD: &str =
+    "Board outline size in millimetres; both values must be larger than zero.";
+const FIELD_HELP_CUTOUT: &str =
+    "Radius of the circle the cutout tool places; the whole circle must stay inside the board.";
+
+fn field_help(ui: &mut egui::Ui, text: &str, muted: egui::Color32) {
+    ui.label(egui::RichText::new(text).small().color(muted).weak());
+}
+
 /// The complete input reference: every key binding the app installs, plus
 /// the canvas mouse gestures, with where each one applies. The overlay and
 /// the tests read this one table, so the list can never claim a key the
@@ -1023,11 +1038,13 @@ impl App {
                         ui.add_space(10.0);
                         ui.label("Value");
                         ui.text_edit_singleline(&mut self.value);
+                        field_help(ui, FIELD_HELP_VALUE, self.muted());
                         if ui.button("Apply value").on_hover_text(command_tip("component.value")).clicked() {
                             self.run("component.value", json!({"id":c.id,"value":self.value}));
                         }
                         ui.add_space(12.0);
                         ui.label("Position · mm");
+                        field_help(ui, FIELD_HELP_POSITION, self.muted());
                         ui.horizontal(|ui| {
                             ui.label("X");
                             ui.add(egui::DragValue::new(&mut self.x).speed(0.1));
@@ -1103,6 +1120,7 @@ impl App {
                         .size(10.0)
                         .color(self.muted()),
                 );
+                field_help(ui, FIELD_HELP_BOARD, self.muted());
                 ui.horizontal(|ui| {
                     ui.label("W");
                     ui.add(
@@ -1133,6 +1151,7 @@ impl App {
                             .suffix(" mm"),
                     );
                 });
+                field_help(ui, FIELD_HELP_CUTOUT, self.muted());
                 ui.add_space(12.0);
                 ui.label(egui::RichText::new("CHECKS").size(10.0).color(self.muted()));
                 let erc = self
@@ -1530,6 +1549,17 @@ mod tests {
             "an unmapped id still explains itself"
         );
         Ok(())
+    }
+
+    #[test]
+    fn every_editable_field_explains_its_bounds_and_effect() {
+        // The help copy for the inspector's free-form fields must state the
+        // same limits the engine enforces, so a novice never has to guess
+        // why a value was refused.
+        assert!(FIELD_HELP_VALUE.contains("name or value"));
+        assert!(FIELD_HELP_POSITION.contains("origin"));
+        assert!(FIELD_HELP_BOARD.contains("larger than zero"));
+        assert!(FIELD_HELP_CUTOUT.contains("inside the board"));
     }
 
     #[test]
