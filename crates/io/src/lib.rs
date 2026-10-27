@@ -2100,6 +2100,102 @@ pub fn cmp_text(p: &Project) -> Result<String, String> {
         nets.join("\n")
     ))
 }
+/// Board as a GenCAD-style interchange text: tab-delimited component, pin and
+/// net records with positions in whole mils. `%C` lines are one per placed
+/// footprint in order, `%P` lines one per pad (shape, size and a front/back
+/// layer), `%N` lines one per net that has placed pads, naming its members as
+/// component and pad indexes.
+pub fn gencad_text(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_RECORDS: usize = 50_000;
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+    let mils = |v: f64| (v / 0.0254).round() as i64;
+    let mut out = String::new();
+    let mut records = 0usize;
+    for f in &p.board.footprints {
+        let c = refs
+            .get(&f.component)
+            .ok_or("footprint references an unknown component")?;
+        records += 1;
+        if records > MAX_RECORDS {
+            return Err("interchange file exceeds the record limit".into());
+        }
+        out.push_str(&format!(
+            "%C\t{}\t{}\t{}\t{}\t{}\t0\t0\t0\t0\n",
+            c.reference,
+            c.value,
+            mils(f.position.x),
+            mils(f.position.y),
+            mils(f.rotation),
+        ));
+    }
+    if p.board.footprints.is_empty() {
+        return Err("board has no placed footprints to export".into());
+    }
+    for (ci, f) in p.board.footprints.iter().enumerate() {
+        for pad in &f.pads {
+            records += 1;
+            if records > MAX_RECORDS {
+                return Err("interchange file exceeds the record limit".into());
+            }
+            let at = f.position.offset(pad.offset.rotate(-f.rotation));
+            let back = pad.geometry.as_ref().is_some_and(|g| {
+                !g.layers.is_empty()
+                    && if g.pad_type == "smd" {
+                        !g.layers.iter().any(|l| l.starts_with("F."))
+                    } else {
+                        true
+                    }
+            });
+            let shape = match pad
+                .geometry
+                .as_ref()
+                .map(|g| (g.shape.as_str(), g.pad_type.as_str()))
+            {
+                Some(("circle", "thru_hole")) => "round",
+                Some(("oval", _)) => "oval",
+                _ => "rect",
+            };
+            out.push_str(&format!(
+                "%P\t{}\t1\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                ci + 1,
+                pad.number,
+                mils(at.x),
+                mils(at.y),
+                shape,
+                usize::from(pad.diameter.max(0.0) > 0.0),
+                mils(pad.geometry.as_ref().map_or(pad.diameter, |g| g.size.x)),
+                mils(pad.geometry.as_ref().map_or(pad.diameter, |g| g.size.y)),
+                usize::from(back),
+            ));
+        }
+    }
+    for n in &p.nets {
+        let mut members: BTreeSet<(usize, usize)> = BTreeSet::new();
+        for (ci, f) in p.board.footprints.iter().enumerate() {
+            for (pi, pad) in f.pads.iter().enumerate() {
+                if pad.net == Some(n.id) {
+                    members.insert((ci + 1, pi + 1));
+                }
+            }
+        }
+        if members.is_empty() {
+            continue;
+        }
+        records += 1;
+        if records > MAX_RECORDS {
+            return Err("interchange file exceeds the record limit".into());
+        }
+        let list = members
+            .iter()
+            .flat_map(|(c, i)| [c.to_string(), i.to_string()])
+            .collect::<Vec<_>>()
+            .join("\t");
+        out.push_str(&format!("%N\t{}\t{}\t{}\n", n.name, members.len(), list));
+    }
+    Ok(out)
+}
 /// Board as an IDF mechanical drawing for enclosure tools: board size, origin
 /// and reference, one entry per placed footprint with its position, side and
 /// rotation, and a matching default-height entry per component. The native
@@ -6661,6 +6757,213 @@ mod tests {
         assert!(!text.contains("R1.2"), "a pin with no net is left out");
         Ok(())
     }
+    #[test]
+    fn gencad_text_records_components_pins_and_nets_in_mils() -> Result<(), String> {
+        let project = real_library_project()?;
+        let text = gencad_text(&project)?;
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(
+            !lines.iter().any(|l| l.starts_with("%N")),
+            "a board without connected nets simply omits net records"
+        );
+        assert!(
+            lines.iter().any(|l| l.starts_with("%C\t")),
+            "components are listed"
+        );
+        assert!(
+            lines.iter().any(|l| l.starts_with("%P\t")),
+            "pins are listed"
+        );
+        for line in &lines {
+            let fields: Vec<&str> = line.split('\t').collect();
+            match fields[0] {
+                "%C" => {
+                    assert_eq!(fields.len(), 10, "component records are fixed width");
+                    assert!(!fields[1].is_empty(), "the reference is named");
+                    for f in &fields[3..6] {
+                        assert!(f.parse::<i64>().is_ok(), "positions are whole mils");
+                    }
+                }
+                "%P" => {
+                    assert_eq!(fields.len(), 11, "pin records are fixed width");
+                    let component: usize =
+                        fields[1].parse().map_err(|_| "pin indexes a component")?;
+                    let placed = lines.iter().filter(|l| l.starts_with("%C")).count();
+                    assert!(
+                        component >= 1 && component <= placed,
+                        "pin component indexes name listed components"
+                    );
+                    assert!(
+                        ["round", "rect", "oval"].contains(&fields[6]),
+                        "pin shapes are limited"
+                    );
+                    for f in [&fields[3], &fields[4], &fields[8], &fields[9]] {
+                        assert!(
+                            f.parse::<i64>().is_ok(),
+                            "pin numbers are whole mils or flags"
+                        );
+                    }
+                }
+                "%N" => {
+                    assert!(fields.len() >= 4, "net records name at least one member");
+                    let count: usize = fields[2].parse().map_err(|_| "net counts its members")?;
+                    assert_eq!(
+                        fields.len() - 3,
+                        count * 2,
+                        "the member list matches the count"
+                    );
+                    for f in &fields[3..] {
+                        let index: usize = f.parse().map_err(|_| "members are indexes")?;
+                        assert!(index >= 1, "indexes start at one");
+                    }
+                }
+                other => return Err(format!("unexpected record {other}")),
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn gencad_text_lists_net_members_by_component_and_pad_index() -> Result<(), String> {
+        let mut project = Project::default();
+        let geometry = |number: &str, x: f64, back: bool| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: if back { "thru_hole" } else { "smd" }.into(),
+            shape: "rect".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: if back {
+                vec![
+                    "F.Cu".into(),
+                    "B.Cu".into(),
+                    "F.Mask".into(),
+                    "B.Mask".into(),
+                ]
+            } else {
+                vec!["F.Cu".into(), "F.Mask".into()]
+            },
+            drill: back.then(|| pcbcraft_library::Drill {
+                size: Point::new(0.5, 0.5),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            raw_source: String::new(),
+        };
+        let component =
+            |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                sheet: 0,
+                id,
+                reference: reference.into(),
+                value: "1k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: vec![
+                    pcbcraft_doc::Pin {
+                        number: "1".into(),
+                        name: String::new(),
+                        offset: Point::new(-1.0, 0.0),
+                        net: Some(50),
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                    pcbcraft_doc::Pin {
+                        number: "2".into(),
+                        name: String::new(),
+                        offset: Point::new(1.0, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                ],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                    library: "Test".into(),
+                    definition: pcbcraft_library::FootprintDefinition {
+                        name: definition.into(),
+                        description: String::new(),
+                        keywords: String::new(),
+                        pads: vec![geometry("1", -1.0, back), geometry("2", 1.0, back)],
+                        graphics: vec![],
+                        model: None,
+                        rules: None,
+                        raw_source: String::new(),
+                        unsupported: vec![],
+                    },
+                }),
+                fields: vec![],
+            };
+        let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
+            pcbcraft_doc::Footprint {
+                id,
+                component,
+                position: Point::new(x, y),
+                rotation,
+                locked: None,
+                pads: vec![
+                    pcbcraft_doc::Pad {
+                        number: "1".into(),
+                        offset: Point::new(-1.0, 0.0),
+                        diameter: 1.0,
+                        net: Some(50),
+                        castellated: None,
+                        geometry: Some(geometry("1", -1.0, back)),
+                    },
+                    pcbcraft_doc::Pad {
+                        number: "2".into(),
+                        offset: Point::new(1.0, 0.0),
+                        diameter: 1.0,
+                        net: None,
+                        castellated: None,
+                        geometry: Some(geometry("2", 1.0, back)),
+                    },
+                ],
+            }
+        };
+        project.nets.push(pcbcraft_doc::Net {
+            id: 50,
+            name: "PWR".into(),
+            target_length: None,
+            length_tolerance: None,
+        });
+        project.components.push(component(1, "R5", "R0603", false));
+        project.components.push(component(2, "U1", "SOIC-2", true));
+        project
+            .board
+            .footprints
+            .push(footprint(10, 1, 12.0, 8.0, 0.0, false));
+        project
+            .board
+            .footprints
+            .push(footprint(11, 2, 20.0, 15.0, 0.0, true));
+        project.validate()?;
+        let text = gencad_text(&project)?;
+        let net_line = text
+            .lines()
+            .find(|l| l.starts_with("%N\t"))
+            .ok_or("the named net is missing")?;
+        assert_eq!(
+            net_line, "%N\tPWR\t2\t1\t1\t2\t1",
+            "the net names both footprints' first pad by component and pad index"
+        );
+        let pin_lines: Vec<&str> = text.lines().filter(|l| l.starts_with("%P\t")).collect();
+        assert_eq!(pin_lines.len(), 4, "one record per placed pad");
+        assert!(
+            pin_lines[0].starts_with("%P\t1\t1\t1\t"),
+            "pin records name their component, pad number and index"
+        );
+        assert_eq!(
+            gencad_text(&Project::default()).err(),
+            Some("board has no placed footprints to export".into()),
+            "an empty board is rejected"
+        );
+        Ok(())
+    }
+
     #[test]
     fn hyperlynx_csv_lists_nets_with_comma_separated_component_pins() -> Result<(), String> {
         let mut project = Project::default();

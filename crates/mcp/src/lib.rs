@@ -32,6 +32,7 @@ pub fn tool_list() -> Value {
         json!({"name":"idf.write","description":"Write a board-level mechanical drawing (board size plus every placed part's position, side and rotation, with default component heights) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"wrl.write","description":"Write a VRML 2.0 scene extruding the board outline and every placed pad into solid prisms into a directory for mechanical viewers, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"hyperlynx.write","description":"Write a simulation netlist CSV, one line per net naming the net and every reference.pin on it, into a directory for circuit simulators, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"gencad.write","description":"Write a legacy board interchange text listing components, pins in whole mils with shape and layer, and nets by component and pad index, into a directory for EDA bridges, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),&["path"])}),
         json!({"name":"dxf.export","description":"Write the board drawing as an ASCII DXF file (copper tracks, vias, pads, zones, board graphics, outline and labels) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"placement.write","description":"Write a pick-and-place centroid file (reference, position, rotation, side, package per placed part) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -239,6 +240,12 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             let text = pcbcraft_io::hyperlynx_csv(&s.project)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("netlist.csv"), text.as_bytes())?;
             json!({"directory":directory,"file":"netlist.csv","bytes":text.len()})
+        }
+        "gencad.write" => {
+            let directory = string(args, "path")?;
+            let text = pcbcraft_io::gencad_text(&s.project)?;
+            pcbcraft_io::atomic_write(&Path::new(directory).join("board.gencad"), text.as_bytes())?;
+            json!({"directory":directory,"file":"board.gencad","bytes":text.len()})
         }
         "pdf.write" => {
             let directory = string(args, "path")?;
@@ -1088,6 +1095,50 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing a trace file must not change the project"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn gencad_write_exports_an_interchange_text_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        for reference in ["R1", "R2"] {
+            call_tool(
+                &session,
+                "execute",
+                &json!({"command":"component.add","params":{"kind":"resistor","reference":reference,"position":[10.0,10.0]}}),
+            );
+        }
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"netlist.import","params":{"nets":[{"name":"SIG","pins":[{"reference":"R1","pin":"1"},{"reference":"R2","pin":"1"}]}]}}),
+        );
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"board.sync","params":{}}),
+        );
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(&session, "gencad.write", &json!({"path":directory.path()}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(directory.path().join("board.gencad"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            text.lines().any(|l| l.starts_with("%C\t"))
+                && text.lines().any(|l| l.starts_with("%P\t")),
+            "components and pins are recorded"
+        );
+        assert!(
+            text.lines()
+                .any(|l| l.starts_with("%N\tSIG\t") && l.contains("\t1\t")),
+            "the named net lists its members by index"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "writing an interchange text must not change the project"
         );
         Ok(())
     }
