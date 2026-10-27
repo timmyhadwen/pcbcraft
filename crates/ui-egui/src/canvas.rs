@@ -688,6 +688,16 @@ impl App {
                 );
             }
         }
+        for port in &p.ports {
+            let at = camera.screen(port.position, rect);
+            painter.text(
+                at,
+                Align2::CENTER_CENTER,
+                format!("[{}]", port.name),
+                FontId::monospace(11.0),
+                self.accent(),
+            );
+        }
         for f in &p.no_connects {
             if let Some(anchor) = p.pin_position(&f.pin) {
                 let at = camera.screen(anchor, rect);

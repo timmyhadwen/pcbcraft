@@ -364,6 +364,19 @@ pub struct NoConnectFlag {
     pub id: Id,
     pub pin: PinRef,
 }
+/// A named hierarchy port placed on a schematic page, declaring that a net
+/// enters or leaves that page here. Ports sharing a name on different pages
+/// carry the same net; the engine enforces that when placing them.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Port {
+    pub id: Id,
+    pub name: String,
+    pub net: Id,
+    /// The page the port sits on; 0 is the root page.
+    pub sheet: Id,
+    pub position: Point,
+}
 /// Free-form schematic wire drawn by the user with explicit vertices.
 /// Connectivity stays explicit: `net` is assigned by a command, never inferred from crossings.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -1062,6 +1075,9 @@ pub struct Project {
     /// Named schematic pages, ordered by id; sheet 0 is the implicit root.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sheets: Vec<Sheet>,
+    /// Named hierarchy ports, ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<Port>,
     /// Extra bill-of-materials columns, in print order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bom_fields: Vec<BomField>,
@@ -1190,6 +1206,7 @@ impl Default for Project {
             nets: vec![],
             net_classes: vec![],
             sheets: vec![],
+            ports: vec![],
             bom_fields: vec![],
             output_jobs: vec![],
             files: vec![],
@@ -1489,6 +1506,7 @@ impl Project {
             .iter()
             .map(|x| x.id)
             .chain(self.sheets.iter().map(|x| x.id))
+            .chain(self.ports.iter().map(|x| x.id))
             .chain(self.nets.iter().map(|x| x.id))
             .chain(self.net_classes.iter().map(|x| x.id))
             .chain(self.wires.iter().map(|x| x.id))
@@ -1530,6 +1548,21 @@ impl Project {
         }
         if self.sheets.len() > 128 {
             return Err("a schematic supports at most 128 sheets".into());
+        }
+        if self.ports.len() > 256 {
+            return Err("a schematic supports at most 256 ports".into());
+        }
+        let mut port_names = BTreeSet::new();
+        for port in &self.ports {
+            if port.name.is_empty() || port.name.len() > 63 {
+                return Err("port name must be 1 to 63 bytes".into());
+            }
+            if !port_names.insert((port.sheet, &port.name)) {
+                return Err("duplicate port name on one page".into());
+            }
+            if !port.position.valid() {
+                return Err("port position is out of range".into());
+            }
         }
         let mut sheet_names = BTreeSet::new();
         for s in &self.sheets {
