@@ -993,6 +993,212 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
         rows.join("\n")
     ))
 }
+/// Board as a Specctra-style board file for external autorouters: the board
+/// boundary, layer stack with a through via type, net classes, every net with
+/// its pins, component and pin placements, track wires (arcs sampled into
+/// segments), vias, zone pours and rectangular rule areas as keepouts.
+/// Coordinates are whole micrometres at a resolution of 1000 per millimetre.
+pub fn specctra_dsn(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_ELEMENTS: usize = 50_000;
+    let mut count = 0usize;
+    let bump = |n: &mut usize| -> Result<(), String> {
+        *n += 1;
+        if *n > MAX_ELEMENTS {
+            return Err("board file exceeds the element limit".into());
+        }
+        Ok(())
+    };
+    let um = |v: f64| -> Result<i64, String> {
+        let scaled = (v * 1000.0).round();
+        if !scaled.is_finite() || scaled.abs() > 2_000_000_000.0 {
+            return Err("board coordinate falls outside the file range".into());
+        }
+        Ok(scaled as i64)
+    };
+    let point =
+        |q: &Point| -> Result<String, String> { Ok(format!("({} {})", um(q.x)?, um(q.y)?)) };
+    let numbers: BTreeMap<u64, usize> = p
+        .nets
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.id, i + 1))
+        .collect();
+    let net_number = |id: Option<u64>| -> Result<usize, String> {
+        match id {
+            None => Ok(0),
+            Some(n) => numbers
+                .get(&n)
+                .copied()
+                .ok_or_else(|| "element references an unknown net".to_string()),
+        }
+    };
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+    let mut out = format!(
+        "(PCB {}\n  (resolution 1000.0 1000.0)\n  (units mm)\n",
+        quote(&p.name)
+    );
+    out.push_str("  (network\n");
+    for (i, net) in p.nets.iter().enumerate() {
+        bump(&mut count)?;
+        let mut pins: Vec<String> = Vec::new();
+        for f in &p.board.footprints {
+            let c = refs
+                .get(&f.component)
+                .ok_or("footprint references an unknown component")?;
+            for pad in &f.pads {
+                if pad.net == Some(net.id) {
+                    pins.push(format!("{}.{}", quote(&c.reference), quote(&pad.number)));
+                }
+            }
+        }
+        out.push_str(&format!(
+            "    (net {} {} (pins {}))\n",
+            i + 1,
+            quote(&net.name),
+            pins.join(" ")
+        ));
+    }
+    for class in &p.net_classes {
+        bump(&mut count)?;
+        out.push_str(&format!(
+            "    (netclass {} (use {}))\n",
+            quote(&class.name),
+            quote(&class.name)
+        ));
+    }
+    out.push_str("  )\n");
+    for class in &p.net_classes {
+        out.push_str(&format!(
+            "  (classpath {} (circuit (minClearance {}) (sameNetClearance {}) (defaultTraceWidth {})) (layer \"F.Cu\" \"(c: {}))\" (layer \"B.Cu\" \"(c: {}))\")\n",
+            quote(&class.name),
+            um(class.clearance)?,
+            um(class.clearance)?,
+            um(class.width)?,
+            um(class.width)?,
+            um(class.width)?
+        ));
+    }
+    let clearance = um(p.board.clearance)?;
+    out.push_str(&format!(
+        "  (structure\n    (layer \"signal\" \"F.Cu\" (circuit (minClearance {c}) (viaSize 600 600) (viaDepth 0 0)))\n    (layer \"signal\" \"B.Cu\" (circuit (minClearance {c}) (viaSize 600 600) (viaDepth 0 0)))\n    (layer \"through_via\" \"VIA\" (circuit (viaType \"VIA\")))\n    (layer \"boundary\" \"BOARD_BOUNDARY\" (boundary (direction \"positive\")))\n    (via \"VIA\" (type \"through_via\") (shape (circle (path (0 0)) (width 600))))\n  )\n",
+        c = clearance
+    ));
+    out.push_str("  (image\n");
+    let corners: Vec<Point> = board_edge_points(p)
+        .iter()
+        .map(|q| Point::new(q.0, q.1))
+        .collect();
+    let boundary: Result<Vec<String>, String> = corners.iter().map(point).collect();
+    out.push_str(&format!(
+        "    (polygon (layer BOARD_BOUNDARY) (net 0) (path {}))\n",
+        boundary?.join(" ")
+    ));
+    for f in &p.board.footprints {
+        let c = refs
+            .get(&f.component)
+            .ok_or("footprint references an unknown component")?;
+        bump(&mut count)?;
+        out.push_str(&format!(
+            "    (component (name {}) (place (type fixed) (side top) (rotate {:.1}) (at {})))\n",
+            quote(&c.reference),
+            f.rotation.rem_euclid(360.0),
+            point(&f.position)?
+        ));
+        for pad in &f.pads {
+            bump(&mut count)?;
+            let world = f.position.offset(pad.offset.rotate(-f.rotation));
+            out.push_str(&format!(
+                "    (pin (name {}.{}) (length 0) (at {}) (shape (circle (path (0 0)) (width {}))) (number {}))\n",
+                quote(&c.reference),
+                quote(&pad.number),
+                point(&world)?,
+                um(pad.diameter.max(0.1))?,
+                quote(&pad.number)
+            ));
+        }
+    }
+    for t in &p.board.tracks {
+        bump(&mut count)?;
+        let layer = if t.layer == pcbcraft_doc::Layer::Back {
+            "B.Cu"
+        } else {
+            "F.Cu"
+        };
+        let width = um(t.width)?;
+        let net = net_number(Some(t.net))?;
+        let segments: Vec<(Point, Point)> = match t.curve() {
+            Some(arc) => {
+                let steps = 8;
+                let at = |i: usize| {
+                    let a = arc.start_angle + arc.sweep * (i as f64 / steps as f64);
+                    Point::new(
+                        arc.center.x + arc.radius * a.cos(),
+                        arc.center.y + arc.radius * a.sin(),
+                    )
+                };
+                (0..steps).map(|i| (at(i), at(i + 1))).collect()
+            }
+            None => vec![(t.start, t.end)],
+        };
+        for (a, b) in segments {
+            out.push_str(&format!(
+                "    (wire (path (net {net}) (layer {layer}) (width {width}) {} {}))\n",
+                point(&a)?,
+                point(&b)?
+            ));
+        }
+    }
+    for v in &p.board.vias {
+        bump(&mut count)?;
+        let net = net_number(Some(v.net))?;
+        out.push_str(&format!(
+            "    (via (net {net}) (type VIA) (at {}))\n",
+            point(&v.position)?
+        ));
+    }
+    for z in &p.board.zones {
+        bump(&mut count)?;
+        let layer = if z.layer == pcbcraft_doc::Layer::Back {
+            "B.Cu"
+        } else {
+            "F.Cu"
+        };
+        let net = net_number(Some(z.net))?;
+        let path: Result<Vec<String>, String> = z.outline.iter().map(point).collect();
+        out.push_str(&format!(
+            "    (polygon (layer {layer}) (net {net}) (path {}))\n",
+            path?.join(" ")
+        ));
+    }
+    for area in &p.board.rule_areas {
+        bump(&mut count)?;
+        let layers: Vec<&str> = match area.layer {
+            Some(l) => vec![if l == pcbcraft_doc::Layer::Back {
+                "B.Cu"
+            } else {
+                "F.Cu"
+            }],
+            None => vec!["F.Cu", "B.Cu"],
+        };
+        let lo = Point::new(area.region.x, area.region.y);
+        let hi = Point::new(
+            area.region.x + area.region.width,
+            area.region.y + area.region.height,
+        );
+        for layer in layers {
+            out.push_str(&format!(
+                "    (keepout (layer {layer}) (net 0) (rect {} {}))\n",
+                point(&lo)?,
+                point(&hi)?
+            ));
+        }
+    }
+    out.push_str("  )\n)\n");
+    Ok(out)
+}
+
 /// Board drawing as an ASCII DXF (R12 entities): tracks become lines, vias
 /// and round pads circles, oval and rectangular pads closed polylines, zones
 /// and board-layer graphics outlines, arcs three-point arcs, labels text.
@@ -3012,6 +3218,156 @@ mod tests {
         assert_eq!(rows.len(), 2, "one row per placed part");
         Ok(())
     }
+    #[test]
+    fn specctra_dsn_carries_nets_placements_tracks_vias_and_keepouts() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.extend([
+            pcbcraft_doc::Net {
+                id: 5,
+                name: "GND".into(),
+                ..Default::default()
+            },
+            pcbcraft_doc::Net {
+                id: 9,
+                name: "SIG".into(),
+                ..Default::default()
+            },
+        ]);
+        project.net_classes.push(pcbcraft_doc::NetClass {
+            id: 11,
+            name: "POWER".into(),
+            clearance: 0.4,
+            width: 0.6,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            nets: vec![5],
+        });
+        let component =
+            |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
+                id,
+                reference: reference.into(),
+                value: "1k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: ["1", "2"]
+                    .iter()
+                    .map(|number| pcbcraft_doc::Pin {
+                        number: (*number).into(),
+                        name: String::new(),
+                        offset: Point::default(),
+                        net: nets[if *number == "1" { 0 } else { 1 }],
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    })
+                    .collect(),
+                units: vec![],
+                library_symbol: None,
+                library_footprint: None,
+                fields: vec![],
+            };
+        project
+            .components
+            .push(component(1, "R1", [Some(9), Some(5)]));
+        project.components.push(component(2, "R2", [Some(9), None]));
+        let pad = |number: &str, x: f64, y: f64, net: Option<u64>| pcbcraft_doc::Pad {
+            number: number.into(),
+            offset: Point::new(x, y),
+            diameter: 0.6,
+            net,
+            castellated: None,
+            geometry: None,
+        };
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 3,
+            component: 1,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, Some(5))],
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 4,
+            component: 2,
+            position: Point::new(30.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, None)],
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 6,
+            net: 9,
+            start: Point::new(11.0, 10.0),
+            end: Point::new(29.0, 10.0),
+            width: 0.3,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: None,
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 7,
+            net: 9,
+            position: Point::new(20.0, 15.0),
+            diameter: 0.6,
+            drill: 0.3,
+        });
+        project.board.rule_areas.push(pcbcraft_doc::RuleArea {
+            id: 8,
+            name: None,
+            net: None,
+            layer: None,
+            clearance: 0.5,
+            region: pcbcraft_doc::RuleRegion {
+                x: 5.0,
+                y: 5.0,
+                width: 10.0,
+                height: 8.0,
+            },
+        });
+        let dsn = specctra_dsn(&project)?;
+        assert!(
+            dsn.starts_with("(PCB \""),
+            "the file is an s-expression PCB"
+        );
+        assert!(dsn.contains("(resolution 1000.0 1000.0)"));
+        assert!(
+            dsn.contains("(net 2 \"SIG\" (pins \"R1\".\"1\" \"R2\".\"1\"))"),
+            "nets list their pins by reference and pad number"
+        );
+        assert!(dsn.contains("(netclass \"POWER\" (use \"POWER\"))"));
+        assert!(
+            dsn.contains("(classpath \"POWER\" (circuit (minClearance 400)"),
+            "classes carry their clearance in micrometres"
+        );
+        assert!(
+            dsn.contains("(component (name \"R1\") (place (type fixed) (side top) (rotate 0.0) (at (10000 10000))))"),
+            "components are placed with fixed type"
+        );
+        assert!(
+            dsn.contains("(pin (name \"R1\".\"1\") (length 0) (at (9000 10000))"),
+            "pads land at their world position"
+        );
+        assert!(
+            dsn.contains(
+                "(wire (path (net 2) (layer F.Cu) (width 300) (11000 10000) (29000 10000)))"
+            ),
+            "tracks become net-carrying wires"
+        );
+        assert!(dsn.contains("(via (net 2) (type VIA) (at (20000 15000)))"));
+        assert!(
+            dsn.contains("(polygon (layer BOARD_BOUNDARY) (net 0) (path (0 0) (60000 0) (60000 40000) (0 40000)))"),
+            "the board edge closes the boundary"
+        );
+        assert!(
+            dsn.contains("(keepout (layer F.Cu) (net 0) (rect (5000 5000) (15000 13000)))")
+                && dsn.contains("(keepout (layer B.Cu) (net 0) (rect (5000 5000) (15000 13000)))"),
+            "rule areas become keepouts on both copper layers"
+        );
+        Ok(())
+    }
+
     #[test]
     fn ipc356_netlist_orders_pads_by_net_and_prints_fixed_columns() -> Result<(), String> {
         let mut project = Project::default();
