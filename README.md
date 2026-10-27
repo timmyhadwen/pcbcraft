@@ -245,7 +245,8 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   revision guards, 32-step undo/redo and validated atomic project saves.
 - 240 MCP tools: every engine command plus library discovery/search/inspection,
   design inspection, checks, persistence,
-  export, PNG previews and SVG vector previews. Headless or bridged into the actual running desktop.
+  export, PNG raster previews saved to disk or returned inline, and SVG vector
+  previews. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
   Browser host-file open/save/export are not implemented yet.
 

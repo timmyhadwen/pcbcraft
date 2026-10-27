@@ -52,7 +52,7 @@ pub fn tool_list() -> Value {
         json!({"name":"sample_design","description":"Load the original LED indicator example; replacement is undoable","inputSchema":object(json!({}),&[])}),
         json!({"name":"open","description":"Open and validate a .pcbcraft project from the server host; replacement is undoable","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"save","description":"Atomically save the current project on the server host","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"export","description":"Export the supported PCB subset to KiCad, or export a schematic/PCB SVG preview","inputSchema":object(json!({"path":{"type":"string"},"format":{"type":"string","enum":["kicad_pcb","svg"]},"view":{"type":"string","enum":["schematic","pcb"]}}),&["path","format"])}),
+        json!({"name":"export","description":"Export the supported PCB subset to a board interchange text file, or export a schematic/PCB preview as an SVG vector file or a PNG raster file","inputSchema":object(json!({"path":{"type":"string"},"format":{"type":"string","enum":["kicad_pcb","svg","png"]},"view":{"type":"string","enum":["schematic","pcb"]}}),&["path","format"])}),
         json!({"name":"screenshot","description":"Return a PNG design preview from current session state (not a desktop UI screenshot)","inputSchema":object(json!({"view":{"type":"string","enum":["schematic","pcb"]}}),&["view"])}),
     ];
     for spec in pcbcraft_engine::commands() {
@@ -366,7 +366,16 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
         }
         "export" => {
             let path = string(args, "path")?;
-            let text = match string(args, "format")? {
+            let format = string(args, "format")?;
+            if format == "png" {
+                let bytes = pcbcraft_io::preview_png(
+                    &s.project,
+                    args.get("view").and_then(Value::as_str).unwrap_or("pcb"),
+                )?;
+                pcbcraft_io::atomic_write(Path::new(path), &bytes)?;
+                return Ok(text_result(json!({"path":path,"revision":s.revision})));
+            }
+            let text = match format {
                 "kicad_pcb" => pcbcraft_io::kicad_board(&s.project)?,
                 "svg" => pcbcraft_io::svg(
                     &s.project,
@@ -836,6 +845,47 @@ mod tests {
         );
         Ok(())
     }
+    #[test]
+    fn export_tool_writes_png_raster_previews_without_editing() -> Result<(), String> {
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        for view in ["pcb", "schematic"] {
+            let path = directory.path().join(format!("preview-{view}.png"));
+            let out = call_tool(
+                &session,
+                "export",
+                &json!({"path": path, "format": "png", "view": view}),
+            );
+            assert_eq!(
+                out.get("isError"),
+                Some(&json!(false)),
+                "{view} export failed"
+            );
+            let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+            assert!(
+                bytes.starts_with(&[0x89, b'P', b'N', b'G']),
+                "the {view} file is a real PNG"
+            );
+        }
+        let bad = call_tool(
+            &session,
+            "export",
+            &json!({"path": directory.path().join("nope.bmp"), "format": "bmp"}),
+        );
+        assert_eq!(bad.get("isError"), Some(&json!(true)));
+        assert!(
+            !directory.path().join("nope.bmp").exists(),
+            "a refused export writes nothing"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "exporting never edits the project"
+        );
+        Ok(())
+    }
+
     #[test]
     fn library_export_tools_write_files_the_reader_reparses() -> Result<(), String> {
         let session = shared(Session::default());
