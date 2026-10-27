@@ -1816,6 +1816,48 @@ fn csv_cell(text: &str) -> String {
 }
 /// Plain-text netlist: one line per connected net, listing the component
 /// pins it carries as `REFERENCE.PIN`, sorted by net name and reference.
+/// Parse a footprint assignment text: one pair per line, a component reference
+/// first and the footprint file after whitespace; blank lines and # comments are
+/// ignored, matching the files footprint assignment exports produce.
+pub fn read_fp_assignments(text: &str) -> Result<Vec<(String, String)>, String> {
+    const MAX_ROWS: usize = 64;
+    let mut rows = Vec::new();
+    for (number, line) in text.lines().enumerate() {
+        let line = line.trim_end();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((reference, path)) = line.split_once([' ', '\t']) else {
+            return Err(format!(
+                "line {} needs a reference and a footprint path",
+                number + 1
+            ));
+        };
+        let reference = reference.trim();
+        let path = path.trim();
+        if reference.is_empty() || reference.len() > 64 || reference.contains(['*', '?']) {
+            return Err(format!(
+                "line {} has a reference outside 1 to 64 plain bytes",
+                number + 1
+            ));
+        }
+        if path.is_empty() || path.len() > 1024 {
+            return Err(format!(
+                "line {} has a path outside 1 to 1024 bytes",
+                number + 1
+            ));
+        }
+        rows.push((reference.to_string(), path.to_string()));
+        if rows.len() > MAX_ROWS {
+            return Err("an assignment file may hold up to 64 rows".into());
+        }
+    }
+    if rows.is_empty() {
+        return Err("an assignment file needs at least one row".into());
+    }
+    Ok(rows)
+}
+
 pub fn netlist_text(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_PINS: usize = 50_000;
@@ -7666,6 +7708,35 @@ mod tests {
             svg.matches("<svg").count(),
             1,
             "exactly one root element is opened"
+        );
+        Ok(())
+    }
+    #[test]
+    fn read_fp_assignments_skips_comments_and_rejects_bad_rows() -> Result<(), String> {
+        let rows = read_fp_assignments("# header\n\nR1 /lib/R.kicad_mod\nR2\t/lib/D.kicad_mod\n")?;
+        assert_eq!(
+            rows,
+            vec![
+                ("R1".to_string(), "/lib/R.kicad_mod".to_string()),
+                ("R2".to_string(), "/lib/D.kicad_mod".to_string())
+            ]
+        );
+        assert!(
+            read_fp_assignments("# only comments\n").is_err(),
+            "a file with no rows is refused"
+        );
+        assert!(
+            read_fp_assignments("R1").is_err(),
+            "a row without a footprint path is refused"
+        );
+        assert!(
+            read_fp_assignments("R*1 /lib/R.kicad_mod").is_err(),
+            "a wildcard reference is refused"
+        );
+        let many = "R1 /lib/R.kicad_mod\n".repeat(65);
+        assert!(
+            read_fp_assignments(&many).is_err(),
+            "the row count stays bounded"
         );
         Ok(())
     }
