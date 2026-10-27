@@ -36,6 +36,8 @@ pub fn tool_list() -> Value {
         json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),&["path"])}),
         json!({"name":"dxf.export","description":"Write the board drawing as an ASCII DXF file (copper tracks, vias, pads, zones, board graphics, outline and labels) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"placement.write","description":"Write a pick-and-place centroid file (reference, position, rotation, side, package per placed part) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"library.export_footprints","description":"Write every project-library footprint to a directory as one library text file each, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"library.export_symbols","description":"Write every project-library symbol to a directory as one library symbol text file each, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"plot_csv.write","description":"Write a fabrication plot report CSV (per copper layer: element counts and bounding box in millimetres, plus a totals row) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed KiCad symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a KiCad symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
@@ -192,6 +194,28 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             };
             pcbcraft_io::atomic_write(Path::new(path), text.as_bytes())?;
             json!({"path":path,"name":definition,"bytes":text.len()})
+        }
+        "library.export_footprints" => {
+            let directory = string(args, "path")?;
+            let mut files = Vec::new();
+            for item in &s.project.library.footprints {
+                let text = pcbcraft_io::footprint_library_text(item)?;
+                let name = format!("{}.kicad_mod", item.name);
+                pcbcraft_io::atomic_write(&Path::new(&directory).join(&name), text.as_bytes())?;
+                files.push(name);
+            }
+            json!({"directory":directory,"files":files})
+        }
+        "library.export_symbols" => {
+            let directory = string(args, "path")?;
+            let mut files = Vec::new();
+            for item in &s.project.library.symbols {
+                let text = pcbcraft_io::symbol_library_text(item)?;
+                let name = format!("{}.kicad_sym", item.name);
+                pcbcraft_io::atomic_write(&Path::new(&directory).join(&name), text.as_bytes())?;
+                files.push(name);
+            }
+            json!({"directory":directory,"files":files})
         }
         "gerber.export" => {
             let directory = string(args, "path")?;
@@ -1199,6 +1223,89 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing an interchange text must not change the project"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn library_batch_exports_write_every_entry_as_a_text_file() -> Result<(), String> {
+        let session = shared(Session::default());
+        let root = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let fixtures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../library/tests/fixtures");
+        for (command, file) in [
+            (
+                "library.import_footprint_file",
+                "R_0805_2012Metric.kicad_mod",
+            ),
+            ("library.import_footprint_file", "DIP-8_W7.62mm.kicad_mod"),
+            ("library.import_symbol_file", "device.kicad_sym"),
+        ] {
+            let path = fixtures.join(file).to_string_lossy().into_owned();
+            let import = call_tool(
+                &session,
+                "execute",
+                &json!({"command":command,"params":{"path":path}}),
+            );
+            assert_eq!(import.get("isError"), Some(&json!(false)));
+        }
+        let directory = root.path().join("out");
+        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+        let footprints = call_tool(
+            &session,
+            "library.export_footprints",
+            &json!({"path":directory}),
+        );
+        assert_eq!(footprints.get("isError"), Some(&json!(false)));
+        assert_eq!(
+            footprints
+                .pointer("/structuredContent/files")
+                .cloned()
+                .unwrap_or_default(),
+            json!(["DIP-8_W7.62mm.kicad_mod", "R_0805_2012Metric.kicad_mod"]),
+            "one file per footprint, sorted by name"
+        );
+        let symbols = call_tool(
+            &session,
+            "library.export_symbols",
+            &json!({"path":directory}),
+        );
+        assert_eq!(symbols.get("isError"), Some(&json!(false)));
+        assert_eq!(
+            symbols
+                .pointer("/structuredContent/files")
+                .cloned()
+                .unwrap_or_default(),
+            json!(["LED.kicad_sym", "R.kicad_sym"]),
+            "one file per symbol, sorted by name"
+        );
+        let round_trip = call_tool(
+            &session,
+            "library.import_footprint_file",
+            &json!({"path":directory.join("DIP-8_W7.62mm.kicad_mod")}),
+        );
+        assert_eq!(
+            round_trip.get("isError"),
+            Some(&json!(false)),
+            "an exported file reads straight back"
+        );
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let footprints = call_tool(
+            &session,
+            "library.export_footprints",
+            &json!({"path":directory}),
+        );
+        assert_eq!(footprints.get("isError"), Some(&json!(false)));
+        let symbols = call_tool(
+            &session,
+            "library.export_symbols",
+            &json!({"path":directory}),
+        );
+        assert_eq!(symbols.get("isError"), Some(&json!(false)));
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "batch export must not change the project"
         );
         Ok(())
     }
