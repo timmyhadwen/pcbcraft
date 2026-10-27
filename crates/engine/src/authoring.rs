@@ -1,5 +1,7 @@
 use super::*;
-use pcbcraft_library::{FootprintDefinition, FootprintPad, SymbolDefinition, SymbolPin};
+use pcbcraft_library::{
+    FootprintDefinition, FootprintPad, Graphic, SymbolDefinition, SymbolPin, UnitGraphic,
+};
 
 pub(super) fn commands() -> Vec<CommandSpec> {
     [
@@ -25,6 +27,10 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.duplicate","Copy a project-library symbol under a new name as one undoable step, the starting point for a custom variant of a vendor symbol; the original and every placed copy stay untouched",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","description":"name for the copy, which must not exist yet"}}),&["name","new_name"])),
         ("library.symbol.pin_set","Add or replace one pin on a project-library symbol by its number, so custom symbols gain extra terminals, corrected pin names or repositioned leads without rewriting the whole definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"object","description":"a full pin: number, name, position, angle, length, electrical type, unit and body style, as library readers emit them"}}),&["name","pin"])),
         ("library.symbol.pin_remove","Remove one pin from a project-library symbol by its number; the symbol keeps at least one pin, and placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"string","description":"pin number, exactly as stored"}}),&["name","pin"])),
+        ("library.footprint.graphic_add","Draw one graphic (line, rectangle, circle, arc, polyline or text) onto a project-library footprint as one undoable step, the way a package gains its silk outline, courtyard art or documentation text; it travels with every embedded copy once the package is assigned or refreshed",schema(json!({"name":{"type":"string"},"graphic":{"type":"object","description":"a graphic primitive as library readers emit it: kind with its points, width, layer and optional fill"}}),&["name","graphic"])),
+        ("library.footprint.graphic_clear","Remove artwork from a project-library footprint in one undoable step: give a layer to clear just that layer's graphics, or omit it to clear every graphic, so stale silk and fab art can be wiped before redrawing",schema(json!({"name":{"type":"string"},"layer":{"type":"string","description":"layer to clear; omit to clear all graphics"}}),&["name"])),
+        ("library.symbol.graphic_add","Draw one graphic (line, rectangle, circle, arc, polyline or text) onto one unit of a project-library symbol as one undoable step, the way a symbol gains body art, pin decorations or documentation text; it travels with every embedded copy until symbol.refresh spreads it",schema(json!({"name":{"type":"string"},"unit":{"type":"integer","description":"symbol unit the graphic belongs to; defaults to 1"},"body_style":{"type":"integer","description":"body style the graphic belongs to; defaults to 1"},"graphic":{"type":"object","description":"a graphic primitive as library readers emit it: kind with its points, width, layer and optional fill"}}),&["name","graphic"])),
+        ("library.symbol.graphic_clear","Remove one unit's artwork from a project-library symbol in one undoable step, so stale symbol art can be wiped before redrawing; the unit keeps its pins",schema(json!({"name":{"type":"string"},"unit":{"type":"integer","description":"symbol unit whose graphics clear; defaults to 1"}}),&["name"])),
         ("library.footprint.adopt","Copy a placed component's embedded footprint into the project library under a chosen name as one undoable step, so a package that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the package under"}}),&["id","name"])),
         ("library.symbol.adopt","Copy a placed component's embedded symbol into the project library under a chosen name as one undoable step, so a symbol that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the symbol under"}}),&["id","name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
@@ -81,6 +87,36 @@ struct DuplicateParams {
 struct PadSetParams {
     name: String,
     pad: FootprintPad,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicAddParams {
+    name: String,
+    graphic: Graphic,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicClearParams {
+    name: String,
+    #[serde(default)]
+    layer: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SymbolGraphicAddParams {
+    name: String,
+    #[serde(default)]
+    unit: Option<u32>,
+    #[serde(default)]
+    body_style: Option<u32>,
+    graphic: Graphic,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SymbolGraphicClearParams {
+    name: String,
+    #[serde(default)]
+    unit: Option<u32>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -863,6 +899,141 @@ pub(super) fn run(
             p.library.validate()?;
             Ok(json!({"name": name, "pin": a.pin, "pins": pins}))
         }
+        "library.footprint.graphic_add" => {
+            let a: GraphicAddParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "footprint name must be 1 to 128 bytes".into(),
+                ));
+            }
+            let layer = graphic_layer(&a.graphic)?;
+            let graphics = {
+                let footprint = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|f| f.name == a.name)
+                    .ok_or_else(missing)?;
+                footprint.graphics.push(a.graphic);
+                footprint
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                footprint.graphics.len()
+            };
+            p.library.validate()?;
+            Ok(json!({"name": a.name, "layer": layer, "graphics": graphics}))
+        }
+        "library.footprint.graphic_clear" => {
+            let a: GraphicClearParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "footprint name must be 1 to 128 bytes".into(),
+                ));
+            }
+            if a.layer.as_deref().is_some_and(str::is_empty) {
+                return Err(Error::Invalid("layer must not be empty".into()));
+            }
+            let name = a.name.clone();
+            let graphics = {
+                let footprint = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let before = footprint.graphics.len();
+                for graphic in &footprint.graphics {
+                    graphic_layer(graphic)?;
+                }
+                let kept: Vec<Graphic> = match &a.layer {
+                    Some(layer) => footprint
+                        .graphics
+                        .iter()
+                        .filter(|g| graphic_layer(g).is_ok_and(|l| l != *layer))
+                        .cloned()
+                        .collect(),
+                    None => Vec::new(),
+                };
+                footprint.graphics = kept;
+                if footprint.graphics.len() == before {
+                    return Err(Error::Invalid(format!(
+                        "footprint {name} has no graphics to remove"
+                    )));
+                }
+                footprint
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                (before, footprint.graphics.len())
+            };
+            p.library.validate()?;
+            Ok(json!({
+                "name": name,
+                "removed": graphics.0 - graphics.1,
+                "graphics": graphics.1
+            }))
+        }
+        "library.symbol.graphic_add" => {
+            let a: SymbolGraphicAddParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid("symbol name must be 1 to 128 bytes".into()));
+            }
+            let unit = a.unit.unwrap_or(1);
+            let body_style = a.body_style.unwrap_or(1);
+            let layer = graphic_layer(&a.graphic)?;
+            let graphics = {
+                let symbol = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|f| f.name == a.name)
+                    .ok_or_else(missing)?;
+                symbol.graphics.push(UnitGraphic {
+                    unit,
+                    body_style,
+                    primitive: a.graphic,
+                });
+                symbol
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                symbol.graphics.len()
+            };
+            p.library.validate()?;
+            Ok(json!({"name": a.name, "unit": unit, "layer": layer, "graphics": graphics}))
+        }
+        "library.symbol.graphic_clear" => {
+            let a: SymbolGraphicClearParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid("symbol name must be 1 to 128 bytes".into()));
+            }
+            let unit = a.unit.unwrap_or(1);
+            let name = a.name.clone();
+            let graphics = {
+                let symbol = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let before = symbol.graphics.len();
+                symbol.graphics.retain(|g| g.unit != unit);
+                if symbol.graphics.len() == before {
+                    return Err(Error::Invalid(format!(
+                        "symbol {name} has no graphics on unit {unit}"
+                    )));
+                }
+                symbol
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                (before, symbol.graphics.len())
+            };
+            p.library.validate()?;
+            Ok(json!({
+                "name": name,
+                "unit": unit,
+                "removed": graphics.0 - graphics.1,
+                "graphics": graphics.1
+            }))
+        }
         "component.place_custom" => {
             let a: Place = parse(params)?;
             let def = p
@@ -913,4 +1084,19 @@ fn import_symbol(p: &mut Project, def: pcbcraft_library::SymbolDefinition) {
         p.library.symbols.push(def);
     }
     p.library.symbols.sort_by(|a, b| a.name.cmp(&b.name));
+}
+
+fn graphic_layer(graphic: &Graphic) -> Result<String, Error> {
+    let layer = match graphic {
+        Graphic::Line { layer, .. }
+        | Graphic::Rectangle { layer, .. }
+        | Graphic::Circle { layer, .. }
+        | Graphic::Arc { layer, .. }
+        | Graphic::Polyline { layer, .. }
+        | Graphic::Text { layer, .. } => layer,
+    };
+    if layer.is_empty() || layer.len() > 64 {
+        return Err(Error::Invalid("layer must be 1 to 64 bytes".into()));
+    }
+    Ok(layer.clone())
 }
