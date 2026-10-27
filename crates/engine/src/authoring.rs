@@ -33,6 +33,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.graphic_clear","Remove one unit's artwork from a project-library symbol in one undoable step, so stale symbol art can be wiped before redrawing; the unit keeps its pins",schema(json!({"name":{"type":"string"},"unit":{"type":"integer","description":"symbol unit whose graphics clear; defaults to 1"}}),&["name"])),
         ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords or linked footprint one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"}}),&["name"])),
         ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
+        ("library.symbol.rename","Rename a project-library symbol in place as one undoable step, keeping every pin and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
+        ("library.footprint.rename","Rename a project-library footprint in place as one undoable step, keeping every pad and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
         ("library.footprint.adopt","Copy a placed component's embedded footprint into the project library under a chosen name as one undoable step, so a package that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the package under"}}),&["id","name"])),
         ("library.symbol.adopt","Copy a placed component's embedded symbol into the project library under a chosen name as one undoable step, so a symbol that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the symbol under"}}),&["id","name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
@@ -90,6 +92,13 @@ struct PadSetParams {
     name: String,
     pad: FootprintPad,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenameParams {
+    name: String,
+    new_name: String,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetPropertyParams {
@@ -1137,6 +1146,43 @@ pub(super) fn run(
             };
             p.library.validate()?;
             Ok(json!({"name": item}))
+        }
+        "library.symbol.rename" | "library.footprint.rename" => {
+            let a: RenameParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            if a.new_name.is_empty() || a.new_name.len() > 128 {
+                return Err(Error::Invalid("new name must be 1 to 128 bytes".into()));
+            }
+            if command == "library.symbol.rename" {
+                let Some(found) = p.library.symbols.iter().position(|i| i.name == a.name) else {
+                    return Err(missing());
+                };
+                if p.library.symbols.iter().any(|i| i.name == a.new_name) {
+                    return Err(Error::Invalid(format!(
+                        "a library item is already named {}",
+                        a.new_name
+                    )));
+                }
+                p.library.symbols[found].name = a.new_name.clone();
+            } else {
+                let Some(found) = p.library.footprints.iter().position(|i| i.name == a.name) else {
+                    return Err(missing());
+                };
+                if p.library.footprints.iter().any(|i| i.name == a.new_name) {
+                    return Err(Error::Invalid(format!(
+                        "a library item is already named {}",
+                        a.new_name
+                    )));
+                }
+                p.library.footprints[found].name = a.new_name.clone();
+            }
+            p.library.validate()?;
+            p.validate()?;
+            Ok(json!({"name": a.new_name}))
         }
         "component.place_custom" => {
             let a: Place = parse(params)?;
