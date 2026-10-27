@@ -14,6 +14,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
+        ("library.footprint.renumber_pads","Renumber pads on a project-library footprint with an ordered old-to-new map; embedded copies, their placed pads and matching component pins follow, and a target number already held by an untouched pad is refused",schema(json!({"name":{"type":"string"},"renames":{"type":"array","maxItems":512,"items":{"type":"object","properties":{"old":{"type":"string","maxLength":32},"new":{"type":"string","maxLength":32}},"required":["old","new"],"additionalProperties":false}}}),&["name","renames"])),
         ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
 }
@@ -22,6 +23,18 @@ pub(super) fn commands() -> Vec<CommandSpec> {
 struct SymbolParams {
     definition: SymbolDefinition,
     notice: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PadRename {
+    old: String,
+    new: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenumberParams {
+    name: String,
+    renames: Vec<PadRename>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -352,6 +365,133 @@ pub(super) fn run(
                     max.y + a.margin
                 ],
                 "margin": a.margin
+            }))
+        }
+        "library.footprint.renumber_pads" => {
+            let a: RenumberParams = parse(params)?;
+            if a.renames.is_empty() || a.renames.len() > 512 {
+                return Err(Error::Invalid(
+                    "pad renumbering needs 1 to 512 old-new pairs".into(),
+                ));
+            }
+            for r in &a.renames {
+                if r.old.is_empty() || r.new.is_empty() || r.old.len() > 32 || r.new.len() > 32 {
+                    return Err(Error::Invalid("pad numbers must be 1 to 32 bytes".into()));
+                }
+            }
+            let mut sources: Vec<&str> = a.renames.iter().map(|r| r.old.as_str()).collect();
+            sources.sort_unstable();
+            sources.dedup();
+            if sources.len() != a.renames.len() {
+                return Err(Error::Invalid(
+                    "each old pad number may appear once in the map".into(),
+                ));
+            }
+            let targets: Vec<&str> = a.renames.iter().map(|r| r.new.as_str()).collect();
+            let mut dedup: Vec<&str> = targets.clone();
+            dedup.sort_unstable();
+            dedup.dedup();
+            if dedup.len() != targets.len() {
+                return Err(Error::Invalid(
+                    "two pads cannot be renumbered to the same number".into(),
+                ));
+            }
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            for r in &a.renames {
+                if !def.pads.iter().any(|pad| pad.number == r.old) {
+                    return Err(Error::Invalid(format!(
+                        "this footprint has no pad {}",
+                        r.old
+                    )));
+                }
+            }
+            for target in &targets {
+                if !a.renames.iter().any(|r| r.old == **target)
+                    && def.pads.iter().any(|pad| pad.number == **target)
+                {
+                    return Err(Error::Invalid(format!(
+                        "pad number {target} is already used by a pad this map leaves alone"
+                    )));
+                }
+            }
+            let touched: Vec<(usize, String)> = def
+                .pads
+                .iter()
+                .enumerate()
+                .filter(|(_, pad)| a.renames.iter().any(|r| r.old == pad.number))
+                .map(|(i, pad)| (i, pad.number.clone()))
+                .collect();
+            for &(i, _) in &touched {
+                def.pads[i].number = String::new();
+            }
+            for (i, old) in &touched {
+                if let Some(r) = a.renames.iter().find(|r| r.old == *old) {
+                    def.pads[*i].number = r.new.clone();
+                }
+            }
+            if def.pads.iter().any(|pad| pad.number.is_empty()) {
+                return Err(Error::Invalid(
+                    "every renamed pad needs a new number".into(),
+                ));
+            }
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            let affected: Vec<Id> = p
+                .components
+                .iter()
+                .filter(|c| {
+                    c.library_footprint
+                        .as_ref()
+                        .is_some_and(|f| f.definition.name == a.name)
+                })
+                .map(|c| c.id)
+                .collect();
+            for c in &mut p.components {
+                if !affected.contains(&c.id) {
+                    continue;
+                }
+                if let Some(embedded) = &mut c.library_footprint {
+                    for pad in &mut embedded.definition.pads {
+                        if let Some(r) = a.renames.iter().find(|r| r.old == pad.number) {
+                            pad.number = r.new.clone();
+                        }
+                    }
+                }
+                for pin in &mut c.pins {
+                    if let Some(r) = a.renames.iter().find(|r| r.old == pin.number) {
+                        pin.number = r.new.clone();
+                    }
+                }
+            }
+            for f in &mut p.board.footprints {
+                if !affected.contains(&f.component) {
+                    continue;
+                }
+                for pad in &mut f.pads {
+                    if let Some(r) = a.renames.iter().find(|r| r.old == pad.number) {
+                        pad.number = r.new.clone();
+                    }
+                    let geometry_new = pad.geometry.as_ref().and_then(|geometry| {
+                        a.renames
+                            .iter()
+                            .find(|r| r.old == geometry.number)
+                            .map(|r| r.new.clone())
+                    });
+                    if let (Some(geometry), Some(new)) =
+                        (pad.geometry.as_mut(), geometry_new.as_deref())
+                    {
+                        geometry.number = new.to_string();
+                    }
+                }
+            }
+            Ok(json!({
+                "name": a.name,
+                "renamed": touched.len(),
+                "components": affected.len()
             }))
         }
         "library.load" => {
