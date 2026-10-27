@@ -2790,6 +2790,79 @@ pub fn drill_chart_csv(p: &Project) -> Result<String, String> {
     Ok(out)
 }
 
+/// Board statistics as CSV: one `KEY,VALUE` row per counter covering the
+/// outline, parts, nets, pins, routing, vias, zones and documentation items,
+/// so a design summary for quotes or reviews regenerates from the project.
+pub fn stats_text(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    let title = if p.name.trim().is_empty() {
+        "untitled board"
+    } else {
+        p.name.trim()
+    };
+    let mut pins = 0usize;
+    let mut connected = 0usize;
+    let mut library_footprints = 0usize;
+    for c in &p.components {
+        if c.library_footprint.is_some() {
+            library_footprints += 1;
+        }
+        for pin in &c.pins {
+            pins += 1;
+            if pin.net.is_some() {
+                connected += 1;
+            }
+        }
+    }
+    let mut track_length = 0.0;
+    let mut arced = 0usize;
+    for t in &p.board.tracks {
+        track_length += (t.end.x - t.start.x).hypot(t.end.y - t.start.y);
+        if t.arc.is_some() {
+            arced += 1;
+        }
+    }
+    let mut drills = 0usize;
+    for v in &p.board.vias {
+        if v.drill > 0.0 {
+            drills += 1;
+        }
+    }
+    for f in &p.board.footprints {
+        for pad in &f.pads {
+            if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
+                drills += 1;
+            }
+        }
+    }
+    let rows: [(&str, String); 19] = [
+        ("board_width_mm", format!("{:.3}", p.board.width)),
+        ("board_height_mm", format!("{:.3}", p.board.height)),
+        ("board_thickness_mm", format!("{:.3}", p.board.thickness)),
+        ("components", p.components.len().to_string()),
+        ("library_footprints", library_footprints.to_string()),
+        ("nets", p.nets.len().to_string()),
+        ("pins", pins.to_string()),
+        ("pins_connected_to_nets", connected.to_string()),
+        ("pins_without_net", (pins - connected).to_string()),
+        ("track_segments", p.board.tracks.len().to_string()),
+        ("track_arcs", arced.to_string()),
+        ("track_length_mm", format!("{:.1}", track_length)),
+        ("vias", p.board.vias.len().to_string()),
+        ("drilled_holes_total", drills.to_string()),
+        ("copper_zones", p.board.zones.len().to_string()),
+        ("copper_cutouts", p.board.cutouts.len().to_string()),
+        ("fiducials", p.board.fiducials.len().to_string()),
+        ("board_texts", p.board.texts.len().to_string()),
+        ("graphics", p.graphics.len().to_string()),
+    ];
+    let mut out = format!("# Board statistics for {title}\nKEY,VALUE\n");
+    for (key, value) in rows {
+        out.push_str(&format!("{key},{value}\n"));
+    }
+    Ok(out)
+}
+
 /// Board stackup report as plain text: board size, substrate and finish
 /// data, every recorded layer note with its role and thickness, and any
 /// machining tolerances, as one fabrication summary sheet.
@@ -6279,6 +6352,88 @@ mod tests {
         assert!(
             postscript(&project, "wrong").is_err(),
             "only the two known views can be drawn"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stats_text_counts_parts_nets_and_routing() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 500,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
+            id: 600,
+            reference: "R1".into(),
+            value: "10k".into(),
+            kind: "resistor".into(),
+            position: Point::new(20.0, 20.0),
+            rotation: 0.0,
+            pins: vec![
+                pcbcraft_doc::Pin {
+                    number: "1".into(),
+                    name: String::new(),
+                    offset: Point::new(0.0, 0.0),
+                    net: Some(500),
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+                pcbcraft_doc::Pin {
+                    number: "2".into(),
+                    name: String::new(),
+                    offset: Point::new(2.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+            ],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 601,
+            net: 500,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(30.0, 40.0),
+            width: 0.25,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: None,
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 602,
+            net: 500,
+            position: Point::new(30.0, 40.0),
+            diameter: 0.6,
+            drill: 0.3,
+        });
+        project.validate()?;
+        let text = stats_text(&project)?;
+        assert!(
+            text.starts_with("# Board statistics for Untitled circuit\nKEY,VALUE\n"),
+            "the sheet names the design and opens the counter table"
+        );
+        assert!(
+            text.contains("components,1") && text.contains("nets,1") && text.contains("pins,2"),
+            "part and net counters are listed"
+        );
+        assert!(
+            text.contains("pins_connected_to_nets,1") && text.contains("pins_without_net,1"),
+            "connected and floating pins are split honestly"
+        );
+        assert!(
+            text.contains("track_length_mm,50.0"),
+            "the 3-4-5 track is measured as 50 mm"
+        );
+        assert!(
+            text.contains("drilled_holes_total,1"),
+            "the via drill is counted once"
         );
         Ok(())
     }

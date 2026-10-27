@@ -26,6 +26,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_symbol_svg","description":"Write one project-library symbol to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist (net, component, pin and coordinates in fixed columns) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ps.write","description":"Write a one-page PostScript drawing of either view with copper, pads, zones and text as real stroke and fill operators, without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"]}}),&["path"])}),
+        json!({"name":"stats.write","description":"Write a CSV board statistics sheet counting parts, nets, pins, routing, vias and zones, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"drill_chart.write","description":"Write a CSV drill tool chart listing every distinct drill size with its plating and hole count, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"stackup.write","description":"Write a plain-text board stackup sheet with recorded layer notes, substrate data, finish and machining tolerances, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"hpgl.write","description":"Write an HP-GL pen plotter drawing of either view as pen-up and pen-down moves with text label boxes, without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"]}}),&["path"])}),
@@ -306,6 +307,15 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                 text.as_bytes(),
             )?;
             json!({"directory":directory,"file":format!("pcb-{view}.ps"),"bytes":text.len()})
+        }
+        "stats.write" => {
+            let directory = string(args, "path")?;
+            let text = pcbcraft_io::stats_text(&s.project)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("board-stats.csv"),
+                text.as_bytes(),
+            )?;
+            json!({"directory":directory,"file":"board-stats.csv","bytes":text.len()})
         }
         "drill_chart.write" => {
             let directory = string(args, "path")?;
@@ -1719,6 +1729,35 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing a test netlist must not change the project"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stats_write_exports_counters_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(&session, "stats.write", &json!({"path":directory.path()}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        assert_eq!(
+            export["structuredContent"]["file"],
+            json!("board-stats.csv")
+        );
+        let text = std::fs::read_to_string(directory.path().join("board-stats.csv"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            text.starts_with("# Board statistics for "),
+            "the sheet names the design"
+        );
+        assert!(
+            text.contains("KEY,VALUE") && text.contains("components,"),
+            "the counter table is always present"
+        );
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "writing the sheet must not change the project"
         );
         Ok(())
     }
