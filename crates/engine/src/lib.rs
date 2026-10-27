@@ -406,6 +406,30 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "padstack.define",
+            "Define or replace a named reusable pad shape: copper shape and size with an optional drill, ready for any placed pad to adopt",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"shape":{"type":"string","enum":["circle","rect","oval","roundrect"]},"width":{"type":"number","minimum":0.05,"maximum":100,"description":"copper extent in x, millimetres"},"height":{"type":"number","minimum":0.05,"maximum":100,"description":"copper extent in y, millimetres"},"drill":{"type":"number","minimum":0.05,"maximum":100,"description":"drill diameter, millimetres; omit for a surface pad"},"rounding":{"type":"number","exclusiveMinimum":0.0,"maximum":0.5,"description":"corner ratio, roundrect copper only"}}),
+                &["name", "shape", "width", "height"],
+            ),
+        ),
+        (
+            "padstack.remove",
+            "Remove a named padstack from the design; pads already shaped by it keep their copper",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name"],
+            ),
+        ),
+        (
+            "footprint.set_pad_stack",
+            "Reshape one placed pad to a named padstack: copper shape and size, and drill plus plated through-hole conversion when the stack carries a drill",
+            schema(
+                json!({"id":id_schema(),"pad":{"type":"string","description":"pad number, exactly as listed by pad.table"},"stack":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id", "pad", "stack"],
+            ),
+        ),
+        (
             "dxf.import",
             "Import a DXF drawing from disk as board graphics (lines, arcs, circles, polylines and text); with use_outline a closed Edge polyline also traces the board outline and the whole drawing shifts to the first quadrant",
             schema(
@@ -1518,7 +1542,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand, and named hierarchy ports placed on pages that hand one net between pages, moving and removing without touching the net","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad renumbering maps that refuse collisions and carry embedded copies, placed pads and matching component pins along, and fiducial marks: bare copper discs placed, moved and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline; no general project import or library writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand, and named hierarchy ports placed on pages that hand one net between pages, moving and removing without touching the net","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad renumbering maps that refuse collisions and carry embedded copies, placed pads and matching component pins along, and fiducial marks: bare copper discs placed, moved and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline; no general project import or library writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -2238,6 +2262,30 @@ struct LibraryLinkParams {
 #[serde(deny_unknown_fields)]
 struct LibraryUnlinkParams {
     name: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PadstackDefineParams {
+    name: String,
+    shape: String,
+    width: f64,
+    height: f64,
+    #[serde(default)]
+    drill: Option<f64>,
+    #[serde(default)]
+    rounding: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PadstackRemoveParams {
+    name: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetPadStackParams {
+    id: Id,
+    pad: String,
+    stack: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4587,6 +4635,180 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 )));
             }
             Ok(json!({"name": a.name, "entries": p.library_table.len()}))
+        }
+        "padstack.define" => {
+            let a: PadstackDefineParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 64 {
+                return Err(Error::Invalid("padstack names are 1 to 64 bytes".into()));
+            }
+            if !["circle", "rect", "oval", "roundrect"].contains(&a.shape.as_str()) {
+                return Err(Error::Invalid(
+                    "padstack shape must be circle, rect, oval or roundrect".into(),
+                ));
+            }
+            if !a.width.is_finite()
+                || !a.height.is_finite()
+                || a.width < 0.05
+                || a.width > 100.0
+                || a.height < 0.05
+                || a.height > 100.0
+            {
+                return Err(Error::Invalid(
+                    "padstack size must be within 0.05 to 100 mm".into(),
+                ));
+            }
+            if a.drill
+                .is_some_and(|d| !d.is_finite() || d < 0.05 || d > 100.0)
+            {
+                return Err(Error::Invalid(
+                    "padstack drill must be within 0.05 to 100 mm".into(),
+                ));
+            }
+            if a.drill.is_some_and(|d| d >= a.width.min(a.height)) {
+                return Err(Error::Invalid(
+                    "the drill must be smaller than the copper it bores".into(),
+                ));
+            }
+            if a.shape == "circle" && (a.width - a.height).abs() > 1e-6 {
+                return Err(Error::Invalid(
+                    "a circle stack needs equal width and height".into(),
+                ));
+            }
+            let ratio = if a.shape == "roundrect" {
+                let r = a.rounding.unwrap_or(0.25);
+                if !(r > 0.0 && r <= 0.5) {
+                    return Err(Error::Invalid(
+                        "roundrect rounding must be above 0 and at most 0.5".into(),
+                    ));
+                }
+                Some(r)
+            } else {
+                if a.rounding.is_some() {
+                    return Err(Error::Invalid(
+                        "rounding only applies to roundrect copper".into(),
+                    ));
+                }
+                None
+            };
+            let stack = pcbcraft_doc::Padstack {
+                name: a.name.clone(),
+                shape: a.shape.clone(),
+                size: Point::new(a.width, a.height),
+                drill: a.drill,
+                roundrect_ratio: ratio,
+            };
+            let replaced = match p.padstacks.iter_mut().find(|s| s.name == a.name) {
+                Some(existing) => {
+                    *existing = stack;
+                    true
+                }
+                None => {
+                    if p.padstacks.len() >= 256 {
+                        return Err(Error::Invalid(
+                            "the design defines at most 256 padstacks".into(),
+                        ));
+                    }
+                    p.padstacks.push(stack);
+                    false
+                }
+            };
+            Ok(json!({"name": a.name, "shape": a.shape, "replaced": replaced}))
+        }
+        "padstack.remove" => {
+            let a: PadstackRemoveParams = parse(params)?;
+            let before = p.padstacks.len();
+            p.padstacks.retain(|s| s.name != a.name);
+            if p.padstacks.len() == before {
+                return Err(Error::Invalid(format!(
+                    "no padstack named {} in the design",
+                    a.name
+                )));
+            }
+            Ok(json!({"name": a.name, "padstacks": p.padstacks.len()}))
+        }
+        "footprint.set_pad_stack" => {
+            let a: SetPadStackParams = parse(params)?;
+            if a.pad.is_empty() || a.pad.len() > 32 {
+                return Err(Error::Invalid("pad number must be 1 to 32 bytes".into()));
+            }
+            let stack = p
+                .padstacks
+                .iter()
+                .find(|s| s.name == a.stack)
+                .cloned()
+                .ok_or_else(|| {
+                    Error::Invalid(format!("no padstack named {} in the design", a.stack))
+                })?;
+            let (component, mut geometry) = {
+                let footprint = p
+                    .board
+                    .footprints
+                    .iter()
+                    .find(|f| f.id == a.id)
+                    .ok_or_else(missing)?;
+                let has_library = p
+                    .components
+                    .iter()
+                    .find(|c| c.id == footprint.component)
+                    .is_some_and(|c| c.library_footprint.is_some());
+                if !has_library {
+                    return Err(Error::Invalid(
+                        "a pad without an embedded library shape needs an assigned footprint before a stack can reshape it"
+                            .into(),
+                    ));
+                }
+                let pad = footprint
+                    .pads
+                    .iter()
+                    .find(|pd| pd.number == a.pad)
+                    .ok_or_else(missing)?;
+                let Some(geometry) = pad.geometry.clone() else {
+                    return Err(Error::Invalid(
+                        "this placed pad carries no library copper to reshape".into(),
+                    ));
+                };
+                (footprint.component, geometry)
+            };
+            geometry.shape = stack.shape.clone();
+            geometry.size = stack.size;
+            geometry.roundrect_ratio = stack.roundrect_ratio;
+            if let Some(drill) = stack.drill {
+                geometry.pad_type = "thru_hole".into();
+                geometry.layers = vec!["*.Cu".into()];
+                geometry.drill = Some(pcbcraft_library::Drill {
+                    size: Point::new(drill, drill),
+                    offset: Point::new(0.0, 0.0),
+                });
+            } else {
+                geometry.pad_type = "smd".into();
+                geometry.layers = vec!["F.Cu".into()];
+                geometry.drill = None;
+            }
+            let pad = p
+                .board
+                .footprints
+                .iter_mut()
+                .find(|f| f.id == a.id)
+                .and_then(|f| f.pads.iter_mut().find(|pd| pd.number == a.pad))
+                .ok_or_else(missing)?;
+            if pad.geometry.as_ref() == Some(&geometry) {
+                return Err(Error::Invalid("that pad already has that stack".into()));
+            }
+            pad.diameter = stack.size.x.min(stack.size.y);
+            pad.geometry = Some(geometry.clone());
+            if let Some(library) = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == component)
+                .and_then(|c| c.library_footprint.as_mut())
+            {
+                for source in &mut library.definition.pads {
+                    if source.number == geometry.number {
+                        *source = geometry.clone();
+                    }
+                }
+            }
+            Ok(json!({"id": a.id, "pad": a.pad, "stack": a.stack, "shape": stack.shape}))
         }
         "dxf.import" => {
             let a: DxfImportParams = parse(params)?;
@@ -19241,6 +19463,181 @@ mod tests {
         );
         s.undo()?;
         assert_eq!(s.project.library_table.len(), 1, "undo puts the entry back");
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn padstacks_define_reusable_shapes_and_reshape_placed_pads() -> Result<(), Error> {
+        let mut s = Session::default();
+        let chip = s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","position":{"x":20.0,"y":20.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign",
+            json!({"id":chip,"path":library_fixture("DIP-8_W7.62mm.kicad_mod")}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":60.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.project.board.footprints[0].id;
+        let manual = s.project.board.footprints[1].id;
+        s.execute(
+            "padstack.define",
+            json!({"name":"sig-tht","shape":"roundrect","width":1.6,"height":1.6,"drill":0.8,"rounding":0.25}),
+            None,
+        )?;
+        assert_eq!(s.project.padstacks.len(), 1);
+        assert!(
+            s.execute(
+                "footprint.set_pad_stack",
+                json!({"id":manual,"pad":"1","stack":"sig-tht"}),
+                None,
+            )
+            .is_err(),
+            "a manual pad with no embedded library shape is refused"
+        );
+        s.execute(
+            "footprint.set_pad_stack",
+            json!({"id":fp,"pad":"1","stack":"sig-tht"}),
+            None,
+        )?;
+        fn pad(s: &Session) -> Option<pcbcraft_doc::Pad> {
+            s.project
+                .board
+                .footprints
+                .first()?
+                .pads
+                .iter()
+                .find(|p| p.number == "1")
+                .cloned()
+        }
+        let g = pad(&s).and_then(|p| p.geometry).ok_or_else(missing)?;
+        assert_eq!(g.shape, "roundrect");
+        assert!((g.size.x - 1.6).abs() < 1e-9 && (g.size.y - 1.6).abs() < 1e-9);
+        assert!(
+            g.drill.is_some(),
+            "the stack's drill travels with the copper"
+        );
+        assert!(
+            (pad(&s).map(|p| p.diameter).unwrap_or_default() - 1.6).abs() < 1e-9,
+            "the reported diameter follows the new copper"
+        );
+        let embedded = s.project.components[0]
+            .library_footprint
+            .as_ref()
+            .and_then(|l| l.definition.pads.iter().find(|p| p.number == "1"))
+            .ok_or_else(missing)?;
+        assert_eq!(
+            embedded.shape, "roundrect",
+            "the embedded definition adopts the stack too"
+        );
+        assert!(s.project.validate().is_ok());
+        assert!(
+            s.execute(
+                "footprint.set_pad_stack",
+                json!({"id":fp,"pad":"1","stack":"sig-tht"}),
+                None
+            )
+            .is_err(),
+            "re-applying the same stack is refused"
+        );
+        s.execute(
+            "padstack.define",
+            json!({"name":"smd-rect","shape":"rect","width":2.0,"height":1.0}),
+            None,
+        )?;
+        s.execute(
+            "footprint.set_pad_stack",
+            json!({"id":fp,"pad":"1","stack":"smd-rect"}),
+            None,
+        )?;
+        let g = pad(&s).and_then(|p| p.geometry).ok_or_else(missing)?;
+        assert_eq!(g.shape, "rect");
+        assert_eq!(
+            g.pad_type, "smd",
+            "an un-drilled stack converts the pad to surface copper"
+        );
+        assert_eq!(g.layers, vec!["F.Cu".to_string()]);
+        assert!(g.drill.is_none());
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        let g = pad(&s).and_then(|p| p.geometry).ok_or_else(missing)?;
+        assert_eq!(
+            g.shape, "roundrect",
+            "undo puts the through-hole stack back"
+        );
+        assert!(g.drill.is_some());
+        assert!(
+            s.execute(
+                "padstack.define",
+                json!({"name":"wide","shape":"circle","width":1.0,"height":2.0}),
+                None,
+            )
+            .is_err(),
+            "a circle stack needs equal sides"
+        );
+        assert!(
+            s.execute(
+                "padstack.define",
+                json!({"name":"big","shape":"rect","width":1.0,"height":1.0,"drill":1.2}),
+                None,
+            )
+            .is_err(),
+            "the drill must fit inside the copper"
+        );
+        assert!(
+            s.execute(
+                "padstack.define",
+                json!({"name":"odd","shape":"rect","width":1.0,"height":1.0,"rounding":0.25}),
+                None,
+            )
+            .is_err(),
+            "rounding only applies to roundrect copper"
+        );
+        assert!(
+            s.execute(
+                "footprint.set_pad_stack",
+                json!({"id":fp,"pad":"1","stack":"nope"}),
+                None
+            )
+            .is_err(),
+            "an unknown stack is refused"
+        );
+        assert!(
+            s.execute(
+                "footprint.set_pad_stack",
+                json!({"id":fp,"pad":"99","stack":"sig-tht"}),
+                None
+            )
+            .is_err(),
+            "an unknown pad is refused"
+        );
+        s.execute(
+            "padstack.define",
+            json!({"name":"sig-tht","shape":"oval","width":1.7,"height":1.4,"drill":0.8}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.padstacks.len(),
+            2,
+            "a known name replaces in place"
+        );
+        s.execute("padstack.remove", json!({"name":"smd-rect"}), None)?;
+        assert!(
+            s.execute("padstack.remove", json!({"name":"smd-rect"}), None)
+                .is_err(),
+            "removing a missing stack is refused"
+        );
+        s.undo()?;
+        assert_eq!(s.project.padstacks.len(), 2, "undo puts the stack back");
         assert!(s.project.validate().is_ok());
         Ok(())
     }

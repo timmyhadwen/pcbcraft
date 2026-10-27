@@ -1065,6 +1065,23 @@ fn default_project_unit() -> String {
 /// One row of the project library table: a nickname mapped to the folder
 /// that holds library files, so library commands can address
 /// `nickname/file.kicad_mod` without a machine-specific folder.
+/// One named, reusable pad cross-section: the shape, size and optional drill
+/// a footprint pad takes on when the stack is applied to it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Padstack {
+    /// Name used by commands to pick this stack.
+    pub name: String,
+    /// Copper shape: "circle", "rect", "oval" or "roundrect".
+    pub shape: String,
+    /// Copper extent in millimetres, x by y.
+    pub size: Point,
+    /// Drill diameter in millimetres; absent means an un-drilled surface pad.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drill: Option<f64>,
+    /// Corner rounding ratio for roundrect copper, 0 to 0.5.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roundrect_ratio: Option<f64>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LibraryLink {
     /// Nickname used as the first path segment by library commands.
@@ -1130,6 +1147,11 @@ pub struct Project {
     /// folder, so the design opens on another machine without retyping it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub library_table: Vec<LibraryLink>,
+    /// Named reusable pad shapes that footprint pads can adopt, so one
+    /// fabrication decision (a part's copper and drill) is defined once and
+    /// applied to many pads instead of retyped per footprint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub padstacks: Vec<Padstack>,
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub drawn_wires: Vec<DrawnWire>,
@@ -1218,6 +1240,7 @@ impl Default for Project {
     fn default() -> Self {
         Self {
             library_table: Vec::new(),
+            padstacks: Vec::new(),
             library: ProjectLibrary::default(),
             format: "pcbcraft".into(),
             version: 1,
@@ -1557,6 +1580,37 @@ impl Project {
             > MAX_ITEMS
         {
             return Err("schematic unit limit reached (2048)".into());
+        }
+        if self.padstacks.len() > 256 {
+            return Err("the design defines at most 256 padstacks".into());
+        }
+        for stack in &self.padstacks {
+            if stack.name.is_empty()
+                || stack.name.len() > 64
+                || !["circle", "rect", "oval", "roundrect"].contains(&stack.shape.as_str())
+                || !positive(stack.size.x)
+                || !positive(stack.size.y)
+                || stack.size.x > 100.0
+                || stack.size.y > 100.0
+                || (stack.shape == "circle" && (stack.size.x - stack.size.y).abs() > 1e-6)
+                || stack
+                    .drill
+                    .is_some_and(|d| !positive(d) || d >= stack.size.x.min(stack.size.y))
+                || (stack.shape == "roundrect"
+                    && !stack.roundrect_ratio.is_some_and(|r| r > 0.0 && r <= 0.5))
+                || (stack.shape != "roundrect" && stack.roundrect_ratio.is_some_and(|r| r > 0.0))
+                || self
+                    .padstacks
+                    .iter()
+                    .filter(|s| s.name == stack.name)
+                    .count()
+                    > 1
+            {
+                return Err(
+                    "padstacks need a unique name, a supported shape, a positive size and a drill smaller than the copper"
+                        .into(),
+                );
+            }
         }
         if self.library_table.len() > 64 {
             return Err("the library table holds at most 64 entries".into());
