@@ -948,6 +948,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "board.set_diffpair",
+            "Declare a named differential pair over two nets with a coupling gap and optional length-match tolerance; the same name updates the pair",
+            schema(
+                json!({"name":{"type":"string","maxLength":64},"net_p":id_schema(),"net_n":id_schema(),"gap":{"type":"number","minimum":0.02,"maximum":10,"description":"coupling gap, millimetres"},"length_tolerance":{"type":"number","minimum":0,"maximum":100,"description":"allowed length skew, millimetres; optional"}}),
+                &["name", "net_p", "net_n", "gap"],
+            ),
+        ),
+        (
+            "board.rename_diffpair",
+            "Rename a differential pair, refusing a name another pair already uses",
+            schema(
+                json!({"id":id_schema(),"name":{"type":"string","maxLength":64}}),
+                &["id", "name"],
+            ),
+        ),
+        (
+            "board.remove_diffpair",
+            "Remove a differential pair by id",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
             "net.lengths",
             "Report routed copper length per net: track segments summed in millimetres, with via counts and unrouted nets listed",
             schema(json!({"net":id_schema()}), &[]),
@@ -1317,7 +1338,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported; text files attach to the project and travel with saved designs","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
@@ -2163,6 +2184,24 @@ struct MachiningParams {
     drill_tolerance: Option<f64>,
     #[serde(default)]
     edge_tolerance: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DiffPairParams {
+    name: String,
+    net_p: Id,
+    net_n: Id,
+    gap: f64,
+    #[serde(default)]
+    length_tolerance: Option<f64>,
+    #[serde(default)]
+    id: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DiffPairRenameParams {
+    id: Id,
+    name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -6986,6 +7025,110 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             Ok(json!({"a": key.0, "b": key.1, "clearance": clearance}))
         }
+        "board.set_diffpair" => {
+            let a: DiffPairParams = parse(params)?;
+            let name = a.name.trim().to_string();
+            if name.is_empty() {
+                return Err(Error::Invalid("a differential pair needs a name".into()));
+            }
+            if a.net_p == a.net_n || a.net_p == 0 || a.net_n == 0 {
+                return Err(Error::Invalid(
+                    "a differential pair couples two different named nets".into(),
+                ));
+            }
+            for net in [a.net_p, a.net_n] {
+                if !p.nets.iter().any(|n| n.id == net) {
+                    return Err(missing());
+                }
+            }
+            if !a.gap.is_finite() || !(0.02..=10.0).contains(&a.gap) {
+                return Err(Error::Invalid(
+                    "the coupling gap must be 0.02 to 10 millimetres".into(),
+                ));
+            }
+            let tolerance = a.length_tolerance.unwrap_or(0.0);
+            if !tolerance.is_finite() || !(0.0..=100.0).contains(&tolerance) {
+                return Err(Error::Invalid(
+                    "the length tolerance must be 0 to 100 millimetres".into(),
+                ));
+            }
+            let pairs = &mut p.board.diff_pairs;
+            if let Some(existing) = pairs.iter_mut().find(|d| d.name == name) {
+                if a.id.is_none() && (existing.net_p, existing.net_n) != (a.net_p, a.net_n) {
+                    return Err(Error::Invalid(format!(
+                        "a differential pair named {name} already covers other nets"
+                    )));
+                }
+                existing.net_p = a.net_p;
+                existing.net_n = a.net_n;
+                existing.gap = a.gap;
+                existing.length_tolerance = a.length_tolerance;
+                return Ok(json!({"id": existing.id, "name": name}));
+            }
+            if let Some(id) = a.id {
+                if !pairs.iter().any(|d| d.id == id) {
+                    return Err(missing());
+                }
+                if pairs.iter().any(|d| d.id != id && d.name == name) {
+                    return Err(Error::Invalid(format!(
+                        "a differential pair named {name} already exists"
+                    )));
+                }
+                let pair = pairs.iter_mut().find(|d| d.id == id).ok_or_else(missing)?;
+                pair.name = name.clone();
+                pair.net_p = a.net_p;
+                pair.net_n = a.net_n;
+                pair.gap = a.gap;
+                pair.length_tolerance = a.length_tolerance;
+                return Ok(json!({"id": id, "name": name}));
+            }
+            if pairs.len() >= 64 {
+                return Err(Error::Invalid(
+                    "a board carries at most 64 differential pairs".into(),
+                ));
+            }
+            let id = allocate(next)?;
+            pairs.push(pcbcraft_doc::DiffPair {
+                id,
+                name: name.clone(),
+                net_p: a.net_p,
+                net_n: a.net_n,
+                gap: a.gap,
+                length_tolerance: a.length_tolerance,
+            });
+            Ok(json!({"id": id, "name": name}))
+        }
+        "board.rename_diffpair" => {
+            let a: DiffPairRenameParams = parse(params)?;
+            let name = a.name.trim().to_string();
+            if name.is_empty() {
+                return Err(Error::Invalid("a differential pair needs a name".into()));
+            }
+            let pairs = &mut p.board.diff_pairs;
+            if !pairs.iter().any(|d| d.id == a.id) {
+                return Err(missing());
+            }
+            if pairs.iter().any(|d| d.id != a.id && d.name == name) {
+                return Err(Error::Invalid(format!(
+                    "a differential pair named {name} already exists"
+                )));
+            }
+            let pair = pairs
+                .iter_mut()
+                .find(|d| d.id == a.id)
+                .ok_or_else(missing)?;
+            let old_name = std::mem::replace(&mut pair.name, name.clone());
+            Ok(json!({"id": a.id, "from": old_name, "to": name}))
+        }
+        "board.remove_diffpair" => {
+            let a: IdParams = parse(params)?;
+            let before = p.board.diff_pairs.len();
+            p.board.diff_pairs.retain(|d| d.id != a.id);
+            if p.board.diff_pairs.len() == before {
+                return Err(missing());
+            }
+            Ok(json!({"id": a.id}))
+        }
         "board.remove_pair_rule" => {
             let a: PairRuleParams = parse(params)?;
             if a.clearance.is_some() {
@@ -8424,6 +8567,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.components.retain(|c| c.id != a.id);
             p.nets.retain(|n| n.id != a.id);
             p.board.pair_rules.retain(|r| r.a != a.id && r.b != a.id);
+            p.board
+                .diff_pairs
+                .retain(|d| d.net_p != a.id && d.net_n != a.id);
             p.board.rule_areas.retain(|r| r.net != Some(a.id));
             for class in p.net_classes.iter_mut() {
                 class.nets.retain(|net| *net != a.id);
@@ -16071,6 +16217,101 @@ mod tests {
         s.undo()?;
         assert_eq!(s.project.board.texts.len(), 1);
         assert_eq!(s.project.board.texts[0].text, "Acme 2026");
+        Ok(())
+    }
+
+    #[test]
+    fn differential_pairs_check_the_coupling_gap_and_length_skew() -> Result<(), Error> {
+        let mut s = Session::default();
+        let p = s.execute("net.create", json!({"name":"USB_D+"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let n = s.execute("net.create", json!({"name":"USB_D-"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let other = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for bad in [
+            json!({"name":"USB","net_p":p,"net_n":p,"gap":0.2}),
+            json!({"name":"USB","net_p":p,"net_n":9_999,"gap":0.2}),
+            json!({"name":"USB","net_p":p,"net_n":n,"gap":0.001}),
+            json!({"name":"  ","net_p":p,"net_n":n,"gap":0.2}),
+        ] {
+            assert!(s.execute("board.set_diffpair", bad, None).is_err());
+        }
+        let id = s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":p,"net_n":n,"gap":0.3,"length_tolerance":0.5}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.board.diff_pairs.len(), 1);
+        assert!(
+            s.execute(
+                "board.set_diffpair",
+                json!({"name":"USB","net_p":p,"net_n":other,"gap":0.3}),
+                None,
+            )
+            .is_err(),
+            "a second pair cannot reuse the name over other nets"
+        );
+        s.execute(
+            "track.add",
+            json!({"net":p,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":n,"start":{"x":10.0,"y":10.25},"end":{"x":30.0,"y":10.25},"width":0.2}),
+            None,
+        )?;
+        fn codes(s: &mut Session) -> Result<Vec<String>, Error> {
+            Ok(s.checks()["drc"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .filter_map(|f| f["code"].as_str().map(str::to_string))
+                .collect())
+        }
+        assert!(codes(&mut s)?.contains(&"diffpair_gap".to_string()));
+        s.execute(
+            "track.add",
+            json!({"net":p,"start":{"x":30.0,"y":10.0},"end":{"x":40.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        assert!(codes(&mut s)?.contains(&"diffpair_skew".to_string()));
+        for track in &s.project.board.tracks.clone() {
+            if track.net == p {
+                s.execute(
+                    "track.set_layer",
+                    json!({"id":track.id,"layer":"B.Cu"}),
+                    None,
+                )?;
+            }
+        }
+        let after = codes(&mut s)?;
+        assert!(
+            !after.contains(&"diffpair_gap".to_string()),
+            "0.4 mm between the sides satisfies the 0.3 mm coupling"
+        );
+        assert!(after.contains(&"diffpair_skew".to_string()));
+        s.execute(
+            "board.rename_diffpair",
+            json!({"id":id,"name":"USB2"}),
+            None,
+        )?;
+        assert_eq!(s.project.board.diff_pairs[0].name, "USB2");
+        assert!(
+            s.execute("board.rename_diffpair", json!({"id":id,"name":"  "}), None)
+                .is_err()
+        );
+        s.execute("board.remove_diffpair", json!({"id":id}), None)?;
+        assert!(s.project.board.diff_pairs.is_empty());
+        assert!(!codes(&mut s)?.contains(&"diffpair_skew".to_string()));
+        s.undo()?;
+        assert_eq!(s.project.board.diff_pairs.len(), 1);
         Ok(())
     }
 

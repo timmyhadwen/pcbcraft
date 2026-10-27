@@ -671,6 +671,65 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     for track in &board.tracks {
         *lengths.entry(track.net).or_insert(0.0) += track.length();
     }
+    for pair in &board.diff_pairs {
+        for a in board
+            .tracks
+            .iter()
+            .filter(|t| t.net == pair.net_p && t.layer == Layer::Front)
+        {
+            for b in board
+                .tracks
+                .iter()
+                .filter(|t| t.net == pair.net_n && t.layer == Layer::Front)
+            {
+                let separation = segment_distance(a.start, a.end, b.start, b.end)
+                    - a.width / 2.0
+                    - b.width / 2.0;
+                let required = project
+                    .required_clearance_at(pair.net_p, pair.net_n, a.end, b.end, a.layer, b.layer);
+                if separation + 1e-6 >= pair.gap.max(required) {
+                    continue;
+                }
+                result.push(Finding {
+                    code: "diffpair_gap",
+                    severity: project.rule_severity("diffpair_gap", "error"),
+                    message: format!(
+                        "{} / {}: {} couples at {:.3} mm, {:.3} mm gap wanted",
+                        project.net_name(pair.net_p),
+                        project.net_name(pair.net_n),
+                        pair.name,
+                        separation,
+                        pair.gap
+                    ),
+                    objects: vec![a.id, b.id],
+                });
+            }
+        }
+        let Some(tolerance) = pair.length_tolerance else {
+            continue;
+        };
+        if !lengths.contains_key(&pair.net_p) && !lengths.contains_key(&pair.net_n) {
+            continue;
+        }
+        let skew = (lengths.get(&pair.net_p).copied().unwrap_or(0.0)
+            - lengths.get(&pair.net_n).copied().unwrap_or(0.0))
+        .abs();
+        if skew <= tolerance + 1e-9 {
+            continue;
+        }
+        result.push(Finding {
+            code: "diffpair_skew",
+            severity: project.rule_severity("diffpair_skew", "error"),
+            message: format!(
+                "{}: {} sides differ by {:.3} mm, at most {:.3} mm allowed",
+                pair.name,
+                project.net_name(pair.net_p),
+                skew,
+                tolerance
+            ),
+            objects: vec![pair.net_p, pair.net_n],
+        });
+    }
     let classified: BTreeSet<Id> = project
         .net_classes
         .iter()

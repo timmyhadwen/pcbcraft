@@ -216,6 +216,39 @@ impl NetPairRule {
             && self.clearance <= 100.0
     }
 }
+/// A differential pair: two named nets that carry one signal, routed side by
+/// side with a fixed coupling gap and, optionally, matched total lengths.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DiffPair {
+    pub id: Id,
+    /// Pair name, for example "USB_D".
+    pub name: String,
+    /// The positive-side net.
+    pub net_p: Id,
+    /// The negative-side net; must differ from the positive side.
+    pub net_n: Id,
+    /// Distance the two sides should keep from each other, in millimetres.
+    /// Copper closer than this reports a coupling finding.
+    pub gap: f64,
+    /// How far the two routed lengths may differ, in millimetres; absent
+    /// means length matching is not checked for this pair.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length_tolerance: Option<f64>,
+}
+impl DiffPair {
+    fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && self.net_p != self.net_n
+            && self.net_p != 0
+            && self.net_n != 0
+            && self.gap.is_finite()
+            && (0.02..=10.0).contains(&self.gap)
+            && self
+                .length_tolerance
+                .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
+    }
+}
 /// A rectangular board area that demands a stricter minimum copper
 /// separation: copper lying wholly inside the rectangle, on the matching
 /// layer and net when those filters are set, must clear by at least the
@@ -838,6 +871,10 @@ pub struct Board {
     /// Clearance rules between specific pairs of nets, ordered by net ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pair_rules: Vec<NetPairRule>,
+    /// Differential pairs: named net couples that route together with a
+    /// coupling gap and, when set, matched lengths.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diff_pairs: Vec<DiffPair>,
     /// Rectangular board areas that demand a stricter minimum copper
     /// separation for copper whose midpoints lie inside them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1108,6 +1145,7 @@ impl Default for Project {
                 layer_records: vec![],
                 machining: None,
                 pair_rules: vec![],
+                diff_pairs: vec![],
                 rule_areas: vec![],
                 outline: None,
                 footprints: vec![],
@@ -1390,6 +1428,7 @@ impl Project {
             .chain(self.board.cutouts.iter().map(|x| x.id))
             .chain(self.board.holes.iter().map(|x| x.id))
             .chain(self.board.netties.iter().map(|x| x.id))
+            .chain(self.board.diff_pairs.iter().map(|x| x.id))
             .chain(self.board.rule_areas.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
     }
@@ -1502,6 +1541,22 @@ impl Project {
         for t in &self.board.netties {
             if !t.valid() || !nets.contains(&t.net_a) || !nets.contains(&t.net_b) {
                 return Err("net ties bridge two known nets with sane 0.3 to 20 mm pads".into());
+            }
+        }
+        if self.board.diff_pairs.len() > 64 {
+            return Err("a board carries at most 64 differential pairs".into());
+        }
+        let mut pair_names: BTreeSet<&str> = BTreeSet::new();
+        for d in &self.board.diff_pairs {
+            if !d.valid()
+                || !nets.contains(&d.net_p)
+                || !nets.contains(&d.net_n)
+                || !pair_names.insert(d.name.as_str())
+            {
+                return Err(
+                    "differential pairs name two known nets with a unique name and a 0.02 to 10 mm gap"
+                        .into(),
+                );
             }
         }
         for r in &self.board.rule_areas {
