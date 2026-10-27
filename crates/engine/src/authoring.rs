@@ -1,5 +1,5 @@
 use super::*;
-use pcbcraft_library::{FootprintDefinition, FootprintPad, SymbolDefinition};
+use pcbcraft_library::{FootprintDefinition, FootprintPad, SymbolDefinition, SymbolPin};
 
 pub(super) fn commands() -> Vec<CommandSpec> {
     [
@@ -23,6 +23,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.pad_remove","Remove one pad from a project-library footprint by its number; the footprint keeps at least one pad, and placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"}}),&["name","pad"])),
         ("library.footprint.duplicate","Copy a project-library footprint under a new name as one undoable step, the starting point for a custom variant of a vendor package; the original and every placed copy stay untouched",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","description":"name for the copy, which must not exist yet"}}),&["name","new_name"])),
         ("library.symbol.duplicate","Copy a project-library symbol under a new name as one undoable step, the starting point for a custom variant of a vendor symbol; the original and every placed copy stay untouched",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","description":"name for the copy, which must not exist yet"}}),&["name","new_name"])),
+        ("library.symbol.pin_set","Add or replace one pin on a project-library symbol by its number, so custom symbols gain extra terminals, corrected pin names or repositioned leads without rewriting the whole definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"object","description":"a full pin: number, name, position, angle, length, electrical type, unit and body style, as library readers emit them"}}),&["name","pin"])),
+        ("library.symbol.pin_remove","Remove one pin from a project-library symbol by its number; the symbol keeps at least one pin, and placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"string","description":"pin number, exactly as stored"}}),&["name","pin"])),
         ("library.footprint.adopt","Copy a placed component's embedded footprint into the project library under a chosen name as one undoable step, so a package that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the package under"}}),&["id","name"])),
         ("library.symbol.adopt","Copy a placed component's embedded symbol into the project library under a chosen name as one undoable step, so a symbol that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the symbol under"}}),&["id","name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
@@ -79,6 +81,18 @@ struct DuplicateParams {
 struct PadSetParams {
     name: String,
     pad: FootprintPad,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PinSetParams {
+    name: String,
+    pin: SymbolPin,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PinRemoveParams {
+    name: String,
+    pin: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -781,6 +795,73 @@ pub(super) fn run(
             }
             p.library.validate()?;
             Ok(json!({"id": a.id, "name": a.name}))
+        }
+        "library.symbol.pin_set" => {
+            let a: PinSetParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid("symbol name must be 1 to 128 bytes".into()));
+            }
+            if a.pin.number.is_empty() || a.pin.number.len() > 32 {
+                return Err(Error::Invalid("pin number must be 1 to 32 bytes".into()));
+            }
+            let number = a.pin.number.clone();
+            let pins = {
+                let symbol = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|f| f.name == a.name)
+                    .ok_or_else(missing)?;
+                let replaced = symbol.pins.iter().any(|q| q.number == number);
+                if let Some(existing) = symbol.pins.iter_mut().find(|q| q.number == number) {
+                    *existing = a.pin;
+                } else {
+                    symbol.pins.push(a.pin);
+                }
+                symbol
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                (symbol.pins.len(), !replaced)
+            };
+            p.library.validate()?;
+            Ok(json!({"name": a.name, "pin": number, "added": pins.1, "pins": pins.0}))
+        }
+        "library.symbol.pin_remove" => {
+            let a: PinRemoveParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid("symbol name must be 1 to 128 bytes".into()));
+            }
+            if a.pin.is_empty() || a.pin.len() > 32 {
+                return Err(Error::Invalid("pin number must be 1 to 32 bytes".into()));
+            }
+            let name = a.name.clone();
+            let pins = {
+                let symbol = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let before = symbol.pins.len();
+                symbol.pins.retain(|q| q.number != a.pin);
+                if symbol.pins.len() == before {
+                    return Err(Error::Invalid(format!(
+                        "symbol {name} has no pin {}",
+                        a.pin
+                    )));
+                }
+                if symbol.pins.is_empty() {
+                    return Err(Error::Invalid(format!(
+                        "symbol {name} would lose its last pin"
+                    )));
+                }
+                symbol
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                symbol.pins.len()
+            };
+            p.library.validate()?;
+            Ok(json!({"name": name, "pin": a.pin, "pins": pins}))
         }
         "component.place_custom" => {
             let a: Place = parse(params)?;
