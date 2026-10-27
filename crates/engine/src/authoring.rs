@@ -8,6 +8,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.remove","Remove a project-library symbol; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.remove","Remove a project-library footprint; placed instances retain their embedded definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.load","Load and validate a .pcbcraft-lib collection into the project as one undoable transaction",schema(json!({"path":{"type":"string"}}),&["path"])),
+        ("library.import_footprint_file","Read one footprint from a footprint library text file on disk and add or replace it in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
+        ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("component.place_custom","Place a symbol from the editable project library",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"}}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
@@ -508,6 +510,32 @@ pub(super) fn run(
             p.library = file.library;
             Ok(json!({"symbols":p.library.symbols.len(),"footprints":p.library.footprints.len()}))
         }
+        "library.import_footprint_file" | "library.import_symbol_file" => {
+            let a: PathParams = parse(params)?;
+            let text =
+                pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
+            let mut imported: Vec<String> = Vec::new();
+            if command == "library.import_footprint_file" {
+                let def = pcbcraft_library::read_footprint(&text)
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                imported.push(def.name.clone());
+                import_footprint(p, def);
+            } else {
+                let defs = pcbcraft_library::read_symbols(&text)
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                if defs.is_empty() {
+                    return Err(Error::Invalid("the library file defines no symbols".into()));
+                }
+                for def in defs {
+                    def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                    imported.push(def.name.clone());
+                    import_symbol(p, def);
+                }
+            }
+            p.library.validate()?;
+            Ok(json!({"names": imported}))
+        }
         "component.place_custom" => {
             let a: Place = parse(params)?;
             let def = p
@@ -540,4 +568,22 @@ pub(super) fn run(
         }
         _ => Err(Error::Invalid("unknown library authoring command".into())),
     })())
+}
+
+fn import_footprint(p: &mut Project, def: pcbcraft_library::FootprintDefinition) {
+    if let Some(existing) = p.library.footprints.iter_mut().find(|f| f.name == def.name) {
+        *existing = def;
+    } else {
+        p.library.footprints.push(def);
+    }
+    p.library.footprints.sort_by(|a, b| a.name.cmp(&b.name));
+}
+
+fn import_symbol(p: &mut Project, def: pcbcraft_library::SymbolDefinition) {
+    if let Some(existing) = p.library.symbols.iter_mut().find(|s| s.name == def.name) {
+        *existing = def;
+    } else {
+        p.library.symbols.push(def);
+    }
+    p.library.symbols.sort_by(|a, b| a.name.cmp(&b.name));
 }

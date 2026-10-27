@@ -21237,4 +21237,125 @@ mod tests {
         assert!(s.project.validate().is_ok());
         Ok(())
     }
+    #[test]
+    fn library_file_imports_arrive_in_the_project_library_and_undo_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-libimport-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let footprint_path = directory.join(format!("import-{}.kicad_mod", std::process::id()));
+        std::fs::write(
+            &footprint_path,
+            std::fs::read_to_string(library_fixture("R_0805_2012Metric.kicad_mod"))
+                .map_err(|e| Error::Invalid(e.to_string()))?,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let symbol_path = directory.join(format!("import-{}.kicad_sym", std::process::id()));
+        std::fs::write(
+            &symbol_path,
+            std::fs::read_to_string(library_fixture("device.kicad_sym"))
+                .map_err(|e| Error::Invalid(e.to_string()))?,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let before = s.inspect()["project"]["library"].clone();
+        assert_eq!(before["footprints"].as_array().map(Vec::len), Some(0));
+        let out = s.execute(
+            "library.import_footprint_file",
+            json!({"path": footprint_path.to_string_lossy()}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["names"][0], "R_0805_2012Metric");
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["name"],
+            "R_0805_2012Metric"
+        );
+        let out = s.execute(
+            "library.import_symbol_file",
+            json!({"path": symbol_path.to_string_lossy()}),
+            None,
+        )?["result"]
+            .clone();
+        let symbols = s.inspect()["project"]["library"]["symbols"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            !symbols.is_empty(),
+            "the symbol file imports at least one symbol"
+        );
+        assert_eq!(out["names"].as_array().map(Vec::len), Some(symbols.len()));
+        s.undo()?;
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["library"],
+            before,
+            "both imports undo back to the empty project library"
+        );
+        std::fs::remove_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+    #[test]
+    fn library_file_imports_replace_same_named_entries_and_reject_bad_files() -> Result<(), Error> {
+        let mut s = Session::default();
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-libimport2-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let footprint_path = directory.join(format!("again-{}.kicad_mod", std::process::id()));
+        std::fs::write(
+            &footprint_path,
+            std::fs::read_to_string(library_fixture("R_0805_2012Metric.kicad_mod"))
+                .map_err(|e| Error::Invalid(e.to_string()))?,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        for _ in 0..2 {
+            s.execute(
+                "library.import_footprint_file",
+                json!({"path": footprint_path.to_string_lossy()}),
+                None,
+            )?;
+        }
+        let footprints = s.inspect()["project"]["library"]["footprints"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(
+            footprints.len(),
+            1,
+            "re-importing the same file replaces, not duplicates"
+        );
+        let junk_path = directory.join(format!("junk-{}.kicad_mod", std::process::id()));
+        std::fs::write(&junk_path, "(not a footprint)\n")
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let before = s.inspect()["project"]["library"].clone();
+        assert!(
+            s.execute(
+                "library.import_footprint_file",
+                json!({"path": junk_path.to_string_lossy()}),
+                None,
+            )
+            .is_err(),
+            "an unparsable footprint file is refused"
+        );
+        let junk_sym = directory.join(format!("junk-{}.kicad_sym", std::process::id()));
+        std::fs::write(&junk_sym, "(wrong_root (version 1))\n")
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(
+            s.execute(
+                "library.import_symbol_file",
+                json!({"path": junk_sym.to_string_lossy()}),
+                None,
+            )
+            .is_err(),
+            "an unparsable symbol file is refused"
+        );
+        assert_eq!(
+            s.inspect()["project"]["library"],
+            before,
+            "a refused import changes nothing"
+        );
+        assert!(s.project.validate().is_ok());
+        std::fs::remove_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
 }
