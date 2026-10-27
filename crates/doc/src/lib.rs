@@ -1062,6 +1062,16 @@ pub struct FootprintOverride {
 fn default_project_unit() -> String {
     "mm".into()
 }
+/// One row of the project library table: a nickname mapped to the folder
+/// that holds library files, so library commands can address
+/// `nickname/file.kicad_mod` without a machine-specific folder.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct LibraryLink {
+    /// Nickname used as the first path segment by library commands.
+    pub name: String,
+    /// Folder that holds the library files for this nickname.
+    pub path: String,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -1115,6 +1125,11 @@ pub struct Project {
     /// dropped when every object it names sits inside one of its rectangles.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
+    /// Named library folders that library commands resolve through: a path
+    /// whose first segment matches a nickname is rewritten to the mapped
+    /// folder, so the design opens on another machine without retyping it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub library_table: Vec<LibraryLink>,
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub drawn_wires: Vec<DrawnWire>,
@@ -1202,6 +1217,7 @@ pub fn validate_closed_outline(outline: &[Point]) -> Result<(), String> {
 impl Default for Project {
     fn default() -> Self {
         Self {
+            library_table: Vec::new(),
             library: ProjectLibrary::default(),
             format: "pcbcraft".into(),
             version: 1,
@@ -1541,6 +1557,30 @@ impl Project {
             > MAX_ITEMS
         {
             return Err("schematic unit limit reached (2048)".into());
+        }
+        if self.library_table.len() > 64 {
+            return Err("the library table holds at most 64 entries".into());
+        }
+        for link in &self.library_table {
+            if link.name.is_empty()
+                || link.name.len() > 64
+                || link.name.contains(['/', '\\'])
+                || link.path.is_empty()
+                || link.path.len() > 1024
+            {
+                return Err(
+                    "library nicknames are 1 to 64 path-safe characters with a folder".into(),
+                );
+            }
+            if self
+                .library_table
+                .iter()
+                .filter(|l| l.name == link.name)
+                .count()
+                > 1
+            {
+                return Err("library table nicknames must be unique".into());
+            }
         }
         if self.format != "pcbcraft" || self.version != 1 {
             return Err("unsupported project format/version".into());

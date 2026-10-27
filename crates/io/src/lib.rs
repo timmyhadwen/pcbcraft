@@ -3222,6 +3222,7 @@ mod tests {
     #[test]
     fn archive_round_trips_a_project_and_its_attached_files() -> Result<(), String> {
         let mut project = Project {
+            library_table: Vec::new(),
             name: "Archive test".into(),
             ..Project::default()
         };

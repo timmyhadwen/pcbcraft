@@ -390,6 +390,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "library.link",
+            "Add or update a project library table entry mapping a short nickname to the folder that holds library files, so library commands can address nickname/file without a machine-specific folder",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"path":{"type":"string","minLength":1,"maxLength":1024}}),
+                &["name", "path"],
+            ),
+        ),
+        (
+            "library.unlink",
+            "Remove a project library table entry by nickname; the paths it served stop resolving",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name"],
+            ),
+        ),
+        (
             "dxf.import",
             "Import a DXF drawing from disk as board graphics (lines, arcs, circles, polylines and text); with use_outline a closed Edge polyline also traces the board outline and the whole drawing shifts to the first quadrant",
             schema(
@@ -2180,6 +2196,23 @@ struct TeardropParams {
     #[serde(default = "teardrop_depth")]
     depth: f64,
 }
+/// Rewrite a library path whose first segment names a project library table
+/// entry onto the folder that entry points at, so designs opened on another
+/// machine find their libraries without retyping absolute folders.
+fn resolve_library_path(p: &Project, path: &str) -> String {
+    if let Some((head, rest)) = path.split_once(['/', '\\'])
+        && let Some(link) = p.library_table.iter().find(|l| l.name == head)
+    {
+        let sep = if link.path.ends_with('/') || link.path.ends_with('\\') {
+            ""
+        } else {
+            "/"
+        };
+        return format!("{}{sep}{rest}", link.path);
+    }
+    path.to_string()
+}
+
 fn teardrop_depth() -> f64 {
     0.5
 }
@@ -2194,6 +2227,17 @@ struct TeardropRemoveParams {
     net: Option<Id>,
     #[serde(default)]
     layer: Option<Layer>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LibraryLinkParams {
+    name: String,
+    path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LibraryUnlinkParams {
+    name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3591,7 +3635,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "component.place_library" => {
             let a: PlaceLibrary = parse(params)?;
-            let path = std::path::Path::new(&a.path);
+            let resolved = resolve_library_path(p, &a.path);
+            let path = std::path::Path::new(&resolved);
             let definition = library::symbol(path, &a.symbol)?;
             place_definition(
                 p,
@@ -3608,7 +3653,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "footprint.assign" => {
             let a: AssignFootprint = parse(params)?;
-            let path = std::path::Path::new(&a.path);
+            let resolved = resolve_library_path(p, &a.path);
+            let path = std::path::Path::new(&resolved);
             assign_definition(
                 p,
                 a.id,
@@ -3630,7 +3676,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if a.path.is_empty() || a.path.len() > 1024 {
                 return Err(Error::Invalid("path must be 1 to 1024 bytes".into()));
             }
-            let path = std::path::Path::new(&a.path);
+            let resolved = resolve_library_path(p, &a.path);
+            let path = std::path::Path::new(&resolved);
             let definition = library::footprint(path)?;
             definition
                 .validate()
@@ -4503,6 +4550,43 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 })
                 .collect();
             import_nets(p, next, &NetlistImportParams { nets })
+        }
+        "library.link" => {
+            let a: LibraryLinkParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 64 || a.name.contains(['/', '\\']) {
+                return Err(Error::Invalid(
+                    "library nicknames are 1 to 64 path-safe characters".into(),
+                ));
+            }
+            if a.path.is_empty() || a.path.len() > 1024 {
+                return Err(Error::Invalid("path must be 1 to 1024 bytes".into()));
+            }
+            if let Some(existing) = p.library_table.iter_mut().find(|l| l.name == a.name) {
+                existing.path = a.path.clone();
+            } else {
+                if p.library_table.len() >= 64 {
+                    return Err(Error::Invalid(
+                        "the library table holds at most 64 entries".into(),
+                    ));
+                }
+                p.library_table.push(pcbcraft_doc::LibraryLink {
+                    name: a.name.clone(),
+                    path: a.path.clone(),
+                });
+            }
+            Ok(json!({"name": a.name, "path": a.path, "entries": p.library_table.len()}))
+        }
+        "library.unlink" => {
+            let a: LibraryUnlinkParams = parse(params)?;
+            let before = p.library_table.len();
+            p.library_table.retain(|l| l.name != a.name);
+            if p.library_table.len() == before {
+                return Err(Error::Invalid(format!(
+                    "no library entry named {} in the table",
+                    a.name
+                )));
+            }
+            Ok(json!({"name": a.name, "entries": p.library_table.len()}))
         }
         "dxf.import" => {
             let a: DxfImportParams = parse(params)?;
@@ -19075,6 +19159,89 @@ mod tests {
             s.execute("teardrop.remove", json!({}), None).is_err(),
             "removing when nothing matches is refused"
         );
+        Ok(())
+    }
+    #[test]
+    fn library_table_maps_nicknames_to_folders_and_undo_restores_them() -> Result<(), Error> {
+        let mut s = Session::default();
+        let file = library_fixture("device.kicad_sym");
+        let folder = std::path::Path::new(&file)
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        s.execute(
+            "library.link",
+            json!({"name":"devices","path":folder}),
+            None,
+        )?;
+        assert_eq!(s.project.library_table.len(), 1);
+        s.execute(
+            "component.place_library",
+            json!({"path":"devices/device.kicad_sym","symbol":"R","position":{"x":20.0,"y":15.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.components.len(),
+            1,
+            "the nickname resolves to the mapped folder"
+        );
+        assert!(
+            s.execute(
+                "library.link",
+                json!({"name":"bad/name","path":folder}),
+                None
+            )
+            .is_err(),
+            "nicknames must be path safe"
+        );
+        assert!(
+            s.execute("library.link", json!({"name":"devices","path":""}), None)
+                .is_err(),
+            "an entry needs a folder"
+        );
+        let wrong = "/nonexistent/library/folder";
+        s.execute("library.link", json!({"name":"devices","path":wrong}), None)?;
+        assert_eq!(s.project.library_table.len(), 1, "a known nickname updates");
+        assert_eq!(s.project.library_table[0].path, wrong);
+        assert!(
+            s.execute(
+                "component.place_library",
+                json!({"path":"devices/device.kicad_sym","symbol":"R","position":{"x":30.0,"y":15.0}}),
+                None,
+            )
+            .is_err(),
+            "the updated folder is the one used"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.library_table[0].path, folder,
+            "undo restores the folder"
+        );
+        s.execute(
+            "component.place_library",
+            json!({"path":"devices/device.kicad_sym","symbol":"R","position":{"x":40.0,"y":15.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.components.len(), 2);
+        s.execute("library.unlink", json!({"name":"devices"}), None)?;
+        assert!(s.project.library_table.is_empty());
+        assert!(
+            s.execute(
+                "component.place_library",
+                json!({"path":"devices/device.kicad_sym","symbol":"R","position":{"x":50.0,"y":15.0}}),
+                None,
+            )
+            .is_err(),
+            "an unlinked nickname stops resolving"
+        );
+        assert!(
+            s.execute("library.unlink", json!({"name":"devices"}), None)
+                .is_err(),
+            "unlinking a missing entry is refused"
+        );
+        s.undo()?;
+        assert_eq!(s.project.library_table.len(), 1, "undo puts the entry back");
+        assert!(s.project.validate().is_ok());
         Ok(())
     }
 }
