@@ -6,6 +6,19 @@ use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
+
+/// Hover text for a control that runs an engine command: the command
+/// registry description is the single source of truth for what the control
+/// does, so the UI explanation and the command documentation never drift.
+fn command_tip(id: &str) -> String {
+    pcbcraft_engine::commands()
+        .into_iter()
+        .find(|spec| spec.id == id)
+        .map_or_else(
+            || "This control runs an engine command.".into(),
+            |spec| spec.description.to_string(),
+        )
+}
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -488,13 +501,13 @@ impl App {
                     if ui.button("Appearance").clicked() {
                         self.appearance = !self.appearance;
                     }
-                    if ui.button("Save  Ctrl+S").clicked() {
+                    if ui.button("Save  Ctrl+S").on_hover_text("Write the design to its file on disk.").clicked() {
                         self.tool_call("save", json!({"path":self.path}));
                     }
-                    if ui.button("Redo").clicked() {
+                    if ui.button("Redo").on_hover_text("Step forward to the action you undid.").clicked() {
                         self.tool_call("redo", json!({}));
                     }
-                    if ui.button("Undo").clicked() {
+                    if ui.button("Undo").on_hover_text("Step back one action; every edit here is one undoable step.").clicked() {
                         self.tool_call("undo", json!({}));
                     }
                     ui.label(
@@ -558,16 +571,17 @@ impl App {
                 }
                 match self.tab {
                     Tab::Schematic => {
-                        if ui.button("Add symbol  A").clicked() {
+                        if ui.button("Add symbol  A").on_hover_text(command_tip("component.add")).clicked() {
                             self.palette = !self.palette;
                         }
                         if ui
                             .selectable_label(matches!(self.tool, Tool::Wire(_)), "Wire  W")
+                            .on_hover_text(command_tip("wire.draw"))
                             .clicked()
                         {
                             self.tool = Tool::Wire(None);
                         }
-                        if ui.button("Sync to PCB >").clicked() {
+                        if ui.button("Sync to PCB >").on_hover_text(command_tip("board.sync")).clicked() {
                             self.run("board.sync", json!({}));
                             self.change_tab(Tab::Pcb);
                         }
@@ -590,15 +604,17 @@ impl App {
                             });
                         if ui
                             .selectable_label(matches!(self.tool, Tool::Route(_)), "Route  X")
+                            .on_hover_text(command_tip("track.add"))
                             .clicked()
                         {
                             self.tool = Tool::Route(None);
                         }
-                        if ui.button("Sync schematic").clicked() {
+                        if ui.button("Sync schematic").on_hover_text(command_tip("board.sync")).clicked() {
                             self.run("board.sync", json!({}));
                         }
                         if ui
                             .selectable_label(matches!(self.tool, Tool::Cutout), "Circular cutout")
+                            .on_hover_text(command_tip("board.cutout.add"))
                             .clicked()
                         {
                             self.tool = Tool::Cutout;
@@ -606,16 +622,22 @@ impl App {
                     }
                     _ => {}
                 }
-                if ui.button("Move  M").clicked() {
+                if ui
+                    .button("Move  M")
+                    .on_hover_text(
+                        "Drag the selected object to a new position; press M to switch to this tool.",
+                    )
+                    .clicked()
+                {
                     self.tool = Tool::Move;
                 }
-                if ui.button("Rotate  R").clicked() {
+                if ui.button("Rotate  R").on_hover_text(command_tip("component.rotate")).clicked() {
                     self.rotate();
                 }
-                if ui.button("Fit").clicked() {
+                if ui.button("Fit").on_hover_text("Zoom the view so the whole design fits.").clicked() {
                     self.fit();
                 }
-                if ui.button("Commands  Ctrl+K").clicked() {
+                if ui.button("Commands  Ctrl+K").on_hover_text("Search every command by name and run it, with its parameters explained.").clicked() {
                     self.command_open = !self.command_open;
                 }
             });
@@ -672,7 +694,7 @@ impl App {
                 ui.add_space(12.0);
                 if self.palette {
                     ui.label(egui::RichText::new("Add symbol").strong());
-                    if ui.button("Browse KiCad libraries →").clicked() {
+                    if ui.button("Browse KiCad libraries →").on_hover_text("Open the library panel to browse installed symbol and footprint collections.").clicked() {
                         self.change_tab(Tab::Libraries);
                         self.palette = false;
                     }
@@ -815,7 +837,7 @@ impl App {
                         ui.add_space(10.0);
                         ui.label("Value");
                         ui.text_edit_singleline(&mut self.value);
-                        if ui.button("Apply value").clicked() {
+                        if ui.button("Apply value").on_hover_text(command_tip("component.value")).clicked() {
                             self.run("component.value", json!({"id":c.id,"value":self.value}));
                         }
                         ui.add_space(12.0);
@@ -826,7 +848,7 @@ impl App {
                             ui.label("Y");
                             ui.add(egui::DragValue::new(&mut self.y).speed(0.1));
                         });
-                        if ui.button("Apply position").clicked() {
+                        if ui.button("Apply position").on_hover_text("Move the selected symbol or footprint to the position typed above.").clicked() {
                             let mut params = json!({"id":id,"position":{"x":self.x,"y":self.y}});
                             if self.project.component(id).is_some() {
                                 params["unit"] = json!(self.selected_unit);
@@ -840,7 +862,7 @@ impl App {
                                 params,
                             );
                         }
-                        if ui.button("Rotate 90°  R").clicked() {
+                        if ui.button("Rotate 90°  R").on_hover_text(command_tip("component.rotate")).clicked() {
                             self.rotate();
                         }
                         ui.label(
@@ -855,7 +877,7 @@ impl App {
                                     }
                                 }),
                         );
-                        if ui.button("Assign footprint in Libraries →").clicked() {
+                        if ui.button("Assign footprint in Libraries →").on_hover_text("Jump to the library panel to bind a footprint package to this component.").clicked() {
                             self.change_tab(Tab::Libraries);
                             self.library.kind = true;
                             self.library.pending = None;
@@ -880,7 +902,7 @@ impl App {
                         ui.label(format!("Stable ID {id}"));
                     }
                     ui.add_space(10.0);
-                    if ui.button("Delete  Del").clicked() {
+                    if ui.button("Delete  Del").on_hover_text(command_tip("object.delete")).clicked() {
                         self.run("object.delete", json!({"id":id}));
                         self.select(None);
                     }
@@ -911,7 +933,7 @@ impl App {
                             .suffix(" mm"),
                     );
                 });
-                if ui.button("Apply board dimensions").clicked() {
+                if ui.button("Apply board dimensions").on_hover_text(command_tip("board.resize")).clicked() {
                     self.run(
                         "board.resize",
                         json!({"width":self.width,"height":self.height}),
@@ -980,24 +1002,46 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label("Project file");
                 ui.add(egui::TextEdit::singleline(&mut self.path).desired_width(260.0));
-                if ui.button("Open").clicked() {
+                if ui
+                    .button("Open")
+                    .on_hover_text("Load a saved design file from the path next to this button.")
+                    .clicked()
+                {
                     self.tool_call("open", json!({"path":self.path}));
                 }
-                if ui.button("Save").clicked() {
+                if ui
+                    .button("Save")
+                    .on_hover_text("Write the design to the file named next to this button.")
+                    .clicked()
+                {
                     self.tool_call("save", json!({"path":self.path}));
                 }
-                if ui.button("Export KiCad board").clicked() {
+                if ui
+                    .button("Export KiCad board")
+                    .on_hover_text("Write the board out so other design tools can open it.")
+                    .clicked()
+                {
                     let path = std::path::Path::new(&self.path)
                         .with_extension("kicad_pcb")
                         .to_string_lossy()
                         .into_owned();
                     self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
                 }
-                if ui.button("LED example").clicked() {
+                if ui
+                    .button("LED example")
+                    .on_hover_text(
+                        "Start from a small worked example: a battery, resistor and LED.",
+                    )
+                    .clicked()
+                {
                     self.tool_call("sample_design", json!({}));
                     self.fit();
                 }
-                if ui.button("New project").clicked() {
+                if ui
+                    .button("New project")
+                    .on_hover_text("Start a fresh empty design.")
+                    .clicked()
+                {
                     self.tool_call("new_design", json!({}));
                     self.select(None);
                 }
@@ -1016,7 +1060,7 @@ impl App {
                         );
                         ui.text_edit_singleline(&mut self.command);
                         ui.add(egui::TextEdit::singleline(&mut self.params).desired_width(500.0));
-                        if ui.button("Execute").clicked() {
+                        if ui.button("Execute").on_hover_text("Run the command with the parameters you typed; the schema below explains each one.").clicked() {
                             match serde_json::from_str(&self.params) {
                                 Ok(v) => self.run(&self.command.clone(), v),
                                 Err(e) => self.message = e.to_string(),
@@ -1057,7 +1101,11 @@ impl App {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.button("Place in schematic >").clicked() {
+                                    if ui
+                                        .button("Place in schematic >")
+                                        .on_hover_text(command_tip("component.place_library"))
+                                        .clicked()
+                                    {
                                         self.change_tab(Tab::Schematic);
                                         self.tool = Tool::Place(t.kind.into());
                                     }
@@ -1203,6 +1251,33 @@ fn pcbcraft_io_limit() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_tooltips_come_from_the_command_registry() -> Result<(), String> {
+        let registry = pcbcraft_engine::commands();
+        for id in [
+            "component.add",
+            "board.sync",
+            "board.resize",
+            "object.delete",
+        ] {
+            let want = registry
+                .iter()
+                .find(|spec| spec.id == id)
+                .map(|spec| spec.description)
+                .unwrap_or_default();
+            assert!(
+                !want.is_empty() && command_tip(id) == want,
+                "the tooltip for {id} must be the registry description"
+            );
+        }
+        assert_eq!(
+            command_tip("no.such_command"),
+            "This control runs an engine command.",
+            "an unmapped id still explains itself"
+        );
+        Ok(())
+    }
     fn frame(
         ctx: &egui::Context,
         app: &mut App,

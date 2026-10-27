@@ -83,7 +83,13 @@ impl App {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.library.kind, false, "Symbols");
                 ui.selectable_value(&mut self.library.kind, true, "Footprints");
-                if ui.button("Refresh folders").clicked() {
+                if ui
+                    .button("Refresh folders")
+                    .on_hover_text(
+                        "Rescan the library folders for symbol and footprint collections.",
+                    )
+                    .clicked()
+                {
                     self.library.catalog = None;
                     self.library.path.clear();
                     self.library.results = None;
@@ -157,7 +163,12 @@ impl App {
                         .hint_text("Search names, descriptions, keywords")
                         .desired_width(360.0),
                 );
-                if ui.button("Search").clicked()
+                if ui
+                    .button("Search")
+                    .on_hover_text(
+                        "Find symbols and footprints by name across the loaded collections.",
+                    )
+                    .clicked()
                     || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                 {
                     changed = true;
