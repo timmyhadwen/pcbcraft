@@ -29,6 +29,7 @@ pub fn tool_list() -> Value {
         json!({"name":"step.write","description":"Write an AP214 STEP file of the board (outline and every pad as solid prisms in millimetres) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"dsn.write","description":"Write a Specctra-style board file (nets, classes, placements, tracks, vias and keepouts as s-expressions) into a directory for external autorouters, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"cmp.write","description":"Write a legacy board trace file listing every placed pad position in mils with a front or back layer code and every net's pad membership, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"idf.write","description":"Write a board-level mechanical drawing (board size plus every placed part's position, side and rotation, with default component heights) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),&["path"])}),
         json!({"name":"dxf.export","description":"Write the board drawing as an ASCII DXF file (copper tracks, vias, pads, zones, board graphics, outline and labels) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"placement.write","description":"Write a pick-and-place centroid file (reference, position, rotation, side, package per placed part) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -212,6 +213,12 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             let text = pcbcraft_io::cmp_text(&s.project)?;
             pcbcraft_io::atomic_write(Path::new(&path), text.as_bytes())?;
             json!({"path":path,"bytes":text.len()})
+        }
+        "idf.write" => {
+            let directory = string(args, "path")?;
+            let text = pcbcraft_io::idf_board(&s.project)?;
+            pcbcraft_io::atomic_write(&Path::new(directory).join("board.idf"), text.as_bytes())?;
+            json!({"directory":directory,"file":"board.idf","bytes":text.len()})
         }
         "step.write" => {
             let directory = string(args, "path")?;
@@ -1067,6 +1074,48 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing a trace file must not change the project"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn idf_write_exports_a_mechanical_drawing_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        for reference in ["R1", "R2"] {
+            call_tool(
+                &session,
+                "execute",
+                &json!({"command":"component.add","params":{"kind":"resistor","reference":reference,"position":[10.0,10.0]}}),
+            );
+        }
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"board.sync","params":{}}),
+        );
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(&session, "idf.write", &json!({"path":directory.path()}));
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(directory.path().join("board.idf"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            text.starts_with(".FILE_IDF\n.3DIDF VERSION: 2.0\n"),
+            "the mechanical drawing declares itself"
+        );
+        assert!(
+            text.contains(".END_BODY R1\t") && text.contains(".END_BODY R2\t"),
+            "every placed part is listed with its position"
+        );
+        assert!(
+            text.contains(".PIN 2\n"),
+            "the embedded pin file counts every part"
+        );
+        assert!(text.ends_with(".END_FILE_IDF\n"), "the file closes");
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "writing a mechanical drawing must not change the project"
         );
         Ok(())
     }
