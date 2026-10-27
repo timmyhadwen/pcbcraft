@@ -1859,6 +1859,48 @@ pub fn netlist_text(p: &Project) -> Result<String, String> {
     }
     Ok(out)
 }
+/// Netlist as a HyperLynx-style simulation netlist CSV: one line per net,
+/// the net name followed by every `reference.pin` that sits on it, comma
+/// separated, nets sorted by name and pins sorted by reference and number.
+pub fn hyperlynx_csv(p: &Project) -> Result<String, String> {
+    p.validate()?;
+    const MAX_PINS: usize = 50_000;
+    let names: BTreeMap<u64, String> = p.nets.iter().map(|n| (n.id, n.name.clone())).collect();
+    let mut rows: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut pins = 0usize;
+    for c in &p.components {
+        for pin in &c.pins {
+            let Some(net) = pin.net else {
+                continue;
+            };
+            pins += 1;
+            if pins > MAX_PINS {
+                return Err("netlist exceeds the pin limit".into());
+            }
+            let name = names
+                .get(&net)
+                .ok_or("pin references an unknown net")?
+                .clone();
+            rows.entry(name)
+                .or_default()
+                .push(format!("{}.{}", c.reference, pin.number));
+        }
+    }
+    if rows.is_empty() {
+        return Err("design has no connected nets to export".into());
+    }
+    let mut out = String::new();
+    for (name, mut list) in rows {
+        list.sort();
+        out.push_str(&name);
+        for entry in list {
+            out.push(',');
+            out.push_str(&entry);
+        }
+        out.push('\n');
+    }
+    Ok(out)
+}
 /// Pick-and-place placement file: one row per placed footprint in the classic
 /// centroid format (`SMT|THT,reference,X,Y,rotation,side,package`), sorted by
 /// reference. Side comes from the pad layers; height is unknown to this tool.
@@ -6619,6 +6661,65 @@ mod tests {
         assert!(!text.contains("R1.2"), "a pin with no net is left out");
         Ok(())
     }
+    #[test]
+    fn hyperlynx_csv_lists_nets_with_comma_separated_component_pins() -> Result<(), String> {
+        let mut project = Project::default();
+        for (id, name) in [(7, "UNUSED"), (8, "SIG"), (9, "GND")] {
+            project.nets.push(pcbcraft_doc::Net {
+                id,
+                name: name.into(),
+                ..Default::default()
+            });
+        }
+        for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
+            project.components.push(pcbcraft_doc::Component {
+                sheet: 0,
+                id,
+                reference: reference.into(),
+                value: "1k".into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: vec![
+                    pcbcraft_doc::Pin {
+                        number: "1".into(),
+                        name: String::new(),
+                        offset: Point::new(-1.0, 0.0),
+                        net: Some(p1),
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                    pcbcraft_doc::Pin {
+                        number: "2".into(),
+                        name: String::new(),
+                        offset: Point::new(1.0, 0.0),
+                        net: if reference == "R1" { None } else { Some(p2) },
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    },
+                ],
+                units: vec![],
+                library_symbol: None,
+                library_footprint: None,
+                fields: vec![],
+            });
+        }
+        project.validate()?;
+        let text = hyperlynx_csv(&project)?;
+        assert_eq!(
+            text, "GND,R1.1,R2.1\nSIG,R2.2\n",
+            "nets sort by name, pins by reference, comma separated"
+        );
+        assert!(
+            hyperlynx_csv(&Project::default()).err()
+                == Some("design has no connected nets to export".into()),
+            "an unconnected design is rejected rather than writing an empty file"
+        );
+        Ok(())
+    }
+
     #[test]
     fn vias_render_pad_and_drill_in_the_pcb_preview() -> Result<(), String> {
         let mut project = Project::default();
