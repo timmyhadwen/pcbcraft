@@ -161,10 +161,15 @@ pub fn archive_zip(p: &Project) -> Result<Vec<u8>, String> {
             file.data.clone().into_bytes(),
         ));
     }
+    zip_bytes(&entries)
+}
+
+/// Build a stored (uncompressed) ZIP file from named byte entries.
+fn zip_bytes(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
     let mut zip: Vec<u8> = Vec::new();
     let mut central: Vec<u8> = Vec::new();
     let mut offset = 0u32;
-    for (name, data) in &entries {
+    for (name, data) in entries {
         if name.len() > 255 {
             return Err("archive entry name is too long".into());
         }
@@ -807,6 +812,355 @@ pub fn postscript(p: &Project, view: &str) -> Result<String, String> {
         "%!PS-Adobe-3.0\n%%Title: PCBCraft {view} view of {title}\n%%BoundingBox: 0 0 792 612\n%%Pages: 1\n%%EndComments\n%%Page: 1 1\n{}showpage\n%%EOF\n",
         page.ops
     ))
+}
+
+/// An ODB++ style board package: a stored ZIP holding one job tree with a
+/// layer matrix, polygon pad symbols, per-layer copper features and placed
+/// components with their pad stacks, written without any compression
+/// dependency.
+pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
+    p.validate()?;
+    const MAX_FEATURES: usize = 100_000;
+    const MAX_SYMBOLS: usize = 256;
+    const MAX_COMPONENTS: usize = 5_000;
+    let folded: String = p
+        .name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let mut job = folded.trim_matches('_').to_string();
+    job.truncate(24);
+    if job.is_empty() {
+        job = "board".into();
+    }
+    let mirror = |x: f64, back: bool| -> f64 { if back { -x } else { x } };
+    let spin = |rotation: f64, back: bool| -> f64 {
+        if back {
+            (180.0 + rotation).rem_euclid(360.0)
+        } else {
+            (-rotation).rem_euclid(360.0)
+        }
+    };
+    let um = |v: f64| (v.max(0.001) * 1_000.0).round() as u64;
+    let mut symbols: BTreeMap<String, Vec<(f64, f64)>> = BTreeMap::new();
+    let mut symbol = |name: String, w: f64, h: f64, round: bool| -> Result<String, String> {
+        if symbols.contains_key(&name) {
+            return Ok(name);
+        }
+        if symbols.len() >= MAX_SYMBOLS {
+            return Err("odb export needs more than 256 distinct pad shapes".into());
+        }
+        let points = if round {
+            (0..16)
+                .map(|i| {
+                    let a = std::f64::consts::TAU * i as f64 / 16.0;
+                    (w / 2.0 * a.cos(), h / 2.0 * a.sin())
+                })
+                .collect()
+        } else {
+            vec![
+                (-w / 2.0, -h / 2.0),
+                (w / 2.0, -h / 2.0),
+                (w / 2.0, h / 2.0),
+                (-w / 2.0, h / 2.0),
+            ]
+        };
+        symbols.insert(name.clone(), points);
+        Ok(name)
+    };
+    struct Feat {
+        body: String,
+        ops: usize,
+        pos: usize,
+    }
+    impl Feat {
+        fn new() -> Self {
+            Self {
+                body: String::new(),
+                ops: 0,
+                pos: 1,
+            }
+        }
+        fn bump(&mut self) -> Result<usize, String> {
+            self.ops += 1;
+            if self.ops > MAX_FEATURES {
+                return Err("odb export exceeds the feature limit".into());
+            }
+            let pos = self.pos;
+            self.pos += 1;
+            Ok(pos)
+        }
+        fn symbol(&mut self, name: &str, x: f64, y: f64, r: f64) -> Result<(), String> {
+            let pos = self.bump()?;
+            self.body.push_str(&format!(
+                "\t.Symbol {name} {pos} P R {x:.6} {y:.6} {r:.3} N\n"
+            ));
+            Ok(())
+        }
+        fn line(&mut self, w: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> Result<(), String> {
+            let pos = self.bump()?;
+            self.body.push_str(&format!(
+                "\t.Line {w:.6} {pos} P R {x1:.6} {y1:.6} {x2:.6} {y2:.6}\n"
+            ));
+            Ok(())
+        }
+        fn arc(
+            &mut self,
+            w: f64,
+            from: (f64, f64),
+            to: (f64, f64),
+            center: (f64, f64),
+            cw: bool,
+        ) -> Result<(), String> {
+            let pos = self.bump()?;
+            let (x1, y1) = from;
+            let (x2, y2) = to;
+            let (cx, cy) = center;
+            self.body.push_str(&format!(
+                "\t.Arc {w:.6} {pos} P R {x1:.6} {y1:.6} {x2:.6} {y2:.6} {cx:.6} {cy:.6} {}\n",
+                u8::from(cw)
+            ));
+            Ok(())
+        }
+        fn surface(
+            &mut self,
+            outline: &[(f64, f64)],
+            holes: &[Vec<(f64, f64)>],
+        ) -> Result<(), String> {
+            let pos = self.bump()?;
+            self.ops += outline.len() + holes.iter().map(Vec::len).sum::<usize>();
+            if self.ops > MAX_FEATURES {
+                return Err("odb export exceeds the feature limit".into());
+            }
+            self.body
+                .push_str(&format!("\t.Surface {pos} P R\n\t\t.BeginPolygon\n"));
+            fn ring(body: &mut String, begin: &str, end: &str, points: &[(f64, f64)]) {
+                body.push_str(&format!("\t\t.{begin}\n"));
+                for (x, y) in points.iter().chain(points.first()) {
+                    body.push_str(&format!("\t\t\t{x:.6} {y:.6}\n"));
+                }
+                body.push_str(&format!("\t\t.{end}\n"));
+            }
+            ring(&mut self.body, "BeginPolygon", "EndPolygon", outline);
+            for hole in holes {
+                ring(&mut self.body, "BeginHole", "EndHole", hole);
+            }
+            self.body.push_str("\tEndSurface\n");
+            Ok(())
+        }
+    }
+    let mut top = Feat::new();
+    let mut bottom = Feat::new();
+    let mut misc = Feat::new();
+    for z in &p.board.zones {
+        if !z.filled {
+            continue;
+        }
+        let back = z.layer == pcbcraft_doc::Layer::Back;
+        let file = if back { &mut bottom } else { &mut top };
+        let outline: Vec<(f64, f64)> = z.outline.iter().map(|q| (mirror(q.x, back), q.y)).collect();
+        let holes: Vec<Vec<(f64, f64)>> = z
+            .cutouts
+            .iter()
+            .map(|ring| ring.iter().map(|q| (mirror(q.x, back), q.y)).collect())
+            .collect();
+        file.surface(&outline, &holes)?;
+    }
+    for t in &p.board.tracks {
+        let back = t.layer == pcbcraft_doc::Layer::Back;
+        let file = if back { &mut bottom } else { &mut top };
+        let (x1, y1) = (mirror(t.start.x, back), t.start.y);
+        let (x2, y2) = (mirror(t.end.x, back), t.end.y);
+        if let Some(arc) = t.curve() {
+            let cw = if back {
+                arc.sweep > 0.0
+            } else {
+                arc.sweep < 0.0
+            };
+            file.arc(
+                t.width,
+                (x1, y1),
+                (x2, y2),
+                (mirror(arc.center.x, back), arc.center.y),
+                cw,
+            )?;
+        } else {
+            file.line(t.width, x1, y1, x2, y2)?;
+        }
+    }
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+    if p.board.footprints.len() > MAX_COMPONENTS {
+        return Err("odb export exceeds the placed-component limit".into());
+    }
+    let mut comps_top = String::new();
+    let mut comps_bottom = String::new();
+    let mut placed = 0usize;
+    for f in &p.board.footprints {
+        let c = refs
+            .get(&f.component)
+            .ok_or("footprint references an unknown component")?;
+        let back = f.pads.iter().any(|pad| {
+            pad.geometry.as_ref().is_some_and(|g| {
+                g.pad_type == "smd"
+                    && !g.layers.is_empty()
+                    && !g.layers.iter().any(|l| l.starts_with("F."))
+            })
+        });
+        placed += 1;
+        let side = if back {
+            &mut comps_bottom
+        } else {
+            &mut comps_top
+        };
+        side.push_str(&format!(
+            "\t.Component \"{}\" {placed} P R {:.6} {:.6} {:.3} N\n",
+            c.reference,
+            mirror(f.position.x, back),
+            f.position.y,
+            spin(f.rotation, back)
+        ));
+        let package = match &c.library_footprint {
+            Some(footprint) => footprint.definition.name.clone(),
+            None => c.kind.clone(),
+        };
+        side.push_str(&format!("\t\t.Package \"{package}\"\n"));
+        for (i, pad) in f.pads.iter().enumerate() {
+            side.push_str(&format!(
+                "\t\t.Feature \"{}\" {} P R {:.6} {:.6} 0.000 A\n\t\tEndFeature\n",
+                pad.number,
+                i + 1,
+                if back { -pad.offset.x } else { pad.offset.x },
+                pad.offset.y
+            ));
+        }
+        side.push_str("\tEndComponent\n");
+        for pad in &f.pads {
+            let world = f.position.offset(pad.offset.rotate(-f.rotation));
+            let through = pad
+                .geometry
+                .as_ref()
+                .is_some_and(|g| g.drill.is_some() || g.pad_type.starts_with("thru_hole"));
+            let on_back = pad.geometry.as_ref().is_some_and(|g| {
+                !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
+            });
+            let name = match &pad.geometry {
+                Some(g) => {
+                    let w = um(g.size.x);
+                    let h = um(g.size.y);
+                    match g.shape.as_str() {
+                        "circle" => symbol(format!("C{w}"), g.size.x, g.size.y, true)?,
+                        "oval" => symbol(format!("O{w}x{h}"), g.size.x, g.size.y, true)?,
+                        "rect" | "roundrect" => {
+                            symbol(format!("S{w}x{h}"), g.size.x, g.size.y, false)?
+                        }
+                        _ => symbol(
+                            format!("C{}", um(pad.diameter)),
+                            pad.diameter,
+                            pad.diameter,
+                            true,
+                        )?,
+                    }
+                }
+                None => symbol(
+                    format!("C{}", um(pad.diameter)),
+                    pad.diameter,
+                    pad.diameter,
+                    true,
+                )?,
+            };
+            if through || !on_back {
+                top.symbol(&name, world.x, world.y, spin(f.rotation, false))?;
+            }
+            if through || on_back {
+                bottom.symbol(
+                    &name,
+                    mirror(world.x, true),
+                    world.y,
+                    spin(f.rotation, true),
+                )?;
+            }
+        }
+    }
+    for v in &p.board.vias {
+        let name = symbol(format!("C{}", um(v.diameter)), v.diameter, v.diameter, true)?;
+        top.symbol(&name, v.position.x, v.position.y, 0.0)?;
+        bottom.symbol(&name, mirror(v.position.x, true), v.position.y, 0.0)?;
+    }
+    let edge = board_edge_points(p);
+    if let Some(first) = edge.last().copied() {
+        let mut prev = first;
+        for point in &edge {
+            misc.line(0.1, prev.0, prev.1, point.0, point.1)?;
+            prev = *point;
+        }
+    }
+    for c in &p.board.cutouts {
+        for i in 0..32 {
+            let a1 = std::f64::consts::TAU * i as f64 / 32.0;
+            let a2 = std::f64::consts::TAU * (i + 1) as f64 / 32.0;
+            misc.line(
+                0.1,
+                c.center.x + c.radius * a1.cos(),
+                c.center.y + c.radius * a1.sin(),
+                c.center.x + c.radius * a2.cos(),
+                c.center.y + c.radius * a2.sin(),
+            )?;
+        }
+    }
+    let matrix = format!(
+        ".Extract 0\n.Header\n\t.Creator PCBCraft\n\t.Title {job}\n.EndHeader\n.Matrix\n\t.\
+         Job {job} 0 1\n\t.Step STEP1 0\n\t\t.Layer L1 GTL 1 0 0 Polarity\n\t\t.EndLayer\n\t\t.\
+         Layer L2 GBL 2 0 0 Polarity\n\t\t.EndLayer\n\t\t.Layer MISC GML 3 0 0 Polarity\n\t\t.\
+         EndLayer\n\t.EndStep\n.EndMatrix\n"
+    );
+    let mut symbols_text = String::from("UnitsType=MM\n");
+    for (name, points) in &symbols {
+        symbols_text.push_str(&format!(".Symbol {name}\n\t.Boundary\n"));
+        for (x, y) in points.iter().chain(points.first()) {
+            symbols_text.push_str(&format!("\t\t{x:.6} {y:.6}\n"));
+        }
+        symbols_text.push_str("\t.EndBoundary\n.EndSymbol\n");
+    }
+    let features = |comment: &str, file: &Feat| -> String {
+        format!(
+            "UnitsType=MM\n.Features\n\t.Comment {comment}\n{}\tEndFeatures\n",
+            file.body
+        )
+    };
+    let components =
+        |body: &str| -> String { format!("UnitsType=MM\n.Components\n{body}\tEndComponents\n") };
+    let entries = vec![
+        (format!("{job}/matrix/matrix"), matrix.into_bytes()),
+        (format!("{job}/symbols/symbols"), symbols_text.into_bytes()),
+        (
+            format!("{job}/features/top"),
+            features("copper on the front side", &top).into_bytes(),
+        ),
+        (
+            format!("{job}/features/bottom"),
+            features("copper on the back side", &bottom).into_bytes(),
+        ),
+        (
+            format!("{job}/features/misc"),
+            features("board outline and cutouts", &misc).into_bytes(),
+        ),
+        (
+            format!("{job}/components/top"),
+            components(&comps_top).into_bytes(),
+        ),
+        (
+            format!("{job}/components/bottom"),
+            components(&comps_bottom).into_bytes(),
+        ),
+    ];
+    zip_bytes(&entries)
 }
 
 /// A minimal AP214 (STEP) writer. The board outline and every placed pad
@@ -5702,6 +6056,72 @@ mod tests {
         assert!(
             postscript(&project, "wrong").is_err(),
             "only the two known views can be drawn"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn odb_package_holds_a_matrix_symbols_features_and_components_tree() -> Result<(), String> {
+        let mut project = real_library_project()?;
+        project.nets.push(pcbcraft_doc::Net {
+            id: 500,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 501,
+            net: 500,
+            start: Point::new(5.0, 5.0),
+            end: Point::new(40.0, 30.0),
+            width: 0.3,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: None,
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 502,
+            net: 500,
+            position: Point::new(12.0, 12.0),
+            diameter: 0.6,
+            drill: 0.3,
+        });
+        project.validate()?;
+        let package = odb_package(&project)?;
+        assert!(
+            package.starts_with(b"PK\x03\x04"),
+            "the package is a ZIP file"
+        );
+        let text = String::from_utf8_lossy(&package).into_owned();
+        assert!(
+            text.contains("untitled_circuit/matrix/matrix"),
+            "the job folder is named from the project"
+        );
+        assert!(
+            text.contains("untitled_circuit/symbols/symbols")
+                && text.contains("untitled_circuit/features/top")
+                && text.contains("untitled_circuit/features/bottom")
+                && text.contains("untitled_circuit/features/misc")
+                && text.contains("untitled_circuit/components/top"),
+            "the tree carries matrix, symbols, feature and component files"
+        );
+        assert!(
+            text.contains(".Layer L1 GTL") && text.contains(".Layer L2 GBL"),
+            "both copper layers are listed in the matrix"
+        );
+        assert!(
+            text.contains(".Symbol C600") && text.contains(".EndSymbol"),
+            "the via becomes a named circle symbol with a polygon boundary"
+        );
+        assert!(
+            text.contains(".Symbol S"),
+            "footprint pads become named rectangle symbols"
+        );
+        assert!(
+            text.contains(".Line 0.300000"),
+            "the track is written as a line feature with its width"
+        );
+        assert!(
+            text.contains(".Component \"R1\"") && text.contains(".Feature \"1\""),
+            "the placed resistor and its pad stack are listed"
         );
         Ok(())
     }
