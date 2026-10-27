@@ -35,6 +35,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
         ("library.symbol.rename","Rename a project-library symbol in place as one undoable step, keeping every pin and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
         ("library.footprint.rename","Rename a project-library footprint in place as one undoable step, keeping every pad and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
+        ("library.symbol.set_extends","Point a project-library symbol at the parent symbol it inherits from as one undoable step, recording the inheritance link the library readers use so derived symbols document where their pins and text come from",schema(json!({"name":{"type":"string"},"extends":{"type":"string","minLength":1,"maxLength":128,"description":"parent symbol name within the project library"}}),&["name","extends"])),
+        ("library.symbol.clear_extends","Drop a project-library symbol's inheritance link in one undoable step, so a symbol that was copying another can stand on its own without rewriting the definition",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.adopt","Copy a placed component's embedded footprint into the project library under a chosen name as one undoable step, so a package that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the package under"}}),&["id","name"])),
         ("library.symbol.adopt","Copy a placed component's embedded symbol into the project library under a chosen name as one undoable step, so a symbol that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the symbol under"}}),&["id","name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
@@ -92,6 +94,14 @@ struct PadSetParams {
     name: String,
     pad: FootprintPad,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SymbolExtendsParams {
+    name: String,
+    #[serde(default)]
+    extends: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RenameParams {
@@ -1183,6 +1193,48 @@ pub(super) fn run(
             p.library.validate()?;
             p.validate()?;
             Ok(json!({"name": a.new_name}))
+        }
+        "library.symbol.set_extends" | "library.symbol.clear_extends" => {
+            let a: SymbolExtendsParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid("symbol names must be 1 to 128 bytes".into()));
+            }
+            let parent = if command == "library.symbol.set_extends" {
+                let parent = a.extends.as_deref().unwrap_or_default();
+                if parent.is_empty() || parent.len() > 128 {
+                    return Err(Error::Invalid(
+                        "parent symbol name must be 1 to 128 bytes".into(),
+                    ));
+                }
+                Some(parent.to_owned())
+            } else {
+                None
+            };
+            let name = a.name.clone();
+            if let Some(parent) = &parent {
+                if *parent == name {
+                    return Err(Error::Invalid("a symbol cannot inherit from itself".into()));
+                }
+                if !p.library.symbols.iter().any(|s| s.name == *parent) {
+                    return Err(Error::Invalid(format!(
+                        "no symbol named {parent} to inherit from"
+                    )));
+                }
+            }
+            let symbol = p
+                .library
+                .symbols
+                .iter_mut()
+                .find(|s| s.name == name)
+                .ok_or_else(missing)?;
+            symbol.extends = parent;
+            let linked = symbol.extends.clone();
+            symbol
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            p.library.validate()?;
+            p.validate()?;
+            Ok(json!({"name": name, "extends": linked}))
         }
         "component.place_custom" => {
             let a: Place = parse(params)?;
