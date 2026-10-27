@@ -1015,11 +1015,19 @@ pub struct FootprintOverride {
     pub component: Id,
     pub footprint: String,
 }
+fn default_project_unit() -> String {
+    "mm".into()
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
     pub version: u32,
     pub name: String,
+    /// The unit this design is read in: "mm", "mil" or "inch". Stored
+    /// coordinates stay millimetres; inch fabrication output is converted,
+    /// while mil is a reading and reporting convention.
+    #[serde(default = "default_project_unit")]
+    pub unit: String,
     pub components: Vec<Component>,
     pub nets: Vec<Net>,
     /// Named net classes carrying clearance and default width rules.
@@ -1148,6 +1156,7 @@ impl Default for Project {
             format: "pcbcraft".into(),
             version: 1,
             name: "Untitled circuit".into(),
+            unit: "mm".into(),
             components: vec![],
             nets: vec![],
             net_classes: vec![],
@@ -1266,6 +1275,8 @@ pub fn component_template(
     })
 }
 impl Project {
+    pub const UNITS: [&'static str; 3] = ["mm", "mil", "inch"];
+
     pub fn component(&self, id: Id) -> Option<&Component> {
         self.components.iter().find(|c| c.id == id)
     }
@@ -1478,6 +1489,9 @@ impl Project {
         }
         if self.format != "pcbcraft" || self.version != 1 {
             return Err("unsupported project format/version".into());
+        }
+        if !Self::UNITS.contains(&self.unit.as_str()) {
+            return Err("project unit must be mm, mil or inch".into());
         }
         if self.name.is_empty() || self.name.len() > 256 {
             return Err("project name must be 1–256 bytes".into());
