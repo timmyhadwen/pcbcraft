@@ -5002,6 +5002,39 @@ impl App {
             });
     }
     fn footer(&mut self, ui: &mut egui::Ui) {
+        let mut fix = 0usize;
+        let mut mind = 0usize;
+        let checks = self.checks.clone();
+        for key in ["erc", "drc"] {
+            if let Some(findings) = checks.get(key).and_then(Value::as_array) {
+                for f in findings {
+                    let code = f.get("code").and_then(Value::as_str).unwrap_or("finding");
+                    if self.project.rule_severity(code, "warning") == "error" {
+                        fix += 1;
+                    } else {
+                        mind += 1;
+                    }
+                }
+            }
+        }
+        let (base, zoom) = match self.tab {
+            Tab::Schematic => (15.0, self.schematic.zoom),
+            _ => (11.0, self.pcb.zoom),
+        };
+        let zoom_pct = (zoom / base * 100.0).round() as i32;
+        let tool_words: String = match &self.tool {
+            Tool::Select => "Pick".to_owned(),
+            Tool::Place(kind) | Tool::LibraryPlace(_, kind, _) | Tool::CustomPlace(kind, _) => {
+                format!("Place {kind}")
+            }
+            Tool::Wire(_) => "Draw wire".to_owned(),
+            Tool::Route(_) => "Route".to_owned(),
+            Tool::Move => "Move".to_owned(),
+            Tool::Cutout => "Cut hole".to_owned(),
+            Tool::Hole => "Drill hole".to_owned(),
+            Tool::NoConnect => "No connection".to_owned(),
+            Tool::Fiducial => "Fiducial mark".to_owned(),
+        };
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
@@ -5014,13 +5047,42 @@ impl App {
                         egui::RichText::new(format!("rev {}", self.revision))
                             .small()
                             .color(self.muted()),
+                    )
+                    .on_hover_text(
+                        "Every edit raises this number; undo and redo step it back and forth.",
                     );
                     if let Some(p) = self.cursor {
                         ui.label(
                             egui::RichText::new(format!("{:.2}, {:.2} mm", p.x, p.y))
                                 .small()
                                 .color(self.muted()),
+                        )
+                        .on_hover_text("Where the mouse points on the board, in millimetres.");
+                    }
+                    ui.label(
+                        egui::RichText::new(format!("{zoom_pct}%"))
+                            .small()
+                            .color(self.muted()),
+                    )
+                    .on_hover_text("How close the drawing is zoomed in. Scroll to change it.");
+                    let tool_btn = ui
+                        .small_button(format!("Tool: {tool_words}"))
+                        .on_hover_text(
+                            "What a click on the drawing does right now. Click here to go back to picking things, or press Esc.",
                         );
+                    if tool_btn.clicked() {
+                        self.tool = Tool::Select;
+                    }
+                    let fix_btn = ui
+                        .small_button(format!("{fix} to fix"))
+                        .on_hover_text("Mistakes the checks say you must fix. Click to see the list.");
+                    let mind_btn = ui
+                        .small_button(format!("{mind} to mind"))
+                        .on_hover_text(
+                            "Warnings worth a look, but not blockers. Click to see the list.",
+                        );
+                    if fix_btn.clicked() || mind_btn.clicked() {
+                        self.change_tab(Tab::Checks);
                     }
                 });
             });
@@ -6976,6 +7038,61 @@ mod tests {
             teardrops(&app),
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Tool: Pick")?,
+            "the status strip should say what a click does: {}",
+            app.message
+        );
+        let pct = (app.schematic.zoom / 15.0 * 100.0).round() as i32;
+        let zoom_label = format!("{pct}%");
+        assert!(
+            paints_text(&ctx, &mut app, &zoom_label)?,
+            "the status strip should show the zoom level ({zoom_label}): {}",
+            app.message
+        );
+        let mut mind = 0usize;
+        for key in ["erc", "drc"] {
+            if let Some(findings) = app.checks.get(key).and_then(serde_json::Value::as_array) {
+                for finding in findings {
+                    let code = finding
+                        .get("code")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("finding");
+                    if app.project.rule_severity(code, "warning") != "error" {
+                        mind += 1;
+                    }
+                }
+            }
+        }
+        assert!(
+            mind > 0,
+            "the practice board should leave something to mind"
+        );
+        let mind_label = format!("{mind} to mind");
+        assert!(
+            paints_text(&ctx, &mut app, &mind_label)?,
+            "the status strip should count the warnings ({mind_label}): {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, &mind_label)?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.tab,
+            Tab::Checks,
+            "tapping the warning count should open the checks list: {}",
             app.message
         );
         Ok(())
