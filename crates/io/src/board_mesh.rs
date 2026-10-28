@@ -1766,6 +1766,8 @@ mod tests {
                 drill: None,
                 roundrect_ratio: None,
                 raw_source: String::new(),
+                chamfer: None,
+                polygon: Vec::new(),
             }),
         }
     }
