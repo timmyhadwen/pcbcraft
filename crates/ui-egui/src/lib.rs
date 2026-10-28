@@ -578,9 +578,20 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
     };
     let mut rows: Vec<(String, String)> = Vec::new();
     if let Some(t) = project.board.tracks.iter().find(|t| t.id == id) {
-        rows.push(("Net".into(), net(t.net)));
+        rows.push(("Net".into(), format!("{} · follows the wiring", net(t.net))));
         rows.push(("Layer".into(), layer(&t.layer)));
-        rows.push(("Width".into(), format!("{:.3} mm", t.width)));
+        let class = project.net_class(t.net);
+        let width_note = match class {
+            Some(c) if (t.width - c.width).abs() < 1e-6 => {
+                format!("{:.3} mm · the usual width for {}", t.width, c.name)
+            }
+            Some(c) => format!(
+                "{:.3} mm · chosen for this wire, not the usual {:.3} mm for {}",
+                t.width, c.width, c.name
+            ),
+            None => format!("{:.3} mm · chosen for this wire", t.width),
+        };
+        rows.push(("Width".into(), width_note));
         rows.push((
             "From".into(),
             format!("{:.2}, {:.2} mm", t.start.x, t.start.y),
@@ -590,7 +601,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
             rows.push(("Shape".into(), "curved through a midpoint".into()));
         }
     } else if let Some(v) = project.board.vias.iter().find(|v| v.id == id) {
-        rows.push(("Net".into(), net(v.net)));
+        rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
         rows.push((
@@ -5674,13 +5685,13 @@ mod tests {
         };
         assert_eq!(
             find(track, "Net").as_deref(),
-            Some("PWR"),
-            "a track names its net"
+            Some("PWR · follows the wiring"),
+            "a track names its net and says where it comes from"
         );
         assert_eq!(
             find(track, "Width").as_deref(),
-            Some("0.300 mm"),
-            "a track states its width"
+            Some("0.300 mm · chosen for this wire"),
+            "a track states its width and says it was picked on purpose"
         );
         assert_eq!(
             find(via, "Drill").as_deref(),
@@ -7114,6 +7125,54 @@ mod tests {
             teardrops(&app),
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_learns_where_a_wire_s_size_comes_from() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        let (track, net, width) = app
+            .project
+            .board
+            .tracks
+            .first()
+            .map(|t| (t.id, t.net, t.width))
+            .ok_or("the practice board should have copper to inspect")?;
+        app.tool_call(
+            "netclass.add",
+            json!({"name": "Power", "clearance": 0.2, "width": width, "nets": [net]}),
+        );
+        app.select(Some(track));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let usual = format!("{width:.3} mm · the usual width for Power");
+        assert!(
+            paints_text(&ctx, &mut app, &usual)?,
+            "the properties panel should say the width came from the net class ({usual}): {}",
+            app.message
+        );
+        app.tool_call(
+            "track.set_width",
+            json!({"id": track, "width": width + 0.1}),
+        );
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let own = format!(
+            "{:.3} mm · chosen for this wire, not the usual {:.3} mm for Power",
+            width + 0.1,
+            width
+        );
+        assert!(
+            paints_text(&ctx, &mut app, &own)?,
+            "after widening one wire the panel should say it is no longer the class default ({own}): {}",
             app.message
         );
         Ok(())
