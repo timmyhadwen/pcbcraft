@@ -3209,7 +3209,7 @@ impl App {
         }
         self.tool_call(tool, json!({"path": directory}));
     }
-    fn write_3d_file(&mut self, job: &str, kind: &str, label: &str) {
+    fn write_job_file(&mut self, job: &str, kind: &str, label: &str) {
         let directory = self.make_directory();
         if std::fs::create_dir_all(&directory).is_err() {
             self.message = "that folder could not be created".into();
@@ -3682,10 +3682,10 @@ impl App {
                     self.write_make_files("report.write");
                 }
                 ui.add_space(6.0);
-                ui.label(egui::RichText::new("3D MODEL").size(10.0).color(self.muted()));
+                ui.label(egui::RichText::new("BOARD DRAWINGS").size(10.0).color(self.muted()));
                 ui.label(
                     egui::RichText::new(
-                        "A solid picture of the finished board you can spin in a 3D viewer.",
+                        "Flat drawings and 3D models, for your records, your fab or a web page.",
                     )
                     .small()
                     .color(self.muted()),
@@ -3697,7 +3697,7 @@ impl App {
                     )
                     .clicked()
                 {
-                    self.write_3d_file("step3d", "step", "3D model");
+                    self.write_job_file("step3d", "step", "3D model");
                 }
                 if ui
                     .button("3D viewer file")
@@ -3706,7 +3706,25 @@ impl App {
                     )
                     .clicked()
                 {
-                    self.write_3d_file("wrl3d", "vrml", "3D viewer file");
+                    self.write_job_file("wrl3d", "vrml", "3D viewer file");
+                }
+                if ui
+                    .button("Printable drawing (PDF)")
+                    .on_hover_text(
+                        "A one-page drawing of the finished board you can print or email. It lands in the make folder.",
+                    )
+                    .clicked()
+                {
+                    self.write_job_file("pdfdraw", "pdf", "Printable drawing");
+                }
+                if ui
+                    .button("Web drawing (SVG)")
+                    .on_hover_text(
+                        "A crisp picture of the board that any web browser can show, at any size. It lands in the make folder.",
+                    )
+                    .clicked()
+                {
+                    self.write_job_file("svgdraw", "svg", "Web drawing");
                 }
                 ui.add_space(6.0);
                 ui.label(egui::RichText::new("PANEL PLAN").size(10.0).color(self.muted()));
@@ -5780,6 +5798,56 @@ mod tests {
     }
 
     #[test]
+    fn a_newcomer_prints_a_drawing_of_the_board() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let folder = std::env::temp_dir().join(format!("pcbcraftdraw-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        app.make_dir = folder.to_string_lossy().into_owned();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        for _ in 0..6 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        authoring::tests::tap(&ctx, &mut app, "Printable drawing (PDF)")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            folder.join("board.pdf").is_file(),
+            "one click leaves a printable drawing on disk: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Web drawing (SVG)")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            folder.join("board.svg").is_file(),
+            "the web drawing lands next to the printable one: {}",
+            app.message
+        );
+        assert!(
+            app.message.contains("Web drawing saved"),
+            "the app says where the drawing went: {}",
+            app.message
+        );
+        let _ = std::fs::remove_dir_all(&folder);
+        Ok(())
+    }
+
+    #[test]
     fn a_newcomer_gets_a_3d_model_of_the_board() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
@@ -5791,7 +5859,7 @@ mod tests {
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            paints_text(&ctx, &mut app, "3D MODEL")?,
+            paints_text(&ctx, &mut app, "BOARD DRAWINGS")?,
             "the factory folder section should also offer a 3D look: {}",
             app.message
         );
