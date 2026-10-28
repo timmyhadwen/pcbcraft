@@ -286,7 +286,7 @@ fn command_tip(id: &str) -> String {
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
     Schematic,
     Pcb,
@@ -330,7 +330,7 @@ impl Default for Preferences {
         }
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Tool {
     Select,
     Place(String),
@@ -380,6 +380,8 @@ pub struct App {
     net_draft: Option<(pcbcraft_doc::Id, String)>,
     appearance: bool,
     palette: bool,
+    part_search: String,
+    part_search_focus: bool,
     needs_fit: bool,
     schematic: Camera,
     pcb: Camera,
@@ -570,6 +572,8 @@ impl App {
             net_draft: None,
             appearance: false,
             palette: false,
+            part_search: String::new(),
+            part_search_focus: false,
             needs_fit: true,
             schematic: Camera {
                 center: Point::new(40.0, 24.0),
@@ -1357,25 +1361,118 @@ impl App {
                 }
                 if ui
                     .button("Add part")
-                    .on_hover_text(
-                        "Show the quick symbols and the way to the component library.",
-                    )
+                    .on_hover_text("Search for a part to place on the schematic.")
                     .clicked()
                 {
                     self.palette = true;
+                    self.part_search_focus = true;
                 }
                 if self.palette {
-                    ui.label(egui::RichText::new("Add symbol").strong());
-                    if ui.button("Browse component libraries →").on_hover_text("Open the library panel to browse installed symbol and footprint collections.").clicked() {
+                    ui.label(egui::RichText::new("Add a part").strong());
+                    let query_box = ui
+                        .add(
+                            egui::TextEdit::singleline(&mut self.part_search)
+                                .hint_text("Search parts by name")
+                                .desired_width(190.0),
+                        )
+                        .on_hover_text(
+                            "Type any part name; the list below narrows as you type.",
+                        );
+                    if self.part_search_focus {
+                        query_box.request_focus();
+                        self.part_search_focus = false;
+                    }
+                    if ui
+                        .button("Browse component libraries →")
+                        .on_hover_text(
+                            "Open the library panel to browse installed symbol and footprint collections.",
+                        )
+                        .clicked()
+                    {
                         self.change_tab(Tab::Libraries);
                         self.palette = false;
                     }
-                    for t in TEMPLATES {
-                        if ui.button(t.label).clicked() {
-                            self.change_tab(Tab::Schematic);
-                            self.tool = Tool::Place(t.kind.into());
-                            self.palette = false;
+                    let query = self.part_search.trim().to_lowercase();
+                    let built_in: Vec<(&str, &str)> = TEMPLATES
+                        .iter()
+                        .filter(|t| {
+                            query.is_empty()
+                                || t.label.to_lowercase().contains(&query)
+                                || t.kind.contains(query.as_str())
+                        })
+                        .map(|t| (t.kind, t.label))
+                        .collect();
+                    let saved: Vec<pcbcraft_library::SymbolDefinition> = self
+                        .project
+                        .library
+                        .symbols
+                        .iter()
+                        .filter(|d| {
+                            query.is_empty() || d.name.to_lowercase().contains(&query)
+                        })
+                        .cloned()
+                        .collect();
+                    if built_in.is_empty() && saved.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Nothing here matches \"{}\" yet.",
+                                self.part_search.trim()
+                            ))
+                            .small()
+                            .color(self.muted()),
+                        );
+                    }
+                    if !built_in.is_empty() {
+                        ui.label(
+                            egui::RichText::new("Common parts")
+                                .size(10.0)
+                                .color(self.muted()),
+                        );
+                        for (kind, label) in built_in {
+                            if ui
+                                .button(label)
+                                .on_hover_text(
+                                    "Pick this part; the next click on the schematic places it.",
+                                )
+                                .clicked()
+                            {
+                                self.change_tab(Tab::Schematic);
+                                self.tool = Tool::Place(kind.into());
+                                self.palette = false;
+                                self.part_search.clear();
+                            }
                         }
+                    }
+                    if !saved.is_empty() {
+                        ui.label(
+                            egui::RichText::new("From this project's library")
+                                .size(10.0)
+                                .color(self.muted()),
+                        );
+                        for definition in saved {
+                            if ui
+                                .button(&definition.name)
+                                .on_hover_text(
+                                    "Pick this saved part; the next click on the schematic places it.",
+                                )
+                                .clicked()
+                            {
+                                self.change_tab(Tab::Schematic);
+                                self.tool = Tool::CustomPlace(
+                                    definition.name.clone(),
+                                    Box::new(definition),
+                                );
+                                self.palette = false;
+                                self.part_search.clear();
+                            }
+                        }
+                    }
+                    if ui
+                        .small_button("Close")
+                        .on_hover_text("Hide the part search without changing anything.")
+                        .clicked()
+                    {
+                        self.palette = false;
                     }
                     ui.separator();
                 }
@@ -2419,6 +2516,57 @@ mod tests {
             }
         }
         Ok(false)
+    }
+
+    #[test]
+    fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Add part")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Search parts by name")?,
+            "the part search opens with a box that says what to type"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
+        for letter in "resistor".chars() {
+            frame(
+                &ctx,
+                &mut app,
+                vec![egui::Event::Text(letter.into())],
+                egui::Modifiers::NONE,
+            );
+        }
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.part_search, "resistor",
+            "typing in the search box arrives letter by letter"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Resistor")?,
+            "the matching part stays in the list"
+        );
+        assert!(
+            !paints_text(&ctx, &mut app, "Capacitor")?,
+            "parts that do not match the search disappear from the list"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Resistor")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            matches!(&app.tool, Tool::Place(kind) if kind == "resistor"),
+            "picking the part arms the schematic to place it, got {:?}",
+            app.tool
+        );
+        assert_eq!(
+            app.tab,
+            Tab::Schematic,
+            "the sheet comes forward to receive it"
+        );
+        Ok(())
     }
 
     #[test]
