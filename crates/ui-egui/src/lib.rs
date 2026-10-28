@@ -3818,6 +3818,15 @@ impl App {
                 {
                     self.write_make_files("report.write");
                 }
+                if ui
+                    .button("Drill map (CSV)")
+                    .on_hover_text(
+                        "Every hole on the board counted and grouped by size, so you can sanity-check the drill sizes before the board goes away.",
+                    )
+                    .clicked()
+                {
+                    self.write_job_file("drillmap", "drill_chart", "Drill map");
+                }
                 ui.add_space(6.0);
                 ui.label(egui::RichText::new("BOARD DRAWINGS").size(10.0).color(self.muted()));
                 ui.label(
@@ -6500,6 +6509,51 @@ mod tests {
             app.message.contains("Web drawing saved"),
             "the app says where the drawing went: {}",
             app.message
+        );
+        let _ = std::fs::remove_dir_all(&folder);
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_writes_a_drill_map() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let folder = std::env::temp_dir().join(format!("pcbcraft-drill-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        app.make_dir = folder.to_string_lossy().into_owned();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        for _ in 0..6 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            paints_text(&ctx, &mut app, "Drill map (CSV)")?,
+            "the make files should include a drill map: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Drill map (CSV)")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let map = folder.join("board-drill-tools.csv");
+        let text = std::fs::read_to_string(&map)
+            .map_err(|e| format!("the drill map should land in the make folder: {e}"))?;
+        assert!(
+            !text.is_empty(),
+            "the drill map counts the holes on the board"
         );
         let _ = std::fs::remove_dir_all(&folder);
         Ok(())
