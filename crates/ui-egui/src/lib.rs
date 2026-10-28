@@ -121,6 +121,40 @@ type AnatGroup = (
     Vec<(Option<Id>, String)>,
     &'static str,
 );
+/// One line, in plain words, describing a figure drawn on a machine layer.
+fn art_shape_text(shape: &pcbcraft_doc::ArtShape) -> String {
+    match shape {
+        pcbcraft_doc::ArtShape::Line { start, end } => format!(
+            "Line at {}, {} to {}, {}",
+            start.x.round(),
+            start.y.round(),
+            end.x.round(),
+            end.y.round()
+        ),
+        pcbcraft_doc::ArtShape::Rect {
+            x,
+            y,
+            width,
+            height,
+            ..
+        } => format!(
+            "Box at {}, {} · {width:.2} × {height:.2} mm",
+            x.round(),
+            y.round()
+        ),
+        pcbcraft_doc::ArtShape::Circle { center, radius } => format!(
+            "Circle at {}, {} · {:.2} mm across",
+            center.x.round(),
+            center.y.round(),
+            radius * 2.0
+        ),
+        pcbcraft_doc::ArtShape::Poly { points } => {
+            format!("Outline through {} points", points.len())
+        }
+        pcbcraft_doc::ArtShape::Text { text, .. } => format!("Prints “{text}”"),
+    }
+}
+
 fn human_code(code: &str) -> String {
     let words = code.replace('_', " ");
     let mut chars = words.chars();
@@ -529,6 +563,9 @@ pub struct App {
     home_open: bool,
     home_path_focus: bool,
     left_tab: usize,
+    tree_query: String,
+    tree_hidden: Vec<String>,
+    focus_layer: Option<String>,
     make_dir: String,
     rule_draft: Option<(pcbcraft_doc::Id, f64, f64)>,
     class_pick: Option<String>,
@@ -862,6 +899,9 @@ impl App {
             home_open: false,
             home_path_focus: false,
             left_tab: 0,
+            tree_query: String::new(),
+            tree_hidden: Vec::new(),
+            focus_layer: None,
             make_dir: String::new(),
             rule_draft: None,
             class_pick: None,
@@ -924,7 +964,7 @@ impl App {
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
             stack_edit: None,
-            anat_open: Vec::new(),
+            anat_open: vec!["connections".to_owned()],
             notes_thick: 1.6,
             notes_er: 4.4,
             net_editor: None,
@@ -1660,56 +1700,127 @@ impl App {
         }
     }
 
+    /// True when a tree row should appear: no search is active, or the row
+    /// text contains the search.
+    fn tree_matches(&self, text: &str) -> bool {
+        let query = self.tree_query.trim().to_lowercase();
+        query.is_empty() || text.to_lowercase().contains(&query)
+    }
+    /// True when a whole group of the tree is switched off by the filter row.
+    fn kind_hidden(&self, kind: &str) -> bool {
+        self.tree_hidden.iter().any(|hidden| hidden == kind)
+    }
     fn layers_tab(&mut self, ui: &mut egui::Ui) {
-        self.stackup_section(ui);
-        self.holes_section(ui);
-        self.fiducials_section(ui);
-        ui.add_space(16.0);
-        let rows: &[&str] = match self.tab {
-            Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
-            Tab::Pcb => &[
-                "Grid",
-                "Top copper",
-                "Bottom copper",
-                "Pads",
-                "Vias",
-                "Copper zones",
-                "Cutouts",
-                "Package artwork",
-            ],
-            _ => &[],
-        };
-        if rows.is_empty() {
-            ui.label(
-                egui::RichText::new(
-                    "Switch to the schematic or the board to show or hide parts of the drawing.",
-                )
-                .small()
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.tree_query)
+                    .hint_text("Search the whole board")
+                    .desired_width(150.0),
+            )
+            .on_hover_text(
+                "Type a part reference, a net name or a layer name; the tree keeps only matching rows.",
+            );
+            if !self.tree_query.is_empty()
+                && ui
+                    .small_button("Clear")
+                    .on_hover_text("Show every row again.")
+                    .clicked()
+            {
+                self.tree_query.clear();
+            }
+        });
+        ui.label(
+            egui::RichText::new("SHOW IN THE TREE")
+                .size(10.0)
                 .color(self.muted()),
-            );
-        } else {
-            ui.label(
-                egui::RichText::new("WHAT THE DRAWING SHOWS")
-                    .size(10.0)
-                    .color(self.muted()),
-            );
-            for name in rows {
-                let mut shown = self.layer_shown(name);
+        );
+        ui.horizontal_wrapped(|ui| {
+            for (kind, label, tip) in [
+                ("wires", "Show wires", "Copper wires on each face of the board."),
+                ("vias", "Show vias", "Plated holes that carry a connection between the two faces."),
+                ("zones", "Show pours", "Solid copper poured over an area."),
+                ("holes", "Show holes", "Drilled holes and cut-outs."),
+                ("words", "Show words", "Silk text printed on the board."),
+                ("parts", "Show parts", "Every part on the board, with its pads."),
+                ("areas", "Show rule areas", "Stricter areas and watched pairs."),
+                ("art", "Show machine layers", "Your own layers for a laser, mill or printer."),
+                ("connections", "Show connections", "Every net by name: add, rename or spotlight one."),
+                ("notes", "Show notes", "Free-form notes stored with the project."),
+            ] {
+                let shown = !self.kind_hidden(kind);
                 if ui
-                    .checkbox(&mut shown, *name)
+                    .selectable_label(shown, egui::RichText::new(label).small())
                     .on_hover_text(format!(
-                        "Show or hide {name} on the drawing. Hiding changes only the view, never the design."
+                        "{tip} Untick to fold this group away; unticking changes the tree, never the design."
                     ))
                     .clicked()
                 {
                     if shown {
-                        self.preferences.hidden_layers.retain(|hidden| hidden != name);
+                        self.tree_hidden.push(kind.to_owned());
                     } else {
-                        self.preferences.hidden_layers.push((*name).to_string());
+                        self.tree_hidden.retain(|hidden| hidden != kind);
                     }
                 }
             }
-        }
+        });
+        ui.add_space(8.0);
+        let board_header = egui::CollapsingHeader::new("This board")
+            .id_salt("anat-board-root")
+            .default_open(true)
+            .show(ui, |ui| {
+            self.stackup_section(ui);
+            self.holes_section(ui);
+            self.fiducials_section(ui);
+            ui.add_space(16.0);
+            let rows: &[&str] = match self.tab {
+                Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
+                Tab::Pcb => &[
+                    "Grid",
+                    "Top copper",
+                    "Bottom copper",
+                    "Pads",
+                    "Vias",
+                    "Copper zones",
+                    "Cutouts",
+                    "Package artwork",
+                ],
+                _ => &[],
+            };
+            if rows.is_empty() {
+                ui.label(
+                    egui::RichText::new(
+                        "Switch to the schematic or the board to show or hide parts of the drawing.",
+                    )
+                    .small()
+                    .color(self.muted()),
+                );
+            } else {
+                ui.label(
+                    egui::RichText::new("WHAT THE DRAWING SHOWS")
+                        .size(10.0)
+                        .color(self.muted()),
+                );
+                for name in rows {
+                    let mut shown = self.layer_shown(name);
+                    if ui
+                        .checkbox(&mut shown, *name)
+                        .on_hover_text(format!(
+                            "Show or hide {name} on the drawing. Hiding changes only the view, never the design."
+                        ))
+                        .clicked()
+                    {
+                        if shown {
+                            self.preferences.hidden_layers.retain(|hidden| hidden != name);
+                        } else {
+                            self.preferences.hidden_layers.push((*name).to_string());
+                        }
+                    }
+                }
+            }
+            });
+        board_header.header_response.on_hover_text(
+            "The board itself: shape, size, surface finish, holes and what the drawing shows.",
+        );
         self.board_anatomy_section(ui);
     }
     fn board_anatomy_section(&mut self, ui: &mut egui::Ui) {
@@ -1773,7 +1884,7 @@ impl App {
                 (
                     v.id,
                     format!(
-                        "Via at {}, {} · {} mm hole · {}",
+                        "Via at {}, {} · {} mm hole · Top to Bottom · {}",
                         v.position.x.round(),
                         v.position.y.round(),
                         v.drill,
@@ -1867,6 +1978,7 @@ impl App {
                     .collect();
                 (f.id, format!("{name} · {} pads", f.pads.len()), pads)
             })
+            .filter(|(_, title, _)| self.tree_matches(title))
             .collect();
         let areas: Vec<String> = self
             .project
@@ -1909,6 +2021,7 @@ impl App {
                 front
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
+                    .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
                 "Nothing drawn here yet.",
             ),
@@ -1918,6 +2031,7 @@ impl App {
                 "Copper wires drawn on the bottom face of the board. Pick one to select it on the drawing.",
                 back.into_iter()
                     .map(|(id, text)| (Some(id), text))
+                    .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
                 "Nothing drawn here yet.",
             ),
@@ -1927,6 +2041,7 @@ impl App {
                 "Small plated holes that carry a connection between the two copper faces. Pick one to select it on the drawing.",
                 vias.into_iter()
                     .map(|(id, text)| (Some(id), text))
+                    .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
                 "No vias yet.",
             ),
@@ -1937,6 +2052,7 @@ impl App {
                 zones
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
+                    .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
                 "No copper zones yet.",
             ),
@@ -1947,6 +2063,7 @@ impl App {
                 holes
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
+                    .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
                 "No holes yet.",
             ),
@@ -1957,6 +2074,7 @@ impl App {
                 words
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
+                    .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
                 "No words printed yet.",
             ),
@@ -1964,23 +2082,69 @@ impl App {
                 "areas",
                 "Stricter areas",
                 "Patches of the board where the rules are stricter than everywhere else.",
-                areas.into_iter().map(|text| (None, text)).collect(),
+                areas
+                    .into_iter()
+                    .map(|text| (None, text))
+                    .filter(|(_, text)| self.tree_matches(text))
+                    .collect(),
                 "The whole board follows one set of rules.",
             ),
             (
                 "pairs",
                 "Watched pairs",
                 "Pairs of nets that must run side by side with a fixed gap between them.",
-                pairs.into_iter().map(|text| (None, text)).collect(),
+                pairs
+                    .into_iter()
+                    .map(|text| (None, text))
+                    .filter(|(_, text)| self.tree_matches(text))
+                    .collect(),
                 "No pairs are being watched.",
             ),
         ];
         for (key, title, tip, rows, empty) in groups {
+            let kind = match key {
+                "front" | "back" => "wires",
+                "vias" => "vias",
+                "zones" => "zones",
+                "holes" => "holes",
+                "words" => "words",
+                "areas" | "pairs" => "areas",
+                _ => "parts",
+            };
+            if self.kind_hidden(kind) {
+                continue;
+            }
             let open = self.anat_open.iter().any(|k| k == key);
             let header = egui::CollapsingHeader::new(title)
                 .id_salt(format!("anat-{key}"))
                 .open(Some(open))
                 .show(ui, |ui| {
+                    if matches!(key, "front" | "back") {
+                        let focus_key = if key == "front" {
+                            "copper:front"
+                        } else {
+                            "copper:back"
+                        };
+                        let focused = self.focus_layer.as_deref() == Some(focus_key);
+                        if ui
+                            .small_button(if focused {
+                                "Stop fading"
+                            } else {
+                                "Fade others"
+                            })
+                            .on_hover_text(
+                                "Everything not on this layer turns translucent on the drawing; click again to bring it back.",
+                            )
+                            .clicked()
+                        {
+                            self.focus_layer = if focused {
+                                None
+                            } else {
+                                Some(focus_key.to_owned())
+                            };
+                        }
+                        ui.separator();
+                    }
                     if rows.is_empty() {
                         ui.label(egui::RichText::new(empty).small().color(self.muted()));
                     }
@@ -2057,6 +2221,186 @@ impl App {
                 self.anat_open.push("parts".to_owned());
             }
         }
+        // Machine layers the designer draws for their own laser, mill or printer.
+        if !self.kind_hidden("art") {
+            let layers: Vec<(Id, String, &'static str, bool, Vec<String>)> = self
+                .project
+                .board
+                .user_layers
+                .iter()
+                .filter(|l| self.tree_matches(&l.name))
+                .map(|l| {
+                    let kind = match l.kind {
+                        pcbcraft_doc::ArtKind::Cut => "cut",
+                        pcbcraft_doc::ArtKind::Perforation => "perforation",
+                        pcbcraft_doc::ArtKind::Silk => "silk",
+                        pcbcraft_doc::ArtKind::Mask => "mask",
+                        pcbcraft_doc::ArtKind::Other => "general",
+                    };
+                    (
+                        l.id,
+                        l.name.clone(),
+                        kind,
+                        l.visible,
+                        l.shapes.iter().map(art_shape_text).collect(),
+                    )
+                })
+                .collect();
+            let open = self.anat_open.iter().any(|k| k == "art");
+            let header = egui::CollapsingHeader::new("Machine layers you draw")
+                .id_salt("anat-art")
+                .open(Some(open))
+                .show(ui, |ui| {
+                    if layers.is_empty() {
+                        ui.label(
+                            egui::RichText::new(
+                                "No machine layers yet. Add one for your laser cutter, mill or printer, then draw on it with Draw shape.",
+                            )
+                            .small()
+                            .color(self.muted()),
+                        );
+                    }
+                    for (id, name, kind, visible, shapes) in layers {
+                        let mut shown = visible;
+                        ui.horizontal(|ui| {
+                            if ui
+                                .checkbox(&mut shown, egui::RichText::new(&name).strong())
+                                .on_hover_text(
+                                    "Tick to show this layer on the drawing. Hiding changes only the view, never the design.",
+                                )
+                                .clicked()
+                            {
+                                self.run(
+                                    "board.layer_visible_set",
+                                    json!({"layer": id, "on": shown}),
+                                );
+                            }
+                            let focus_key = format!("art:{name}");
+                            let focused =
+                                self.focus_layer.as_deref() == Some(focus_key.as_str());
+                            if ui
+                                .small_button(if focused {
+                                    "Stop fading"
+                                } else {
+                                    "Fade others"
+                                })
+                                .on_hover_text(
+                                    "Everything not on this layer turns translucent on the drawing; click again to bring it back.",
+                                )
+                                .clicked()
+                            {
+                                self.focus_layer = if focused { None } else { Some(focus_key) };
+                            }
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{kind} layer · {} shapes",
+                                    shapes.len()
+                                ))
+                                .small()
+                                .color(self.muted()),
+                            );
+                        });
+                        egui::CollapsingHeader::new(format!("{name} shapes"))
+                            .id_salt(format!("anat-art-{id}"))
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                if shapes.is_empty() {
+                                    ui.label(
+                                        egui::RichText::new("Nothing drawn on this layer yet.")
+                                            .small()
+                                            .color(self.muted()),
+                                    );
+                                }
+                                for text in shapes {
+                                    ui.label(egui::RichText::new(text).small());
+                                }
+                            });
+                    }
+                    if ui
+                        .button("New layer")
+                        .on_hover_text(
+                            "Add a layer for a laser, mill or printer to follow; give it a real name any time.",
+                        )
+                        .clicked()
+                    {
+                        let name = format!("Art {}", self.project.board.user_layers.len() + 1);
+                        self.run("board.layer_add", json!({"name": name, "kind": "other"}));
+                        if self.message.starts_with("board.layer_add") {
+                            self.art_layer = self.selected;
+                        }
+                    }
+                });
+            let clicked = header.header_response.clicked();
+            header.header_response.on_hover_text(
+                "Layers you draw yourself: cut lines, dotted perforations and printed marks for your own machines.",
+            );
+            if clicked {
+                if open {
+                    self.anat_open.retain(|k| k != "art");
+                } else {
+                    self.anat_open.push("art".to_owned());
+                }
+            }
+        }
+        // Every connection by name, with room to add, rename and spotlight one.
+        if !self.kind_hidden("connections") {
+            let open = self.anat_open.iter().any(|k| k == "connections");
+            let header = egui::CollapsingHeader::new("Connections")
+                .id_salt("anat-connections")
+                .open(Some(open))
+                .show(ui, |ui| {
+                    self.nets_tab(ui);
+                });
+            let clicked = header.header_response.clicked();
+            header.header_response.on_hover_text(
+                "Every wire connection by name: add one, rename one, or light one up on the drawing.",
+            );
+            if clicked {
+                if open {
+                    self.anat_open.retain(|k| k != "connections");
+                } else {
+                    self.anat_open.push("connections".to_owned());
+                }
+            }
+        }
+        // Notes stored inside the design file.
+        if !self.kind_hidden("notes") {
+            let notes: Vec<String> = self
+                .project
+                .meta
+                .iter()
+                .map(|(key, value)| format!("{key} · {value}"))
+                .filter(|text| self.tree_matches(text))
+                .collect();
+            let open = self.anat_open.iter().any(|k| k == "notes");
+            let header = egui::CollapsingHeader::new("Project notes")
+                .id_salt("anat-notes")
+                .open(Some(open))
+                .show(ui, |ui| {
+                    if notes.is_empty() {
+                        ui.label(
+                            egui::RichText::new("No notes are stored with this project yet.")
+                                .small()
+                                .color(self.muted()),
+                        );
+                    }
+                    for text in notes {
+                        ui.label(egui::RichText::new(text).small());
+                    }
+                });
+            let clicked = header.header_response.clicked();
+            header.header_response.on_hover_text(
+                "Free-form notes kept inside the design file: title, revision, or anything a maker should know.",
+            );
+            if clicked {
+                if open {
+                    self.anat_open.retain(|k| k != "notes");
+                } else {
+                    self.anat_open.push("notes".to_owned());
+                }
+            }
+        }
+
         if let Some(id) = chosen {
             self.select(Some(id));
             if self.tab != Tab::Pcb {
@@ -2656,40 +3000,31 @@ impl App {
                         self.left_tab = 0;
                     }
                     if ui
-                        .selectable_label(self.left_tab == 1, "Nets")
+                        .selectable_label(self.left_tab == 1, "Layers")
                         .on_hover_text(
-                            "Every wire connection by name: add one, rename one, or light one up.",
+                            "The whole board in one tree: the board itself, its layers, every connection and every part. Pick any row to find it on the drawing.",
                         )
                         .clicked()
                     {
                         self.left_tab = 1;
                     }
                     if ui
-                        .selectable_label(self.left_tab == 2, "Layers")
+                        .selectable_label(self.left_tab == 2, "Rules")
                         .on_hover_text(
-                            "Tick what the drawing shows: hide copper, silk or wires without touching the design.",
+                            "The gaps and wire widths the checks hold this design to, per group of connections.",
                         )
                         .clicked()
                     {
                         self.left_tab = 2;
                     }
                     if ui
-                        .selectable_label(self.left_tab == 3, "Rules")
-                        .on_hover_text(
-                            "The gaps and wire widths the checks hold this design to, per group of connections.",
-                        )
-                        .clicked()
-                    {
-                        self.left_tab = 3;
-                    }
-                    if ui
-                        .selectable_label(self.left_tab == 4, "Builds")
+                        .selectable_label(self.left_tab == 3, "Builds")
                         .on_hover_text(
                             "Extra versions of this board: parts left off or swapped for another package.",
                         )
                         .clicked()
                     {
-                        self.left_tab = 4;
+                        self.left_tab = 3;
                     }
                 });
                 ui.separator();
@@ -2698,9 +3033,8 @@ impl App {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
                         .show(ui, |ui| match dock {
-                            1 => self.nets_tab(ui),
-                            2 => self.layers_tab(ui),
-                            3 => self.rules_tab(ui),
+                            1 => self.layers_tab(ui),
+                            2 => self.rules_tab(ui),
                             _ => self.builds_tab(ui),
                         });
                     return;
@@ -3115,6 +3449,9 @@ impl App {
             );
         }
         for net in self.project.nets.clone() {
+            if !self.tree_matches(&net.name) {
+                continue;
+            }
             let lit = self.highlight_net == Some(net.id);
             let renaming = self.net_draft.as_ref().is_some_and(|(id, _)| *id == net.id);
             ui.horizontal(|ui| {
@@ -6252,6 +6589,39 @@ mod tests {
         Ok(false)
     }
 
+    /// Scroll the left dock until `needle` appears, then turn the wheel a
+    /// little further so the rows just below it are on screen too.
+    fn scrolled_to(ctx: &egui::Context, app: &mut App, needle: &str) -> Result<bool, String> {
+        for _ in 0..14 {
+            let wheel = egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: egui::vec2(0.0, -4.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            };
+            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+            let clickable = output.shapes.iter().any(|shape| {
+                if let egui::Shape::Text(text) = &shape.shape
+                    && text.galley.text().contains(needle)
+                {
+                    let center = text.pos + text.galley.size() / 2.0;
+                    return shape.clip_rect.contains(center);
+                }
+                false
+            });
+            if clickable {
+                return Ok(true);
+            }
+            frame(
+                ctx,
+                app,
+                vec![egui::Event::PointerMoved(egui::pos2(150.0, 500.0)), wheel],
+                egui::Modifiers::NONE,
+            );
+        }
+        Ok(false)
+    }
+
     #[test]
     fn a_drawn_shape_from_a_file_becomes_the_board_edge_and_back_again() -> Result<(), String> {
         let file =
@@ -6336,9 +6706,8 @@ mod tests {
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
         authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            paints_text(&ctx, &mut app, "Wires")?,
+            scrolled_to(&ctx, &mut app, "Wires")?,
             "the layers page lists wires as its own row"
         );
         authoring::tests::tap(&ctx, &mut app, "Wires")?;
@@ -6465,11 +6834,10 @@ mod tests {
         let before = app.project.nets.len();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Nets")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
         assert!(
-            paints_text(&ctx, &mut app, "New net")?,
-            "the Nets tab offers a way to add a connection"
+            scrolled_to(&ctx, &mut app, "New net")?,
+            "the layers tree offers a way to add a connection"
         );
         authoring::tests::tap(&ctx, &mut app, "New net")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -6514,14 +6882,22 @@ mod tests {
         );
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Nets")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        assert!(
+            scrolled_to(&ctx, &mut app, "New net")?,
+            "the layers tree offers a way to add a connection"
+        );
         authoring::tests::tap(&ctx, &mut app, "New net")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(app.project.nets.len(), 1, "one click adds one connection");
         assert!(
             paints_text(&ctx, &mut app, "No pins on this connection yet.")?,
             "a fresh connection says so plainly: {}",
+            app.message
+        );
+        assert!(
+            scrolled_to(&ctx, &mut app, "choose a spare pin")?,
+            "the new connection offers a pin picker: {}",
             app.message
         );
         let net_id = app.project.nets[0].id;
@@ -7231,7 +7607,7 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Layers")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            paints_text(&ctx, &mut app, "HASL")?,
+            scrolled_to(&ctx, &mut app, "HASL")?,
             "the board shows the finish it ships with"
         );
         authoring::tests::tap(&ctx, &mut app, "HASL")?;
@@ -7284,7 +7660,7 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Layers")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            paints_text(&ctx, &mut app, "Nothing recorded yet")?,
+            scrolled_to(&ctx, &mut app, "Nothing recorded yet")?,
             "a plain board says what it is: {}",
             app.message
         );
@@ -8989,15 +9365,14 @@ mod tests {
         );
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Nets")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
         assert!(
-            paints_text(&ctx, &mut app, "of 3 nets routed")?,
+            scrolled_to(&ctx, &mut app, "of 3 nets routed")?,
             "the dock totals the routing at a glance: {}",
             app.message
         );
         assert!(
-            paints_text(&ctx, &mut app, "not routed yet")?,
+            scrolled_to(&ctx, &mut app, "not routed yet")?,
             "a connection without copper says so plainly: {}",
             app.message
         );
@@ -9092,7 +9467,7 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Layers")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            paints_text(&ctx, &mut app, "1.00 mm on Top")?,
+            scrolled_to(&ctx, &mut app, "1.00 mm on Top")?,
             "the marks are listed with their size and side"
         );
         let last = app.project.board.fiducials[1].id;
@@ -9225,7 +9600,7 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Layers")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            paints_text(&ctx, &mut app, "3.20 mm")?,
+            scrolled_to(&ctx, &mut app, "3.20 mm")?,
             "the holes are listed with their drill size"
         );
         let id = app.project.board.holes[0].id;
@@ -9593,6 +9968,66 @@ mod tests {
                 pcbcraft_doc::ArtShape::Text { text, .. } if text == "HELLO LASER"
             )),
             "the printed words should be exactly what was typed"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.change_tab(Tab::Pcb);
+        app.refresh();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        assert!(
+            paints_text(&ctx, &mut app, "This board")?,
+            "the tree starts at the board itself: {}",
+            app.message
+        );
+        let net = app.project.nets[0].name.clone();
+        app.tree_query = net.clone();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            scrolled_to(&ctx, &mut app, &net)?,
+            "a search keeps the matching connection in the tree: {}",
+            app.message
+        );
+        app.tree_query.clear();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            scrolled_to(&ctx, &mut app, "Top copper wires")?,
+            "the copper layers are rows of the tree: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            scrolled_to(&ctx, &mut app, "Fade others")?,
+            "a copper layer offers a way to fade the rest: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Fade others")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.focus_layer.as_deref(),
+            Some("copper:front"),
+            "fading starts from the top copper layer: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "FOCUSED ON Top copper")?,
+            "the drawing says what is focused: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Stop fading")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.focus_layer, None,
+            "one more tap brings everything back: {}",
+            app.message
         );
         Ok(())
     }

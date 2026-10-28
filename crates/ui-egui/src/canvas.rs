@@ -340,6 +340,14 @@ impl App {
                 f.position = pos;
             }
         }
+        let focus = if self.tab == Tab::Pcb {
+            self.focus_layer.clone()
+        } else {
+            None
+        };
+        if let Some(focus) = &focus {
+            Self::apply_layer_focus(&mut visible, focus);
+        }
         painter.rect_filled(rect, 0.0, self.surface());
         if self.preferences.grid && self.layer_shown("Grid") {
             let grid = if camera.zoom < 5.0 { 5.0 } else { 1.0 };
@@ -387,6 +395,20 @@ impl App {
             FontId::monospace(10.0),
             self.muted(),
         );
+        if let Some(focus) = &focus {
+            let label = match focus.as_str() {
+                "copper:front" => "Top copper".to_owned(),
+                "copper:back" => "Bottom copper".to_owned(),
+                _ => focus.trim_start_matches("art:").to_owned(),
+            };
+            painter.text(
+                rect.left_top() + Vec2::new(20.0, 40.0),
+                Align2::LEFT_TOP,
+                format!("FOCUSED ON {label} · tap the row again to show everything"),
+                FontId::monospace(10.0),
+                self.accent(),
+            );
+        }
         if let Some(pos) = cursor {
             let snapped = snap(pos);
             match &self.tool {
@@ -764,6 +786,34 @@ impl App {
     /// Draw the shapes the designer put on their own layers. Cut layers read
     /// as a strong outline, perforation layers are dotted so they say
     /// "break apart here", and the rest stay quiet so copper stays loudest.
+    /// Keep only what a focused tree row points at: one copper face or one
+    /// drawn machine layer. Everything else falls back to plain board colour.
+    fn apply_layer_focus(p: &mut Project, focus: &str) {
+        let board = &mut p.board;
+        match focus.strip_prefix("copper:") {
+            Some("front") => {
+                board.tracks.retain(|t| t.layer == Layer::Front);
+                board.zones.retain(|z| z.layer == Layer::Front);
+                board.texts.retain(|t| t.layer == Layer::Front);
+                board.vias.clear();
+            }
+            Some("back") => {
+                board.tracks.retain(|t| t.layer == Layer::Back);
+                board.zones.retain(|z| z.layer == Layer::Back);
+                board.texts.retain(|t| t.layer == Layer::Back);
+                board.vias.clear();
+            }
+            _ => {}
+        }
+        if let Some(name) = focus.strip_prefix("art:") {
+            board.tracks.clear();
+            board.zones.clear();
+            board.texts.clear();
+            board.vias.clear();
+            board.user_layers.retain(|l| l.name == name);
+        }
+    }
+
     fn draw_user_layers(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
         for layer in &p.board.user_layers {
             if !layer.visible {
