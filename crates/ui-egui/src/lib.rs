@@ -1573,9 +1573,14 @@ impl App {
                                 .color(self.accent()),
                         );
                         let fields = ui.add(
-                            egui::TextEdit::singleline(&mut self.params)
-                                .hint_text("parameters as JSON")
-                                .desired_width(380.0),
+                            egui::TextEdit::multiline(&mut self.params)
+                                .hint_text("parameters as JSON, one line per value reads easiest")
+                                .desired_width(380.0)
+                                .desired_rows(3)
+                                .interactive(true),
+                        )
+                        .on_hover_text(
+                            "Edit the parameters here; Enter adds a new line so long lists stay readable, and Ctrl+Enter or Execute runs the command.",
                         );
                         if ui
                             .button("Execute")
@@ -1610,13 +1615,17 @@ impl App {
                             self.command = spec.id.into();
                             self.params = params_template(spec);
                             fields.request_focus();
-                        } else if enter && fields.lost_focus() {
+                        } else if enter
+                            && ((ui.input(|i| i.modifiers.ctrl || i.modifiers.command)
+                                && fields.has_focus())
+                                || fields.lost_focus())
+                        {
                             self.execute_palette_params();
                         }
                     });
                     ui.label(
                         egui::RichText::new(format!(
-                            "{} of {} commands match; click one to load it with a starter parameter set, or step the highlight with Up and Down and press Enter in the search box to load it",
+                            "{} of {} commands match; click one to load it with a starter parameter set, or step the highlight with Up and Down and press Enter in the search box to load it. In the parameter box, Enter writes a new line and Ctrl+Enter runs the command.",
                             matches.len(),
                             pcbcraft_engine::commands().len()
                         ))
@@ -2473,6 +2482,28 @@ mod tests {
             app.checks.get("erc").is_some() && app.checks.get("drc").is_some(),
             "the checks tab has real results to show"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_command_with_a_multi_line_parameter_box_still_runs() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+        app.refresh();
+        app.command = "board.set_outline".into();
+        app.params = "{\n  \"points\": [\n    { \"x\": 0.0, \"y\": 0.0 },\n    { \"x\": 80.0, \"y\": 0.0 },\n    { \"x\": 80.0, \"y\": 50.0 },\n    { \"x\": 0.0, \"y\": 50.0 }\n  ]\n}".into();
+        app.execute_palette_params();
+        assert!(
+            app.message.contains("committed"),
+            "a boxed outline typed over several lines runs just the same"
+        );
+        let width = shared
+            .lock()
+            .map_err(|_| "session unavailable")?
+            .project
+            .board
+            .width;
+        assert!(width > 70.0, "the outline from the box sized the board");
         Ok(())
     }
 
