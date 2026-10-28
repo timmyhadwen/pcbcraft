@@ -76,7 +76,7 @@ fn spotlight(lit: Option<Id>, net: Option<Id>, base: Color32, hot: Color32) -> C
     }
 }
 
-fn snap(p: Point) -> Point {
+pub(crate) fn snap(p: Point) -> Point {
     Point::new((p.x * 2.0).round() / 2.0, (p.y * 2.0).round() / 2.0)
 }
 fn fill_polygon(painter: &egui::Painter, points: &[Pos2], color: Color32, clip: Rect) {
@@ -287,7 +287,10 @@ impl App {
         }
     }
     pub(super) fn canvas(&mut self, ui: &mut egui::Ui) {
-        let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
+        let (response, painter) = ui.allocate_painter(
+            ui.available_size(),
+            Sense::click_and_drag().union(Sense::hover()),
+        );
         let rect = response.rect;
         let mut camera = if self.tab == Tab::Pcb {
             self.pcb
@@ -326,6 +329,15 @@ impl App {
         }
         let cursor = response.hover_pos().map(|p| camera.world(p, rect));
         self.cursor = cursor;
+        if let Some(released) = response.dnd_release_payload::<Value>() {
+            let world = response
+                .hover_pos()
+                .or_else(|| ui.input(|i| i.pointer.hover_pos()))
+                .map(|p| camera.world(p, rect));
+            if let Some(world) = world {
+                self.place_dropped_library(&released, world);
+            }
+        }
         let mut visible = self.project.clone();
         if let Some((id, pos)) = self.drag {
             if let Some(c) = visible.components.iter_mut().find(|c| c.id == id) {
@@ -405,6 +417,19 @@ impl App {
                 rect.left_top() + Vec2::new(20.0, 40.0),
                 Align2::LEFT_TOP,
                 format!("FOCUSED ON {label} · tap the row again to show everything"),
+                FontId::monospace(10.0),
+                self.accent(),
+            );
+        }
+        if let Some(hovered) = response.dnd_hover_payload::<Value>() {
+            let name = hovered
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("part");
+            painter.text(
+                rect.left_top() + Vec2::new(20.0, 38.0),
+                Align2::LEFT_TOP,
+                format!("RELEASE TO PLACE {name} WHERE THE POINTER IS"),
                 FontId::monospace(10.0),
                 self.accent(),
             );
@@ -1800,13 +1825,15 @@ impl App {
             for pad in f.pads.iter().filter(|_| shown("Pads")) {
                 if let Some(pos) = f.pad_position(&pad.number) {
                     let center = camera.screen(pos, rect);
-                    painter.add(egui::Shape::convex_polygon(
-                        pad.outline_points()
-                            .into_iter()
-                            .map(|p| camera.screen(f.position.offset(p.rotate(-f.rotation)), rect))
-                            .collect(),
+                    let outline: Vec<Pos2> = pad
+                        .outline_points()
+                        .into_iter()
+                        .map(|p| camera.screen(f.position.offset(p.rotate(-f.rotation)), rect))
+                        .collect();
+                    painter.add(pad_shape(
+                        outline,
+                        pad.outline_is_convex(),
                         self.copper(pad.net, Color32::from_rgb(230, 194, 125)),
-                        Stroke::NONE,
                     ));
                     let hole = pad.drill_outline_points();
                     if !hole.is_empty() {
@@ -1885,6 +1912,32 @@ impl App {
             self.muted(),
         );
     }
+}
+
+/// Filled pad copper. Convex outlines use egui's convex fill; custom polygon
+/// pads may be concave, so they are ear-clip triangulated into a mesh.
+fn pad_shape(mut outline: Vec<Pos2>, convex: bool, color: Color32) -> egui::Shape {
+    if !convex {
+        if outline.len() > 1 && outline.first() == outline.last() {
+            outline.pop();
+        }
+        let points: Vec<Point> = outline
+            .iter()
+            .map(|p| Point::new(p.x as f64, p.y as f64))
+            .collect();
+        let triangles = pcbcraft_geom::triangulate(&points);
+        if !triangles.is_empty() {
+            let mut mesh = egui::Mesh::default();
+            for p in &outline {
+                mesh.colored_vertex(*p, color);
+            }
+            for [a, b, c] in triangles {
+                mesh.add_triangle(a as u32, b as u32, c as u32);
+            }
+            return egui::Shape::mesh(mesh);
+        }
+    }
+    egui::Shape::convex_polygon(outline, color, Stroke::NONE)
 }
 
 #[cfg(test)]

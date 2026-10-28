@@ -282,6 +282,7 @@ impl App {
                         ) {
                             changed |= ui
                                 .selectable_value(&mut self.library.path, path.to_owned(), name)
+                                .on_hover_text("Browse this collection.")
                                 .changed();
                         }
                     }
@@ -403,7 +404,10 @@ impl App {
             egui::ScrollArea::vertical().id_salt("library-results").max_height(360.0).show(left,|ui| {
                 for item in shown {
                     let name=item.get("name").and_then(Value::as_str).unwrap_or("");
-                    if ui.add_enabled(!busy,egui::Button::new(name).selected(self.library.preview.as_ref().and_then(|v|v.pointer("/definition/name")).and_then(Value::as_str)==Some(name))).clicked() {
+                    let response = ui.add_enabled(!busy,egui::Button::new(name).selected(self.library.preview.as_ref().and_then(|v|v.pointer("/definition/name")).and_then(Value::as_str)==Some(name)));
+                    let path=item.get("path").and_then(Value::as_str).unwrap_or(&self.library.path);
+                    response.dnd_set_drag_payload(json!({"kind": item.get("kind").and_then(Value::as_str).unwrap_or("symbol"), "name": name, "path": path}));
+                    if response.clicked() {
                         self.library.preview=None;
                         let path=item.get("path").and_then(Value::as_str).unwrap_or(&self.library.path);
                         let (tool,args)=if self.library.kind {("library.inspect_footprint",json!({"path":path,"include_source":true}))} else {("library.inspect_symbol",json!({"path":path,"name":name,"include_source":true}))};
@@ -470,7 +474,8 @@ impl App {
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Preview unit");
                     for unit in units {
-                        ui.selectable_value(&mut self.library.preview_unit, unit, unit.to_string());
+                        ui.selectable_value(&mut self.library.preview_unit, unit, unit.to_string())
+                            .on_hover_text("Draw this half of the part in the preview.");
                     }
                 });
             }

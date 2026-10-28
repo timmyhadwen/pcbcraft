@@ -47,8 +47,8 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_footprints","description":"Write every project-library footprint to a directory as one library text file each, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.export_symbols","description":"Write every project-library symbol to a directory as one library symbol text file each, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"plot_csv.write","description":"Write a fabrication plot report CSV (per copper layer: element counts and bounding box in millimetres, plus a totals row) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"library.catalog","description":"Discover installed KiCad symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
-        json!({"name":"library.search","description":"Search a KiCad symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
+        json!({"name":"library.catalog","description":"Discover installed symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
+        json!({"name":"library.search","description":"Search a symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
         json!({"name":"library.inspect_footprint","description":"Read footprint graphics/pads/drills; include_source preserves up to 512KiB of original nodes","inputSchema":object(json!({"path":{"type":"string"},"include_source":{"type":"boolean"}}),&["path"])}),
         json!({"name":"design.recents","description":"List the design files this computer opened or saved most recently, newest first, for one-click reopening","inputSchema":object(json!({}),&[])}),
@@ -511,6 +511,8 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             }
             let text = match format {
                 "kicad_pcb" => pcbcraft_io::kicad_board(&s.project)?,
+                "gerber_f_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Front)?,
+                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Back)?,
                 "svg" => pcbcraft_io::svg(
                     &s.project,
                     args.get("view").and_then(Value::as_str).unwrap_or("pcb"),
