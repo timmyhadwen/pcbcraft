@@ -17,6 +17,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   docs         rustdoc with warnings denied
   deny         cargo-deny licenses, advisories, bans and sources
   msrv         check the workspace with the declared rust-version toolchain
+  bless-parity regenerate the reference-project parity goldens
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
@@ -428,6 +429,11 @@ fn run() -> Result<(), String> {
         "deny" => deny()?,
         "msrv" => msrv()?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
+        "bless-parity" => run_env(
+            "cargo",
+            &["test", "-p", "pcbcraft-engine", "--test", "parity"],
+            &[("PCBCRAFT_BLESS", "1")],
+        )?,
         "help" | "--help" | "-h" => println!("{USAGE}"),
         _ => return Err(USAGE.into()),
     }
