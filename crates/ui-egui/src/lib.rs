@@ -461,6 +461,7 @@ pub struct App {
     fiducial_edit: Option<(Id, f64, bool)>,
     renumber_prefix: Option<String>,
     track_width: f64,
+    chamfer_size: f64,
     teardrop_depth: f64,
     panel_columns: usize,
     panel_rows: usize,
@@ -682,6 +683,7 @@ impl App {
             fiducial_edit: None,
             renumber_prefix: None,
             track_width: 0.25,
+            chamfer_size: 0.25,
             teardrop_depth: 0.5,
             panel_columns: 2,
             panel_rows: 2,
@@ -3366,6 +3368,28 @@ impl App {
                             self.project.board.tracks.iter().find(|t| t.id == id)
                         {
                             let curved = track.arc.is_some();
+                            let near = |a: Point, b: Point| {
+                                (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
+                            };
+                            let span = |a: Point, b: Point| {
+                                ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
+                            };
+                            let own_len = span(track.start, track.end);
+                            let mate = self
+                                .project
+                                .board
+                                .tracks
+                                .iter()
+                                .filter(|o| o.id != id && o.net == track.net)
+                                .filter_map(|o| {
+                                    let joined = near(o.start, track.start)
+                                        || near(o.start, track.end)
+                                        || near(o.end, track.start)
+                                        || near(o.end, track.end);
+                                    joined.then(|| (o.id, span(o.start, o.end)))
+                                })
+                                .min_by(|a, b| a.1.total_cmp(&b.1));
+                            let max_cut = mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
                             ui.add_space(10.0);
                             ui.label("Wire width");
                             ui.add(
@@ -3401,6 +3425,35 @@ impl App {
                             {
                                 self.run("track.straighten", json!({"id": id}));
                             }
+                            let corner_ready = mate.is_some();
+                            ui.horizontal(|ui| {
+                                ui.add_enabled(
+                                    corner_ready,
+                                    egui::DragValue::new(&mut self.chamfer_size)
+                                        .range(0.05..=1.5)
+                                        .speed(0.05)
+                                        .suffix(" mm"),
+                                )
+                                .on_hover_text(
+                                    "How far back from the sharp corner the diagonal cut starts.",
+                                );
+                                if ui
+                                    .add_enabled(corner_ready, egui::Button::new("Cut corner"))
+                                    .on_hover_text(if corner_ready {
+                                        "Trade the sharp angle where two wires meet for a diagonal, so the etch comes out cleaner. Undo brings the corner back."
+                                    } else {
+                                        "This wire does not meet another wire of the same connection end to end, so there is no corner to cut."
+                                    })
+                                    .clicked()
+                                    && let Some((other, _)) = mate
+                                {
+                                    let size = self.chamfer_size.min(max_cut);
+                                    self.run(
+                                        "track.chamfer",
+                                        json!({"a": id, "b": other, "size": size}),
+                                    );
+                                }
+                            });
                         }
                     }
                     ui.add_space(10.0);
@@ -5536,6 +5589,55 @@ mod tests {
             teardrops(&app),
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_smooths_a_corner_for_the_etcher() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        let (id, middle, before) = app
+            .project
+            .board
+            .tracks
+            .first()
+            .map(|t| {
+                (
+                    t.id,
+                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
+                    app.project.board.tracks.len(),
+                )
+            })
+            .ok_or("routing should leave a corner to smooth")?;
+        app.change_tab(Tab::Pcb);
+        app.canvas_click(middle, 15.0);
+        assert_eq!(
+            app.selected,
+            Some(id),
+            "the first leg of the route is picked up: {}",
+            app.message
+        );
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Cut corner")?,
+            "a wire that meets another offers a corner cut: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Cut corner")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            app.project.board.tracks.len() > before,
+            "the cut adds a diagonal so the run turns gently: {}",
             app.message
         );
         Ok(())
