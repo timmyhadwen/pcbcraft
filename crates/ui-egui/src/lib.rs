@@ -361,6 +361,41 @@ impl Default for Preferences {
         }
     }
 }
+/// The copper length of a track segment in millimetres, following the bow
+/// of an arc when the segment carries one.
+fn track_length(track: &pcbcraft_doc::Track) -> f64 {
+    let straight =
+        ((track.end.x - track.start.x).powi(2) + (track.end.y - track.start.y).powi(2)).sqrt();
+    let Some(mid) = track.arc else {
+        return straight;
+    };
+    let (sx, sy) = (track.start.x, track.start.y);
+    let (ex, ey) = (track.end.x, track.end.y);
+    let d = 2.0 * (sx * (ey - mid.y) + ex * (mid.y - sy) + mid.x * (sy - ey));
+    if d.abs() < 1e-12 {
+        return straight;
+    }
+    let s2 = sx * sx + sy * sy;
+    let e2 = ex * ex + ey * ey;
+    let m2 = mid.x * mid.x + mid.y * mid.y;
+    let ux = (s2 * (ey - mid.y) + e2 * (mid.y - sy) + m2 * (sy - ey)) / d;
+    let uy = (s2 * (mid.x - ex) + e2 * (sx - mid.x) + m2 * (ex - sx)) / d;
+    let radius = ((sx - ux).powi(2) + (sy - uy).powi(2)).sqrt();
+    let angle = |x: f64, y: f64| (y - uy).atan2(x - ux);
+    let wrap = |mut a: f64| {
+        while a > std::f64::consts::PI {
+            a -= std::f64::consts::TAU;
+        }
+        while a < -std::f64::consts::PI {
+            a += std::f64::consts::TAU;
+        }
+        a
+    };
+    radius
+        * (wrap(angle(mid.x, mid.y) - angle(sx, sy)).abs()
+            + wrap(angle(ex, ey) - angle(mid.x, mid.y)).abs())
+}
+
 /// A held-off renumbering: the letter filter and the planned old/new pairs.
 type RenumberPlan = (Option<String>, Vec<(String, String)>);
 #[derive(Clone, Debug)]
@@ -2348,6 +2383,30 @@ impl App {
                 .map(|n| n.id);
         }
         ui.add_space(4.0);
+        let mut lengths: std::collections::BTreeMap<Id, (f64, usize)> = Default::default();
+        for track in &self.project.board.tracks {
+            let entry = lengths.entry(track.net).or_insert((0.0, 0));
+            entry.0 += track_length(track);
+        }
+        for via in &self.project.board.vias {
+            let entry = lengths.entry(via.net).or_insert((0.0, 0));
+            entry.1 += 1;
+        }
+        if !self.project.nets.is_empty() {
+            let total: f64 = lengths.values().map(|(length, _)| *length).sum();
+            let routed = lengths.len();
+            ui.label(
+                egui::RichText::new(format!(
+                    "{total:.1} mm of copper \u{b7} {routed} of {} nets routed",
+                    self.project.nets.len()
+                ))
+                .small()
+                .color(self.muted()),
+            )
+            .on_hover_text(
+                "Total routed copper on the board, and how many connections still need tracks.",
+            );
+        }
         for net in self.project.nets.clone() {
             let lit = self.highlight_net == Some(net.id);
             let renaming = self.net_draft.as_ref().is_some_and(|(id, _)| *id == net.id);
@@ -2414,6 +2473,25 @@ impl App {
                     {
                         self.net_editor = if open { None } else { Some(net.id) };
                         self.pin_pick = None;
+                    }
+                    if let Some((length, vias)) = lengths.get(&net.id) {
+                        ui.label(
+                            egui::RichText::new(format!("{length:.1} mm \u{b7} {vias} vias"))
+                                .small()
+                                .color(self.muted()),
+                        )
+                        .on_hover_text(
+                            "Copper already routed for this net on the board.",
+                        );
+                    } else {
+                        ui.label(
+                            egui::RichText::new("not routed yet")
+                                .small()
+                                .color(self.muted()),
+                        )
+                        .on_hover_text(
+                            "This connection has no copper on the board yet; the dashed lines on the sheet show where it needs to go.",
+                        );
                     }
                 }
             });
@@ -5133,6 +5211,38 @@ mod tests {
         assert!(
             app.project.board.layer_records.is_empty(),
             "the stackup notes are forgotten: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_nets_tab_reports_the_copper_each_net_carries() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.run(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Nets")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "of 3 nets routed")?,
+            "the dock totals the routing at a glance: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "not routed yet")?,
+            "a connection without copper says so plainly: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "mm")?,
+            "routed lengths are spelled out in millimetres: {}",
             app.message
         );
         Ok(())
