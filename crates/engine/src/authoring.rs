@@ -31,6 +31,10 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.graphic_clear","Remove artwork from a project-library footprint in one undoable step: give a layer to clear just that layer's graphics, or omit it to clear every graphic, so stale silk and fab art can be wiped before redrawing",schema(json!({"name":{"type":"string"},"layer":{"type":"string","description":"layer to clear; omit to clear all graphics"}}),&["name"])),
         ("library.symbol.graphic_add","Draw one graphic (line, rectangle, circle, arc, polyline or text) onto one unit of a project-library symbol as one undoable step, the way a symbol gains body art, pin decorations or documentation text; it travels with every embedded copy until symbol.refresh spreads it",schema(json!({"name":{"type":"string"},"unit":{"type":"integer","description":"symbol unit the graphic belongs to; defaults to 1"},"body_style":{"type":"integer","description":"body style the graphic belongs to; defaults to 1"},"graphic":{"type":"object","description":"a graphic primitive as library readers emit it: kind with its points, width, layer and optional fill"}}),&["name","graphic"])),
         ("library.symbol.graphic_clear","Remove one unit's artwork from a project-library symbol in one undoable step, so stale symbol art can be wiped before redrawing; the unit keeps its pins",schema(json!({"name":{"type":"string"},"unit":{"type":"integer","description":"symbol unit whose graphics clear; defaults to 1"}}),&["name"])),
+        ("library.footprint.graphic_set","Replace one graphic on a project-library footprint by its position in the artwork list, as one undoable step, so a single stale silk or fab element can be corrected without clearing and redrawing the rest",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"},"graphic":{"type":"object","description":"the replacement graphic primitive, as library readers emit it"}}),&["name","index","graphic"])),
+        ("library.footprint.graphic_remove","Remove one graphic from a project-library footprint by its position in the artwork list, as one undoable step, so a single stale silk or fab element can be deleted without clearing the rest",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"}}),&["name","index"])),
+        ("library.symbol.graphic_set","Replace one graphic on a project-library symbol by its position in the artwork list, as one undoable step, keeping the unit it belongs to, so a single wrong symbol element can be corrected without clearing and redrawing the rest",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"graphic":{"type":"object","description":"the replacement graphic primitive, as library readers emit it"}}),&["name","index","graphic"])),
+        ("library.symbol.graphic_remove","Remove one graphic from a project-library symbol by its position in the artwork list, as one undoable step, so a single wrong symbol element can be deleted without clearing the rest",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"}}),&["name","index"])),
         ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords or linked footprint one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"}}),&["name"])),
         ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
         ("library.symbol.rename","Rename a project-library symbol in place as one undoable step, keeping every pin and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
@@ -161,6 +165,19 @@ struct SetPropertyParams {
 struct GraphicAddParams {
     name: String,
     graphic: Graphic,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicSetParams {
+    name: String,
+    index: usize,
+    graphic: Graphic,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicRemoveParams {
+    name: String,
+    index: usize,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1101,6 +1118,107 @@ pub(super) fn run(
                 "removed": graphics.0 - graphics.1,
                 "graphics": graphics.1
             }))
+        }
+        "library.footprint.graphic_set" | "library.symbol.graphic_set" => {
+            let a: GraphicSetParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            let layer = graphic_layer(&a.graphic)?;
+            let name = a.name.clone();
+            let graphics = if command == "library.symbol.graphic_set" {
+                let symbol = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let Some(art) = symbol.graphics.get_mut(a.index) else {
+                    return Err(Error::Invalid(format!(
+                        "artwork position {} is outside the 0 to {} this symbol has",
+                        a.index,
+                        symbol.graphics.len().saturating_sub(1)
+                    )));
+                };
+                art.primitive = a.graphic;
+                symbol
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                symbol.graphics.len()
+            } else {
+                let footprint = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let Some(art) = footprint.graphics.get_mut(a.index) else {
+                    return Err(Error::Invalid(format!(
+                        "artwork position {} is outside the 0 to {} this package has",
+                        a.index,
+                        footprint.graphics.len().saturating_sub(1)
+                    )));
+                };
+                *art = a.graphic;
+                footprint
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                footprint.graphics.len()
+            };
+            p.library.validate()?;
+            Ok(json!({"name": name, "index": a.index, "layer": layer, "graphics": graphics}))
+        }
+        "library.footprint.graphic_remove" | "library.symbol.graphic_remove" => {
+            let a: GraphicRemoveParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            let name = a.name.clone();
+            let graphics = if command == "library.symbol.graphic_remove" {
+                let symbol = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                if a.index >= symbol.graphics.len() {
+                    return Err(Error::Invalid(format!(
+                        "artwork position {} is outside the 0 to {} this symbol has",
+                        a.index,
+                        symbol.graphics.len().saturating_sub(1)
+                    )));
+                }
+                symbol.graphics.remove(a.index);
+                symbol
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                symbol.graphics.len()
+            } else {
+                let footprint = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                if a.index >= footprint.graphics.len() {
+                    return Err(Error::Invalid(format!(
+                        "artwork position {} is outside the 0 to {} this package has",
+                        a.index,
+                        footprint.graphics.len().saturating_sub(1)
+                    )));
+                }
+                footprint.graphics.remove(a.index);
+                footprint
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                footprint.graphics.len()
+            };
+            p.library.validate()?;
+            Ok(json!({"name": name, "index": a.index, "graphics": graphics}))
         }
         "library.symbol.set_properties" | "library.footprint.set_properties" => {
             let a: SetPropertyParams = parse(params)?;
