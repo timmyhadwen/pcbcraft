@@ -623,6 +623,36 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
             .and_then(|v| v.as_str().map(str::to_string))
             .unwrap_or_default()
     };
+    let clearance_rows = |net: Id, rows: &mut Vec<(String, String)>| {
+        let base = project.board.clearance;
+        let class = project.net_class(net);
+        let (value, source) = match class {
+            Some(c) if c.clearance > base => (c.clearance, format!("the usual gap for {}", c.name)),
+            Some(c) => (
+                base,
+                format!("the board's usual gap, {} asks no more", c.name),
+            ),
+            None => (base, "the board's usual gap".to_string()),
+        };
+        rows.push(("Clearance".into(), format!("{value:.3} mm · {source}")));
+        let stricter: Vec<String> = project
+            .board
+            .pair_rules
+            .iter()
+            .filter(|r| (r.a == net || r.b == net) && r.clearance > value)
+            .map(|r| {
+                let other = if r.a == net { r.b } else { r.a };
+                format!(
+                    "{:.3} mm away from {}",
+                    r.clearance,
+                    project.net_name(other)
+                )
+            })
+            .collect();
+        if !stricter.is_empty() {
+            rows.push(("Special gaps".into(), stricter.join(" · ")));
+        }
+    };
     let mut rows: Vec<(String, String)> = Vec::new();
     if let Some(t) = project.board.tracks.iter().find(|t| t.id == id) {
         rows.push(("Net".into(), format!("{} · follows the wiring", net(t.net))));
@@ -639,6 +669,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
             None => format!("{:.3} mm · chosen for this wire", t.width),
         };
         rows.push(("Width".into(), width_note));
+        clearance_rows(t.net, &mut rows);
         rows.push((
             "From".into(),
             format!("{:.2}, {:.2} mm", t.start.x, t.start.y),
@@ -651,6 +682,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        clearance_rows(v.net, &mut rows);
         rows.push((
             "Position".into(),
             format!("{:.2}, {:.2} mm", v.position.x, v.position.y),
@@ -658,6 +690,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
     } else if let Some(z) = project.board.zones.iter().find(|z| z.id == id) {
         rows.push(("Net".into(), net(z.net)));
         rows.push(("Layer".into(), layer(&z.layer)));
+        clearance_rows(z.net, &mut rows);
         rows.push((
             "Copper".into(),
             if z.filled {
@@ -7350,6 +7383,48 @@ mod tests {
         assert!(
             paints_text(&ctx, &mut app, &own)?,
             "after widening one wire the panel should say it is no longer the class default ({own}): {}",
+            app.message
+        );
+        let equal = "0.200 mm · the board's usual gap, Power asks no more".to_string();
+        assert!(
+            paints_text(&ctx, &mut app, &equal)?,
+            "a class that asks no more than the board should say the gap is the board's ({equal}): {}",
+            app.message
+        );
+        let class_id = app
+            .project
+            .net_classes
+            .iter()
+            .find(|c| c.name == "Power")
+            .map(|c| c.id)
+            .ok_or("the class should still exist")?;
+        app.tool_call(
+            "netclass.clearance",
+            json!({"class": class_id, "clearance": 0.35}),
+        );
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let usual_gap = "0.350 mm · the usual gap for Power".to_string();
+        assert!(
+            paints_text(&ctx, &mut app, &usual_gap)?,
+            "a stricter class should own the gap note ({usual_gap}): {}",
+            app.message
+        );
+        let (other_id, other_name) = app
+            .project
+            .nets
+            .iter()
+            .find(|n| n.id != net)
+            .map(|n| (n.id, n.name.clone()))
+            .ok_or("the practice board should have another net")?;
+        app.tool_call(
+            "board.set_pair_rule",
+            json!({"net_a": net, "net_b": other_id, "clearance": 0.5}),
+        );
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let special = format!("0.500 mm away from {other_name}");
+        assert!(
+            paints_text(&ctx, &mut app, &special)?,
+            "a rule between two named nets should be listed beside the wire ({special}): {}",
             app.message
         );
         Ok(())
