@@ -470,6 +470,13 @@ pub struct App {
     dp_p: Id,
     dp_n: Id,
     dp_gap: f64,
+    area_x: f64,
+    area_y: f64,
+    area_w: f64,
+    area_h: f64,
+    area_gap: f64,
+    area_limited: bool,
+    area_height: f64,
     cut_x: f64,
     cut_y: f64,
     cut_r: f64,
@@ -708,6 +715,13 @@ impl App {
             dp_p: 0,
             dp_n: 0,
             dp_gap: 0.2,
+            area_x: 10.0,
+            area_y: 10.0,
+            area_w: 20.0,
+            area_h: 12.0,
+            area_gap: 0.2,
+            area_limited: false,
+            area_height: 5.0,
             cut_x: 25.0,
             cut_y: 15.0,
             cut_r: 1.5,
@@ -3179,6 +3193,130 @@ impl App {
                         .clicked()
                     {
                         self.run("board.remove_diffpair", json!({"id": id}));
+                    }
+                });
+            }
+        }
+        ui.add_space(10.0);
+        ui.label(
+            egui::RichText::new("BOARD AREAS")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "A corner of the board that plays by stricter rules: wider gaps, and optionally a height limit for what fits under a cover.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        ui.horizontal(|ui| {
+            ui.label("Corner");
+            ui.add(
+                egui::DragValue::new(&mut self.area_x)
+                    .speed(0.5)
+                    .suffix(" mm"),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.area_y)
+                    .speed(0.5)
+                    .suffix(" mm"),
+            );
+            ui.label("Size");
+            ui.add(
+                egui::DragValue::new(&mut self.area_w)
+                    .speed(0.5)
+                    .range(1.0..=500.0)
+                    .suffix(" mm"),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.area_h)
+                    .speed(0.5)
+                    .range(1.0..=500.0)
+                    .suffix(" mm"),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Copper stays apart by at least");
+            ui.add(
+                egui::DragValue::new(&mut self.area_gap)
+                    .range(0.05..=25.0)
+                    .speed(0.05)
+                    .suffix(" mm"),
+            )
+            .on_hover_text(
+                "The minimum separation demanded between copper pieces inside this area.",
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.area_limited, "Parts here stand no taller than")
+                .on_hover_text(
+                    "For boards that must fit under a cover: anything placed here taller than the limit is reported.",
+                );
+            if self.area_limited {
+                ui.add(
+                    egui::DragValue::new(&mut self.area_height)
+                        .range(0.1..=100.0)
+                        .speed(0.5)
+                        .suffix(" mm"),
+                );
+            }
+        });
+        if ui
+            .button("Add area")
+            .on_hover_text(
+                "Marks this rectangle on the board with its own stricter rules. The checks watch it from now on, and undo erases the mark.",
+            )
+            .clicked()
+        {
+            let mut args = json!({
+                "clearance": self.area_gap,
+                "x": self.area_x,
+                "y": self.area_y,
+                "width": self.area_w,
+                "height": self.area_h,
+            });
+            if self.area_limited {
+                args["max_height"] = json!(self.area_height);
+            }
+            self.run("rules.area_add", args);
+        }
+        let areas: Vec<(Id, String, f64, Option<f64>)> = self
+            .project
+            .board
+            .rule_areas
+            .iter()
+            .map(|a| {
+                (
+                    a.id,
+                    a.name.clone().unwrap_or_else(|| {
+                        format!("area at {}, {}", a.region.x.round(), a.region.y.round())
+                    }),
+                    a.clearance,
+                    a.max_height,
+                )
+            })
+            .collect();
+        if !areas.is_empty() {
+            ui.label(
+                egui::RichText::new("Stricter areas on the board")
+                    .small()
+                    .color(self.muted()),
+            );
+            for (id, name, clearance, max_height) in areas {
+                ui.horizontal(|ui| {
+                    ui.label(format!(
+                        "{name} · gap {clearance} mm{}",
+                        max_height.map_or(String::new(), |h| format!(" · up to {h} mm tall"))
+                    ));
+                    if ui
+                        .small_button("Erase area")
+                        .on_hover_text(
+                            "This corner goes back to the board's normal rules; the copper stays as it is.",
+                        )
+                        .clicked()
+                    {
+                        self.run("rules.area_remove", json!({"id": id}));
                     }
                 });
             }
@@ -6293,6 +6431,80 @@ mod tests {
     }
 
     #[test]
+    fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let before = app.project.board.rule_areas.len();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        for _ in 0..22 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            paints_text(&ctx, &mut app, "BOARD AREAS")?,
+            "the rules dock should offer stricter corners: {}",
+            app.message
+        );
+        app.area_x = 1.0;
+        app.area_y = 1.0;
+        app.area_w = 4.0;
+        app.area_h = 4.0;
+        app.area_gap = 0.5;
+        app.area_limited = true;
+        app.area_height = 3.0;
+        authoring::tests::tap(&ctx, &mut app, "Add area")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            app.project.board.rule_areas.len(),
+            before + 1,
+            "one stricter corner is marked on the board: {}",
+            app.message
+        );
+        let area = app
+            .project
+            .board
+            .rule_areas
+            .last()
+            .ok_or("the area should be on the board")?;
+        assert!(
+            (area.clearance - 0.5).abs() < 1e-9 && area.max_height == Some(3.0),
+            "the area carries the gap and height limit that were typed"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Stricter areas on the board")?,
+            "the area is listed so it can be erased: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Erase area")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            app.project.board.rule_areas.len(),
+            before,
+            "erasing hands the corner back to the normal rules: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
     fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
@@ -6424,7 +6636,7 @@ mod tests {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         authoring::tests::tap(&ctx, &mut app, "Rules")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..8 {
+        for _ in 0..2 {
             frame(
                 &ctx,
                 &mut app,
