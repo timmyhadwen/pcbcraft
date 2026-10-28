@@ -384,6 +384,7 @@ pub struct App {
     appearance: bool,
     palette: bool,
     part_search: String,
+    svg_path: String,
     part_search_focus: bool,
     needs_fit: bool,
     schematic: Camera,
@@ -576,6 +577,7 @@ impl App {
             appearance: false,
             palette: false,
             part_search: String::new(),
+            svg_path: String::new(),
             part_search_focus: false,
             needs_fit: true,
             schematic: Camera {
@@ -1886,6 +1888,61 @@ impl App {
                         json!({"width":self.width,"height":self.height}),
                     );
                 }
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new("BOARD EDGE").size(10.0).color(self.muted()));
+                let corners = self.project.board.outline.as_ref().map_or(0, |o| o.len());
+                if corners >= 3 {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "A free shape with {corners} corners."
+                        ))
+                        .small()
+                        .color(self.muted()),
+                    );
+                    if ui
+                        .button("Back to a plain rectangle")
+                        .on_hover_text(
+                            "Trade the drawn board edge for the simple rectangle sized by W and H above.",
+                        )
+                        .clicked()
+                    {
+                        self.run("board.clear_outline", json!({}));
+                    }
+                }
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.svg_path)
+                            .hint_text("drawing file path (.svg)")
+                            .desired_width(150.0),
+                    )
+                    .on_hover_text(
+                        "A vector drawing whose edge can become the board outline, or whose shapes can be laid onto the board as artwork.",
+                    );
+                });
+                if ui
+                    .button("Import drawing")
+                    .on_hover_text(
+                        "Lay the shapes from the drawing file onto the board as editable artwork.",
+                    )
+                    .clicked()
+                {
+                    self.run(
+                        "svg.import",
+                        json!({"path": self.svg_path.clone(), "use_outline": false}),
+                    );
+                }
+                if ui
+                    .button("Import as board edge")
+                    .on_hover_text(
+                        "Trace the closed shape in the drawing file into the board outline.",
+                    )
+                    .clicked()
+                {
+                    self.run(
+                        "svg.import",
+                        json!({"path": self.svg_path.clone(), "use_outline": true}),
+                    );
+                }
                 ui.horizontal(|ui| {
                     ui.label("Cutout radius");
                     ui.add(
@@ -2590,6 +2647,46 @@ mod tests {
             }
         }
         Ok(false)
+    }
+
+    #[test]
+    fn a_drawn_shape_from_a_file_becomes_the_board_edge_and_back_again() -> Result<(), String> {
+        let file =
+            std::env::temp_dir().join(format!("pcbcraft-board-edge-{}.svg", std::process::id()));
+        std::fs::write(
+            &file,
+            r#"<svg width="30mm" height="20mm" stroke="none"><polygon points="1,1 29,1 29,19 15,19 1,12" stroke="edge"/><line x1="2mm" y1="2mm" x2="28mm" y2="2mm" stroke="artwork"/></svg>"#,
+        )
+        .map_err(|e| e.to_string())?;
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "BOARD EDGE")?,
+            "the board's edge lives in its own plain-language section"
+        );
+        app.svg_path = file.to_string_lossy().into_owned();
+        authoring::tests::tap(&ctx, &mut app, "Import as board edge")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let corners = app.project.board.outline.as_ref().map_or(0, |o| o.len());
+        assert!(
+            corners >= 3,
+            "the drawn shape became the board edge: {corners} corners"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Back to a plain rectangle")?,
+            "the shape explains itself and offers a way back"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Back to a plain rectangle")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.board.outline.is_none_or(|o| o.len() < 3),
+            "the board is a plain rectangle again"
+        );
+        let _ = std::fs::remove_file(&file);
+        Ok(())
     }
 
     #[test]
