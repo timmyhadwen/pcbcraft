@@ -1765,8 +1765,6 @@ mod tests {
                 layers: vec!["F.Cu".into()],
                 drill: None,
                 roundrect_ratio: None,
-                chamfer: None,
-                polygon: vec![],
                 raw_source: String::new(),
                 chamfer: None,
                 polygon: Vec::new(),
