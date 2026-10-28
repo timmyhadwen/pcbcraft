@@ -1768,6 +1768,8 @@ mod tests {
                 chamfer: None,
                 polygon: vec![],
                 raw_source: String::new(),
+                chamfer: None,
+                polygon: Vec::new(),
             }),
         }
     }
