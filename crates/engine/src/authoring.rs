@@ -41,6 +41,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.mirror","Flip a project-library symbol about the vertical axis as one undoable step, mirroring every pin and graphic and turning each graphic so its face follows, so a left-facing symbol becomes a right-facing one without rewriting the definition",schema(json!({"name":{"type":"string"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","axis"])),
         ("library.footprint.rotate","Turn a project-library footprint about its origin by any angle as one undoable step, swinging every pad and graphic together, so an imported package can be re-aimed without rewriting the definition",schema(json!({"name":{"type":"string"},"degrees":{"type":"number","description":"counter-clockwise turn in degrees about the footprint origin"}}),&["name","degrees"])),
         ("library.footprint.mirror","Flip a project-library footprint about the vertical axis as one undoable step, mirroring every pad and graphic and turning each so its face follows, so a package can be re-aimed without rewriting the definition",schema(json!({"name":{"type":"string"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","axis"])),
+        ("library.footprint.recenter","Slide a project-library footprint's whole shape by an offset as one undoable step, moving every pad, graphic and model anchor together so the origin lands where the package should be centred, without rewriting the definition",schema(json!({"name":{"type":"string"},"delta":point_schema()}),&["name","delta"])),
+        ("library.symbol.recenter","Slide a project-library symbol's whole shape by an offset as one undoable step, moving every pin and graphic together so the origin lands where the symbol should be centred, without rewriting the definition",schema(json!({"name":{"type":"string"},"delta":point_schema()}),&["name","delta"])),
         ("library.footprint.adopt","Copy a placed component's embedded footprint into the project library under a chosen name as one undoable step, so a package that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the package under"}}),&["id","name"])),
         ("library.symbol.adopt","Copy a placed component's embedded symbol into the project library under a chosen name as one undoable step, so a symbol that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the symbol under"}}),&["id","name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
@@ -98,6 +100,13 @@ struct PadSetParams {
     name: String,
     pad: FootprintPad,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecenterParams {
+    name: String,
+    delta: Point,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GeometryParams {
@@ -1328,6 +1337,88 @@ pub(super) fn run(
             p.validate()?;
             Ok(json!({"name": name, "pads": counts.0, "graphics": counts.1}))
         }
+        "library.footprint.recenter" | "library.symbol.recenter" => {
+            let a: RecenterParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            if !a.delta.x.is_finite()
+                || !a.delta.y.is_finite()
+                || a.delta.x.abs() > 1000.0
+                || a.delta.y.abs() > 1000.0
+            {
+                return Err(Error::Invalid(
+                    "offset must be finite and within 1000 mm".into(),
+                ));
+            }
+            let shift = |p: Point| -> Result<Point, Error> {
+                let moved = Point::new(p.x + a.delta.x, p.y + a.delta.y);
+                if moved.valid() {
+                    Ok(moved)
+                } else {
+                    Err(Error::Invalid(
+                        "the shifted shape left the board coordinate range".into(),
+                    ))
+                }
+            };
+            let name = a.name.clone();
+            if command == "library.symbol.recenter" {
+                let symbol = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|s| s.name == name)
+                    .ok_or_else(missing)?;
+                for pin in symbol.pins.iter_mut() {
+                    pin.position = shift(pin.position)?;
+                }
+                let mut count = 0;
+                for art in symbol.graphics.iter_mut() {
+                    shift_graphic(&mut art.primitive, &shift)?;
+                    count += 1;
+                }
+                let counts = (symbol.pins.len(), count);
+                symbol
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                p.library.validate()?;
+                p.validate()?;
+                return Ok(json!({"name": name, "pins": counts.0, "graphics": counts.1}));
+            }
+            let footprint = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == name)
+                .ok_or_else(missing)?;
+            for pad in footprint.pads.iter_mut() {
+                pad.position = shift(pad.position)?;
+                if let Some(drill) = &mut pad.drill {
+                    drill.offset = shift(drill.offset)?;
+                }
+            }
+            let mut count = 0;
+            for art in footprint.graphics.iter_mut() {
+                shift_graphic(art, &shift)?;
+                count += 1;
+            }
+            if let Some(model) = &mut footprint.model {
+                model.offset = [
+                    model.offset[0] - a.delta.x,
+                    model.offset[1] - a.delta.y,
+                    model.offset[2],
+                ];
+            }
+            let counts = (footprint.pads.len(), count);
+            footprint
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            p.library.validate()?;
+            p.validate()?;
+            Ok(json!({"name": name, "pads": counts.0, "graphics": counts.1}))
+        }
         "component.place_custom" => {
             let a: Place = parse(params)?;
             let def = p
@@ -1393,6 +1484,37 @@ fn graphic_layer(graphic: &Graphic) -> Result<String, Error> {
         return Err(Error::Invalid("layer must be 1 to 64 bytes".into()));
     }
     Ok(layer.clone())
+}
+
+fn shift_graphic(
+    g: &mut Graphic,
+    shift: &dyn Fn(Point) -> Result<Point, Error>,
+) -> Result<(), Error> {
+    match g {
+        Graphic::Line { start, end, .. } => {
+            *start = shift(*start)?;
+            *end = shift(*end)?;
+        }
+        Graphic::Rectangle { start, end, .. } => {
+            *start = shift(*start)?;
+            *end = shift(*end)?;
+        }
+        Graphic::Circle { center, .. } => *center = shift(*center)?,
+        Graphic::Arc {
+            start, mid, end, ..
+        } => {
+            *start = shift(*start)?;
+            *mid = shift(*mid)?;
+            *end = shift(*end)?;
+        }
+        Graphic::Polyline { points, .. } => {
+            for p in points.iter_mut() {
+                *p = shift(*p)?;
+            }
+        }
+        Graphic::Text { position, .. } => *position = shift(*position)?,
+    }
+    Ok(())
 }
 
 fn rot(p: Point, cos: f64, sin: f64) -> Result<Point, Error> {
