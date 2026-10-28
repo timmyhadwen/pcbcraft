@@ -2,7 +2,13 @@
 
 This file explains how work moves through the PCBCraft tracker, from a request to a merged change. It is written for people and for agents, including outside agents that claim issues on their own. If you only want to fix something small, read "Worker" and "Definition of Done" and skip the rest.
 
-Issues live upstream on tangency-labs/pcbcraft. Branches land first on the maintainer's fork, wdunn001/pcbcraft, whose `main` is the integration branch. Upstream `main` lags behind it until the maintainer has tested a change and a pull request is opened.
+**The codebase of record is the fork's `main`: github.com/wdunn001/pcbcraft, branch `main`.** Every upstream pull request and every contributor branch is merged into it, so it is the actual PCBCraft as it stands. Read code there, branch from it, merge the latest fork `main` into your branch before your final push, and resolve conflicts on your side. Upstream `main` on tangency-labs/pcbcraft lags behind it; upstream receives a pull request only after the maintainer has tested the integrated change.
+
+Issues live upstream on tangency-labs/pcbcraft. CI is GitHub Actions on the fork: pushing a branch there runs the whole gate, and the Actions run is the proof of a green build. In this file "fork/main" means that branch, and `Base: fork/main at <sha>` is the first line of every `### Research`, `### Enrichment` and `### Review` comment, so everyone names the same code.
+
+**Definition of done for the program:** a fully featured, complete build on the fork's `main` that contains every upstream pull request and every contributor branch, with as few conflicts as possible. A change is done when it is merged into fork `main` and the full GitHub Actions build on fork `main` is green. Everything else in this file serves that.
+
+**Start here.** Get the latest code from fork `main`. Find work on the upstream tracker: `gh issue list -R tangency-labs/pcbcraft --search "ready in:body" --state open`, then claim one with a `CLAIM` comment (section 3). Deliver by pushing a branch to a fork, waiting for a green Actions run, and posting a build report. Issues come first: nothing is built that is not an enriched, tagged issue. No upstream pull request is opened until the maintainer has tested the change.
 
 ## 1. The pipeline at a glance
 
@@ -16,11 +22,12 @@ Every piece of work becomes an issue before anyone touches code. The issue then 
                          research:n/a
 
  ready --> [worker claims] --> [worker builds] ---> branch pushed --------> [reviewer] ---------> [integrator]
-           CLAIM <agent>       own clone,            build report comment     ### Review            merge commit into
-           status:claimed      cargo xtask ci        "PR pending owner        approved or           fork main, CI green
-                               green                 review"                  changes requested
-                                                     status:in-progress ->
-                                                     status:needs-owner-test
+           CLAIM <agent>       own clone off          Actions run green        ### Review            merge commit into
+           status:claimed      fork/main, merges      build report comment     approved or           fork main, Actions
+                               fork/main before       "PR pending owner        changes requested     green on fork main
+                               the final push         review"                                        = DONE
+                                                      status:in-progress ->
+                                                      status:needs-owner-test
 
  fork main --> [owner test] --> upstream pull request --> upstream main
                owner runs the      one PR per feature,       status:pr-open,
@@ -33,10 +40,10 @@ Stages in words:
 2. **Research.** A researcher answers the standards, format, machine or reference-rule questions, posts a `### Research` comment, sets `research:done` and moves the issue to `stage:enrich`.
 3. **Enrichment.** An enricher verifies file and function names, lists every place to change, dependencies and order, the conflict lane, the test list, tooltips, text catalog, accessibility and logging needs, and splits the work into one-PR children. It posts `### Enrichment`, writes the full Tags line, sets `enrich:done` and replaces `stage:enrich` with `ready`.
 4. **Ready.** A worker may claim it. Workers claim only `ready` issues. Workers who share a build machine with others also need `conflict:parallel-safe`.
-5. **Work.** The worker claims, branches, builds, tests, pushes the branch to their fork, and posts a build report ending in "PR pending owner review".
+5. **Work.** The worker claims, branches off fork `main`, builds, tests, merges the latest fork `main` back in, pushes the branch, waits for the Actions run, and posts a build report ending in "PR pending owner review".
 6. **Review.** A reviewer checks the pushed branch against the acceptance criteria and posts `### Review`.
-7. **Integration.** The integrator merges the branch into the integration branch (the fork's `main`) with a merge commit, after CI is green.
-8. **Owner test.** The maintainer runs the integrated build. Only then does a pull request to upstream open.
+7. **Integration.** The integrator merges the branch into fork `main` with a merge commit. When the Actions build on fork `main` is green, the change is done.
+8. **Owner test.** The maintainer runs fork `main`. Only then does a pull request to upstream open.
 
 ## 2. Roles, step by step
 
@@ -74,15 +81,15 @@ To be completed by the enrichment stage.
 - Observable results, each one testable. Name the `a_newcomer_*` test for UI work.
 
 ### Rules for whoever picks this up
-- Work on a branch of your fork off current main; one PR per feature; PRs target tangency-labs/pcbcraft main.
+- Branch off fork main (wdunn001/pcbcraft) and merge the latest fork main into your branch before your final push. Push the branch; do not open a PR. The maintainer opens upstream PRs after testing.
 - New code and PR text may not name other EDA tools.
 - Typed engine commands with bounded validation; no unwrap/expect/panic anywhere, tests included.
-- `cargo xtask ci` must be green before pushing.
+- The GitHub Actions run on your pushed branch must be green; it is the proof.
 - Every new control gets a tooltip; panels keep real margins and padding.
 - End-to-end tests in crates/ui-egui are named like `a_newcomer_*` and must read like a story for someone who has never seen the app.
 
 ### Claiming
-Comment `CLAIM <agent-name>` to take this. If a claim is older than 5 days with no PR, anyone may ask to take it over.
+Comment `CLAIM <agent-name>` to take this. A coder's claim lasts 6 hours and any other stage's claim lasts 2 hours; renew with `CLAIM-RENEW <agent-name>`. An expired claim may be taken over.
 ```
 
 ### Researcher
@@ -99,6 +106,7 @@ Takes `stage:research` issues. The deliverable is a comment, not code.
    ```markdown
    ### Research
 
+   Base: fork/main at <sha>
    Already covered: #286 enrichment items 1, 2 and 6. New here: items 3 to 5.
    One line on what was read (specification name and revision, code paths).
 
@@ -119,7 +127,7 @@ Takes `stage:enrich` issues. The enricher owns the Tags line and makes the issue
    ```sh
    gh issue list -R tangency-labs/pcbcraft --search "stage:enrich in:body" --state open
    ```
-2. Read the code on the integration branch (the fork's `main`), or on the stacked branch the work must build on, and record which: the first line of the enrichment is `Base: <branch> at <sha>`. Anchors are file names plus function, type or constant names (`crates/doc/src/lib.rs: Pad::outline_points, Pad::bounding_radius`), never bare line numbers; line numbers go stale within a day on this repository, names can be grepped. Verify every anchor exists at the recorded commit before posting.
+2. Read the code on fork `main` and record the commit: the first line of the enrichment is `Base: fork/main at <sha>`. If the work must build on a branch not yet merged into fork `main`, say so on the next line (`Stacks on: feat-<slug> at <sha>`) and prefer to have that branch integrated first. Anchors are file names plus function, type or constant names (`crates/doc/src/lib.rs: Pad::outline_points, Pad::bounding_radius`), never bare line numbers; line numbers go stale within a day on this repository, names can be grepped. Verify every anchor exists at the recorded commit before posting.
 3. Post one `### Enrichment` comment. Paste the Definition of Ready checklist (section 4) at the top and tick it, with "n/a" and one word of reason where an item does not apply, then cover, in this order:
    - Corrections to the issue body (for example "there is no pad shape enum; shape is a free string in two places").
    - Every place that must change, grouped by crate, with anchors.
@@ -157,11 +165,11 @@ Read the issue body, every `### Research` and `### Enrichment` comment, and the 
 gh issue comment N -R tangency-labs/pcbcraft --body "CLAIM <agent>"
 ```
 
-Optionally add one or two lines of plan under the claim, as on #281. Then set `status:claimed` on the Tags line (section 3). Do not claim more than one issue at a time unless they are stacked children of one epic. A claim with no pushed branch after 5 days may be taken over by anyone who asks in a comment.
+Optionally add one or two lines of plan under the claim, as on #281. Then set `status:claimed` on the Tags line (section 3). Do not claim more than one issue at a time unless they are stacked children of one epic. Your lease is 6 hours; renew it with `CLAIM-RENEW <agent>`. An expired claim may be taken over.
 
 **Branch**
 
-One clone or worktree per agent. Never work in a checkout another agent is using. Branch off the current integration branch so you build on everything already merged:
+One clone or worktree per agent. Never work in a checkout another agent is using. Clone the codebase of record and branch off its `main`:
 
 ```sh
 git clone https://github.com/wdunn001/pcbcraft.git pcbcraft-<slug>
@@ -170,19 +178,29 @@ git remote add upstream https://github.com/tangency-labs/pcbcraft.git
 git checkout -b feat-<slug> origin/main
 ```
 
-Branch from the base the enrichment recorded (`Base: <branch> at <sha>`); it is the fork's `main` unless the enrichment says the work stacks on an unmerged branch. A branch whose merge-base differs from the recorded base fails review. Branch names follow section 7. If you do not have push access to the maintainer's fork, work on your own fork and push there; the report names the fork and branch.
+Branch from the base the enrichment recorded (`Base: fork/main at <sha>`, or the `Stacks on:` branch when there is one). Branch names follow section 7. If you do not have push access to the maintainer's fork, add it as a remote named `fork`, work on your own fork and push there; the report names the fork and branch.
+
+Before your final push, bring the latest fork `main` into your branch and resolve conflicts on your side, so the integrator receives a branch that merges cleanly:
+
+```sh
+git fetch origin main
+git merge origin/main
+# resolve, build, test, commit the merge
+```
+
+A branch that does not merge cleanly into fork `main` at review time goes back to the worker.
 
 **Build and test**
 
-Builds and the full test suite run on a build host or in CI, not on a developer laptop. Whatever machine you build on, run the whole gate before every push:
+CI is GitHub Actions on the fork, and it runs on every pushed branch. The Actions run is the proof of a green build; link it in your report. Running the gate yourself before pushing is optional and saves round trips:
 
 ```sh
 cargo xtask ci
 ```
 
-It runs formatting, dependency layer checks, clippy with warnings denied, the workspace tests (including the `a_newcomer_*` end-to-end tests) and the WebAssembly check. On the CI pipeline branch it also runs policy, docs, MSRV and license checks; see `docs/ci.md` there. If the build machine is shared, cap parallelism (`CARGO_BUILD_JOBS=4`) and keep your own target directory.
+It runs formatting, dependency layer checks, clippy with warnings denied, the workspace tests (including the `a_newcomer_*` end-to-end tests) and the WebAssembly check. Once the CI pipeline branch (#340) is merged, the Actions gate also runs policy, docs, MSRV and license checks, the full e2e suite and the screenshot sheet; `docs/ci.md` lists every job and its local command. If you build on a shared machine, cap parallelism (`CARGO_BUILD_JOBS=4`) and keep your own target directory; do not run full builds on a laptop when a build machine or Actions can do it.
 
-For UI changes, render and look at the result (section 6).
+For UI changes, look at the rendered result (section 6).
 
 **Push**
 
@@ -233,13 +251,15 @@ Checks each "PR pending owner review" branch against its issue before integratio
    ```sh
    gh issue list -R tangency-labs/pcbcraft --state open --search "status:needs-owner-test in:body"
    ```
-2. Fetch the branch into your own read-only clone and read the diff against its recorded base. Confirm the merge-base matches the `Base:` line in the enrichment; a mismatch is a fail. Run `cargo xtask ci` if the CI link in the report is missing, red or for a different commit.
+2. Fetch the branch into your own read-only clone and read the diff against its recorded base. Start the `### Review` with `Base: fork/main at <sha>`. Confirm the branch merges cleanly into current fork `main`; a branch that does not goes back to the worker. Check that the Actions run in the report is green and for the branch head; if it is missing or red, fail the branch.
 3. Walk the Acceptance list and the test list from the enrichment, running each named test. Check the rules in section 5 (no unwrap or panic, typed commands, validation bounds, no other tools named in the diff or in the comments, tooltips, margins, attribution). Confirm `crates/ui-egui/src/lib.rs` is untouched when the issue is `conflict:parallel-safe`. For UI work, open the screenshots. The reviewer reads and runs; it never edits the branch.
 4. Post one `### Review` comment:
    ```markdown
    ### Review
 
-   Branch feat-<slug> at <sha>, against <base> at <sha>.
+   Base: fork/main at <sha>
+
+   Branch feat-<slug> at <sha>.
 
    Acceptance:
    - [x] criterion, evidence (test name, file, screenshot)
@@ -263,16 +283,16 @@ One agent owns the integration branch, the fork's `main`. It merges every review
    git merge --no-ff feat-<slug>
    ```
 3. Resolve conflicts in the merge commit, keeping both sides' intent; if the resolution is not obvious, ask on both issues before pushing.
-4. Run `cargo xtask ci` on the merged tree before every push. Push only when green:
+4. Push the merge, then watch the GitHub Actions run on fork `main`. The change is done when that full build is green; if it is red, fix forward on a branch or report on the issue, and never rewrite `main`. Where a local run is cheap, run `cargo xtask ci` on the merged tree before the push:
    ```sh
    git push origin main
    ```
 5. Never rewrite the fork's `main`, never push to upstream, never open upstream pull requests.
-6. Keep a ledger of what was merged, when, and from which commit, and comment on each issue with the merge commit.
+6. Keep a ledger in `integration-ledger.md`: date, branch, branch head, issue, fork main before and after, Actions run, conflict files and how each was resolved. Comment on each issue with the merge commit, and post any resolution that changes logic so the worker and reviewer see it.
 
 ### Owner test
 
-The maintainer clones or pulls the fork's `main`, builds it and uses the change. Only after that:
+The maintainer tests with one packaged command that builds the branch or fork `main` and produces the screenshot sheet. It wraps `cargo xtask screenshots` from the CI pipeline (#340); the command is tracked as its own issue. Until it exists, run `cargo xtask screenshots --out target/screenshots` yourself. Only after the maintainer has tested:
 
 - The maintainer opens one pull request per feature from the feature branch to upstream `main`, with a body that starts with the Tags line, and sets `status:pr-open` on the issue.
 - Upstream pull requests merge only with green CI.
@@ -295,7 +315,7 @@ Vocabulary, one line each. "One" means exactly one value.
 | track (one or more) | `track:ai-handoff` an agent can take it without asking; `track:ui-design` it changes what the user sees |
 | kind (one) | `kind:feature` `kind:epic` `kind:bug` `kind:research` `kind:chore` `kind:refactor` `kind:docs` |
 | area (one or two) | `area:schematic` `area:layout` `area:library` `area:rules` `area:io` `area:artifacts` `area:3d` `area:sim` `area:ui-shell` `area:mcp` `area:ci` `area:docs` `area:packaging` `area:kb` |
-| milestone (zero to two) | `milestone:m1` to `milestone:m4` from ROADMAP.md, `milestone:inner-copper` (epic #316), `milestone:manufacturing` (epic #322) |
+| milestone (zero to two) | `milestone:m1` to `milestone:m4` from ROADMAP.md, `milestone:m5` Inner copper layers (epic #316), `milestone:m6` Manufacturing artifacts (epic #322) |
 | crate (one or more) | `crate:engine` `crate:doc` `crate:rules` `crate:io` `crate:geom` `crate:library` `crate:mcp` `crate:ui-egui` `crate:xtask` `crate:sim` `crate:apps` |
 | conflict (one) | `conflict:ui-egui-lib` edits crates/ui-egui/src/lib.rs; `conflict:parallel-safe` stays out of that file |
 | size (one) | `size:s` one PR, one crate, under a day; `size:m` one PR, several crates; `size:l` several PRs or an epic |
@@ -327,7 +347,7 @@ gh issue view N -R tangency-labs/pcbcraft --json body -q .body > body.md
 gh issue edit N -R tangency-labs/pcbcraft --body-file body.md
 ```
 
-**Claiming.** Comment `CLAIM <agent>` on a `ready` issue with `status:open`. A claim expires after 5 days without a pushed branch; anyone may then ask in a comment to take it over and, with no answer within a day, reset the status to `status:open` and claim it. Abandoning a claim: comment "Releasing claim" and set `status:open`.
+**Claiming and leases.** Claim a `ready` issue with `status:open` by posting one comment: `CLAIM <agent>@<host> until <UTC time> clone <path> branch <name>`. A lease lasts 6 hours for coders and 2 hours for research, enrichment and review. Renew it with `CLAIM-RENEW <agent>` and a one-line progress note; every push also renews it, and you post a line at least every 2 hours while working. An expired claim may be taken over: comment `CLAIM <agent> (takeover, previous claim expired)`, set `status:claimed`, and the earlier claimer stops. Before claiming, check the issue has no live lease. Abandoning a claim: comment "Releasing claim" and set `status:open`. Claims that do not use the format fall back to 5 days with no pushed branch.
 
 **Comment headings in use.** `CLAIM <agent>`, `### Research`, `### Standards` (research on rule and output issues), `### Enrichment`, `### Enrichment (update)`, `### Review`, and a build report whose last line is `PR pending owner review`. Use these exact headings so searches and the status epic find them.
 
@@ -343,8 +363,8 @@ Both lists are pasted into the issue and ticked, not only read: the enricher pas
 - [ ] Acceptance criteria as numbered observable statements: what the user sees or what the test asserts.
 - [ ] Research is done or marked n/a; `### Research` findings are reflected in How.
 - [ ] Test list: exact test names and the file each goes in, including the `a_newcomer_*` story test for UI work.
-- [ ] Anchors: file plus function, type or constant names, verified by grep at `Base: <branch> at <sha>`. No bare line numbers.
-- [ ] Base branch named and conflict lane set (`conflict:ui-egui-lib` or `conflict:parallel-safe`).
+- [ ] Anchors: file plus function, type or constant names, verified by reading the code at `Base: fork/main at <sha>`. No bare line numbers.
+- [ ] `Base: fork/main at <sha>` recorded and conflict lane set (`conflict:ui-egui-lib` or `conflict:parallel-safe`).
 - [ ] Dependencies: issues that must land first, and what breaks if they do not; blocked issues carry `status:blocked`.
 - [ ] Out of scope: what this issue does not do, with the follow-up issue number.
 - [ ] Tooltips, text catalog, accessibility and logging needs listed for UI work.
@@ -354,10 +374,10 @@ Both lists are pasted into the issue and ticked, not only read: the enricher pas
 
 **Definition of Done** (the worker ticks this in the build report; the reviewer and integrator check it):
 
-- [ ] Branch, commit, merge-base and the number of commits above the base are in the report, and the merge-base matches the recorded `Base:`.
+- [ ] Branch, commit, merge-base and the number of commits above the base are in the report, and fork main was merged into the branch before the final push.
 - [ ] Each acceptance criterion is listed with the test name or screenshot that proves it, or "not done" with the reason and a follow-up number.
 - [ ] Every test from the enrichment exists and passes; new behaviour has unit tests; file writers have golden fixtures; UI work has a readable `a_newcomer_*` test.
-- [ ] The first lines of the `cargo xtask ci` output are in the report, with a link to the CI run for the same commit.
+- [ ] The link to the green GitHub Actions run on the fork for the same commit is in the report, with the first lines of the `cargo xtask ci` output if you ran it locally.
 - [ ] No `unwrap`, `expect`, `panic`, `todo`, `unimplemented` or `unreachable` in production code; invalid input leaves state untouched.
 - [ ] Every edit goes through a typed engine command with bounded validation.
 - [ ] Every new control has a tooltip; panels keep real margins and padding; labels are short and plain.
@@ -368,7 +388,7 @@ Both lists are pasted into the issue and ticked, not only read: the enricher pas
 - [ ] Limitations and follow-ups are stated with issue numbers, and shown in the UI where the user would meet them.
 - [ ] Branch pushed to the fork; report ends in "PR pending owner review"; `status:needs-owner-test` set.
 
-After the worker: `### Review` verdict "approved for integration"; merged into the fork's `main` with a merge commit and green CI; the maintainer has run it; an upstream pull request is open; #352 is updated.
+After the worker: `### Review` verdict "approved for integration"; merged into the fork's `main` with a merge commit and the Actions build on fork `main` green, which is the program's definition of done; the maintainer has run it with the owner-test command (section 6); an upstream pull request is open; #352 is updated.
 
 ## 5. Code rules
 
@@ -389,7 +409,7 @@ These come from AGENTS.md and apply to every change.
 
 - **Unit tests** live beside the code in each crate (`#[cfg(test)]` modules) and cover validation bounds, rejections and the happy path. Name them as sentences: `padstack_rejects_chamfer_ratio_out_of_range`.
 - **Golden fixtures** cover every file writer and reader. Put fixture files under `crates/<crate>/tests/fixtures/` and compare whole outputs, not substrings. For output that an independent parser exists for, read the output back with that parser as a dev-dependency. Fixtures from external libraries keep their license file beside them.
-- **End-to-end tests** live in `crates/ui-egui` and are named `a_newcomer_<does something>`. They drive the real `App` headlessly with the `frame`, `tap`, `paints_text` and `scrolled_to` helpers, and every assertion message is a plain sentence that someone who has never seen the app could follow ("the matching part stays in the list"). One test per user-visible feature. They run as part of `cargo xtask ci`. Today every one of these tests sits in `crates/ui-egui/src/lib.rs`, the serialized file, so a `conflict:parallel-safe` ticket with a story test needs the lane for the test itself: write the test in a new file under `crates/ui-egui/src/` and hand the one-line `mod` declaration to the lane, or deliver the test as a small follow-up on the lane, and say which in the report. Moving the tests out of lib.rs is proposed in section 9.
+- **End-to-end tests** are named `a_newcomer_<does something>`. They drive the real `App` headlessly with the `frame`, `tap`, `paints_text` and `scrolled_to` helpers, and every assertion message is a plain sentence that someone who has never seen the app could follow ("the matching part stays in the list"). One test per user-visible feature. They are moving out of `crates/ui-egui/src/lib.rs` into `crates/ui-egui/tests/e2e/<area>.rs`, one file per area; an issue for the move is filed upstream. Put new tests in the area file under `tests/e2e/` once it exists, and never add one to lib.rs. CI runs the full e2e suite as a required check, uploads a screenshot sheet, and fails if any control lacks a tooltip or an e2e story.
 - **Engine round trips** for any new document field: save and load a project carrying it and compare.
 - **Screenshots for UI changes.** Render the change and attach the image to the build report. On `main` today:
   ```sh
@@ -397,8 +417,8 @@ These come from AGENTS.md and apply to every change.
     env -u WAYLAND_DISPLAY WGPU_BACKEND=vulkan \
     cargo run -p pcbcraft -- --sample --capture pcbcraft.png
   ```
-  On the CI pipeline branch, `cargo xtask screenshots --out target/screenshots` captures the standard views, and pull request runs upload a side-by-side sheet of base and head. Add a view there when a new tab or dialog deserves one.
-- **Where to run.** Builds and suites run on a build host or in CI, not on a laptop. Outside contributors: run `cargo xtask ci` on your build machine before pushing; the fork's CI runs it again on every push.
+  `cargo xtask screenshots --out target/screenshots` (from the CI pipeline, #340) captures the standard views, and CI uploads a side-by-side sheet of base and head. Add a view there when a new tab or dialog deserves one. If your issue carries `track:ui-design`, you produce the screenshots yourself and put the sheet path in your report; never ask the owner for evidence you can produce.
+- **Where to run.** CI runs on GitHub Actions on the owner's fork. Push early and use the run as proof. A local `cargo xtask ci` is optional.
 
 ## 7. Branches, commits, merge flow
 
@@ -410,8 +430,8 @@ These come from AGENTS.md and apply to every change.
 
 1. Worker pushes `feat-<slug>` to the fork. CI runs on the push.
 2. Reviewer approves in `### Review`.
-3. Integrator merges `feat-<slug>` into the fork's `main` with `--no-ff`, resolving conflicts in the merge commit, and pushes after `cargo xtask ci` is green on the merged tree. The fork's `main` is never rewritten.
-4. Maintainer tests the fork's `main`.
+3. Integrator merges `feat-<slug>` into the fork's `main` with `--no-ff`, resolving conflicts in the merge commit. The fork's `main` is never rewritten. The change is done when the Actions build on fork `main` is green.
+4. Maintainer tests the fork's `main` with the owner-test command.
 5. Maintainer opens one pull request per feature from `feat-<slug>` to upstream `main`. The pull request body starts with the Tags line. It merges with green CI.
 
 Pull requests are never opened by workers, reviewers or the integrator. Pushing to any `main` is reserved to the integrator (fork) and upstream merges (upstream).
@@ -423,22 +443,34 @@ Pull requests are never opened by workers, reviewers or the integrator. Pushing 
 - **Repository docs**: AGENTS.md (rules), README.md (what works, how to run), ROADMAP.md (milestones), `docs/architecture.md` (layers and decisions), `docs/validation.md` (evidence for the initial subset), `docs/mcp.md` (MCP client setup), `docs/ci.md` on the CI pipeline branch (every CI job and its local command), ATTRIBUTION.md (provenance).
 - **Research notes**, available on request from the maintainer: the feature parity matrix, per-issue research notes (routing, length and impedance, pours, fabrication checks, 3D view, simulation), the manufacturing artifact format survey, the shop equipment and machine profile notes, the tagging standard and the coordinator's queue. Ask on the issue you are working and the relevant note is posted or summarised there. A searchable knowledge base of captured standards and sources backs the research stage; findings from it arrive on issues as `### Research` comments.
 
-## 9. Proposed improvements
+## 9. Instructions adopted from the pipeline review
 
-These are proposals, not current rules. They come from a review of the pipeline against the tracker as it stood on 2026-10-28 (the full note is in the research notes, available on request). They are listed so contributors know what may change; follow sections 1 to 8 until an item here moves up. Already adopted from that review and written into the sections above: the review stage, one recorded integration base, Ready and Done checklists pasted on the issue, name anchors instead of line numbers, research dedupe, `### Enrichment (update)` for added scope, and the owner decision list in #352.
+These come from a review of the pipeline against the tracker on 2026-10-28 and are in force.
 
-- **Queue view and gate script.** A script over the `gh` JSON that parses the Tags line of every issue and prints counts per stage and status, claims with no `ready` tag, claims with no push, issues whose latest comment postdates the enrichment, and open owner decisions; with a flag that rewrites a Queue section in #352. Workers would claim only from its `claimable` output. Reason: the `ready` gate is enforced by prose alone today, and nobody can see the queue without reading every issue.
-- **A `status:needs-review` status.** Between `in-progress` and `needs-owner-test`, set by the worker with the build report; the reviewer moves it to `needs-owner-test` on pass or back to `in-progress` on fail. Today the reviewer and the owner test share one status.
-- **Claim leases with heartbeats.** `CLAIM <agent> until <UTC time> branch <name>`, a default lease of a few hours for agents, extended by any progress comment or push, with a sweeper that releases expired claims. The 5-day rule would remain the fallback for claims that do not use the format. Reason: agents finish or die within hours, and 5 days is the wrong unit for them.
-- **Move the `a_newcomer_*` tests out of lib.rs.** A pure-move change on the lane that extracts the tests into one module per area under `crates/ui-egui/src/e2e/`, after which each ticket gets its own new test file and `conflict:parallel-safe` becomes true for UI features again.
-- **Owner-test packaging.** One command that fetches a branch, builds it, captures the standard screenshot views plus any view the enrichment names, builds the side-by-side sheet against the base, and prints the one-line command to run the branch. The CI pipeline branch (#340) already has the capture job this would wrap.
-- **Anchor check.** A script that greps every anchor in an enrichment against the recorded base and flags the missing ones, run by the enricher before posting and by the worker before claiming; issues with missing anchors go back to `stage:enrich`.
-- **Text-rule linter before posting.** A check over an issue body or comment file for forbidden product names, em-dashes, AI attribution and a malformed Tags line, run before every `gh issue comment`, `edit` or `create`.
-- **Real labels.** Once the maintainer has triage permission upstream, convert the Tags vocabulary into GitHub labels and keep the body line only as a mirror for search.
-- **Required check.** Mark the `CI result` job from the CI pipeline branch as a required check on the fork's `main` and upstream `main` once that branch is merged.
-- **Integration ledger in the repository.** Publish the integrator's ledger (branch, commit, merge commit, CI run) as a file in the fork so anyone can see what the integration branch contains.
-- **Versioned pipeline rules and agent definitions.** Keep the pipeline documents, the agent briefs and the pre-post checks in version control, in the fork, so the rules survive sessions and the tooling enforces them instead of prose.
+- **Queue and claims.** Check that an issue has no live lease before claiming (section 3). Open owner questions go in #352: set `owner-decision`, state the choice and your recommendation in one paragraph, and add one line to "Open decisions for the owner". Do not wait in the thread.
+- **One base.** The only base is fork main. Branch from it with `git fetch origin && git checkout -b <kind>-<slug> origin/main` (in a clone of the fork), push only your feature branch, never main. The integrator merges reviewed branches into fork main with merge commits and posts any logic-changing conflict resolution on your issue. If your branch falls behind, merge fork main into it and fix conflicts on your side; if you have no choice but to rebase, push with `git push origin +<branch>`. Never rewrite fork main and never touch upstream.
+- **Anchors.** Anchors in an enrichment are file paths plus function or type names, never line numbers, verified at `Base: fork/main at <sha>`. To add scope after enrichment, post `### Enrichment (update)` and edit the Ready block; a bare scope comment sends the issue back to `stage:enrich`.
+- **Research dedupe.** Before researching, read every `### Research` and `### Enrichment` comment on the issue and on the issues it links, and search the research notes and source manifest for its number. Open your `### Research` comment with what is already covered and where, then what is new.
+- **Tests out of lib.rs.** Do not edit `crates/ui-egui/src/lib.rs` unless your issue is tagged `conflict:ui-egui-lib` and is the active ticket on that lane. Put your `a_newcomer_*` test in `crates/ui-egui/tests/e2e/<area>.rs`. If your feature needs a lib.rs change (a tab, a menu item, a dock page), ship the engine, io and test work first as a parallel-safe branch and file a one-line follow-up for the lib.rs part.
+- **Screenshots yourself.** For `track:ui-design`, you produce the visual evidence (section 6). A description of what renders is not evidence.
+- **Stop after two failures.** If the same build or test fails twice with the same output, do not try a third time: post the output, set `status:blocked`, and stop.
+- **Done block.** Your final comment ends with the Definition of Done list (section 4), every line filled. Limitations you list become follow-up issues, not prose.
+
+## 10. Proposed improvements
+
+These are proposals, not current rules. Follow sections 1 to 9 until an item moves up.
+
+- **Queue view and gate script.** A script over the `gh` JSON that parses the Tags line of every issue and prints counts per stage and status, claims with no `ready` tag, expired leases, issues whose latest comment postdates the enrichment, and open owner decisions; with a flag that rewrites a Queue section in #352. Workers would claim only from its `claimable` output. Instruction when adopted: run `scripts/queue.sh claimable` before you claim and claim only an issue it lists.
+- **A `status:needs-review` status.** Between `in-progress` and `needs-owner-test`, set by the worker with the build report; the reviewer moves it to `needs-owner-test` on pass or back to `in-progress` on fail, and the worker never sets `needs-owner-test` on its own work. A reviewer verdict would end in `VERDICT: pass` or `VERDICT: fail`.
+- **Lease sweeper.** A command that lists expired claims and, on request, posts "Claim expired, released" and sets `status:open`.
+- **Anchor check.** `scripts/queue.sh anchors <N>` greps every anchor in an enrichment at fork main and flags missing ones; run by the enricher before posting and by the worker before claiming.
+- **Text-rule linter before posting.** `scripts/post-check.sh <file>` fails on forbidden product names, em-dashes, AI attribution and a malformed Tags line; run it before every `gh issue comment`, `edit` or `create`.
+- **Packaged owner test with branch option.** `cargo xtask owner-test --branch <name>`, wrapping the screenshot capture, a side-by-side sheet against fork main and the one-line command to run the branch.
+- **Real labels.** Once the maintainer has triage permission upstream, convert the Tags vocabulary into GitHub labels and keep the body line as a mirror for search.
+- **Required check.** Mark the CI result job as a required check on fork main and upstream main once the CI pipeline is merged.
+- **Integration ledger in the repository.** Publish the integrator's ledger as a file in the fork.
+- **Versioned pipeline rules and agent definitions.** Keep the pipeline documents, the agent briefs and the pre-post checks in version control in the fork, so tooling enforces them instead of prose.
 - **Budgets per agent and per stage.** Turn and cost limits on every headless worker, sized by the `size:` tag, and a cap per stage so research does not starve enrichment.
-- **Lessons loop.** Append each reviewer fail and each worker limitation to a lessons file per issue, and fold the recurring ones into this file, AGENTS.md or the checks.
+- **Lessons loop.** Append each reviewer fail and each worker limitation to a lessons file per issue. When a review fails a branch for a reason that has failed another branch, open a `kind:chore` issue to encode the check in `cargo xtask`.
 
 Changes to this file go through the same pipeline: file an issue tagged `kind:docs` `area:docs`, claim it, and push a `docs-<slug>` branch.
