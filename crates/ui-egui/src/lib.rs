@@ -1290,9 +1290,35 @@ impl App {
                 self.run("board.sync", json!({}));
                 self.change_tab(Tab::Pcb);
             }
+            ui.separator();
+            if let Some(lit) = self.highlight_net
+                && let Some(net) = self.project.nets.iter().find(|n| n.id == lit)
+            {
+                let name = net.name.clone();
+                if ui
+                    .button(format!("Clear wiring on {name}"))
+                    .on_hover_text(
+                        "Lift every piece of copper drawn for the lit connection. The connection itself stays.",
+                    )
+                    .clicked()
+                {
+                    self.run("net.unroute", json!({"net": lit}));
+                }
+            }
+            if ui
+                .button("Clear all wiring")
+                .on_hover_text(
+                    "Start the copper over on the whole board. Parts, connections and copper zones stay.",
+                )
+                .clicked()
+            {
+                self.run("board.unroute", json!({}));
+            }
         })
         .response
-        .on_hover_text("Step back and forward through every edit.");
+        .on_hover_text(
+            "Step back and forward, sync the board, and start the wiring over on one connection or the whole board.",
+        );
     }
     fn settings_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Settings", |ui| {
@@ -3180,6 +3206,68 @@ mod tests {
             "writing files leaves the design itself untouched"
         );
         let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_clears_the_wiring_on_one_connection_then_the_whole_board() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        let routed = app.project.board.tracks.len();
+        assert!(
+            routed > 0,
+            "routing a pad to pad should draw copper: {}",
+            app.message
+        );
+        let vcc = app
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "VCC")
+            .map(|n| n.id)
+            .ok_or("the sample should have a VCC connection")?;
+        app.highlight_net = Some(vcc);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Edit")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Clear wiring on VCC")?,
+            "the lit connection gets its own clear item"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Clear wiring on VCC")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.board.tracks.len() < routed,
+            "the connection's copper lifts: {}",
+            app.message
+        );
+        app.tool_call(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        let routed = app.project.board.tracks.len();
+        assert!(
+            routed > 0,
+            "the copper should be back for the whole-board clear"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Edit")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Clear all wiring")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.board.tracks.len(),
+            0,
+            "the board starts over clean: {}",
+            app.message
+        );
+        assert_eq!(app.project.nets.len(), 3, "the connections themselves stay");
         Ok(())
     }
 
