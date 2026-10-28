@@ -319,6 +319,8 @@ struct Preferences {
     grid: bool,
     accent: [u8; 3],
     pad_labels: PadLabels,
+    #[serde(default)]
+    hidden_layers: Vec<String>,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -327,6 +329,7 @@ impl Default for Preferences {
             grid: true,
             accent: [91, 224, 188],
             pad_labels: PadLabels::Number,
+            hidden_layers: Vec::new(),
         }
     }
 }
@@ -778,6 +781,64 @@ impl App {
         self.tool = Tool::Select;
         self.drag = None;
         self.load_properties();
+    }
+    fn layer_shown(&self, name: &str) -> bool {
+        !self
+            .preferences
+            .hidden_layers
+            .iter()
+            .any(|hidden| hidden == name)
+    }
+    fn layers_tab(&mut self, ui: &mut egui::Ui) {
+        let rows: &[&str] = match self.tab {
+            Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
+            Tab::Pcb => &[
+                "Grid",
+                "Top copper",
+                "Bottom copper",
+                "Pads",
+                "Vias",
+                "Copper zones",
+                "Cutouts",
+                "Package artwork",
+            ],
+            _ => &[],
+        };
+        if rows.is_empty() {
+            ui.label(
+                egui::RichText::new(
+                    "Switch to the schematic or the board to show or hide parts of the drawing.",
+                )
+                .small()
+                .color(self.muted()),
+            );
+            ui.add_space(20.0);
+            self.board_summary(ui);
+            return;
+        }
+        ui.label(
+            egui::RichText::new("WHAT THE DRAWING SHOWS")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        for name in rows {
+            let mut shown = self.layer_shown(name);
+            if ui
+                .checkbox(&mut shown, *name)
+                .on_hover_text(format!(
+                    "Show or hide {name} on the drawing. Hiding changes only the view, never the design."
+                ))
+                .clicked()
+            {
+                if shown {
+                    self.preferences.hidden_layers.retain(|hidden| hidden != name);
+                } else {
+                    self.preferences.hidden_layers.push((*name).to_string());
+                }
+            }
+        }
+        ui.add_space(20.0);
+        self.board_summary(ui);
     }
     fn rotate(&mut self) {
         if let Some(id) = self.selected {
@@ -1351,12 +1412,25 @@ impl App {
                     {
                         self.left_tab = 1;
                     }
+                    if ui
+                        .selectable_label(self.left_tab == 2, "Layers")
+                        .on_hover_text(
+                            "Tick what the drawing shows: hide copper, silk or wires without touching the design.",
+                        )
+                        .clicked()
+                    {
+                        self.left_tab = 2;
+                    }
                 });
                 ui.separator();
                 if self.left_tab == 1 {
                     self.nets_tab(ui);
                     ui.add_space(20.0);
                     self.board_summary(ui);
+                    return;
+                }
+                if self.left_tab == 2 {
+                    self.layers_tab(ui);
                     return;
                 }
                 if ui
@@ -2516,6 +2590,61 @@ mod tests {
             }
         }
         Ok(false)
+    }
+
+    #[test]
+    fn switching_a_layer_off_hides_it_on_the_sheet_without_touching_the_design()
+    -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let revision = {
+            let session = app.session.lock().map_err(|_| "session unavailable")?;
+            session.revision
+        };
+        let wire_count = |app: &mut App, ctx: &egui::Context| -> Result<usize, String> {
+            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+            Ok(output
+                .shapes
+                .iter()
+                .filter(|shape| {
+                    matches!(
+                        &shape.shape,
+                        egui::Shape::Path(path) if (path.stroke.width - 1.8).abs() < 0.01
+                    )
+                })
+                .count())
+        };
+        let ctx = egui::Context::default();
+        let before = wire_count(&mut app, &ctx)?;
+        assert!(before > 0, "the worked example is wired up");
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Wires")?,
+            "the layers page lists wires as its own row"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Wires")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.preferences.hidden_layers.iter().any(|h| h == "Wires"),
+            "unticking the row hides the wires layer"
+        );
+        let after = wire_count(&mut app, &ctx)?;
+        assert!(
+            after < before,
+            "the wires vanish from the sheet: {before} strokes became {after}"
+        );
+        let now = {
+            let session = app.session.lock().map_err(|_| "session unavailable")?;
+            session.revision
+        };
+        assert_eq!(
+            now, revision,
+            "hiding a layer is only a view change; the design itself is untouched"
+        );
+        Ok(())
     }
 
     #[test]

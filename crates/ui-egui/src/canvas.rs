@@ -341,7 +341,7 @@ impl App {
             }
         }
         painter.rect_filled(rect, 0.0, self.surface());
-        if self.preferences.grid {
+        if self.preferences.grid && self.layer_shown("Grid") {
             let grid = if camera.zoom < 5.0 { 5.0 } else { 1.0 };
             let step = grid * camera.zoom;
             let zero = camera.screen(Point::default(), rect);
@@ -787,7 +787,8 @@ impl App {
         ));
     }
     fn paint_schematic(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
-        for w in &p.wires {
+        let shown = |name: &str| self.layer_shown(name);
+        for w in p.wires.iter().filter(|_| shown("Wires")) {
             if let Some(path) = p.wire_path(w) {
                 painter.add(egui::Shape::line(
                     path.iter()
@@ -817,7 +818,7 @@ impl App {
                 );
             }
         }
-        for w in &p.drawn_wires {
+        for w in p.drawn_wires.iter().filter(|_| shown("Wires")) {
             painter.add(egui::Shape::line(
                 w.points
                     .iter()
@@ -826,7 +827,11 @@ impl App {
                 Stroke::new(1.8, self.accent()),
             ));
         }
-        for g in p.graphics.iter().filter(|g| g.layer == "schematic") {
+        for g in p
+            .graphics
+            .iter()
+            .filter(|g| g.layer == "schematic" && shown("Graphics"))
+        {
             if let Some(outline) = g.outline() {
                 painter.add(egui::Shape::line(
                     outline
@@ -845,7 +850,7 @@ impl App {
                 );
             }
         }
-        for l in &p.labels {
+        for l in p.labels.iter().filter(|_| shown("Net labels")) {
             let at = camera.screen(l.position, rect);
             if l.kind == "junction" {
                 painter.circle_filled(at, 3.0, self.accent());
@@ -888,7 +893,12 @@ impl App {
                 );
             }
         }
-        for c in p.components.iter().flat_map(|c| c.schematic_views()) {
+        for c in p
+            .components
+            .iter()
+            .flat_map(|c| c.schematic_views())
+            .filter(|_| shown("Symbols"))
+        {
             self.symbol(
                 painter,
                 rect,
@@ -1084,6 +1094,7 @@ impl App {
         }
     }
     fn paint_board(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
+        let shown = |name: &str| self.layer_shown(name);
         let board = Rect::from_two_pos(
             camera.screen(Point::default(), rect),
             camera.screen(Point::new(p.board.width, p.board.height), rect),
@@ -1103,7 +1114,7 @@ impl App {
             Stroke::new(1.5, self.accent()),
             egui::StrokeKind::Inside,
         );
-        for c in &p.board.cutouts {
+        for c in p.board.cutouts.iter().filter(|_| shown("Cutouts")) {
             let center = camera.screen(c.center, rect);
             painter.circle_filled(center, c.radius as f32 * camera.zoom, self.surface());
             painter.circle_stroke(
@@ -1127,7 +1138,7 @@ impl App {
                 }
             }
         }
-        for z in &p.board.zones {
+        for z in p.board.zones.iter().filter(|_| shown("Copper zones")) {
             let screen: Vec<egui::Pos2> = z
                 .outline
                 .iter()
@@ -1168,7 +1179,13 @@ impl App {
                 ));
             }
         }
-        for t in &p.board.tracks {
+        for t in p.board.tracks.iter().filter(|t| {
+            shown(if t.layer == pcbcraft_doc::Layer::Front {
+                "Top copper"
+            } else {
+                "Bottom copper"
+            })
+        }) {
             painter.line_segment(
                 [camera.screen(t.start, rect), camera.screen(t.end, rect)],
                 Stroke::new(
@@ -1183,7 +1200,7 @@ impl App {
                 ),
             );
         }
-        for v in &p.board.vias {
+        for v in p.board.vias.iter().filter(|_| shown("Vias")) {
             let at = camera.screen(v.position, rect);
             let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
             painter.circle_filled(
@@ -1260,7 +1277,12 @@ impl App {
                 .component(f.component)
                 .and_then(|c| c.library_footprint.as_ref())
             {
-                for g in &library.definition.graphics {
+                for g in library
+                    .definition
+                    .graphics
+                    .iter()
+                    .filter(|_| shown("Package artwork"))
+                {
                     if matches!(g,pcbcraft_library::Graphic::Text {text,..} if text=="REF**" || text=="%R" || text=="${REFERENCE}" || text=="${VALUE}" || text==&library.definition.name)
                     {
                         continue;
@@ -1278,7 +1300,7 @@ impl App {
                     Stroke::new(1.0, color),
                 ));
             }
-            for pad in &f.pads {
+            for pad in f.pads.iter().filter(|_| shown("Pads")) {
                 if let Some(pos) = f.pad_position(&pad.number) {
                     let center = camera.screen(pos, rect);
                     painter.add(egui::Shape::convex_polygon(
