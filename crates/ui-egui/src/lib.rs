@@ -1971,6 +1971,74 @@ mod tests {
     }
 
     #[test]
+    fn the_library_split_pages_now_open_one_unified_page() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.change_tab(Tab::Libraries);
+        app.library.editor.mode = 1; // an old split-view selection
+        let ctx = egui::Context::default();
+        let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.library.editor.mode, 0,
+            "the separate project page is gone; one library shows everything"
+        );
+        assert_eq!(output.viewport_output.len(), 1, "the unified page paints");
+        Ok(())
+    }
+
+    #[test]
+    fn the_library_browser_groups_collections_by_the_source_they_came_from() {
+        let catalog = json!({"symbol_libraries":[
+            {"name":"Device","path":"/installed/Device.kicad_sym","source":"Installed collections"},
+            {"name":"DigiKeyParts","path":"/home/me/digikey/DigiKeyParts.kicad_sym","source":"Digi-Key shelf"},
+            {"name":"R","path":"/installed/R.kicad_sym"}
+        ]});
+        let items = catalog["symbol_libraries"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(
+            library::entry_source(&items[2]),
+            "Installed collections",
+            "an entry without a source tag still answers with one"
+        );
+        assert_eq!(
+            library::distinct_sources(&items),
+            vec!["Digi-Key shelf", "Installed collections"],
+            "every source is named once, in list order"
+        );
+    }
+
+    #[test]
+    fn the_libraries_tab_paints_the_unified_list_from_added_sources() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.change_tab(Tab::Libraries);
+        app.library.catalog = Some(json!({"symbol_libraries":[
+            {"name":"Device","path":"/installed/Device.kicad_sym","source":"Installed collections"},
+            {"name":"DigiKeyParts","path":"/home/me/digikey/DigiKeyParts.kicad_sym","source":"Digi-Key shelf"}
+        ],"footprint_libraries":[],"scan_truncated":false}));
+        app.library.sources = Some(json!({"sources":[
+            {"name":"Digi-Key shelf","path":"/home/me/digikey","kind":"added","symbol_libraries":1,"footprint_libraries":0},
+            {"name":"Installed collections","path":"/usr/share/design-collections","kind":"built-in","symbol_libraries":1,"footprint_libraries":0}
+        ]}));
+        app.library.results = Some(json!({"total":2,"entries":[
+            {"name":"Device","path":"/installed/Device.kicad_sym","kind":"symbol"},
+            {"name":"DigiKeyParts","path":"/home/me/digikey/DigiKeyParts.kicad_sym","kind":"symbol"}
+        ]}));
+        let ctx = egui::Context::default();
+        let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            output.viewport_output.len(),
+            1,
+            "the unified library view paints"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn library_filter_narrows_listed_entries_by_name_or_description() {
         let led = json!({"name":"LED","description":"light emitting diode"});
         let resistor = json!({"name":"R","description":"resistor"});

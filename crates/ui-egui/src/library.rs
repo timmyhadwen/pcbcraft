@@ -14,6 +14,10 @@ pub(super) struct Browser {
     pub(super) preview: Option<Value>,
     pub(super) pending: Option<std::sync::mpsc::Receiver<(String, Result<Value, String>)>>,
     pub(super) error: String,
+    pub(super) sources: Option<Value>,
+    pub(super) source_filter: String,
+    pub(super) new_source: String,
+    pub(super) notice: String,
 }
 impl Browser {
     fn request(&mut self, ctx: &egui::Context, name: &str, args: Value) {
@@ -21,6 +25,7 @@ impl Browser {
             return;
         }
         self.error.clear();
+        self.notice.clear();
         #[cfg(not(target_arch = "wasm32"))]
         {
             let (tx, rx) = std::sync::mpsc::channel();
@@ -42,6 +47,9 @@ impl Browser {
             let _ = (ctx, name, args);
             self.error = "Installed library browsing is available in the desktop build.".into();
             self.catalog = Some(json!({}));
+            if name == "library.sources" {
+                self.sources = Some(json!({"sources": []}));
+            }
         }
     }
     fn search(&mut self, ctx: &egui::Context) {
@@ -55,6 +63,29 @@ impl Browser {
             match result {
                 Ok(v) => match name.as_str() {
                     "library.catalog" => self.catalog = Some(v),
+                    "library.sources" => self.sources = Some(v),
+                    "library.add_folder" => {
+                        self.notice = format!(
+                            "Added {} · {} symbol libraries · {} footprint libraries now in the unified list",
+                            v["added"].as_str().unwrap_or(""),
+                            v["symbol_libraries"].as_u64().unwrap_or(0),
+                            v["footprint_libraries"].as_u64().unwrap_or(0)
+                        );
+                        self.sources = Some(json!({"sources": v["sources"].clone()}));
+                        self.catalog = None;
+                        self.new_source.clear();
+                    }
+                    "library.remove_folder" => {
+                        self.notice = format!(
+                            "Removed {} from the library sources; installed folders stay untouched",
+                            v["removed"].as_str().unwrap_or("")
+                        );
+                        self.sources = Some(json!({"sources": v["sources"].clone()}));
+                        self.catalog = None;
+                        self.path.clear();
+                        self.results = None;
+                        self.preview = None;
+                    }
                     "library.search" => self.results = Some(v),
                     _ => self.preview = Some(v),
                 },
@@ -62,6 +93,9 @@ impl Browser {
                     self.error = e;
                     if name == "library.catalog" {
                         self.catalog = Some(json!({}));
+                    }
+                    if name == "library.sources" {
+                        self.sources = Some(json!({"sources": []}));
                     }
                 }
             }
@@ -83,15 +117,34 @@ pub(super) fn entry_matches(item: &Value, filter: &str) -> bool {
             .and_then(Value::as_str)
             .is_some_and(|description| description.to_lowercase().contains(&filter))
 }
+/// The source a catalog entry came from; entries written before sources were
+/// tagged read as the installed collections.
+pub(super) fn entry_source(item: &Value) -> String {
+    item.get("source")
+        .and_then(Value::as_str)
+        .filter(|source| !source.is_empty())
+        .unwrap_or("Installed collections")
+        .to_owned()
+}
+/// Every distinct source among the listed collections, each named once, sorted.
+pub(super) fn distinct_sources(items: &[Value]) -> Vec<String> {
+    let mut names: Vec<String> = items.iter().map(entry_source).collect();
+    names.sort();
+    names.dedup();
+    names
+}
 impl App {
-    pub(super) fn kicad_library(&mut self, ui: &mut egui::Ui) {
+    pub(super) fn collection_browser(&mut self, ui: &mut egui::Ui) {
         self.library.poll();
         if self.library.catalog.is_none() && self.library.pending.is_none() {
             self.library.request(ui.ctx(), "library.catalog", json!({}));
         }
+        if self.library.sources.is_none() && self.library.pending.is_none() {
+            self.library.request(ui.ctx(), "library.sources", json!({}));
+        }
         ui.heading("Component libraries");
         ui.label(
-            "Browse installed libraries · definitions used by a project are embedded on placement.",
+            "One library for every collection below · add any folder as a source · definitions used by a project are embedded on placement.",
         );
         let busy = self.library.pending.is_some();
         let before = self.library.kind;
@@ -107,6 +160,8 @@ impl App {
                     .clicked()
                 {
                     self.library.catalog = None;
+                    self.library.sources = None;
+                    self.library.source_filter.clear();
                     self.library.path.clear();
                     self.library.results = None;
                     self.library.preview = None;
@@ -151,6 +206,43 @@ impl App {
                 changed = true;
             }
         }
+        let source_names = distinct_sources(&items);
+        if !self.library.source_filter.is_empty()
+            && !source_names
+                .iter()
+                .any(|name| name == &self.library.source_filter)
+        {
+            self.library.source_filter.clear();
+        }
+        if source_names.len() > 1 {
+            ui.horizontal(|ui| {
+                ui.label("Sources");
+                if ui
+                    .selectable_label(self.library.source_filter.is_empty(), "All")
+                    .on_hover_text("Show collections from every library source together.")
+                    .clicked()
+                {
+                    self.library.source_filter.clear();
+                }
+                for name in &source_names {
+                    ui.selectable_value(
+                        &mut self.library.source_filter,
+                        name.clone(),
+                        name.as_str(),
+                    )
+                    .on_hover_text(format!("Show only the collections that come from {name}."));
+                }
+            });
+        }
+        let items: Vec<Value> = if self.library.source_filter.is_empty() {
+            items
+        } else {
+            items
+                .iter()
+                .filter(|item| entry_source(item) == self.library.source_filter)
+                .cloned()
+                .collect()
+        };
         ui.add_enabled_ui(!busy, |ui| {
             let label = std::path::Path::new(&self.library.path)
                 .file_stem()
@@ -160,7 +252,29 @@ impl App {
                 .selected_text(label)
                 .width(300.0)
                 .show_ui(ui, |ui| {
-                    for item in &items {
+                    let mut grouped = items.clone();
+                    grouped.sort_by(|a, b| {
+                        (
+                            entry_source(a),
+                            a.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
+                        )
+                            .cmp(&(
+                                entry_source(b),
+                                b.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
+                            ))
+                    });
+                    let mut last_source: Option<String> = None;
+                    for item in &grouped {
+                        let source = entry_source(item);
+                        if Some(&source) != last_source.as_ref() {
+                            ui.label(
+                                egui::RichText::new(source.as_str())
+                                    .weak()
+                                    .small()
+                                    .strong(),
+                            );
+                            last_source = Some(source);
+                        }
                         if let (Some(name), Some(path)) = (
                             item.get("name").and_then(Value::as_str),
                             item.get("path").and_then(Value::as_str),
@@ -173,7 +287,62 @@ impl App {
                 });
             ui.horizontal(|ui| {
                 ui.label("Library path");
-                ui.add(egui::TextEdit::singleline(&mut self.library.path).desired_width(480.0));
+                ui.add(egui::TextEdit::singleline(&mut self.library.path).desired_width(480.0))
+                    .on_hover_text("The collection the search box below reads; pick any library from the list above or type a path.");
+            });
+            ui.horizontal(|ui| {
+                let response = ui
+                    .add(
+                        egui::TextEdit::singleline(&mut self.library.new_source)
+                            .hint_text("Folder to add as a library source")
+                            .desired_width(320.0),
+                    )
+                    .on_hover_text("Any folder holding symbol files or footprint collections, from any distributor or your own shelf; it joins the list above without moving your files. Press Enter to add it.");
+                let selected_source = items
+                    .iter()
+                    .find(|item| {
+                        item.get("path").and_then(Value::as_str)
+                            == Some(self.library.path.as_str())
+                    })
+                    .map(entry_source);
+                let removable = self
+                    .library
+                    .sources
+                    .as_ref()
+                    .and_then(|listing| listing.get("sources"))
+                    .and_then(Value::as_array)
+                    .and_then(|list| {
+                        list.iter().find(|source| {
+                            source.get("kind").and_then(Value::as_str) == Some("added")
+                                && source.get("name").and_then(Value::as_str)
+                                    == selected_source.as_deref()
+                        })
+                    })
+                    .and_then(|source| source.get("path"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let wants_add = ui
+                    .button("Add folder")
+                    .on_hover_text("Register the folder named to the left as a library source; its collections appear in the list above on the next scan.")
+                    .clicked()
+                    || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                if wants_add {
+                    let path = self.library.new_source.trim().to_owned();
+                    if !path.is_empty() {
+                        self.library
+                            .request(ui.ctx(), "library.add_folder", json!({"path": path}));
+                    }
+                }
+                if let Some(folder) = removable
+                    && ui
+                        .button("Remove source")
+                        .on_hover_text("Stop listing the added source that contains the selected library; installed folders are never removed.")
+                        .clicked()
+                {
+                    self.library
+                        .request(ui.ctx(), "library.remove_folder", json!({"path": folder}));
+                    self.library.source_filter.clear();
+                }
             });
             ui.horizontal(|ui| {
                 let response = ui.add(
@@ -204,6 +373,9 @@ impl App {
         }
         if !self.library.error.is_empty() {
             ui.colored_label(Color32::from_rgb(237, 135, 113), &self.library.error);
+        }
+        if !self.library.notice.is_empty() {
+            ui.label(&self.library.notice);
         }
         let results = self.library.results.clone().unwrap_or(json!({}));
         if self

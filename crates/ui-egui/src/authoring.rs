@@ -332,8 +332,7 @@ fn add_graphic(ui: &mut egui::Ui, layer: &str) -> Option<Graphic> {
 impl App {
     pub(super) fn library_workspaces(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.library.editor.mode, 0, "Installed libraries");
-            ui.selectable_value(&mut self.library.editor.mode, 1, "Project library");
+            ui.selectable_value(&mut self.library.editor.mode, 0, "Library");
             ui.selectable_value(&mut self.library.editor.mode, 2, "Editor");
             if ui
                 .button("New symbol")
@@ -356,14 +355,23 @@ impl App {
         });
         ui.separator();
         match self.library.editor.mode {
-            0 => self.kicad_library(ui),
-            1 => self.project_library(ui),
-            _ => self.library_editor(ui),
+            2 => self.library_editor(ui),
+            _ => {
+                self.library.editor.mode = 0;
+                self.unified_library(ui)
+            }
         }
     }
+    /// One library page: every collection from every added or installed
+    /// source, then the definitions this project can edit, in one scroll.
+    pub(super) fn unified_library(&mut self, ui: &mut egui::Ui) {
+        self.collection_browser(ui);
+        ui.separator();
+        self.project_library(ui);
+    }
     fn project_library(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Editable project library");
-        ui.label("Saved definitions live in this project. Placed components retain their embedded copies.");
+        ui.heading("This project's definitions");
+        ui.label("Saved here, live with the design; everything above is shared collections. Placed components retain their embedded copies.");
         ui.horizontal(|ui| {
             ui.label("Collection file");
             ui.text_edit_singleline(&mut self.library.editor.path);
