@@ -4038,24 +4038,74 @@ impl App {
                     );
                 }
                 for f in findings {
+                    let code = f
+                        .get("code")
+                        .and_then(Value::as_str)
+                        .unwrap_or("finding")
+                        .to_owned();
+                    let objects: Vec<Id> = f
+                        .get("objects")
+                        .and_then(Value::as_array)
+                        .map(|v| v.iter().filter_map(|x| x.as_u64()).collect())
+                        .unwrap_or_default();
                     let text = format!(
                         "{}   {}",
-                        f.get("code").and_then(Value::as_str).unwrap_or("finding"),
+                        code,
                         f.get("message").and_then(Value::as_str).unwrap_or("")
                     );
-                    if ui.button(text).clicked()
-                        && let Some(id) = f.pointer("/objects/0").and_then(Value::as_u64)
-                    {
-                        self.change_tab(if key == "erc" {
-                            Tab::Schematic
-                        } else {
-                            Tab::Pcb
-                        });
-                        self.select(Some(id));
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.button(text).clicked()
+                            && let Some(id) = objects.first().copied()
+                        {
+                            self.change_tab(if key == "erc" {
+                                Tab::Schematic
+                            } else {
+                                Tab::Pcb
+                            });
+                            self.select(Some(id));
+                        }
+                        if !objects.is_empty()
+                            && ui
+                                .small_button("Hide this")
+                                .on_hover_text(
+                                    "You have looked at this and it is fine: hide just this finding. Everything you hide can be brought back below.",
+                                )
+                                .clicked()
+                        {
+                            self.run("rules.exclude", json!({"code": code, "ids": objects}));
+                        }
+                    });
                 }
             }
             ui.add_space(20.0);
+        }
+        let silenced: Vec<(String, usize)> = self
+            .project
+            .rule_exclusions
+            .iter()
+            .map(|(code, ids)| (code.clone(), ids.len()))
+            .collect();
+        if !silenced.is_empty() {
+            ui.label(
+                egui::RichText::new("Things you asked not to be told about")
+                    .small()
+                    .color(self.muted()),
+            );
+            for (code, count) in silenced {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{code} · {count} hidden"));
+                    if ui
+                        .small_button(format!("Bring back {code}"))
+                        .on_hover_text(
+                            "Show every hidden finding from this check again; each one can be hidden afresh.",
+                        )
+                        .clicked()
+                    {
+                        self.run("rules.include", json!({"code": code}));
+                    }
+                });
+            }
+            ui.add_space(12.0);
         }
         ui.separator();
         ui.label(
@@ -5644,6 +5694,91 @@ mod tests {
             teardrops(&app),
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_hides_a_finding_they_have_checked() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":20.0,"y":20.0},"reference":"R9"}),
+        );
+        let r9 = |app: &App| -> usize {
+            app.checks
+                .get("erc")
+                .and_then(Value::as_array)
+                .map(|rows| {
+                    rows.iter()
+                        .filter(|r| {
+                            r.get("message")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .contains("R9")
+                        })
+                        .count()
+                })
+                .unwrap_or(0)
+        };
+        let total = |app: &App| -> usize {
+            ["erc", "drc"]
+                .iter()
+                .map(|k| {
+                    app.checks
+                        .get(*k)
+                        .and_then(Value::as_array)
+                        .map_or(0, |v| v.len())
+                })
+                .sum()
+        };
+        assert!(
+            r9(&app) == 2 && total(&app) > 2,
+            "the stray part adds two findings to a board that already has some copper to flag: {}",
+            app.message
+        );
+        let before = total(&app);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Checks")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Hide this")?,
+            "every finding offers to be hidden: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Hide this")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            total(&app) < before,
+            "hiding one finding takes it out of the list: {}",
+            app.message
+        );
+        let code = app
+            .project
+            .rule_exclusions
+            .keys()
+            .next()
+            .cloned()
+            .ok_or("a hidden finding should be remembered by its check")?;
+        let label = format!("Bring back {code}");
+        assert!(
+            paints_text(&ctx, &mut app, &label)?,
+            "the app keeps a way back for everything hidden: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, &label)?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            total(&app),
+            before,
+            "bringing it back shows every hidden finding again: {}",
             app.message
         );
         Ok(())
