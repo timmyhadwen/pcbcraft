@@ -23,6 +23,9 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
         ("library.footprint.pad_set","Add or replace one pad on a project-library footprint by its number, so custom packages gain exposed pads, thermal vias or extra terminals without rewriting the whole definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"object","description":"a full pad: number, shape, size, position, layers and optional drill, as library readers emit them"}}),&["name","pad"])),
         ("library.footprint.pad_remove","Remove one pad from a project-library footprint by its number; the footprint keeps at least one pad, and placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"}}),&["name","pad"])),
+        ("library.footprint.pad_move","Slide one pad of a project-library footprint by an offset, as one undoable step, moving its copper and its drill together while size, shape and layers stay put, so a single pad landing in the wrong place can be nudged into position without rewriting the package; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"},"delta":point_schema()}),&["name","pad","delta"])),
+        ("library.footprint.pad_rotate","Turn one pad of a project-library footprint about the package origin by any angle, as one undoable step, swinging the pad's position, facing and drill offset together, so a single pad can be re-aimed from the origin without turning the whole package; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"},"degrees":{"type":"number","description":"counter-clockwise turn in degrees about the footprint origin"}}),&["name","pad","degrees"])),
+        ("library.footprint.pad_mirror","Flip one pad of a project-library footprint about the vertical axis, as one undoable step, mirroring its position, facing and drill offset together, so a single off-centre pad can be moved to the opposite side without flipping the whole package; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","pad","axis"])),
         ("library.footprint.duplicate","Copy a project-library footprint under a new name as one undoable step, the starting point for a custom variant of a vendor package; the original and every placed copy stay untouched",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","description":"name for the copy, which must not exist yet"}}),&["name","new_name"])),
         ("library.symbol.duplicate","Copy a project-library symbol under a new name as one undoable step, the starting point for a custom variant of a vendor symbol; the original and every placed copy stay untouched",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","description":"name for the copy, which must not exist yet"}}),&["name","new_name"])),
         ("library.symbol.pin_set","Add or replace one pin on a project-library symbol by its number, so custom symbols gain extra terminals, corrected pin names or repositioned leads without rewriting the whole definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"object","description":"a full pin: number, name, position, angle, length, electrical type, unit and body style, as library readers emit them"}}),&["name","pin"])),
@@ -263,6 +266,23 @@ struct PinTurnParams {
 struct PadRemoveParams {
     name: String,
     pad: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PadMoveParams {
+    name: String,
+    pad: String,
+    delta: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PadTurnParams {
+    name: String,
+    pad: String,
+    #[serde(default)]
+    degrees: Option<f64>,
+    #[serde(default)]
+    axis: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -861,6 +881,115 @@ pub(super) fn run(
             };
             p.library.validate()?;
             Ok(json!({"name": name, "pad": a.pad, "pads": pads}))
+        }
+        "library.footprint.pad_move" => {
+            let a: PadMoveParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "footprint name must be 1 to 128 bytes".into(),
+                ));
+            }
+            if a.pad.is_empty() || a.pad.len() > 32 {
+                return Err(Error::Invalid("pad number must be 1 to 32 bytes".into()));
+            }
+            if !a.delta.x.is_finite()
+                || !a.delta.y.is_finite()
+                || a.delta.x.abs() > 1000.0
+                || a.delta.y.abs() > 1000.0
+            {
+                return Err(Error::Invalid(
+                    "offset must be finite and within 1000 mm".into(),
+                ));
+            }
+            let name = a.name.clone();
+            let footprint = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|f| f.name == name)
+                .ok_or_else(missing)?;
+            let pad = footprint
+                .pads
+                .iter_mut()
+                .find(|q| q.number == a.pad)
+                .ok_or_else(|| Error::Invalid(format!("footprint {name} has no pad {}", a.pad)))?;
+            let moved = Point::new(pad.position.x + a.delta.x, pad.position.y + a.delta.y);
+            if !moved.valid() {
+                return Err(Error::Invalid(
+                    "the shifted pad left the board coordinate range".into(),
+                ));
+            }
+            pad.position = moved;
+            if let Some(drill) = &mut pad.drill {
+                let shifted = Point::new(drill.offset.x + a.delta.x, drill.offset.y + a.delta.y);
+                if !shifted.valid() {
+                    return Err(Error::Invalid(
+                        "the shifted drill left the board coordinate range".into(),
+                    ));
+                }
+                drill.offset = shifted;
+            }
+            footprint
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            p.library.validate()?;
+            Ok(json!({"name": name, "pad": a.pad}))
+        }
+        "library.footprint.pad_rotate" | "library.footprint.pad_mirror" => {
+            let a: PadTurnParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "footprint name must be 1 to 128 bytes".into(),
+                ));
+            }
+            if a.pad.is_empty() || a.pad.len() > 32 {
+                return Err(Error::Invalid("pad number must be 1 to 32 bytes".into()));
+            }
+            let name = a.name.clone();
+            let footprint = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|f| f.name == name)
+                .ok_or_else(missing)?;
+            let pad = footprint
+                .pads
+                .iter_mut()
+                .find(|q| q.number == a.pad)
+                .ok_or_else(|| Error::Invalid(format!("footprint {name} has no pad {}", a.pad)))?;
+            if command == "library.footprint.pad_rotate" {
+                if !a.degrees.is_some_and(f64::is_finite) || a.degrees.unwrap_or(0.0).abs() > 1e5 {
+                    return Err(Error::Invalid(
+                        "rotation must be finite and within 100000 degrees".into(),
+                    ));
+                }
+                if a.axis.is_some() {
+                    return Err(Error::Invalid("rotation needs degrees, not an axis".into()));
+                }
+                let rad = a.degrees.unwrap_or(0.0).to_radians();
+                pad.position = rot(pad.position, rad.cos(), rad.sin())?;
+                pad.rotation = turn(pad.rotation, rad.sin())?;
+                if let Some(drill) = &mut pad.drill {
+                    drill.offset = rot(drill.offset, rad.cos(), rad.sin())?;
+                }
+            } else {
+                if a.axis.as_deref() != Some("y") {
+                    return Err(Error::Invalid("mirror needs axis \"y\"".into()));
+                }
+                if a.degrees.is_some() {
+                    return Err(Error::Invalid("mirror needs an axis, not degrees".into()));
+                }
+                pad.position = flip_x(pad.position);
+                pad.rotation = flip_angle(pad.rotation)?;
+                if let Some(drill) = &mut pad.drill {
+                    drill.offset = flip_x(drill.offset);
+                }
+            }
+            footprint
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            p.library.validate()?;
+            Ok(json!({"name": name, "pad": a.pad}))
         }
         "library.footprint.duplicate" | "library.symbol.duplicate" => {
             let a: DuplicateParams = parse(params)?;
