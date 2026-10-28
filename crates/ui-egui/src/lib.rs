@@ -3232,6 +3232,7 @@ impl App {
                             self.selected == Some(id),
                             format!("{}   {}", c.reference, c.value),
                         )
+                        .on_hover_text("Select this component and show its properties.")
                         .clicked()
                     {
                         self.select(Some(id));
@@ -4800,8 +4801,10 @@ impl App {
                     ui.heading("Appearance");
                     ui.add_space(12.0);
                     ui.horizontal(|ui| {
-                        ui.selectable_value(&mut self.preferences.dark, true, "Dark");
-                        ui.selectable_value(&mut self.preferences.dark, false, "Light");
+                        ui.selectable_value(&mut self.preferences.dark, true, "Dark")
+                            .on_hover_text("Dark canvas and panels, the usual working look.");
+                        ui.selectable_value(&mut self.preferences.dark, false, "Light")
+                            .on_hover_text("Light canvas and panels, easier on printed previews.");
                     });
                     ui.checkbox(&mut self.preferences.grid, "Show grid");
                     ui.label("Accent color");
@@ -4836,7 +4839,8 @@ impl App {
                                             &mut self.selected_unit,
                                             unit,
                                             format!("Unit {unit}"),
-                                        );
+                                        )
+                                        .on_hover_text("Edit or move this half of the part on its own.");
                                     }
                                 });
                             if before != self.selected_unit {
@@ -5478,6 +5482,7 @@ impl App {
                     .unwrap_or(0);
                 if ui
                     .button(format!("{erc} electrical · {drc} board >"))
+                    .on_hover_text("Open the checks tab for the full list of findings.")
                     .clicked()
                 {
                     self.change_tab(Tab::Checks);
@@ -5819,9 +5824,14 @@ impl App {
                                 .color(self.accent()),
                         );
                         let fields = ui.add(
-                            egui::TextEdit::singleline(&mut self.params)
-                                .hint_text("parameters as JSON")
-                                .desired_width(380.0),
+                            egui::TextEdit::multiline(&mut self.params)
+                                .hint_text("parameters as JSON, one line per value reads easiest")
+                                .desired_width(380.0)
+                                .desired_rows(3)
+                                .interactive(true),
+                        )
+                        .on_hover_text(
+                            "Edit the parameters here; Enter adds a new line so long lists stay readable, and Ctrl+Enter or Execute runs the command.",
                         );
                         if ui
                             .button("Execute")
@@ -5856,13 +5866,17 @@ impl App {
                             self.command = spec.id.into();
                             self.params = params_template(spec);
                             fields.request_focus();
-                        } else if enter && fields.lost_focus() {
+                        } else if enter
+                            && ((ui.input(|i| i.modifiers.ctrl || i.modifiers.command)
+                                && fields.has_focus())
+                                || fields.lost_focus())
+                        {
                             self.execute_palette_params();
                         }
                     });
                     ui.label(
                         egui::RichText::new(format!(
-                            "{} of {} commands match; click one to load it with a starter parameter set, or step the highlight with Up and Down and press Enter in the search box to load it",
+                            "{} of {} commands match; click one to load it with a starter parameter set, or step the highlight with Up and Down and press Enter in the search box to load it. In the parameter box, Enter writes a new line and Ctrl+Enter runs the command.",
                             matches.len(),
                             pcbcraft_engine::commands().len()
                         ))
@@ -5885,11 +5899,17 @@ impl App {
                                 }
                             }
                             for (row, spec) in matches.iter().enumerate() {
-                                let response = ui.selectable_label(
-                                    self.command == spec.id
-                                        || row == step_index(self.command_index, matches.len(), 0),
-                                    format!("{}   {}", spec.id, spec.description),
-                                );
+                                let response = ui
+                                    .selectable_label(
+                                        self.command == spec.id
+                                            || row == step_index(
+                                                self.command_index,
+                                                matches.len(),
+                                                0,
+                                            ),
+                                        format!("{}   {}", spec.id, spec.description),
+                                    )
+                                    .on_hover_text("Load this command with a starter parameter set.");
                                 if row == self.command_index && self.command_scroll {
                                     response.scroll_to_me(Some(egui::Align::Center));
                                 }
@@ -7505,6 +7525,37 @@ mod tests {
             .map_err(|_| "test lock unavailable")? = None;
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())
+    }
+
+    #[test]
+    fn every_control_hovers_a_plain_sentence_for_a_first_time_user() {
+        let click = [".button", "("].concat();
+        let pick = [".selectable_", "label("].concat();
+        let choice = [".selectable_", "value("].concat();
+        let tip = ["on_hover", "_text"].concat();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders = Vec::new();
+        for file in ["lib.rs", "canvas.rs", "library.rs", "authoring.rs"] {
+            let text = std::fs::read_to_string(dir.join(file)).unwrap_or_default();
+            let lines: Vec<&str> = text.lines().collect();
+            for (n, line) in lines.iter().enumerate() {
+                let code = line.split("//").next().unwrap_or("");
+                if !(code.contains(&click) || code.contains(&pick) || code.contains(&choice)) {
+                    continue;
+                }
+                let window: String = lines[n.min(n)..(n + 10).min(lines.len())]
+                    .iter()
+                    .map(|l| l.split("//").next().unwrap_or(""))
+                    .collect();
+                if !window.contains(&tip) {
+                    offenders.push(format!("{file}:{}: {}", n + 1, code.trim()));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "every clickable control must explain itself on hover: {offenders:?}"
+        );
     }
 
     #[test]
@@ -10117,6 +10168,127 @@ mod tests {
         output.textures_delta.clear();
         output
     }
+    #[test]
+    fn a_beginners_first_session_places_two_parts_and_walks_every_tab() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        let key = |key, modifiers| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        assert!(
+            matches!(app.tab, Tab::Schematic),
+            "the app opens on the schematic"
+        );
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+
+        // Step 1: press A, pick the first part from the palette, click the sheet.
+        frame(
+            &ctx,
+            &mut app,
+            vec![key(egui::Key::A, egui::Modifiers::NONE)],
+            egui::Modifiers::NONE,
+        );
+        assert!(app.palette, "A opens the symbol palette");
+        app.palette = false;
+        app.tool = Tool::Place(TEMPLATES[0].kind.into());
+        for pressed in [true, false] {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::Pos2::new(680.0, 360.0)),
+                    egui::Event::PointerButton {
+                        pos: egui::Pos2::new(680.0, 360.0),
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert_eq!(
+            shared
+                .lock()
+                .map_err(|_| "session unavailable")?
+                .project
+                .components
+                .len(),
+            1,
+            "the first part lands on the sheet"
+        );
+
+        // Step 2: open the command console with Ctrl+K and add a second part.
+        let ctrl = egui::Modifiers {
+            ctrl: true,
+            command: true,
+            ..Default::default()
+        };
+        frame(&ctx, &mut app, vec![key(egui::Key::K, ctrl)], ctrl);
+        assert!(app.command_open, "Ctrl+K opens the command console");
+        app.command_query = "component.add".into();
+        app.params = json!({"kind":"resistor","position":{"x":40.0,"y":30.0}}).to_string();
+        app.execute_palette_params();
+        assert_eq!(
+            shared
+                .lock()
+                .map_err(|_| "session unavailable")?
+                .project
+                .components
+                .len(),
+            2,
+            "the console adds the second part"
+        );
+        assert!(
+            app.message.contains("committed"),
+            "the console tells the user what happened"
+        );
+
+        // Step 3: every tab paints, and each one shows something useful.
+        for tab in [Tab::Pcb, Tab::Libraries, Tab::Checks, Tab::Schematic] {
+            app.change_tab(tab);
+            let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            assert_eq!(
+                output.viewport_output.len(),
+                1,
+                "the tab a beginner just clicked must paint, not throw"
+            );
+        }
+        assert!(
+            app.checks.get("erc").is_some() && app.checks.get("drc").is_some(),
+            "the checks tab has real results to show"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_command_with_a_multi_line_parameter_box_still_runs() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+        app.refresh();
+        app.command = "board.set_outline".into();
+        app.params = "{\n  \"points\": [\n    { \"x\": 0.0, \"y\": 0.0 },\n    { \"x\": 80.0, \"y\": 0.0 },\n    { \"x\": 80.0, \"y\": 50.0 },\n    { \"x\": 0.0, \"y\": 50.0 }\n  ]\n}".into();
+        app.execute_palette_params();
+        assert!(
+            app.message.contains("committed"),
+            "a boxed outline typed over several lines runs just the same"
+        );
+        let width = shared
+            .lock()
+            .map_err(|_| "session unavailable")?
+            .project
+            .board
+            .width;
+        assert!(width > 70.0, "the outline from the box sized the board");
+        Ok(())
+    }
+
     #[test]
     fn copy_plot_renders_the_current_view_for_the_clipboard() -> Result<(), String> {
         let session =
