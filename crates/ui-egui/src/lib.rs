@@ -477,6 +477,11 @@ pub struct App {
     area_gap: f64,
     area_limited: bool,
     area_height: f64,
+    label_text: String,
+    label_x: f64,
+    label_y: f64,
+    label_size: f64,
+    label_front: bool,
     cut_x: f64,
     cut_y: f64,
     cut_r: f64,
@@ -722,6 +727,11 @@ impl App {
             area_gap: 0.2,
             area_limited: false,
             area_height: 5.0,
+            label_text: "Rev A".into(),
+            label_x: 1.0,
+            label_y: 1.0,
+            label_size: 1.0,
+            label_front: true,
             cut_x: 25.0,
             cut_y: 15.0,
             cut_r: 1.5,
@@ -4174,6 +4184,107 @@ impl App {
                     );
                 }
                 ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("BOARD LABELS")
+                        .size(10.0)
+                        .color(self.muted()),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "Words printed on the board: a version tag, a name, a warning.",
+                    )
+                    .small()
+                    .color(self.muted()),
+                );
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.label_text)
+                            .desired_width(110.0)
+                            .hint_text("what to print"),
+                    )
+                    .on_hover_text("The words to print on the board.");
+                });
+                ui.horizontal(|ui| {
+                    ui.label("At");
+                    ui.add(
+                        egui::DragValue::new(&mut self.label_x)
+                            .speed(0.5)
+                            .suffix(" mm"),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut self.label_y)
+                            .speed(0.5)
+                            .suffix(" mm"),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut self.label_size)
+                            .range(0.3..=20.0)
+                            .speed(0.1)
+                            .suffix(" mm"),
+                    )
+                    .on_hover_text("How tall the letters are.");
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Side");
+                    ui.selectable_value(&mut self.label_front, true, "Top");
+                    ui.selectable_value(&mut self.label_front, false, "Bottom");
+                });
+                if ui
+                    .button("Add label")
+                    .on_hover_text(
+                        "Prints these words on the board at the chosen spot. Undo erases it again.",
+                    )
+                    .clicked()
+                {
+                    let text = self.label_text.trim().to_owned();
+                    if !text.is_empty() {
+                        self.run(
+                            "text.place",
+                            json!({
+                                "text": text,
+                                "position": {"x": self.label_x, "y": self.label_y},
+                                "size": self.label_size,
+                                "layer": if self.label_front { "F.Cu" } else { "B.Cu" },
+                            }),
+                        );
+                    }
+                }
+                let labels: Vec<(Id, String, bool)> = self
+                    .project
+                    .board
+                    .texts
+                    .iter()
+                    .map(|t| {
+                        (
+                            t.id,
+                            t.text.clone(),
+                            t.layer == pcbcraft_doc::Layer::Front,
+                        )
+                    })
+                    .collect();
+                if !labels.is_empty() {
+                    ui.label(
+                        egui::RichText::new("Words on the board")
+                            .small()
+                            .color(self.muted()),
+                    );
+                    for (id, text, front) in labels {
+                        ui.horizontal(|ui| {
+                            ui.label(format!(
+                                "{text} · {}",
+                                if front { "Top" } else { "Bottom" }
+                            ));
+                            if ui
+                                .small_button("Erase")
+                                .on_hover_text("Wipe this word off the board.")
+                                .clicked()
+                            {
+                                self.run("object.delete", json!({"id": id}));
+                            }
+                        });
+                    }
+                }
+                ui.add_space(8.0);
                 ui.label(egui::RichText::new("BOARD EDGE").size(10.0).color(self.muted()));
                 let corners = self.project.board.outline.as_ref().map_or(0, |o| o.len());
                 if corners >= 3 {
@@ -5270,6 +5381,22 @@ mod tests {
             "the board's edge lives in its own plain-language section"
         );
         app.svg_path = file.to_string_lossy().into_owned();
+        for _ in 0..2 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
         authoring::tests::tap(&ctx, &mut app, "Import as board edge")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let corners = app.project.board.outline.as_ref().map_or(0, |o| o.len());
@@ -6425,6 +6552,80 @@ mod tests {
             teardrops(&app),
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let before = app.project.board.texts.len();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "BOARD LABELS")?,
+            "the board panel should offer printed words: {}",
+            app.message
+        );
+        app.label_text = "Widget One".into();
+        app.label_x = 3.0;
+        app.label_y = 2.0;
+        app.label_size = 1.2;
+        app.label_front = false;
+        authoring::tests::tap(&ctx, &mut app, "Add label")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            app.project.board.texts.len(),
+            before + 1,
+            "one line of words lands on the board: {}",
+            app.message
+        );
+        let label = app
+            .project
+            .board
+            .texts
+            .last()
+            .ok_or("the label should be on the board")?;
+        assert!(
+            label.text == "Widget One"
+                && label.layer == pcbcraft_doc::Layer::Back
+                && (label.position.x - 3.0).abs() < 1e-9
+                && (label.size - 1.2).abs() < 1e-9,
+            "the label carries the words, side, spot and letter height that were set"
+        );
+        for _ in 0..3 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            paints_text(&ctx, &mut app, "Widget One · Bottom")?,
+            "the printed words are listed so they can be wiped: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Erase")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            app.project.board.texts.len(),
+            before,
+            "erasing wipes exactly that line of words: {}",
             app.message
         );
         Ok(())
