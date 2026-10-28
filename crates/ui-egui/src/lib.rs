@@ -828,8 +828,6 @@ impl App {
                 .small()
                 .color(self.muted()),
             );
-            ui.add_space(20.0);
-            self.board_summary(ui);
             return;
         }
         ui.label(
@@ -853,8 +851,6 @@ impl App {
                 }
             }
         }
-        ui.add_space(20.0);
-        self.board_summary(ui);
     }
     fn rotate(&mut self) {
         if let Some(id) = self.selected {
@@ -1046,14 +1042,16 @@ impl App {
                 ui.add_enabled(false, egui::Button::new("3D Board"))
                     .on_hover_text("A real Rust 3D viewer is planned.");
             });
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new(tool_hint(&self.tool))
-                        .small()
-                        .color(self.muted()),
-                );
-            });
+            if !matches!(self.tool, Tool::Select) {
+                ui.horizontal(|ui| {
+                    ui.add_space(12.0);
+                    ui.label(
+                        egui::RichText::new(tool_hint(&self.tool))
+                            .small()
+                            .color(self.muted()),
+                    );
+                });
+            }
         });
     }
     fn start_home(&mut self, ui: &mut egui::Ui) {
@@ -1485,8 +1483,6 @@ impl App {
                 ui.separator();
                 if self.left_tab == 1 {
                     self.nets_tab(ui);
-                    ui.add_space(20.0);
-                    self.board_summary(ui);
                     return;
                 }
                 if self.left_tab == 2 {
@@ -2153,10 +2149,8 @@ impl App {
                             )
                             .clicked()
                         {
-                            self.build_note = Some((
-                                variant.name.clone(),
-                                variant.note.clone().unwrap_or_default(),
-                            ));
+                            self.build_note =
+                                Some((variant.name.clone(), variant.note.clone().unwrap_or_default()));
                         }
                         if ui
                             .small_button("Remove")
@@ -2172,7 +2166,9 @@ impl App {
                 if let Some(note) = &variant.note
                     && !editing
                 {
-                    ui.label(egui::RichText::new(note).small().color(self.muted()));
+                    ui.label(
+                        egui::RichText::new(note).small().color(self.muted()),
+                    );
                 }
                 if editing {
                     let mut text = self
@@ -2223,7 +2219,9 @@ impl App {
                             ui.label(&reference);
                             if ui
                                 .small_button("\u{d7}")
-                                .on_hover_text("Put this part back on for this build.")
+                                .on_hover_text(
+                                    "Put this part back on for this build.",
+                                )
                                 .clicked()
                             {
                                 self.run(
@@ -2308,10 +2306,6 @@ impl App {
             );
         }
     }
-    fn board_summary(&mut self, ui: &mut egui::Ui) {
-        ui.label(egui::RichText::new("BOARD").size(10.0).color(self.muted()));
-        self.board_body(ui);
-    }
     /// The folder make files land in: the typed one, or "outputs" beside the design.
     fn make_directory(&self) -> String {
         if !self.make_dir.trim().is_empty() {
@@ -2332,19 +2326,9 @@ impl App {
         self.tool_call(tool, json!({"path": directory}));
     }
     fn board_body(&mut self, ui: &mut egui::Ui) {
-        ui.label(format!(
-            "{} × {} mm",
-            self.project.board.width, self.project.board.height
-        ));
-        ui.label("2 copper layers · 1.6 mm");
         if self.project.board.footprints.is_empty() {
             empty_state(ui, EMPTY_BOARD, self.muted());
         }
-        ui.label(format!(
-            "{} footprints · {} segments",
-            self.project.board.footprints.len(),
-            self.project.board.tracks.len()
-        ));
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
         egui::Panel::right("inspector")
@@ -3851,84 +3835,6 @@ mod tests {
     }
 
     #[test]
-    fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Builds")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "No extra builds")?,
-            "a plain design says so: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "New build")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.variants.len(),
-            1,
-            "one click adds one build: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "choose a part to leave off")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "R1")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Leave off")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let r1 = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R1")
-            .map(|c| c.id)
-            .ok_or("the sample should have an R1")?;
-        assert!(
-            app.project.variants[0].dnp.contains(&r1),
-            "the build leaves R1 off: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 left off")?,
-            "the row counts what it skips"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Note")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.build_note = Some((app.project.variants[0].name.clone(), "no blue LED".into()));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Save note")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.variants[0].note.as_deref(),
-            Some("no blue LED"),
-            "the reminder is kept: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "no blue LED")?,
-            "the reminder shows on the row"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.variants[0].dnp.is_empty(),
-            "the part is back on the build: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.variants.is_empty(),
-            "the build is gone: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
     fn the_start_screen_is_the_first_thing_a_newcomer_sees() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
@@ -4254,11 +4160,6 @@ mod tests {
 
     #[test]
     fn tool_hints_name_the_next_action_for_every_tool() {
-        let select = tool_hint(&Tool::Select);
-        assert!(
-            select.contains("select") && select.contains("drag") && select.contains("zoom"),
-            "the idle hint teaches navigation: {select}"
-        );
         let cases = [
             (Tool::Place("resistor".into()), "symbol"),
             (Tool::Wire(None), "first pin"),
@@ -4281,6 +4182,99 @@ mod tests {
                 "{verb} must be spelled out for the active tool: {hint}"
             );
         }
+    }
+
+    #[test]
+    fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Builds")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "No extra builds")?,
+            "a plain design says so: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "New build")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.variants.len(),
+            1,
+            "one click adds one build: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "choose a part to leave off")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "R1")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Leave off")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let r1 = app
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R1")
+            .map(|c| c.id)
+            .ok_or("the sample should have an R1")?;
+        assert!(
+            app.project.variants[0].dnp.contains(&r1),
+            "the build leaves R1 off: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "1 left off")?,
+            "the row counts what it skips"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Note")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.build_note = Some((app.project.variants[0].name.clone(), "no blue LED".into()));
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Save note")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.variants[0].note.as_deref(),
+            Some("no blue LED"),
+            "the reminder is kept: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "no blue LED")?,
+            "the reminder shows on the row"
+        );
+        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.variants[0].dnp.is_empty(),
+            "the part is back on the build: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Remove")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.variants.is_empty(),
+            "the build is gone: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_idle_board_shows_no_mouse_legend() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            !paints_text(&ctx, &mut app, "LMB:")?,
+            "the mouse legend only appears while a tool waits for a click"
+        );
+        Ok(())
     }
 
     #[test]
