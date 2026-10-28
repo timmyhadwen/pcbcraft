@@ -3368,6 +3368,7 @@ impl App {
                             self.project.board.tracks.iter().find(|t| t.id == id)
                         {
                             let curved = track.arc.is_some();
+                            let net = track.net;
                             let near = |a: Point, b: Point| {
                                 (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
                             };
@@ -3409,6 +3410,18 @@ impl App {
                                 self.run(
                                     "track.set_width",
                                     json!({"id": id, "width": self.track_width}),
+                                );
+                            }
+                            if ui
+                                .button("Thicken whole connection")
+                                .on_hover_text(
+                                    "Make every stretch of this connection the width above, in one step, for a run that has to carry real current.",
+                                )
+                                .clicked()
+                            {
+                                self.run(
+                                    "track.set_width_net",
+                                    json!({"net": net, "width": self.track_width}),
                                 );
                             }
                             if ui
@@ -5590,6 +5603,64 @@ mod tests {
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
             app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_thickens_a_whole_connection_at_once() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        let (id, net, middle) = app
+            .project
+            .board
+            .tracks
+            .first()
+            .map(|t| {
+                (
+                    t.id,
+                    t.net,
+                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
+                )
+            })
+            .ok_or("routing should leave a connection to thicken")?;
+        app.change_tab(Tab::Pcb);
+        app.canvas_click(middle, 15.0);
+        assert_eq!(
+            app.selected,
+            Some(id),
+            "one leg is picked up: {}",
+            app.message
+        );
+        app.track_width = 0.6;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Thicken whole connection")?,
+            "the inspector offers to widen the entire run, not just the picked leg: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Thicken whole connection")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        let legs: Vec<f64> = app
+            .project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.net == net)
+            .map(|t| t.width)
+            .collect();
+        assert!(
+            legs.len() > 1 && legs.iter().all(|w| (w - 0.6).abs() < 1e-9),
+            "every stretch of the connection is now half a millimetre across: {:?}",
+            legs
         );
         Ok(())
     }
