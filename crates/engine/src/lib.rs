@@ -110,7 +110,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "component.add",
             "Place an original built-in symbol: resistor, capacitor, led or connector",
             schema(
-                json!({"kind":{"type":"string","enum":["resistor","capacitor","led","connector"]},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"}}),
+                json!({"kind":{"type":"string","enum":["resistor","capacitor","led","connector"]},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),
                 &["kind", "position"],
             ),
         ),
@@ -118,7 +118,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "component.place_library",
             "Place a KiCad symbol package with independently movable units and embedded definitions",
             schema(
-                json!({"path":{"type":"string"},"symbol":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"}}),
+                json!({"path":{"type":"string"},"symbol":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),
                 &["path", "symbol", "position"],
             ),
         ),
@@ -1913,6 +1913,8 @@ struct Add {
     position: Point,
     reference: Option<String>,
     value: Option<String>,
+    #[serde(default)]
+    rotation: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1922,6 +1924,8 @@ struct PlaceLibrary {
     position: Point,
     reference: Option<String>,
     value: Option<String>,
+    #[serde(default)]
+    rotation: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2146,9 +2150,24 @@ fn place_definition(
         format!("{prefix}{n}")
     });
     let id = allocate(next)?;
-    let component = library_component(definition, library, id, reference, position, value)?;
-    p.components.push(component);
+    p.components.push(library_component(
+        definition, library, id, reference, position, value,
+    )?);
     Ok(json!({"id":id}))
+}
+fn turn_placed(result: &Value, p: &mut Project, rotation: Option<f64>) -> Result<Value, Error> {
+    if let Some(degrees) = rotation {
+        if !degrees.is_finite() {
+            return Err(Error::Invalid("rotation must be finite".into()));
+        }
+        let id = result["id"].as_u64().ok_or_else(missing)?;
+        p.components
+            .iter_mut()
+            .find(|c| c.id == id)
+            .ok_or_else(missing)?
+            .rotation = degrees.rem_euclid(360.0);
+    }
+    Ok(result.clone())
 }
 fn assign_definition(
     p: &mut Project,
@@ -4134,6 +4153,12 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if let Some(value) = a.value {
                 c.value = value;
             }
+            if let Some(degrees) = a.rotation {
+                if !degrees.is_finite() {
+                    return Err(Error::Invalid("rotation must be finite".into()));
+                }
+                c.rotation = degrees.rem_euclid(360.0);
+            }
             p.components.push(c);
             Ok(json!({"id":id}))
         }
@@ -4154,6 +4179,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 a.reference,
                 a.value,
             )
+            .and_then(|placed| turn_placed(&placed, p, a.rotation))
         }
         "footprint.assign" => {
             let a: AssignFootprint = parse(params)?;
@@ -13901,6 +13927,81 @@ mod tests {
         );
         Ok(())
     }
+    #[test]
+    fn components_place_at_a_starting_rotation() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"rotation":90.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let held = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.id == r1)
+            .ok_or_else(missing)?;
+        assert_eq!(held.rotation, 90.0, "the symbol lands already turned");
+        let u = s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","position":{"x":20.0,"y":40.0},"rotation":450.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let held = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.id == u)
+            .ok_or_else(missing)?;
+        assert_eq!(
+            held.rotation, 90.0,
+            "a turn and a quarter lands as a quarter turn"
+        );
+        assert!(
+            s.execute(
+                "component.place_library",
+                json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","position":{"x":30.0,"y":40.0},"rotation":"turn"}),
+                None
+            )
+            .is_err(),
+            "rotation stays a number"
+        );
+        let mut symbol = library::symbol(
+            std::path::Path::new(&library_fixture("device.kicad_sym")),
+            "R",
+        )?;
+        symbol.name = "TurnR".into();
+        s.execute("library.symbol.upsert", json!({"definition":symbol}), None)?;
+        let t = s.execute(
+            "component.place_custom",
+            json!({"name":"TurnR","position":{"x":40.0,"y":10.0},"rotation":270.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let held = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.id == t)
+            .ok_or_else(missing)?;
+        assert_eq!(
+            held.rotation, 270.0,
+            "project-library symbols land turned too"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.components.len(),
+            2,
+            "undo drops the turned placement"
+        );
+        Ok(())
+    }
+
     #[test]
     fn pad_tables_report_nets_geometry_and_drills() -> Result<(), Error> {
         let mut s = Session::default();
