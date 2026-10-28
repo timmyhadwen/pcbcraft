@@ -460,6 +460,11 @@ pub struct App {
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
     renumber_prefix: Option<String>,
+    panel_columns: usize,
+    panel_rows: usize,
+    panel_gap: f64,
+    panel_rail: f64,
+    panel_plan: Value,
     renumber_plan: Option<RenumberPlan>,
     stack_name: String,
     stack_kind: String,
@@ -674,6 +679,11 @@ impl App {
             fiducial_diameter: 1.0,
             fiducial_edit: None,
             renumber_prefix: None,
+            panel_columns: 2,
+            panel_rows: 2,
+            panel_gap: 2.0,
+            panel_rail: 3.0,
+            panel_plan: Value::Null,
             renumber_plan: None,
             stack_name: String::new(),
             stack_kind: "core".to_owned(),
@@ -3161,6 +3171,9 @@ impl App {
             .default_size(250.0)
             .min_size(220.0)
             .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
                 ui.add_space(12.0);
                 if self.appearance {
                     ui.heading("Appearance");
@@ -3478,11 +3491,94 @@ impl App {
                 {
                     self.write_make_files("report.write");
                 }
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("PANEL PLAN").size(10.0).color(self.muted()));
+                ui.label(
+                    egui::RichText::new(
+                        "See how your board would sit repeated on a bigger manufacturing panel.",
+                    )
+                    .small()
+                    .color(self.muted()),
+                );
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut self.panel_columns)
+                            .range(1..=32)
+                            .suffix(" across")
+                            .speed(1.0),
+                    )
+                    .on_hover_text("How many copies of the board sit side by side.");
+                    ui.add(
+                        egui::DragValue::new(&mut self.panel_rows)
+                            .range(1..=32)
+                            .suffix(" down")
+                            .speed(1.0),
+                    )
+                    .on_hover_text("How many copies of the board sit top to bottom.");
+                });
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut self.panel_gap)
+                            .range(0.0..=25.0)
+                            .speed(0.5)
+                            .suffix(" mm gap"),
+                    )
+                    .on_hover_text(
+                        "Empty space between neighbouring copies, room for cutting them apart later.",
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut self.panel_rail)
+                            .range(0.0..=25.0)
+                            .speed(0.5)
+                            .suffix(" mm rail"),
+                    )
+                    .on_hover_text(
+                        "Solid border left around the edge of the panel, where the factory grips it.",
+                    );
+                });
+                if ui
+                    .button("Preview panel")
+                    .on_hover_text(
+                        "Work out the panel size and where every copy lands, using the board's own measurements. The design itself is left alone.",
+                    )
+                    .clicked()
+                {
+                    self.panel_plan = self.run_and_keep(
+                        "board.panel",
+                        json!({
+                            "columns": self.panel_columns,
+                            "rows": self.panel_rows,
+                            "pitch_x": self.panel_gap,
+                            "pitch_y": self.panel_gap,
+                            "rail": self.panel_rail,
+                        }),
+                    );
+                }
+                if let Some(plan) = self.panel_plan.get("panel") {
+                    let copies = self
+                        .panel_plan
+                        .get("copies")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
+                    let width = plan.get("width").and_then(Value::as_f64).unwrap_or(0.0);
+                    let height = plan.get("height").and_then(Value::as_f64).unwrap_or(0.0);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{copies} copies \u{b7} panel {width:.1} \u{d7} {height:.1} mm"
+                        ))
+                        .small()
+                        .color(self.muted()),
+                    )
+                    .on_hover_text(
+                        "The finished panel: its overall size and how many boards fit on it.",
+                    );
+                }
                 ui.label(
                     egui::RichText::new("Writing these files changes nothing in the design.")
                         .small()
                         .color(self.muted()),
                 );
+                    });
             });
     }
     fn footer(&mut self, ui: &mut egui::Ui) {
@@ -5212,6 +5308,56 @@ mod tests {
             app.project.board.layer_records.is_empty(),
             "the stackup notes are forgotten: {}",
             app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "PANEL PLAN")?,
+            "the factory folder section should also plan panels: {}",
+            app.message
+        );
+        let width = app.project.board.width;
+        for _ in 0..8 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        authoring::tests::tap(&ctx, &mut app, "Preview panel")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "4 copies")?,
+            "a two by two preview counts four boards: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "panel")?,
+            "the panel's finished size is spelled out: {}",
+            app.message
+        );
+        app.refresh();
+        assert_eq!(
+            app.project.board.width, width,
+            "planning a panel never touches the design"
         );
         Ok(())
     }
