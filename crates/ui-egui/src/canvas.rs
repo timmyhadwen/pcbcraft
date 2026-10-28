@@ -375,6 +375,7 @@ impl App {
             Tool::Route(Some(_)) => "ROUTE · PICK SECOND PAD",
             Tool::Move => "MOVE · CLICK TO PLACE SELECTION",
             Tool::Cutout => "CUTOUT · CLICK TO PLACE",
+            Tool::Hole => "MOUNTING HOLE · CLICK TO DRILL",
         };
         painter.text(
             rect.left_top() + Vec2::new(20.0, 20.0),
@@ -406,6 +407,13 @@ impl App {
                             self.symbol(&painter, rect, camera, &view, false, true);
                         }
                     }
+                }
+                Tool::Hole => {
+                    painter.circle_stroke(
+                        camera.screen(snapped, rect),
+                        (self.hole_diameter / 2.0) as f32 * camera.zoom,
+                        Stroke::new(1.5, self.accent()),
+                    );
                 }
                 Tool::Cutout if pcbcraft_geom::positive(self.cutout_radius) => {
                     painter.circle_stroke(
@@ -503,6 +511,27 @@ impl App {
                         .clicked()
                     {
                         self.needs_fit = true;
+                    }
+                    if self.tab == Tab::Pcb
+                        && ui
+                            .selectable_label(matches!(self.tool, Tool::Hole), "Mounting hole")
+                            .on_hover_text(
+                                "Drill an unplated hole for a screw or spacer; then click the board where it goes.",
+                            )
+                            .clicked()
+                    {
+                        self.tool = Tool::Hole;
+                    }
+                    if self.tab == Tab::Pcb && matches!(self.tool, Tool::Hole) {
+                        ui.add(
+                            egui::DragValue::new(&mut self.hole_diameter)
+                                .speed(0.05)
+                                .range(0.05..=25.0)
+                                .suffix(" mm"),
+                        )
+                        .on_hover_text(
+                            "Drill size for new holes; an M3 spacer usually wants 3.2 mm.",
+                        );
                     }
                     if self.tab == Tab::Pcb
                         && ui
@@ -741,6 +770,10 @@ impl App {
                     self.message = "Pick a pad to start or finish a route".into();
                 }
             }
+            Tool::Hole => self.run(
+                "board.hole_place",
+                json!({"position":snap(pos),"diameter":self.hole_diameter}),
+            ),
             Tool::Cutout => self.run(
                 "board.cutout.add",
                 json!({"center":snap(pos),"radius":self.cutout_radius}),
@@ -1095,6 +1128,12 @@ impl App {
             Stroke::new(1.5, self.accent()),
             egui::StrokeKind::Inside,
         );
+        for h in &p.board.holes {
+            let center = camera.screen(h.position, rect);
+            let radius = ((h.diameter / 2.0) as f32 * camera.zoom).max(1.5);
+            painter.circle_filled(center, radius, self.surface());
+            painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
+        }
         for c in p.board.cutouts.iter().filter(|_| shown("Cutouts")) {
             let center = camera.screen(c.center, rect);
             painter.circle_filled(center, c.radius as f32 * camera.zoom, self.surface());

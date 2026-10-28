@@ -142,6 +142,7 @@ fn tool_hint(tool: &Tool) -> String {
         }
         Tool::Move => format!("LMB: drop the selected object at the cursor{common}"),
         Tool::Cutout => format!("LMB: place a circular cutout at the cursor{common}"),
+        Tool::Hole => format!("LMB: drill a mounting hole at the cursor{common}"),
     }
 }
 
@@ -366,6 +367,7 @@ enum Tool {
     Route(Option<(Id, String)>),
     Move,
     Cutout,
+    Hole,
 }
 #[derive(Clone, Copy)]
 struct Camera {
@@ -410,6 +412,8 @@ pub struct App {
     build_pick: Option<String>,
     swap_pick: Option<String>,
     swap_name: String,
+    hole_diameter: f64,
+    hole_edit: Option<(Id, f64)>,
     stack_name: String,
     stack_kind: String,
     stack_thickness: f64,
@@ -618,6 +622,8 @@ impl App {
             build_pick: None,
             swap_pick: None,
             swap_name: String::new(),
+            hole_diameter: 3.2,
+            hole_edit: None,
             stack_name: String::new(),
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
@@ -1095,8 +1101,85 @@ impl App {
             self.run("board.set_machining", json!({"edge_plating": plated}));
         }
     }
+    fn holes_section(&mut self, ui: &mut egui::Ui) {
+        ui.label(
+            egui::RichText::new("MOUNTING HOLES")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        if self.project.board.holes.is_empty() {
+            ui.label(
+                egui::RichText::new(
+                    "No drilled holes yet. Press Mounting hole at the top of the board, then click where a screw goes.",
+                )
+                .small()
+                .color(self.muted()),
+            );
+            return;
+        }
+        for hole in self.project.board.holes.clone() {
+            let edit = self.hole_edit.filter(|(id, _)| *id == hole.id);
+            ui.horizontal(|ui| {
+                ui.label("· ");
+                if let Some((_, mut diameter)) = edit {
+                    ui.add(
+                        egui::DragValue::new(&mut diameter)
+                            .speed(0.05)
+                            .range(0.05..=25.0)
+                            .suffix(" mm"),
+                    )
+                    .on_hover_text("How wide this hole is drilled.");
+                    if ui
+                        .button("Apply")
+                        .on_hover_text("Resize this hole to that drill size.")
+                        .clicked()
+                    {
+                        self.hole_edit = None;
+                        self.run(
+                            "board.hole_set_size",
+                            json!({"id": hole.id, "diameter": diameter}),
+                        );
+                    }
+                    if ui
+                        .button("Cancel")
+                        .on_hover_text("Leave this hole the size it is.")
+                        .clicked()
+                    {
+                        self.hole_edit = None;
+                    }
+                    if let Some((held_id, held)) = &mut self.hole_edit
+                        && *held_id == hole.id
+                    {
+                        *held = diameter;
+                    }
+                } else {
+                    ui.label(format!(
+                        "{:.2} mm at {:.1}, {:.1}",
+                        hole.diameter, hole.position.x, hole.position.y
+                    ));
+                    if ui
+                        .small_button("Tune")
+                        .on_hover_text("Change this hole's drill size.")
+                        .clicked()
+                    {
+                        self.hole_edit = Some((hole.id, hole.diameter));
+                    }
+                }
+                if ui
+                    .small_button("\u{d7}")
+                    .on_hover_text("Take this hole out of the board.")
+                    .clicked()
+                {
+                    self.hole_edit = None;
+                    self.run("object.delete", json!({"id": hole.id}));
+                }
+            });
+        }
+    }
+
     fn layers_tab(&mut self, ui: &mut egui::Ui) {
         self.stackup_section(ui);
+        self.holes_section(ui);
         ui.add_space(16.0);
         let rows: &[&str] = match self.tab {
             Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
@@ -4564,6 +4647,7 @@ mod tests {
             (Tool::Route(Some((1, "1".into()))), "second pad"),
             (Tool::Move, "drop"),
             (Tool::Cutout, "cutout"),
+            (Tool::Hole, "mounting hole"),
         ];
         for (tool, verb) in cases {
             let hint = tool_hint(&tool);
@@ -4772,6 +4856,76 @@ mod tests {
         assert!(
             app.project.board.layer_records.is_empty(),
             "the stackup notes are forgotten: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tab = Tab::Pcb;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Mounting hole")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.canvas_click(Point::new(-25.0, -17.0), 1.0);
+        assert_eq!(
+            app.project.board.holes.len(),
+            1,
+            "one click drills one hole: {}",
+            app.message
+        );
+        app.canvas_click(Point::new(25.0, -17.0), 1.0);
+        assert_eq!(
+            app.project.board.holes.len(),
+            2,
+            "the tool stays ready for the next corner: {}",
+            app.message
+        );
+        assert!(
+            app.project
+                .board
+                .holes
+                .iter()
+                .all(|h| (h.diameter - 3.2).abs() < 1e-9),
+            "both holes use the drill size on show: {}",
+            app.message
+        );
+        app.tool = Tool::Select;
+        app.tab = Tab::Schematic;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "3.20 mm")?,
+            "the holes are listed with their drill size"
+        );
+        let id = app.project.board.holes[0].id;
+        authoring::tests::tap(&ctx, &mut app, "Tune")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.hole_edit = Some((id, 3.0));
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Apply")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project
+                .board
+                .holes
+                .iter()
+                .any(|h| h.id == id && (h.diameter - 3.0).abs() < 1e-9),
+            "the hole is resized: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.board.holes.len(),
+            1,
+            "the other hole is drilled back out: {}",
             app.message
         );
         Ok(())
