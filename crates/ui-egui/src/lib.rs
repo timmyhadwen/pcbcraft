@@ -408,6 +408,8 @@ pub struct App {
     class_pick: Option<String>,
     build_note: Option<(String, String)>,
     build_pick: Option<String>,
+    swap_pick: Option<String>,
+    swap_name: String,
     stack_name: String,
     stack_kind: String,
     stack_thickness: f64,
@@ -614,6 +616,8 @@ impl App {
             class_pick: None,
             build_note: None,
             build_pick: None,
+            swap_pick: None,
+            swap_name: String::new(),
             stack_name: String::new(),
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
@@ -2400,6 +2404,11 @@ impl App {
         {
             self.build_pick = None;
         }
+        if let Some(pick) = &self.swap_pick
+            && !self.project.components.iter().any(|c| c.reference == *pick)
+        {
+            self.swap_pick = None;
+        }
         ui.label(
             egui::RichText::new(
                 "One design, several builds: each extra build lists parts it leaves off the board.",
@@ -2429,6 +2438,11 @@ impl App {
                     ui.label(format!("{} left off", variant.dnp.len())).on_hover_text(
                         "Parts this build skips; the bill of materials leaves them out too.",
                     );
+                    if !variant.footprints.is_empty() {
+                        ui.label(format!("{} swapped", variant.footprints.len())).on_hover_text(
+                            "Parts this build fits in a different package.",
+                        );
+                    }
                     if !editing {
                         if ui
                             .small_button("Note")
@@ -2583,6 +2597,94 @@ impl App {
                                 .color(self.muted()),
                         );
                     }
+                    for swap in &variant.footprints {
+                        let Some(reference) = self
+                            .project
+                            .components
+                            .iter()
+                            .find(|c| c.id == swap.component)
+                            .map(|c| c.reference.clone())
+                        else {
+                            continue;
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label("· ");
+                            ui.label(format!("{reference} fits {}", swap.footprint));
+                            if ui
+                                .small_button("\u{d7}")
+                                .on_hover_text("Fit this part in its original package again.")
+                                .clicked()
+                            {
+                                self.run(
+                                    "variant.clear_footprint",
+                                    json!({"name": variant.name, "component": swap.component}),
+                                );
+                            }
+                        });
+                    }
+                    let mut swap = self.swap_pick.clone().unwrap_or_default();
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt(("build-swap", variant.name.clone()))
+                            .selected_text(if swap.is_empty() {
+                                "choose a part to swap".to_owned()
+                            } else {
+                                swap.clone()
+                            })
+                            .show_ui(ui, |ui| {
+                                for c in &self.project.components {
+                                    if ui
+                                        .selectable_label(swap == c.reference, &c.reference)
+                                        .on_hover_text("A part in this design.")
+                                        .clicked()
+                                    {
+                                        swap = c.reference.clone();
+                                        ui.close();
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text(
+                                "Pick a part, name its other package, then Swap package.",
+                            );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.swap_name)
+                                .desired_width(80.0)
+                                .hint_text("package name"),
+                        )
+                        .on_hover_text(
+                            "The package this build uses instead, for example a smaller size.",
+                        );
+                        if ui
+                            .add_enabled(
+                                !swap.is_empty() && !self.swap_name.trim().is_empty(),
+                                egui::Button::new("Swap package"),
+                            )
+                            .on_hover_text(
+                                "This build fits the chosen part in that package; the design keeps its own.",
+                            )
+                            .clicked()
+                            && let Some(component) = self
+                                .project
+                                .components
+                                .iter()
+                                .find(|c| c.reference == swap)
+                                .map(|c| c.id)
+                        {
+                            let footprint = self.swap_name.trim().to_owned();
+                            self.run(
+                                "variant.set_footprint",
+                                json!({"name": variant.name, "component": component, "footprint": footprint}),
+                            );
+                            self.swap_pick = None;
+                            self.swap_name.clear();
+                            swap.clear();
+                        }
+                    });
+                    self.swap_pick = if swap.is_empty() {
+                        None
+                    } else {
+                        Some(swap)
+                    };
                 }
             });
         }
@@ -4670,6 +4772,61 @@ mod tests {
         assert!(
             app.project.board.layer_records.is_empty(),
             "the stackup notes are forgotten: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_fits_a_part_in_another_package_for_one_build() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Builds")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "New build")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "choose a part to swap")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "R1")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.swap_name = "0603".into();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Swap package")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let r1 = app
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R1")
+            .map(|c| c.id)
+            .ok_or("the sample should have an R1")?;
+        assert_eq!(
+            app.project.variants[0]
+                .footprints
+                .iter()
+                .find(|o| o.component == r1)
+                .map(|o| o.footprint.as_str()),
+            Some("0603"),
+            "the build swaps R1 into 0603: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "1 swapped")?,
+            "the row counts the swap"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "R1 fits 0603")?,
+            "the swap is spelled out in plain words"
+        );
+        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.variants[0].footprints.is_empty(),
+            "the part goes back to its own package: {}",
             app.message
         );
         Ok(())
