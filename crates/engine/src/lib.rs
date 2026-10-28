@@ -1,6 +1,7 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
 pub mod library;
+mod route;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive};
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,9 @@ fn schema(properties: Value, required: &[&str]) -> Value {
 }
 fn id_schema() -> Value {
     json!({"type":"integer","minimum":1})
+}
+fn endpoint_schema() -> Value {
+    json!({"description":"A pad (footprint and pad number) or a point on the board in millimetres; a route between two points also needs net","oneOf":[schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),point_schema()]})
 }
 fn point_schema() -> Value {
     schema(
@@ -182,9 +186,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "track.route",
-            "Connect same-net pads on the chosen copper layer with an orthogonal route (not shove routing)",
+            "Connect a same-net pad or point to another on the chosen copper layer. Default mode orthogonal is one right-angle bend with no obstacle checks. Mode octilinear routes 45-degree copper around other nets' pads, tracks and cutouts. Mode octilinear_shove walks around pads and cutouts and pushes other nets' tracks aside within fixed iteration limits. Refusals say why and change nothing. Single layer, no vias",
             schema(
-                json!({"from":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"from":endpoint_schema(),"to":endpoint_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"]},"net":id_schema()}),
                 &["from", "to"],
             ),
         ),
@@ -309,7 +313,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"default orthogonal one-bend route with no obstacle checks; optional octilinear mode walks 45-degree copper around other nets' pads, tracks and cutouts, and octilinear_shove also pushes other nets' tracks within fixed iteration limits; single layer, no vias, no interactive spring-back","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment, net population, capsule tracks, rectangular edge and circular cutout clearance. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, vias, zones or hierarchy checks."})
@@ -569,12 +573,15 @@ struct PadRef {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Route {
-    from: PadRef,
-    to: PadRef,
+    from: route::Endpoint,
+    to: route::Endpoint,
     #[serde(default = "default_width")]
     width: f64,
     #[serde(default = "front")]
     layer: Layer,
+    #[serde(default)]
+    mode: route::Mode,
+    net: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -907,12 +914,14 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "track.route" => {
             let a: Route = parse(params)?;
-            let (start, net) = pad(p, &a.from, a.layer)?;
-            let (end, end_net) = pad(p, &a.to, a.layer)?;
-            if net != end_net || start.distance(end) < 1e-6 || !positive(a.width) {
+            let (start, end, net) = route::resolve(p, &a.from, &a.to, a.net, a.layer)?;
+            if start.distance(end) < 1e-6 || !positive(a.width) {
                 return Err(Error::Invalid(
                     "route requires distinct pads on the same net and a valid width".into(),
                 ));
+            }
+            if a.mode != route::Mode::Orthogonal {
+                return route::run(p, next, start, end, net, a.width, a.layer, a.mode);
             }
             let bend = Point::new(end.x, start.y);
             let mut ids = vec![];

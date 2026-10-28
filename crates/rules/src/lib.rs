@@ -128,6 +128,44 @@ fn copper(project: &Project) -> Vec<Copper> {
     }
     result
 }
+/// Copper a new track must keep clear of, seen exactly as the checks see it.
+#[derive(Clone, Debug)]
+pub struct Obstacle {
+    pub id: Id,
+    pub net: Id,
+    pub layer: Layer,
+    pub is_track: bool,
+    /// Support points: the true pad outline, or both ends of a track.
+    pub points: Vec<Point>,
+    /// Grow the support points by this much to get the copper edge.
+    pub radius: f64,
+}
+
+/// Every pad and track on `layer`, built from the same copper list that `drc` uses.
+pub fn obstacles(project: &Project, layer: Layer) -> Vec<Obstacle> {
+    copper(project)
+        .into_iter()
+        .filter(|c| c.layer == layer)
+        .map(|c| match c.outline {
+            Some(points) => Obstacle {
+                id: c.id,
+                net: c.net,
+                layer: c.layer,
+                is_track: false,
+                points,
+                radius: c.outline_error,
+            },
+            None => Obstacle {
+                id: c.id,
+                net: c.net,
+                layer: c.layer,
+                is_track: !c.pad,
+                points: vec![c.start, c.end],
+                radius: c.radius,
+            },
+        })
+        .collect()
+}
 fn hole_contains(hole: &Hole, other: &Copper) -> bool {
     // The distance-to-segment function is convex. Endpoint discs contained by
     // the hole guarantee containment of the complete track capsule. Retain
