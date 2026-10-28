@@ -382,6 +382,7 @@ pub struct App {
     left_tab: usize,
     make_dir: String,
     rule_draft: Option<(pcbcraft_doc::Id, f64, f64)>,
+    class_pick: Option<String>,
     net_editor: Option<pcbcraft_doc::Id>,
     pin_pick: Option<String>,
     net_draft: Option<(pcbcraft_doc::Id, String)>,
@@ -579,6 +580,7 @@ impl App {
             left_tab: 0,
             make_dir: String::new(),
             rule_draft: None,
+            class_pick: None,
             net_editor: None,
             pin_pick: None,
             net_draft: None,
@@ -1878,6 +1880,11 @@ impl App {
             .small()
             .color(self.muted()),
         );
+        if let Some(pick) = &self.class_pick
+            && !self.project.nets.iter().any(|n| n.name == *pick)
+        {
+            self.class_pick = None;
+        }
         if ui
             .button("New class")
             .on_hover_text(
@@ -1898,7 +1905,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&class.name).strong());
                     ui.label(format!("{} nets", class.nets.len())).on_hover_text(
-                        "Connections that follow this rule set. Assign them from the command search.",
+                        "Connections that follow this rule set. Put them there with the box below.",
                     );
                     if !editing {
                         if ui
@@ -1978,6 +1985,96 @@ impl App {
                         .small()
                         .color(self.muted()),
                     );
+                    let taken: Vec<pcbcraft_doc::Id> = self
+                        .project
+                        .net_classes
+                        .iter()
+                        .flat_map(|k| k.nets.clone())
+                        .collect();
+                    let free: Vec<(String, pcbcraft_doc::Id)> = self
+                        .project
+                        .nets
+                        .iter()
+                        .filter(|n| !taken.contains(&n.id))
+                        .map(|n| (n.name.clone(), n.id))
+                        .collect();
+                    let mut pick = self.class_pick.clone().unwrap_or_default();
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt(("class-pick", class.id))
+                            .selected_text(if pick.is_empty() {
+                                "choose a connection to put here".to_owned()
+                            } else {
+                                pick.clone()
+                            })
+                            .show_ui(ui, |ui| {
+                                for (name, _) in &free {
+                                    if ui
+                                        .selectable_label(&pick == name, name)
+                                        .on_hover_text(
+                                            "A connection that follows no rule set yet.",
+                                        )
+                                        .clicked()
+                                    {
+                                        pick = name.clone();
+                                        ui.close();
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text(
+                                "Pick a connection, then Assign: its wiring follows this rule set.",
+                            );
+                        if ui
+                            .add_enabled(
+                                !pick.is_empty(),
+                                egui::Button::new("Assign"),
+                            )
+                            .on_hover_text(
+                                "Put the chosen connection under this rule set.",
+                            )
+                            .clicked()
+                            && let Some((_, id)) = free.iter().find(|(name, _)| *name == pick)
+                        {
+                            self.run("netclass.assign", json!({"net": id, "class": class.id}));
+                            self.class_pick = None;
+                        }
+                    });
+                    self.class_pick = if pick.is_empty() {
+                        None
+                    } else {
+                        Some(pick)
+                    };
+                    if free.is_empty() && class.nets.is_empty() {
+                        ui.label(
+                            egui::RichText::new("Every connection already follows a rule set.")
+                                .small()
+                                .color(self.muted()),
+                        );
+                    }
+                    for net_id in &class.nets {
+                        let Some(name) = self
+                            .project
+                            .nets
+                            .iter()
+                            .find(|n| n.id == *net_id)
+                            .map(|n| n.name.clone())
+                        else {
+                            continue;
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label("· ");
+                            ui.label(&name);
+                            if ui
+                                .small_button("\u{d7}")
+                                .on_hover_text(
+                                    "Let this connection follow the default rules again.",
+                                )
+                                .clicked()
+                            {
+                                self.run("netclass.assign", json!({"net": net_id, "class": null}));
+                            }
+                        });
+                    }
                 }
             });
         }
@@ -3459,6 +3556,50 @@ mod tests {
         assert!(
             app.project.net_classes.is_empty(),
             "the rule set is removed: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_puts_a_connection_under_a_rule_set_and_lets_it_go() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "New class")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let vcc = app
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "VCC")
+            .map(|n| n.id)
+            .ok_or("the sample should have a VCC connection")?;
+        authoring::tests::tap(&ctx, &mut app, "choose a connection to put here")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "VCC")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Assign")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.net_classes[0].nets.contains(&vcc),
+            "the connection joins the rule set: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "1 nets")?,
+            "the row counts its connections"
+        );
+        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.net_classes[0].nets.is_empty(),
+            "the connection is released to the defaults: {}",
             app.message
         );
         Ok(())
