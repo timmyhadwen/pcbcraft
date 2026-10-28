@@ -31,7 +31,11 @@ fn near(a: Point, b: Point) -> bool {
 /// Chains of tracks on `layer`. A chain continues through a joint only where
 /// exactly two same-width tracks of one net meet and no pad sits.
 pub fn lines(p: &Project, layer: Layer) -> Vec<Line> {
-    let mut tracks: Vec<&Track> = p.board.tracks.iter().filter(|t| t.layer == layer && t.arc.is_none())
+    let mut tracks: Vec<&Track> = p
+        .board
+        .tracks
+        .iter()
+        .filter(|t| t.layer == layer && t.arc.is_none())
         .collect();
     tracks.sort_by_key(|t| t.id);
     let pads: Vec<Point> = p
@@ -103,7 +107,14 @@ fn mid(a: Point, b: Point) -> Point {
 }
 
 /// Clearance the checks demand between two segments of different nets.
-fn pair_clearance(p: &Project, layer: Layer, a: &Line, sa: &[Point], b: &Line, sb: &[Point]) -> f64 {
+fn pair_clearance(
+    p: &Project,
+    layer: Layer,
+    a: &Line,
+    sa: &[Point],
+    b: &Line,
+    sb: &[Point],
+) -> f64 {
     p.required_clearance_at(
         a.net,
         b.net,
@@ -161,7 +172,9 @@ fn rewalk(p: &Project, layer: Layer, victim: &Line, pushers: &[Line]) -> Option<
         if path.len() >= 2
             && acute(&path) <= before
             && path_ok(&path, &space)
-            && best.as_ref().is_none_or(|b| length(&path) < length(b) - 1e-9)
+            && best
+                .as_ref()
+                .is_none_or(|b| length(&path) < length(b) - 1e-9)
         {
             best = Some(path);
         }
