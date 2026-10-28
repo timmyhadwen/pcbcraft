@@ -2,6 +2,7 @@
   "format": "pcbcraft",
   "version": 1,
   "name": "LED indicator",
+  "unit": "mm",
   "components": [
     {
       "id": 1,
@@ -118,17 +119,24 @@
   "nets": [
     {
       "id": 4,
-      "name": "VCC"
+      "name": "VCC",
+      "target_length": null,
+      "length_tolerance": null
     },
     {
       "id": 5,
-      "name": "LED"
+      "name": "LED",
+      "target_length": null,
+      "length_tolerance": null
     },
     {
       "id": 6,
-      "name": "GND"
+      "name": "GND",
+      "target_length": null,
+      "length_tolerance": null
     }
   ],
+  "net_classes": [],
   "wires": [
     {
       "id": 7,
@@ -167,11 +175,21 @@
       }
     }
   ],
+  "drawn_wires": [],
+  "graphics": [],
+  "labels": [],
+  "no_connects": [],
   "board": {
     "width": 60.0,
     "height": 40.0,
     "thickness": 1.6,
     "clearance": 0.2,
+    "finish": "HASL",
+    "er": 4.4,
+    "drill_origin": {
+      "x": 0.0,
+      "y": 0.0
+    },
     "footprints": [
       {
         "id": 10,
@@ -375,6 +393,8 @@
         "layer": "F.Cu"
       }
     ],
+    "vias": [],
+    "zones": [],
     "cutouts": [
       {
         "id": 13,
@@ -392,7 +412,8 @@
         },
         "radius": 1.6
       }
-    ]
+    ],
+    "texts": []
   },
   "library": {
     "notices": [],
