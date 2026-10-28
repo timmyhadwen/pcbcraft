@@ -157,3 +157,280 @@ fn inheritance_overrides_properties_and_replaces_local_units()
     assert!(read_symbols("(kicad_symbol_lib (symbol X (symbol X_1_1) (symbol X_1_1)))").is_err());
     Ok(())
 }
+
+#[test]
+fn footprint_models_are_recorded_and_bounded() -> Result<(), Box<dyn std::error::Error>> {
+    let fp = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu)\
+         (model \"pkg.wrl\" (offset (xyz 0 0 1)) (scale (xyz 2 2 2)) (rotate (xyz 0 0 90)))\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    let m = fp.model.as_ref().ok_or("model missing")?;
+    assert_eq!(m.path, "pkg.wrl");
+    assert_eq!(m.offset, [0.0, 0.0, 1.0]);
+    assert_eq!(m.scale, [2.0, 2.0, 2.0]);
+    assert_eq!(m.rotate, [0.0, 0.0, 90.0]);
+    assert!(
+        fp.unsupported.iter().all(|u| !u.contains("model")),
+        "a recorded model is no longer unsupported"
+    );
+    let modern = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu)\
+         (model \"pkg.step\" (at (xyz 1 2 3)) (rotate (xyz 0 90 0)))\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    let m = modern.model.as_ref().ok_or("at-form model missing")?;
+    assert_eq!(
+        m.offset,
+        [25.4, 50.8, 76.2],
+        "the legacy at form is inches, stored as millimetres"
+    );
+    let same = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu)\
+         (model \"pkg.step\" (offset (xyz 25.4 50.8 76.2)))\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    assert_eq!(
+        same.model
+            .as_ref()
+            .ok_or("offset-form model missing")?
+            .offset,
+        m.offset,
+        "the legacy and modern forms read to the same millimetres"
+    );
+    let both = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu)\
+         (model \"pkg.step\" (at (xyz 1 1 1)) (offset (xyz 2 3 4)))\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    assert_eq!(
+        both.model.as_ref().ok_or("both-form model missing")?.offset,
+        [2.0, 3.0, 4.0],
+        "offset wins over at"
+    );
+    assert!(
+        read_footprint(
+            "(footprint M (at 0 0 0) (layer F.Cu) (model \"a.wrl\" (at (xyz 99999 0 0))))"
+        )
+        .is_err(),
+        "a legacy offset that converts out of bounds is rejected"
+    );
+    assert_eq!(m.scale, [1.0, 1.0, 1.0], "an absent scale is unit size");
+    let plain = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu) (model \"pkg.wrl\")\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    let m = plain.model.as_ref().ok_or("bare model missing")?;
+    assert_eq!(m.offset, [0.0, 0.0, 0.0]);
+    assert!(
+        read_footprint(
+            "(footprint M (at 0 0 0) (layer F.Cu) (model \"a.wrl\" (offset (xyz 0 0 NaN))))"
+        )
+        .is_err(),
+        "a non-finite model offset is rejected"
+    );
+    assert!(
+        read_footprint(
+            "(footprint M (at 0 0 0) (layer F.Cu) (model \"a.wrl\" (scale (xyz 1 0 1))))"
+        )
+        .is_err(),
+        "a zero model scale is rejected"
+    );
+    assert!(
+        read_footprint("(footprint M (at 0 0 0) (layer F.Cu) (model \"\"))").is_err(),
+        "an empty model path is rejected"
+    );
+    let doubled = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu) (model \"a.wrl\") (model \"b.wrl\"))",
+    )?;
+    assert_eq!(
+        doubled.model.as_ref().ok_or("first model missing")?.path,
+        "a.wrl",
+        "the first model wins"
+    );
+    assert!(
+        doubled
+            .unsupported
+            .iter()
+            .any(|u| u.contains("more than one 3D model")),
+        "extra models are reported"
+    );
+    Ok(())
+}
+
+#[test]
+fn specctra_session_net_maps_are_split_bounded_and_skipped_when_empty()
+-> Result<(), Box<dyn std::error::Error>> {
+    let session = r#"(session
+        (parser
+            (library 0)
+        )
+        (net_map_out
+            (net
+                (number 0)
+                (name UNCONNECTED)
+            )
+            (net
+                (number 1)
+                (name GND)
+                (pins
+                    (pin R1-1)
+                    (pin C1-2)
+                    (pin J1-A)
+                )
+            )
+            (net
+                (number 2)
+                (name "5V")
+                (pins
+                    (pin U1-8)
+                    (pin C1-1)
+                )
+            )
+        )
+    )"#;
+    let nets = pcbcraft_library::read_specctra_session(session)?;
+    assert_eq!(nets.len(), 2, "the pin-less net is skipped");
+    assert_eq!(nets[0].name, "GND");
+    assert_eq!(nets[0].pins[0], ("R1".into(), "1".into()));
+    assert_eq!(
+        nets[0].pins[2],
+        ("J1".into(), "A".into()),
+        "lettered pins split at the last dash"
+    );
+    assert_eq!(nets[1].name, "5V", "quoted names are unquoted");
+    assert_eq!(nets[1].pins[1], ("C1".into(), "1".into()));
+    assert!(pcbcraft_library::read_specctra_session("(board X)").is_err());
+    assert!(pcbcraft_library::read_specctra_session("(session (parser (library 0)))").is_err());
+    assert!(
+        pcbcraft_library::read_specctra_session(
+            "(session (net_map_out (net (name GND) (pins (pin R1)))))"
+        )
+        .is_err(),
+        "a pin without a dash is refused"
+    );
+    assert!(
+        pcbcraft_library::read_specctra_session(
+            "(session (net_map_out (net (name \"\") (pins (pin R1-1)))))"
+        )
+        .is_err(),
+        "an empty net name is refused"
+    );
+    let many = (0..257)
+        .map(|i| format!("(net (number {i}) (name N{i}) (pins (pin R1-1)))"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        pcbcraft_library::read_specctra_session(&format!("(session (net_map_out {many}))"))
+            .is_err(),
+        "more than 256 nets are refused"
+    );
+    Ok(())
+}
+
+#[test]
+fn footprint_rule_overrides_are_recorded_bounded_and_deduplicated()
+-> Result<(), Box<dyn std::error::Error>> {
+    let base = r#"(footprint "R_X" (version 20240101) (layer F.Cu) (at 0 0)
+        (pad "1" smd rect (at -1 0) (size 1 1) (layers "F.Cu" "F.Paste" "F.Mask"))
+    )"#;
+    let plain = pcbcraft_library::read_footprint(base)?;
+    assert!(
+        plain.rules.is_none(),
+        "a plain footprint carries no overrides"
+    );
+    let tuned = pcbcraft_library::read_footprint(&base.replace(
+        "(at 0 0)",
+        "(at 0 0) (clearance 0.15) (solder_mask_margin 0.05) (solder_paste_margin -0.02)",
+    ))?;
+    let rules = tuned.rules.ok_or("overrides should be recorded")?;
+    assert_eq!(rules.clearance, Some(0.15));
+    assert_eq!(rules.mask_margin, Some(0.05));
+    assert_eq!(
+        rules.paste_margin,
+        Some(-0.02),
+        "a negative paste margin shrinks the opening"
+    );
+    let doubled = pcbcraft_library::read_footprint(
+        &base.replace("(at 0 0)", "(at 0 0) (clearance 0.15) (clearance 0.2)"),
+    )?;
+    assert!(
+        doubled
+            .unsupported
+            .iter()
+            .any(|u| u.contains("duplicate local clearance")),
+        "a second clearance is reported, not silently merged"
+    );
+    assert!(
+        pcbcraft_library::read_footprint(&base.replace("(at 0 0)", "(at 0 0) (clearance 150)"))
+            .is_err(),
+        "an override beyond 100 mm is refused"
+    );
+    Ok(())
+}
+
+/// An original footprint written for this test: a chamfered polarity pad, a
+/// concave custom pad, and unsupported variants that must be reported rather
+/// than silently simplified.
+const SHAPED_PADS: &str = r#"(footprint "ShapedPads" (version 20240108) (generator "test")
+  (layer "F.Cu")
+  (pad "1" smd roundrect (at -1.5 0) (size 1.2 1.6) (layers "F.Cu" "F.Mask")
+    (roundrect_rratio 0) (chamfer_ratio 0.3) (chamfer top_left bottom_left))
+  (pad "2" smd custom (at 1.5 0) (size 0.4 0.4) (layers "F.Cu" "F.Mask")
+    (options (clearance outline) (anchor rect))
+    (primitives
+      (gr_poly (pts (xy -0.6 -0.8) (xy 0.6 -0.8) (xy 0.6 0.8) (xy 0 0.4) (xy -0.6 0.8)) (width 0) (fill yes))))
+  (pad "3" smd rect (at 0 2) (size 1 1) (layers "F.Cu") (chamfer_ratio 0.2) (chamfer bottom_right))
+  (pad "4" smd roundrect (at 0 -2) (size 1 1) (layers "F.Cu") (roundrect_rratio 0.25) (chamfer_ratio 0.2) (chamfer top_right))
+  (pad "5" smd custom (at 3 2) (size 0.4 0.4) (layers "F.Cu")
+    (primitives (gr_poly (pts (xy -1 -1) (xy 1 1) (xy 1 -1) (xy -1 1)) (width 0) (fill yes))))
+  (pad "6" smd custom (at 3 -2) (size 0.4 0.4) (layers "F.Cu")
+    (primitives (gr_circle (center 0 0) (end 0.5 0) (width 0) (fill yes))))
+)"#;
+
+#[test]
+fn chamfered_and_custom_kicad_pads_import_with_exact_outlines()
+-> Result<(), Box<dyn std::error::Error>> {
+    use pcbcraft_library::{ChamferCorners, PadShape};
+    let f = read_footprint(SHAPED_PADS)?;
+    let pad = |n: &str| f.pads.iter().find(|p| p.number == n).ok_or("missing pad");
+    let one = pad("1")?;
+    assert_eq!(one.shape, "chamfered");
+    assert_eq!(one.roundrect_ratio, None);
+    assert_eq!(
+        one.shape_kind(),
+        PadShape::Chamfered(pcbcraft_library::PadChamfer {
+            ratio: 0.3,
+            corners: ChamferCorners {
+                top_left: true,
+                bottom_left: true,
+                ..Default::default()
+            }
+        })
+    );
+    let two = pad("2")?;
+    assert_eq!(two.shape, "custom");
+    assert_eq!(two.polygon.len(), 5);
+    assert!(matches!(two.shape_kind(), PadShape::Custom { polygon } if polygon.len() == 5));
+    // A plain rect with a chamfer is a chamfered pad as well.
+    assert_eq!(pad("3")?.shape, "chamfered");
+    // Rounded and chamfered together, self-intersecting polygons and
+    // non-polygon primitives are kept as data but flagged unsupported.
+    assert_eq!(pad("4")?.shape, "roundrect");
+    assert!(pad("4")?.chamfer.is_none());
+    assert!(pad("5")?.polygon.is_empty());
+    assert!(pad("6")?.polygon.is_empty());
+    for n in [
+        "pad 4 chamfer",
+        "pad 5:",
+        "pad 6 custom primitive gr_circle",
+    ] {
+        assert!(
+            f.unsupported.iter().any(|u| u.starts_with(n)),
+            "{n} not reported in {:?}",
+            f.unsupported
+        );
+    }
+    assert_eq!(f.unsupported.len(), 3);
+    Ok(())
+}

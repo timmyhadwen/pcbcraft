@@ -11,7 +11,7 @@ use crate::Error;
 use pcbcraft_doc::{Id, Layer, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_geom::hull::octagon;
-use pcbcraft_rules::{drc, obstacles};
+use pcbcraft_rules::{Obstacle, drc, obstacles};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -92,14 +92,41 @@ pub(crate) fn resolve(
     }
 }
 
-/// Hulls of every pad and cutout that a track of `net` and `width` must avoid.
+/// Clearance a track of `net` must keep from `o`, as the checks demand it.
+pub(crate) fn required(p: &Project, layer: Layer, net: Id, o: &Obstacle) -> f64 {
+    p.required_clearance_at(net, o.net, o.at, o.at, layer, layer)
+        .max(o.clearance.unwrap_or(0.0))
+}
+
+/// Bounding box of the board: its outline when one is traced, else the rectangle.
+pub(crate) fn bounds(p: &Project) -> (Point, Point) {
+    match &p.board.outline {
+        Some(poly) if !poly.is_empty() => {
+            let min_x = poly.iter().map(|q| q.x).fold(f64::INFINITY, f64::min);
+            let min_y = poly.iter().map(|q| q.y).fold(f64::INFINITY, f64::min);
+            let max_x = poly.iter().map(|q| q.x).fold(f64::NEG_INFINITY, f64::max);
+            let max_y = poly.iter().map(|q| q.y).fold(f64::NEG_INFINITY, f64::max);
+            (Point::new(min_x, min_y), Point::new(max_x, max_y))
+        }
+        _ => (
+            Point::new(0.0, 0.0),
+            Point::new(p.board.width, p.board.height),
+        ),
+    }
+}
+
+/// Hulls of every fixed copper item and cutout that a track of `net` and
+/// `width` must avoid: everything except movable straight tracks.
 pub(crate) fn solid_hulls(p: &Project, layer: Layer, net: Id, width: f64) -> Vec<Hull> {
     let clearance = p.board.clearance;
     let mut hulls: Vec<Hull> = obstacles(p, layer)
         .into_iter()
         .filter(|o| !o.is_track && (o.net != net || o.net == 0))
         .map(|o| Hull {
-            pts: octagon(&o.points, clearance + width / 2.0 + o.radius + MARGIN),
+            pts: octagon(
+                &o.points,
+                required(p, layer, net, &o) + width / 2.0 + o.radius + MARGIN,
+            ),
             net: o.net,
         })
         .collect();
@@ -113,12 +140,14 @@ pub(crate) fn solid_hulls(p: &Project, layer: Layer, net: Id, width: f64) -> Vec
 }
 
 fn track_hulls(p: &Project, layer: Layer, net: Id, width: f64) -> Vec<Hull> {
-    let clearance = p.board.clearance;
     obstacles(p, layer)
         .into_iter()
         .filter(|o| o.is_track && o.net != net)
         .map(|o| Hull {
-            pts: octagon(&o.points, clearance + width / 2.0 + o.radius + MARGIN),
+            pts: octagon(
+                &o.points,
+                required(p, layer, net, &o) + width / 2.0 + o.radius + MARGIN,
+            ),
             net: o.net,
         })
         .collect()
@@ -150,16 +179,16 @@ pub(crate) fn run(
     mode: Mode,
 ) -> Result<Value, Error> {
     let before = errors(p);
-    let clearance = p.board.clearance;
-    let lo = clearance + width / 2.0;
+    let lo = p.board.clearance + width / 2.0;
+    let (min, max) = bounds(p);
     let mut hulls = solid_hulls(p, layer, net, width);
     if mode == Mode::Octilinear {
         hulls.extend(track_hulls(p, layer, net, width));
     }
     let space = Space {
         hulls,
-        lo: Point::new(lo, lo),
-        hi: Point::new(p.board.width - lo, p.board.height - lo),
+        lo: Point::new(min.x + lo, min.y + lo),
+        hi: Point::new(max.x - lo, max.y - lo),
     };
     let name = p.net_name(net);
     let path = find_path(start, end, &space).map_err(|f| match f {

@@ -4,7 +4,7 @@
 //! one, so a line only ever pushes lines of lower rank and nothing pushes back.
 //! Pad-anchored and free ends never move. Only iteration counts bound the work.
 use super::walk::{Hull, Space, Turn, acute, length, optimize, path_ok, walkaround};
-use super::{MARGIN, solid_hulls};
+use super::{MARGIN, bounds, solid_hulls};
 use crate::{Error, allocate};
 use pcbcraft_doc::{Id, Layer, Project, Track};
 use pcbcraft_geom::hull::octagon;
@@ -31,7 +31,8 @@ fn near(a: Point, b: Point) -> bool {
 /// Chains of tracks on `layer`. A chain continues through a joint only where
 /// exactly two same-width tracks of one net meet and no pad sits.
 pub fn lines(p: &Project, layer: Layer) -> Vec<Line> {
-    let mut tracks: Vec<&Track> = p.board.tracks.iter().filter(|t| t.layer == layer).collect();
+    let mut tracks: Vec<&Track> = p.board.tracks.iter().filter(|t| t.layer == layer && t.arc.is_none())
+        .collect();
     tracks.sort_by_key(|t| t.id);
     let pads: Vec<Point> = p
         .board
@@ -97,34 +98,58 @@ pub fn lines(p: &Project, layer: Layer) -> Vec<Line> {
     result
 }
 
-fn collides(a: &Line, b: &Line, clearance: f64) -> bool {
+fn mid(a: Point, b: Point) -> Point {
+    Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
+}
+
+/// Clearance the checks demand between two segments of different nets.
+fn pair_clearance(p: &Project, layer: Layer, a: &Line, sa: &[Point], b: &Line, sb: &[Point]) -> f64 {
+    p.required_clearance_at(
+        a.net,
+        b.net,
+        mid(sa[0], sa[1]),
+        mid(sb[0], sb[1]),
+        layer,
+        layer,
+    )
+}
+
+fn collides(p: &Project, layer: Layer, a: &Line, b: &Line) -> bool {
     a.pts.windows(2).any(|s| {
         b.pts.windows(2).any(|t| {
             segment_distance(s[0], s[1], t[0], t[1]) - a.width / 2.0 - b.width / 2.0 + 1e-6
-                < clearance
+                < pair_clearance(p, layer, a, s, b, t)
         })
     })
 }
 
 fn rewalk(p: &Project, layer: Layer, victim: &Line, pushers: &[Line]) -> Option<Vec<Point>> {
-    let clearance = p.board.clearance;
     let mut hulls = solid_hulls(p, layer, victim.net, victim.width);
     for l in pushers.iter().filter(|l| l.net != victim.net) {
         for s in l.pts.windows(2) {
+            let required = p.required_clearance_at(
+                victim.net,
+                l.net,
+                mid(victim.pts[0], victim.pts[1]),
+                mid(s[0], s[1]),
+                layer,
+                layer,
+            );
             hulls.push(Hull {
                 pts: octagon(
                     &[s[0], s[1]],
-                    clearance + victim.width / 2.0 + l.width / 2.0 + MARGIN,
+                    required + victim.width / 2.0 + l.width / 2.0 + MARGIN,
                 ),
                 net: l.net,
             });
         }
     }
-    let lo = clearance + victim.width / 2.0;
+    let lo = p.board.clearance + victim.width / 2.0;
+    let (min, max) = bounds(p);
     let space = Space {
         hulls,
-        lo: Point::new(lo, lo),
-        hi: Point::new(p.board.width - lo, p.board.height - lo),
+        lo: Point::new(min.x + lo, min.y + lo),
+        hi: Point::new(max.x - lo, max.y - lo),
     };
     let before = acute(&victim.pts);
     let mut best: Option<Vec<Point>> = None;
@@ -136,9 +161,7 @@ fn rewalk(p: &Project, layer: Layer, victim: &Line, pushers: &[Line]) -> Option<
         if path.len() >= 2
             && acute(&path) <= before
             && path_ok(&path, &space)
-            && best
-                .as_ref()
-                .is_none_or(|b| length(&path) < length(b) - 1e-9)
+            && best.as_ref().is_none_or(|b| length(&path) < length(b) - 1e-9)
         {
             best = Some(path);
         }
@@ -160,7 +183,6 @@ pub fn push(
     width: f64,
     route: &[Point],
 ) -> Result<Outcome, Error> {
-    let clearance = p.board.clearance;
     let mut processed = vec![Line {
         ids: vec![],
         net,
@@ -178,7 +200,7 @@ pub fn push(
         let mut k = 0;
         while k < pool.len() {
             let hit = match (processed.get(pi), pool.get(k)) {
-                (Some(a), Some(b)) => a.net != b.net && collides(a, b, clearance),
+                (Some(a), Some(b)) => a.net != b.net && collides(p, layer, a, b),
                 _ => false,
             };
             if !hit {
@@ -239,6 +261,7 @@ pub fn apply(p: &mut Project, next: &mut Id, line: &Line, layer: Layer) -> Resul
                     end: *end,
                     width: line.width,
                     layer,
+                    arc: None,
                 });
                 used.push(id);
             }
