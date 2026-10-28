@@ -116,6 +116,8 @@ fn new_pad(number: &str, x: f64) -> FootprintPad {
             offset: Point::default(),
         }),
         roundrect_ratio: None,
+        chamfer: None,
+        polygon: vec![],
         raw_source: String::new(),
     }
 }
@@ -752,6 +754,12 @@ impl App {
                                 );
                             } else {
                                 pad.roundrect_ratio = None;
+                            }
+                            if pad.shape != "chamfered" {
+                                pad.chamfer = None;
+                            }
+                            if pad.shape != "custom" {
+                                pad.polygon.clear();
                             }
                             if let Some(drill) = &mut pad.drill {
                                 point(ui, "Drill size (oval if unequal)", &mut drill.size);

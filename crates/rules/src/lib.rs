@@ -88,7 +88,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                     start: position,
                     end: position,
                     radius: pad.bounding_radius(),
-                    contact_radius: pad.diameter / 2.0,
+                    contact_radius: pad.contact_radius(),
                     conservative: pad.geometry.as_ref().is_some_and(|p| p.shape != "circle"),
                     outline: pad
                         .geometry
@@ -1232,6 +1232,8 @@ mod tests {
                 offset: Point::default(),
             }),
             roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
             raw_source: String::new(),
         };
         p.board.footprints.push(Footprint {
@@ -1428,5 +1430,118 @@ mod tests {
             arc: None,
         });
         assert!(drc(&p).iter().any(|f| f.code == "copper_short"));
+    }
+
+    fn shaped_pad_beside_foreign_track(
+        geometry: pcbcraft_library::FootprintPad,
+        track: (Point, Point),
+        clearance: f64,
+    ) -> Vec<Finding> {
+        let mut p = fixture();
+        p.nets.push(Net {
+            id: 4,
+            name: "gnd".into(),
+        });
+        p.board.clearance = clearance;
+        if let Some(pad) = p
+            .board
+            .footprints
+            .first_mut()
+            .and_then(|f| f.pads.first_mut())
+        {
+            pad.diameter = geometry.size.x.min(geometry.size.y);
+            pad.geometry = Some(geometry);
+        }
+        p.board.tracks.push(Track {
+            id: 30,
+            net: 4,
+            start: track.0,
+            end: track.1,
+            width: 0.2,
+            layer: Layer::Front,
+        });
+        drc(&p)
+            .into_iter()
+            .filter(|f| f.objects.contains(&30) && f.code != "unrouted")
+            .collect()
+    }
+    fn square_pad(shape: &str) -> pcbcraft_library::FootprintPad {
+        pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: shape.into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(2.0, 2.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+    #[test]
+    fn clearance_to_a_chamfered_pad_is_measured_from_the_chamfer_edge() {
+        // The pad is a 2 mm square at (10, 10) with its bottom-right corner cut
+        // 0.5 mm along each side. A track leaves diagonally from just outside
+        // that corner: 0.112 mm from the square's corner, 0.466 mm from the cut.
+        let mut chamfered = square_pad("chamfered");
+        chamfered.chamfer = Some(pcbcraft_library::PadChamfer {
+            ratio: 0.25,
+            corners: pcbcraft_library::ChamferCorners {
+                bottom_right: true,
+                ..Default::default()
+            },
+        });
+        let track = (Point::new(11.15, 11.15), Point::new(12.15, 12.15));
+        assert!(
+            shaped_pad_beside_foreign_track(chamfered.clone(), track, 0.2).is_empty(),
+            "the cut corner leaves room the bounding square would not"
+        );
+        let squared = shaped_pad_beside_foreign_track(square_pad("rect"), track, 0.2);
+        assert!(
+            squared.iter().any(|f| f.message.contains("0.112 mm")),
+            "the uncut square really is too close: {squared:?}"
+        );
+        let tight = shaped_pad_beside_foreign_track(chamfered, track, 0.5);
+        assert!(
+            tight.iter().any(|f| f.message.contains("0.466 mm")),
+            "the reported separation is the distance to the chamfer: {tight:?}"
+        );
+    }
+    #[test]
+    fn custom_polygon_pad_clearance_follows_its_notch() {
+        // A 2 mm square pad at (10, 10) with a 0.7 mm notch cut from its
+        // upper-right corner.
+        let mut l = square_pad("custom");
+        l.size = Point::new(0.4, 0.4);
+        l.polygon = vec![
+            Point::new(-1.0, -1.0),
+            Point::new(0.3, -1.0),
+            Point::new(0.3, -0.3),
+            Point::new(1.0, -0.3),
+            Point::new(1.0, 1.0),
+            Point::new(-1.0, 1.0),
+        ];
+        // Track in the notch, 0.4 mm from both inner edges, so 0.3 mm of copper gap.
+        let track = (Point::new(10.7, 9.3), Point::new(10.7, 9.0));
+        assert!(shaped_pad_beside_foreign_track(l.clone(), track, 0.2).is_empty());
+        let tight = shaped_pad_beside_foreign_track(l.clone(), track, 0.35);
+        assert!(
+            tight.iter().any(|f| f.message.contains("0.300 mm")),
+            "{tight:?}"
+        );
+        let mut p = fixture();
+        if let Some(pad) = p
+            .board
+            .footprints
+            .first_mut()
+            .and_then(|f| f.pads.first_mut())
+        {
+            pad.diameter = 0.4;
+            pad.geometry = Some(l);
+            assert!((pad.contact_radius() - 0.2).abs() < 1e-12);
+        }
     }
 }
