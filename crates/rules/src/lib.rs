@@ -532,7 +532,11 @@ fn board_edge_distance(board: &Board, a: Point, b: Point) -> f64 {
 
 /// Clearance, board edge and cutout findings for the copper in `items`. When
 /// `only` is set, just the findings that involve one of those object ids.
-fn copper_findings(project: &Project, items: &[Copper], only: Option<&BTreeSet<Id>>) -> Vec<Finding> {
+fn copper_findings(
+    project: &Project,
+    items: &[Copper],
+    only: Option<&BTreeSet<Id>>,
+) -> Vec<Finding> {
     let mut result = vec![];
     let board = &project.board;
     let wanted = |id: Id| only.is_none_or(|set| set.contains(&id));
@@ -763,8 +767,12 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         if routed.len() < 2 {
             continue;
         }
-        let longest = routed.iter().fold(routed[0], |a, b| if b.1 > a.1 { *b } else { a });
-        let shortest = routed.iter().fold(routed[0], |a, b| if b.1 < a.1 { *b } else { a });
+        let longest = routed
+            .iter()
+            .fold(routed[0], |a, b| if b.1 > a.1 { *b } else { a });
+        let shortest = routed
+            .iter()
+            .fold(routed[0], |a, b| if b.1 < a.1 { *b } else { a });
         let spread = longest.1 - shortest.1;
         if spread <= group.tolerance + 1e-9 {
             continue;

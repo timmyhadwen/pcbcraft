@@ -281,10 +281,16 @@ mod tests {
     fn bumps_rise_on_the_chosen_side_only() -> T {
         let mut r = run(Corner::Mitre);
         let up = some(shape(&r, 2, 1.5))?;
-        assert!(up.iter().all(|s| s.start().y >= -1e-9 && s.end().y >= -1e-9));
+        assert!(
+            up.iter()
+                .all(|s| s.start().y >= -1e-9 && s.end().y >= -1e-9)
+        );
         r.side = -1;
         let down = some(shape(&r, 2, 1.5))?;
-        assert!(down.iter().all(|s| s.start().y <= 1e-9 && s.end().y <= 1e-9));
+        assert!(
+            down.iter()
+                .all(|s| s.start().y <= 1e-9 && s.end().y <= 1e-9)
+        );
         Ok(())
     }
 

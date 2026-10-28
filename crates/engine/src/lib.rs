@@ -1,8 +1,8 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
-mod tuning;
 pub mod library;
 pub mod recents;
+mod tuning;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive};
 use serde::{Deserialize, Serialize};

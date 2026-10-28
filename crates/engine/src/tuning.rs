@@ -106,8 +106,9 @@ fn refuse(text: &str) -> Error {
     Error::Invalid(text.into())
 }
 fn single(width: f64, height: f64, thickness: f64, er: f64) -> Result<imp::Microstrip, Error> {
-    imp::microstrip(width, height, thickness, er)
-        .ok_or_else(|| refuse("the stackup or track width is outside what the impedance model accepts"))
+    imp::microstrip(width, height, thickness, er).ok_or_else(|| {
+        refuse("the stackup or track width is outside what the impedance model accepts")
+    })
 }
 fn width_for(target: f64, height: f64, thickness: f64, er: f64) -> Option<f64> {
     imp::width_for_ohms(target, |w| {
@@ -293,9 +294,14 @@ fn calc(p: &Project, params: &Value) -> Result<Value, Error> {
     let height = a.height.unwrap_or(p.board.thickness);
     let er = a.er.unwrap_or(p.board.er);
     let t = a.thickness.unwrap_or(DEFAULT_COPPER_MM);
-    for v in [Some(a.width), a.gap, Some(height), Some(er)].into_iter().flatten() {
+    for v in [Some(a.width), a.gap, Some(height), Some(er)]
+        .into_iter()
+        .flatten()
+    {
         if !v.is_finite() || v <= 0.0 || v > 100.0 {
-            return Err(refuse("width, gap, height and er must be positive and at most 100"));
+            return Err(refuse(
+                "width, gap, height and er must be positive and at most 100",
+            ));
         }
     }
     if !t.is_finite() || !(0.0..=1.0).contains(&t) {
@@ -372,7 +378,9 @@ fn set_group(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
                 return Err(missing());
             }
             if groups.iter().any(|g| g.id != id && g.name == name) {
-                return Err(Error::Invalid(format!("a group named {name} already exists")));
+                return Err(Error::Invalid(format!(
+                    "a group named {name} already exists"
+                )));
             }
             groups.iter().position(|g| g.id == id)
         }
@@ -410,7 +418,9 @@ fn remove_group(p: &mut Project, params: &Value) -> Result<Value, Error> {
 
 fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
     let a: GroupQuery = parse(params)?;
-    if a.id.is_some_and(|id| !p.board.length_groups.iter().any(|g| g.id == id)) {
+    if a.id
+        .is_some_and(|id| !p.board.length_groups.iter().any(|g| g.id == id))
+    {
         return Err(missing());
     }
     let (height, er) = (p.board.thickness, p.board.er);
@@ -423,7 +433,11 @@ fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
         let longest = lengths.iter().map(|l| l.1).fold(0.0f64, f64::max);
         let routed: Vec<f64> = lengths.iter().map(|l| l.1).filter(|l| *l > 0.0).collect();
         let shortest = routed.iter().copied().fold(f64::INFINITY, f64::min);
-        let spread = if routed.len() >= 2 { longest - shortest } else { 0.0 };
+        let spread = if routed.len() >= 2 {
+            longest - shortest
+        } else {
+            0.0
+        };
         let nets: Vec<Value> = lengths
             .iter()
             .map(|(net, length)| {
@@ -452,7 +466,9 @@ fn group_report(p: &Project, params: &Value) -> Result<Value, Error> {
         }));
     }
     let count = rows.len();
-    Ok(json!({"groups": rows, "count": count, "notes": [VIA_NOTE, "Delay assumes outer-layer microstrip."]}))
+    Ok(
+        json!({"groups": rows, "count": count, "notes": [VIA_NOTE, "Delay assumes outer-layer microstrip."]}),
+    )
 }
 
 /// Remove a net from every length group, or swap it for another net, and
@@ -472,11 +488,7 @@ pub(super) fn forget_net(p: &mut Project, net: Id, replacement: Option<Id>) {
     p.board.length_groups.retain(|g| g.nets.len() >= 2);
 }
 
-fn build_tracks(
-    path: &[Seg],
-    original: &Track,
-    probe: &mut Id,
-) -> Result<Vec<Track>, Error> {
+fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Track>, Error> {
     let mut out = Vec::new();
     for seg in path {
         if seg.length() < 1e-6 {
@@ -526,10 +538,14 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
     if !tolerance.is_finite() || !(0.01..=10.0).contains(&tolerance) {
         return Err(refuse("tolerance must be 0.01 to 10 millimetres"));
     }
-    if a.amplitude_max.is_some_and(|v| !v.is_finite() || !(0.1..=10.0).contains(&v)) {
+    if a.amplitude_max
+        .is_some_and(|v| !v.is_finite() || !(0.1..=10.0).contains(&v))
+    {
         return Err(refuse("amplitude_max must be 0.1 to 10 millimetres"));
     }
-    if a.spacing.is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 50.0) {
+    if a.spacing
+        .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 50.0)
+    {
         return Err(refuse("spacing must be above 0 and at most 50 millimetres"));
     }
     let corner = match a.style.as_deref() {
@@ -545,10 +561,14 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
         .ok_or_else(missing)?;
     let track = p.board.tracks[index].clone();
     if track.arc.is_some() {
-        return Err(refuse("curved tracks cannot be tuned; straighten them first"));
+        return Err(refuse(
+            "curved tracks cannot be tuned; straighten them first",
+        ));
     }
     if track.net == 0 {
-        return Err(refuse("the track belongs to no net, so it has no length target"));
+        return Err(refuse(
+            "the track belongs to no net, so it has no length target",
+        ));
     }
     if p.board
         .diff_pairs
@@ -568,7 +588,9 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
         )));
     }
     if extra.abs() <= tolerance {
-        return Err(refuse("this net is already within the tolerance of its target"));
+        return Err(refuse(
+            "this net is already within the tolerance of its target",
+        ));
     }
     let (height, er) = (p.board.thickness, p.board.er);
     let (copper, _) = copper_thickness(p, track.layer);
@@ -585,7 +607,9 @@ fn tune(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> 
     }
     let amp_max = a.amplitude_max.unwrap_or(10.0).min(15.0 * height);
     if amp_max < meander::MIN_AMPLITUDE {
-        return Err(refuse("the dielectric is too thin to allow any bump height"));
+        return Err(refuse(
+            "the dielectric is too thin to allow any bump height",
+        ));
     }
     let mut warnings: Vec<String> = vec![];
     if spacing + 1e-9 < 3.0 * height {
@@ -739,7 +763,10 @@ mod tests {
         Ok((s, net, track))
     }
     fn codes(s: &Session) -> Vec<&'static str> {
-        pcbcraft_rules::drc(&s.project).iter().map(|f| f.code).collect()
+        pcbcraft_rules::drc(&s.project)
+            .iter()
+            .map(|f| f.code)
+            .collect()
     }
     fn total(s: &Session, net: Id) -> f64 {
         net_length(&s.project, net)
@@ -748,15 +775,26 @@ mod tests {
     #[test]
     fn tuning_a_short_net_lands_within_tolerance_and_checks_stay_clean() -> T {
         let (mut s, net, track) = fixture(60.0)?;
-        s.execute("net.set_length", json!({"id":net,"target":70.0,"tolerance":0.1}), None)?;
+        s.execute(
+            "net.set_length",
+            json!({"id":net,"target":70.0,"tolerance":0.1}),
+            None,
+        )?;
         assert!(codes(&s).contains(&"track_length"));
-        let out = s.execute("track.tune_length", json!({"track":track,"target":70.0,"tolerance":0.1}), None)?;
+        let out = s.execute(
+            "track.tune_length",
+            json!({"track":track,"target":70.0,"tolerance":0.1}),
+            None,
+        )?;
         let r = &out["result"];
         assert!((num(&r["after"])? - 70.0).abs() <= 0.1, "{r}");
         assert!((total(&s, net) - 70.0).abs() <= 0.1);
         let found = codes(&s);
         assert!(!found.contains(&"track_length"), "{found:?}");
-        assert!(!found.contains(&"clearance") && !found.contains(&"copper_short"), "{found:?}");
+        assert!(
+            !found.contains(&"clearance") && !found.contains(&"copper_short"),
+            "{found:?}"
+        );
         assert!(s.project.validate().is_ok());
         Ok(())
     }
@@ -764,7 +802,12 @@ mod tests {
     #[test]
     fn tuning_reports_before_and_after_length_and_delay() -> T {
         let (mut s, _, track) = fixture(60.0)?;
-        let r = s.execute("track.tune_length", json!({"track":track,"target":68.0}), None)?["result"].clone();
+        let r = s.execute(
+            "track.tune_length",
+            json!({"track":track,"target":68.0}),
+            None,
+        )?["result"]
+            .clone();
         assert_eq!(r["before"], 60.0);
         assert!((num(&r["after"])? - 68.0).abs() <= 0.1);
         let (db, da) = (num(&r["delay_ps_before"])?, num(&r["delay_ps_after"])?);
@@ -777,23 +820,63 @@ mod tests {
     #[test]
     fn default_spacing_is_three_dielectric_heights_and_small_spacing_warns() -> T {
         let (mut s, _, track) = fixture(60.0)?;
-        let r = s.execute("track.tune_length", json!({"track":track,"target":66.0}), None)?["result"].clone();
+        let r = s.execute(
+            "track.tune_length",
+            json!({"track":track,"target":66.0}),
+            None,
+        )?["result"]
+            .clone();
         assert!((num(&r["spacing"])? - 4.8).abs() < 1e-9);
         assert!(r["warnings"].as_array().is_some_and(|w| w.is_empty()));
         let (mut s, _, track) = fixture(60.0)?;
-        let r = s.execute("track.tune_length", json!({"track":track,"target":66.0,"spacing":1.2}), None)?["result"].clone();
-        assert!(r["warnings"].to_string().contains("three dielectric heights"));
+        let r = s.execute(
+            "track.tune_length",
+            json!({"track":track,"target":66.0,"spacing":1.2}),
+            None,
+        )?["result"]
+            .clone();
+        assert!(
+            r["warnings"]
+                .to_string()
+                .contains("three dielectric heights")
+        );
         Ok(())
     }
 
     #[test]
     fn meander_spacing_never_drops_below_three_widths() -> T {
         let (mut s, net, track) = fixture(60.0)?;
-        assert!(s.execute("track.tune_length", json!({"track":track,"target":66.0,"spacing":0.5}), None).is_err());
+        assert!(
+            s.execute(
+                "track.tune_length",
+                json!({"track":track,"target":66.0,"spacing":0.5}),
+                None
+            )
+            .is_err()
+        );
         assert_eq!(total(&s, net), 60.0);
-        let r = s.execute("track.tune_length", json!({"track":track,"target":66.0,"spacing":0.9}), None)?["result"].clone();
-        let ids: Vec<Id> = r["ids"].as_array().ok_or_else(missing)?.iter().filter_map(Value::as_u64).collect();
-        let legs: Vec<f64> = s.project.board.tracks.iter().filter(|t| ids.contains(&t.id) && (t.start.x - t.end.x).abs() < 1e-9 && t.length() > 0.3).map(|t| t.start.x).collect();
+        let r = s.execute(
+            "track.tune_length",
+            json!({"track":track,"target":66.0,"spacing":0.9}),
+            None,
+        )?["result"]
+            .clone();
+        let ids: Vec<Id> = r["ids"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .filter_map(Value::as_u64)
+            .collect();
+        let legs: Vec<f64> = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| {
+                ids.contains(&t.id) && (t.start.x - t.end.x).abs() < 1e-9 && t.length() > 0.3
+            })
+            .map(|t| t.start.x)
+            .collect();
         let mut xs = legs.clone();
         xs.sort_by(f64::total_cmp);
         for pair in xs.windows(2) {
@@ -805,7 +888,11 @@ mod tests {
     #[test]
     fn rounded_style_uses_arcs() -> T {
         let (mut s, net, track) = fixture(60.0)?;
-        s.execute("track.tune_length", json!({"track":track,"target":70.0,"style":"rounded"}), None)?;
+        s.execute(
+            "track.tune_length",
+            json!({"track":track,"target":70.0,"style":"rounded"}),
+            None,
+        )?;
         assert!(s.project.board.tracks.iter().any(|t| t.arc.is_some()));
         assert!((total(&s, net) - 70.0).abs() <= 0.1);
         assert!(!codes(&s).contains(&"clearance"));
@@ -816,8 +903,22 @@ mod tests {
     fn tuning_refuses_curved_tracks() -> T {
         let (mut s, net, track) = fixture(60.0)?;
         s.execute("track.add_arc", json!({"net":net,"start":{"x":10.0,"y":50.0},"mid":{"x":20.0,"y":55.0},"end":{"x":30.0,"y":50.0}}), None)?;
-        let arc = s.project.board.tracks.iter().find(|t| t.arc.is_some()).map(|t| t.id).ok_or_else(missing)?;
-        let err = s.execute("track.tune_length", json!({"track":arc,"target":200.0}), None).err().ok_or_else(missing)?;
+        let arc = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.arc.is_some())
+            .map(|t| t.id)
+            .ok_or_else(missing)?;
+        let err = s
+            .execute(
+                "track.tune_length",
+                json!({"track":arc,"target":200.0}),
+                None,
+            )
+            .err()
+            .ok_or_else(missing)?;
         assert!(err.to_string().contains("straighten them first"));
         assert_eq!(s.project.board.tracks.len(), 2);
         assert!(track > 0);
@@ -827,9 +928,26 @@ mod tests {
     #[test]
     fn tuning_refuses_when_already_too_long_or_within_tolerance() -> T {
         let (mut s, _, track) = fixture(60.0)?;
-        let err = s.execute("track.tune_length", json!({"track":track,"target":50.0}), None).err().ok_or_else(missing)?;
-        assert!(err.to_string().contains("already 10.000 mm longer"), "{err}");
-        let err = s.execute("track.tune_length", json!({"track":track,"target":60.05}), None).err().ok_or_else(missing)?;
+        let err = s
+            .execute(
+                "track.tune_length",
+                json!({"track":track,"target":50.0}),
+                None,
+            )
+            .err()
+            .ok_or_else(missing)?;
+        assert!(
+            err.to_string().contains("already 10.000 mm longer"),
+            "{err}"
+        );
+        let err = s
+            .execute(
+                "track.tune_length",
+                json!({"track":track,"target":60.05}),
+                None,
+            )
+            .err()
+            .ok_or_else(missing)?;
         assert!(err.to_string().contains("within the tolerance"));
         assert_eq!(s.project.board.tracks.len(), 1);
         Ok(())
@@ -851,7 +969,10 @@ mod tests {
             json!({"track":9999,"target":70.0}),
             json!({"track":track,"target":70.0,"extra":1}),
         ] {
-            assert!(s.execute("track.tune_length", bad.clone(), None).is_err(), "{bad}");
+            assert!(
+                s.execute("track.tune_length", bad.clone(), None).is_err(),
+                "{bad}"
+            );
         }
         assert_eq!(s.project.board.tracks.len(), 1);
         Ok(())
@@ -863,11 +984,25 @@ mod tests {
         // Foreign copper fences the run in on both sides.
         let other = id_of(&s.execute("net.create", json!({"name":"BLOCK"}), None)?)?;
         for y in [41.0, 39.0] {
-            s.execute("track.add", json!({"net":other,"start":{"x":0.0,"y":y},"end":{"x":90.0,"y":y},"width":0.3}), None)?;
+            s.execute(
+                "track.add",
+                json!({"net":other,"start":{"x":0.0,"y":y},"end":{"x":90.0,"y":y},"width":0.3}),
+                None,
+            )?;
         }
         let before = s.project.clone();
-        let err = s.execute("track.tune_length", json!({"track":track,"target":70.0}), None).err().ok_or_else(missing)?;
-        assert!(err.to_string().contains("no clear room") && err.to_string().contains("short by"), "{err}");
+        let err = s
+            .execute(
+                "track.tune_length",
+                json!({"track":track,"target":70.0}),
+                None,
+            )
+            .err()
+            .ok_or_else(missing)?;
+        assert!(
+            err.to_string().contains("no clear room") && err.to_string().contains("short by"),
+            "{err}"
+        );
         assert_eq!(s.project, before);
         assert_eq!(total(&s, net), 60.0);
         Ok(())
@@ -877,12 +1012,31 @@ mod tests {
     fn tuning_picks_the_side_with_room() -> T {
         let (mut s, _, track) = fixture(60.0)?;
         let other = id_of(&s.execute("net.create", json!({"name":"BLOCK"}), None)?)?;
-        s.execute("track.add", json!({"net":other,"start":{"x":0.0,"y":41.0},"end":{"x":90.0,"y":41.0},"width":0.3}), None)?;
-        let r = s.execute("track.tune_length", json!({"track":track,"target":70.0}), None)?["result"].clone();
-        let ys: Vec<f64> = s.project.board.tracks.iter().filter(|t| t.net != other).flat_map(|t| [t.start.y, t.end.y]).collect();
+        s.execute(
+            "track.add",
+            json!({"net":other,"start":{"x":0.0,"y":41.0},"end":{"x":90.0,"y":41.0},"width":0.3}),
+            None,
+        )?;
+        let r = s.execute(
+            "track.tune_length",
+            json!({"track":track,"target":70.0}),
+            None,
+        )?["result"]
+            .clone();
+        let ys: Vec<f64> = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.net != other)
+            .flat_map(|t| [t.start.y, t.end.y])
+            .collect();
         let low = ys.iter().copied().fold(f64::INFINITY, f64::min);
         let high = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        assert!(low < 40.0 && high <= 40.0 + 1e-6, "bumps went to the open side: {r}");
+        assert!(
+            low < 40.0 && high <= 40.0 + 1e-6,
+            "bumps went to the open side: {r}"
+        );
         assert!(!codes(&s).contains(&"clearance"));
         Ok(())
     }
@@ -891,8 +1045,19 @@ mod tests {
     fn tuning_refuses_a_differential_pair_net() -> T {
         let (mut s, net, track) = fixture(60.0)?;
         let n = id_of(&s.execute("net.create", json!({"name":"SIGN"}), None)?)?;
-        s.execute("board.set_diffpair", json!({"name":"D","net_p":net,"net_n":n,"gap":0.3}), None)?;
-        let err = s.execute("track.tune_length", json!({"track":track,"target":70.0}), None).err().ok_or_else(missing)?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"D","net_p":net,"net_n":n,"gap":0.3}),
+            None,
+        )?;
+        let err = s
+            .execute(
+                "track.tune_length",
+                json!({"track":track,"target":70.0}),
+                None,
+            )
+            .err()
+            .ok_or_else(missing)?;
         assert!(err.to_string().contains("differential pair"));
         Ok(())
     }
@@ -902,7 +1067,11 @@ mod tests {
         let (mut s, net, track) = fixture(60.0)?;
         let before = s.project.clone();
         let depth = s.undo.len();
-        s.execute("track.tune_length", json!({"track":track,"target":70.0}), None)?;
+        s.execute(
+            "track.tune_length",
+            json!({"track":track,"target":70.0}),
+            None,
+        )?;
         assert_eq!(s.undo.len(), depth + 1);
         s.undo()?;
         assert_eq!(s.project, before);
@@ -914,7 +1083,11 @@ mod tests {
     fn length_group_reports_skew_and_drc_flags_it() -> T {
         let (mut s, a, _) = fixture(60.0)?;
         let b = id_of(&s.execute("net.create", json!({"name":"B"}), None)?)?;
-        s.execute("track.add", json!({"net":b,"start":{"x":10.0,"y":50.0},"end":{"x":50.0,"y":50.0},"width":0.3}), None)?;
+        s.execute(
+            "track.add",
+            json!({"net":b,"start":{"x":10.0,"y":50.0},"end":{"x":50.0,"y":50.0},"width":0.3}),
+            None,
+        )?;
         for bad in [
             json!({"name":"","nets":[a,b],"tolerance":0.5}),
             json!({"name":"G","nets":[a],"tolerance":0.5}),
@@ -923,20 +1096,35 @@ mod tests {
             json!({"name":"G","nets":[a,b],"tolerance":-1.0}),
             json!({"name":"G","nets":[a,b],"tolerance":101.0}),
         ] {
-            assert!(s.execute("board.set_length_group", bad.clone(), None).is_err(), "{bad}");
+            assert!(
+                s.execute("board.set_length_group", bad.clone(), None)
+                    .is_err(),
+                "{bad}"
+            );
         }
-        let g = id_of(&s.execute("board.set_length_group", json!({"name":"BUS","nets":[a,b],"tolerance":0.5}), None)?)?;
+        let g = id_of(&s.execute(
+            "board.set_length_group",
+            json!({"name":"BUS","nets":[a,b],"tolerance":0.5}),
+            None,
+        )?)?;
         assert!(codes(&s).contains(&"length_group_skew"));
         let report = s.execute("net.length_groups", json!({}), None)?["result"].clone();
         assert_eq!(report["groups"][0]["spread_mm"], 20.0);
         assert_eq!(report["groups"][0]["within_tolerance"], false);
         assert_eq!(report["groups"][0]["nets"][1]["short_by_mm"], 20.0);
-        let again = id_of(&s.execute("board.set_length_group", json!({"name":"BUS","nets":[a,b],"tolerance":25.0}), None)?)?;
+        let again = id_of(&s.execute(
+            "board.set_length_group",
+            json!({"name":"BUS","nets":[a,b],"tolerance":25.0}),
+            None,
+        )?)?;
         assert_eq!(g, again, "the same name updates the group");
         assert!(!codes(&s).contains(&"length_group_skew"));
         s.execute("board.remove_length_group", json!({"id":g}), None)?;
         assert!(s.project.board.length_groups.is_empty());
-        assert!(s.execute("board.remove_length_group", json!({"id":g}), None).is_err());
+        assert!(
+            s.execute("board.remove_length_group", json!({"id":g}), None)
+                .is_err()
+        );
         Ok(())
     }
 
@@ -944,10 +1132,22 @@ mod tests {
     fn tuning_the_short_net_closes_the_group() -> T {
         let (mut s, a, _) = fixture(60.0)?;
         let b = id_of(&s.execute("net.create", json!({"name":"B"}), None)?)?;
-        let short = id_of(&s.execute("track.add", json!({"net":b,"start":{"x":10.0,"y":20.0},"end":{"x":50.0,"y":20.0},"width":0.3}), None)?)?;
-        s.execute("board.set_length_group", json!({"name":"BUS","nets":[a,b],"tolerance":0.2}), None)?;
+        let short = id_of(&s.execute(
+            "track.add",
+            json!({"net":b,"start":{"x":10.0,"y":20.0},"end":{"x":50.0,"y":20.0},"width":0.3}),
+            None,
+        )?)?;
+        s.execute(
+            "board.set_length_group",
+            json!({"name":"BUS","nets":[a,b],"tolerance":0.2}),
+            None,
+        )?;
         assert!(codes(&s).contains(&"length_group_skew"));
-        s.execute("track.tune_length", json!({"track":short,"target":60.0,"tolerance":0.1}), None)?;
+        s.execute(
+            "track.tune_length",
+            json!({"track":short,"target":60.0,"tolerance":0.1}),
+            None,
+        )?;
         assert!(!codes(&s).contains(&"length_group_skew"));
         Ok(())
     }
@@ -957,25 +1157,49 @@ mod tests {
         let (mut s, a, _) = fixture(60.0)?;
         let b = id_of(&s.execute("net.create", json!({"name":"B"}), None)?)?;
         let c = id_of(&s.execute("net.create", json!({"name":"C"}), None)?)?;
-        s.execute("board.set_length_group", json!({"name":"G","nets":[a,b,c],"tolerance":1.0}), None)?;
+        s.execute(
+            "board.set_length_group",
+            json!({"name":"G","nets":[a,b,c],"tolerance":1.0}),
+            None,
+        )?;
         s.execute("net.tie", json!({"source":c,"target":b}), None)?;
         assert_eq!(s.project.board.length_groups[0].nets.len(), 2);
         s.execute("object.delete", json!({"id":b}), None)?;
-        assert!(s.project.board.length_groups.is_empty(), "a group of one net is dropped");
+        assert!(
+            s.project.board.length_groups.is_empty(),
+            "a group of one net is dropped"
+        );
         Ok(())
     }
 
     #[test]
     fn recorded_copper_thickness_feeds_the_estimate() -> T {
         let (mut s, net, _) = fixture(60.0)?;
-        let plain = s.execute("net.impedance", json!({"net":net}), None)?["result"]["rows"][0].clone();
+        let plain =
+            s.execute("net.impedance", json!({"net":net}), None)?["result"]["rows"][0].clone();
         assert_eq!(plain["copper_mm"], 0.035);
-        assert!(plain["copper_source"].as_str().is_some_and(|t| t.contains("default")));
-        s.execute("board.set_layer_record", json!({"name":"F.Cu","kind":"copper","thickness":0.07}), None)?;
-        let thick = s.execute("net.impedance", json!({"net":net}), None)?["result"]["rows"][0].clone();
+        assert!(
+            plain["copper_source"]
+                .as_str()
+                .is_some_and(|t| t.contains("default"))
+        );
+        s.execute(
+            "board.set_layer_record",
+            json!({"name":"F.Cu","kind":"copper","thickness":0.07}),
+            None,
+        )?;
+        let thick =
+            s.execute("net.impedance", json!({"net":net}), None)?["result"]["rows"][0].clone();
         assert_eq!(thick["copper_mm"], 0.07);
-        assert!(thick["copper_source"].as_str().is_some_and(|t| t.contains("recorded")));
-        assert!(num(&thick["impedance_ohm"])? < num(&plain["impedance_ohm"])?, "thicker copper lowers impedance");
+        assert!(
+            thick["copper_source"]
+                .as_str()
+                .is_some_and(|t| t.contains("recorded"))
+        );
+        assert!(
+            num(&thick["impedance_ohm"])? < num(&plain["impedance_ohm"])?,
+            "thicker copper lowers impedance"
+        );
         Ok(())
     }
 
@@ -985,16 +1209,27 @@ mod tests {
         let mut last = f64::INFINITY;
         for w in [1.5, 1.58, 1.6, 1.62, 1.7, 1.8] {
             s.execute("track.set_width", json!({"id":track,"width":w}), None)?;
-            let z = num(&s.execute("net.impedance", json!({"net":net}), None)?["result"]["rows"][0]["impedance_ohm"])?;
+            let z = num(
+                &s.execute("net.impedance", json!({"net":net}), None)?["result"]["rows"][0]["impedance_ohm"],
+            )?;
             assert!(z < last, "{w}: {z} after {last}");
-            assert!(!last.is_finite() || last - z < 3.0, "step at {w}: {z} after {last}");
+            assert!(
+                !last.is_finite() || last - z < 3.0,
+                "step at {w}: {z} after {last}"
+            );
             last = z;
         }
         let width = |t: f64| -> Result<f64, Error> {
-            num(&s.clone().execute("net.impedance", json!({"net":net,"target":t}), None)?["result"]["rows"][0]["recommended_width"])
+            num(&s
+                .clone()
+                .execute("net.impedance", json!({"net":net,"target":t}), None)?["result"]["rows"]
+                [0]["recommended_width"])
         };
         assert!(width(60.0)? > width(65.0)? + 0.1 && width(65.0)? > width(70.0)? + 0.1);
-        assert!((width(50.0)? - 2.9).abs() < 0.2, "50 ohm at 1.6 mm is about 2.9 mm wide");
+        assert!(
+            (width(50.0)? - 2.9).abs() < 0.2,
+            "50 ohm at 1.6 mm is about 2.9 mm wide"
+        );
         Ok(())
     }
 
@@ -1002,25 +1237,58 @@ mod tests {
     fn diff_pair_nets_report_differential_impedance() -> T {
         let (mut s, net, _) = fixture(30.0)?;
         let n = id_of(&s.execute("net.create", json!({"name":"SIGN"}), None)?)?;
-        s.execute("track.add", json!({"net":n,"start":{"x":10.0,"y":45.0},"end":{"x":40.0,"y":45.0},"width":0.3}), None)?;
-        s.execute("board.set_diffpair", json!({"name":"D","net_p":net,"net_n":n,"gap":0.3}), None)?;
-        let r = s.execute("net.impedance", json!({"net":net,"target_diff":100.0}), None)?["result"]["rows"][0].clone();
+        s.execute(
+            "track.add",
+            json!({"net":n,"start":{"x":10.0,"y":45.0},"end":{"x":40.0,"y":45.0},"width":0.3}),
+            None,
+        )?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"D","net_p":net,"net_n":n,"gap":0.3}),
+            None,
+        )?;
+        let r = s.execute(
+            "net.impedance",
+            json!({"net":net,"target_diff":100.0}),
+            None,
+        )?["result"]["rows"][0]
+            .clone();
         let zd = num(&r["diff"]["z_diff_ohm"])?;
         assert!((zd - 2.0 * num(&r["diff"]["z_odd_ohm"])?).abs() < 0.02);
-        assert!(r["diff"]["recommended_width"].is_number() || r["diff"]["recommended_width"].is_null());
-        assert!(r["diff"]["validity"].is_null(), "w/h 0.19 and gap/h 0.19 are inside the stated range: {r}");
+        assert!(
+            r["diff"]["recommended_width"].is_number() || r["diff"]["recommended_width"].is_null()
+        );
+        assert!(
+            r["diff"]["validity"].is_null(),
+            "w/h 0.19 and gap/h 0.19 are inside the stated range: {r}"
+        );
         Ok(())
     }
 
     #[test]
     fn calculator_covers_each_geometry_and_refuses_bad_input() -> T {
         let (mut s, _, _) = fixture(30.0)?;
-        let m = s.execute("impedance.calc", json!({"geometry":"microstrip","width":1.6,"height":1.6,"er":4.5,"target":50.0}), None)?["result"].clone();
+        let m = s.execute(
+            "impedance.calc",
+            json!({"geometry":"microstrip","width":1.6,"height":1.6,"er":4.5,"target":50.0}),
+            None,
+        )?["result"]
+            .clone();
         assert!((num(&m["impedance_ohm"])? - 69.4).abs() < 0.1);
         assert!((num(&m["recommended_width"])? - 2.966).abs() < 0.01);
-        let c = s.execute("impedance.calc", json!({"geometry":"coupled","width":0.8,"gap":0.8,"height":1.6,"er":4.5}), None)?["result"].clone();
+        let c = s.execute(
+            "impedance.calc",
+            json!({"geometry":"coupled","width":0.8,"gap":0.8,"height":1.6,"er":4.5}),
+            None,
+        )?["result"]
+            .clone();
         assert!((num(&c["z_diff_ohm"])? - 136.54).abs() < 0.05);
-        let l = s.execute("impedance.calc", json!({"geometry":"stripline","width":0.28,"height":1.68,"er":4.5}), None)?["result"].clone();
+        let l = s.execute(
+            "impedance.calc",
+            json!({"geometry":"stripline","width":0.28,"height":1.68,"er":4.5}),
+            None,
+        )?["result"]
+            .clone();
         assert!((num(&l["impedance_ohm"])? - 71.66).abs() < 0.05);
         for bad in [
             json!({"geometry":"coupled","width":0.8}),
@@ -1030,7 +1298,10 @@ mod tests {
             json!({"geometry":"microstrip","width":1.0,"target":0.5}),
             json!({"geometry":"stripline","width":1.0,"height":0.5,"thickness":0.6}),
         ] {
-            assert!(s.execute("impedance.calc", bad.clone(), None).is_err(), "{bad}");
+            assert!(
+                s.execute("impedance.calc", bad.clone(), None).is_err(),
+                "{bad}"
+            );
         }
         Ok(())
     }
