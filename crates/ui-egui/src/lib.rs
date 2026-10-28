@@ -462,6 +462,9 @@ pub struct App {
     renumber_prefix: Option<String>,
     track_width: f64,
     chamfer_size: f64,
+    cut_x: f64,
+    cut_y: f64,
+    cut_r: f64,
     teardrop_depth: f64,
     panel_columns: usize,
     panel_rows: usize,
@@ -684,6 +687,9 @@ impl App {
             renumber_prefix: None,
             track_width: 0.25,
             chamfer_size: 0.25,
+            cut_x: 25.0,
+            cut_y: 15.0,
+            cut_r: 1.5,
             teardrop_depth: 0.5,
             panel_columns: 2,
             panel_rows: 2,
@@ -3612,6 +3618,42 @@ impl App {
                     );
                 }
                 ui.add_space(8.0);
+                ui.label(egui::RichText::new("CUT-OUT HOLE").size(10.0).color(self.muted()));
+                ui.label(
+                    egui::RichText::new(
+                        "A round hole anywhere inside the board, for a sensor, a cable or a screw bigger than a drill bit.",
+                    )
+                    .small()
+                    .color(self.muted()),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("X");
+                    ui.add(egui::DragValue::new(&mut self.cut_x).speed(0.5).suffix(" mm"));
+                    ui.label("Y");
+                    ui.add(egui::DragValue::new(&mut self.cut_y).speed(0.5).suffix(" mm"));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Radius");
+                    ui.add(
+                        egui::DragValue::new(&mut self.cut_r)
+                            .speed(0.1)
+                            .range(0.1..=50.0)
+                            .suffix(" mm"),
+                    );
+                });
+                if ui
+                    .button("Add hole")
+                    .on_hover_text(
+                        "Cuts this round hole into the board. The checks keep copper and other holes clear of it, and undo takes the hole out again.",
+                    )
+                    .clicked()
+                {
+                    self.run(
+                        "board.cutout.add",
+                        json!({"center":{"x":self.cut_x,"y":self.cut_y},"radius":self.cut_r}),
+                    );
+                }
+                ui.add_space(8.0);
                 ui.label(egui::RichText::new("BOARD EDGE").size(10.0).color(self.muted()));
                 let corners = self.project.board.outline.as_ref().map_or(0, |o| o.len());
                 if corners >= 3 {
@@ -4924,6 +4966,22 @@ mod tests {
             paints_text(&ctx, &mut app, "MAKE FILES")?,
             "the inspector should offer the factory files"
         );
+        for _ in 0..6 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
         authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let listed = |directory: &std::path::Path| -> Result<Vec<String>, String> {
@@ -5914,6 +5972,46 @@ mod tests {
     }
 
     #[test]
+    fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "CUT-OUT HOLE")?,
+            "the board geometry section should offer a hole: {}",
+            app.message
+        );
+        let before = app.project.board.cutouts.len();
+        app.cut_x = 25.0;
+        app.cut_y = 20.0;
+        app.cut_r = 1.5;
+        authoring::tests::tap(&ctx, &mut app, "Add hole")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            app.project.board.cutouts.len(),
+            before + 1,
+            "one more hole is cut into the board: {}",
+            app.message
+        );
+        let hole = app
+            .project
+            .board
+            .cutouts
+            .iter()
+            .find(|h| (h.center.x - 25.0).abs() < 1e-9 && (h.center.y - 20.0).abs() < 1e-9)
+            .ok_or("the hole should sit exactly where it was placed")?;
+        assert!(
+            (hole.radius - 1.5).abs() < 1e-9,
+            "the hole should be exactly the size that was typed"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn a_newcomer_copies_a_part_with_one_click() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
@@ -6219,12 +6317,7 @@ mod tests {
         app.make_dir = folder.to_string_lossy().into_owned();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "BOARD DRAWINGS")?,
-            "the factory folder section should also offer a 3D look: {}",
-            app.message
-        );
-        for _ in 0..3 {
+        for _ in 0..6 {
             frame(
                 &ctx,
                 &mut app,
@@ -6240,6 +6333,11 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
+        assert!(
+            paints_text(&ctx, &mut app, "BOARD DRAWINGS")?,
+            "the factory folder section should also offer a 3D look: {}",
+            app.message
+        );
         authoring::tests::tap(&ctx, &mut app, "3D model (Step)")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
