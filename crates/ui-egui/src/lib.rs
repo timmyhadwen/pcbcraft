@@ -151,6 +151,69 @@ fn params_template(spec: &pcbcraft_engine::CommandSpec) -> String {
     template_object(&spec.input_schema).to_string()
 }
 
+/// One line per required parameter of a command, read from the command's own
+/// schema: the parameter name, the shape it accepts (type, bounds, options)
+/// and the schema's own description. The palette shows this under the search
+/// row so the parameters are explained before a command is ever refused.
+fn param_help(spec: &pcbcraft_engine::CommandSpec) -> Vec<String> {
+    let schema = &spec.input_schema;
+    let properties = schema.get("properties").cloned().unwrap_or(Value::Null);
+    schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .filter_map(|key| {
+                    properties.get(key).map(|field| {
+                        let mut line = format!("{key} ({}):", type_note(field));
+                        match field.get("description").and_then(Value::as_str) {
+                            Some(text) => line.push_str(&format!(" {text}")),
+                            None => line.push_str(" required"),
+                        }
+                        line
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Plain-words shape of one schema field: the listed options when there are
+/// any, otherwise the type with the bounds the schema states.
+fn type_note(field: &Value) -> String {
+    if let Some(options) = field.get("enum").and_then(Value::as_array) {
+        let names: Vec<String> = options
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
+        if !names.is_empty() {
+            return format!("one of {}", names.join(" or "));
+        }
+    }
+    match field.get("type").and_then(Value::as_str) {
+        Some("integer") | Some("number") => {
+            let min = field
+                .get("minimum")
+                .or_else(|| field.get("exclusiveMinimum"))
+                .and_then(Value::as_f64);
+            let max = field.get("maximum").and_then(Value::as_f64);
+            match (min, max) {
+                (Some(lo), Some(hi)) => format!("number {lo} to {hi}"),
+                (Some(lo), None) => format!("number from {lo}"),
+                (None, Some(hi)) => format!("number up to {hi}"),
+                (None, None) => "number".into(),
+            }
+        }
+        Some("string") => "text".into(),
+        Some("boolean") => "true or false".into(),
+        Some("array") => "list".into(),
+        Some("object") => "object".into(),
+        _ => "value".into(),
+    }
+}
+
 fn template_object(schema: &Value) -> Value {
     let properties = schema.get("properties").cloned().unwrap_or(Value::Null);
     let keys: Vec<String> = schema
@@ -1463,6 +1526,18 @@ impl App {
                     egui::ScrollArea::vertical()
                         .max_height(180.0)
                         .show(ui, |ui| {
+                            if let Some(spec) = pcbcraft_engine::commands()
+                                .into_iter()
+                                .find(|spec| spec.id == self.command)
+                            {
+                                for line in param_help(&spec) {
+                                    ui.label(
+                                        egui::RichText::new(line)
+                                            .small()
+                                            .color(self.muted()),
+                                    );
+                                }
+                            }
                             for (row, spec) in matches.iter().enumerate() {
                                 let response = ui.selectable_label(
                                     self.command == spec.id
@@ -1885,6 +1960,45 @@ mod tests {
             !fuzzy_match("copperplating", "component.value"),
             "order matters in a subsequence"
         );
+    }
+
+    #[test]
+    fn palette_help_explains_every_required_parameter() -> Result<(), String> {
+        let spec = pcbcraft_engine::commands()
+            .into_iter()
+            .find(|spec| spec.id == "padstack.define")
+            .ok_or_else(|| "padstack.define must be a command".to_string())?;
+        let help = param_help(&spec);
+        assert_eq!(
+            help.len(),
+            spec.input_schema
+                .get("required")
+                .and_then(Value::as_array)
+                .map_or(0, |list| list.len()),
+            "one help line per required parameter"
+        );
+        let joined = help.join("\n");
+        assert!(joined.contains("name (text)"), "name is text: {joined}");
+        assert!(
+            joined.contains("circle or rect or oval or roundrect"),
+            "the shape options are listed: {joined}"
+        );
+        assert!(
+            joined.contains("number 0.05 to 100"),
+            "the copper bounds are stated before the first refusal: {joined}"
+        );
+        for spec in pcbcraft_engine::commands() {
+            assert_eq!(
+                param_help(&spec).len(),
+                spec.input_schema
+                    .get("required")
+                    .and_then(Value::as_array)
+                    .map_or(0, |list| list.len()),
+                "{} must explain exactly its required parameters",
+                spec.id
+            );
+        }
+        Ok(())
     }
 
     #[test]
