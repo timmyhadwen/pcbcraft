@@ -2052,20 +2052,16 @@ impl App {
                     }
                 });
                 ui.separator();
-                if self.left_tab == 1 {
-                    self.nets_tab(ui);
-                    return;
-                }
-                if self.left_tab == 2 {
-                    self.layers_tab(ui);
-                    return;
-                }
-                if self.left_tab == 3 {
-                    self.rules_tab(ui);
-                    return;
-                }
-                if self.left_tab == 4 {
-                    self.builds_tab(ui);
+                let dock = self.left_tab;
+                if dock > 0 {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| match dock {
+                            1 => self.nets_tab(ui),
+                            2 => self.layers_tab(ui),
+                            3 => self.rules_tab(ui),
+                            _ => self.builds_tab(ui),
+                        });
                     return;
                 }
                 if ui
@@ -2886,6 +2882,59 @@ impl App {
                 self.run("teardrop.remove", json!({}));
             }
         });
+        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new("HOW STRICT TO BE")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "Choose what each automatic check does when it spots something: stop you, warn you, or stay quiet.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        for code in [
+            "unassigned_pin",
+            "single_pin_net",
+            "clearance",
+            "copper_short",
+            "board_edge",
+            "track_width",
+            "track_length",
+            "unrouted",
+            "missing_footprint",
+        ] {
+            let current = self.project.rule_severity(code, "warning");
+            let nice = code.replace('_', " ");
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(&nice).small().strong());
+                for level in ["error", "warning", "off"] {
+                    let tip = match level {
+                        "error" => {
+                            "Treat this as a real problem to fix before the board goes away."
+                        }
+                        "warning" => "Mention it, but do not call the board a failure.",
+                        _ => "Stop reporting this check at all.",
+                    };
+                    if ui
+                        .selectable_label(current == level, level)
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        self.run("rules.severity", json!({"code": code, "severity": level}));
+                    }
+                }
+                if ui
+                    .small_button("Auto")
+                    .on_hover_text("Go back to what this check does out of the box.")
+                    .clicked()
+                {
+                    self.run("rules.severity", json!({"code": code, "severity": null}));
+                }
+            });
+        }
     }
     fn builds_tab(&mut self, ui: &mut egui::Ui) {
         if let Some((name, _)) = &self.build_note
@@ -5694,6 +5743,56 @@ mod tests {
             teardrops(&app),
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_quiets_a_check_that_nags() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        for _ in 0..8 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            paints_text(&ctx, &mut app, "HOW STRICT TO BE")?,
+            "the rules dock should also say how loud each check is: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "off")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            app.project.rule_disabled("missing_footprint"),
+            "the bottom check is silenced by one click: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Auto")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            !app.project.rule_severity.contains_key("missing_footprint"),
+            "Auto hands the choice back to the built-in default: {}",
             app.message
         );
         Ok(())
