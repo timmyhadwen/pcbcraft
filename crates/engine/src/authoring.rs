@@ -33,6 +33,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.pin_move","Slide one pin of a project-library symbol by an offset, as one undoable step, so a single lead landing in the wrong place can be nudged into position without touching its name, length or electrical type and without moving the rest of the symbol; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"string","description":"pin number, exactly as stored"},"delta":point_schema()}),&["name","pin","delta"])),
         ("library.symbol.pin_rotate","Turn one pin of a project-library symbol about the symbol origin by any angle, as one undoable step, swinging the pin's position and its facing together so a single lead can be re-aimed from the origin without rewriting the symbol; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"string","description":"pin number, exactly as stored"},"degrees":{"type":"number","description":"counter-clockwise turn in degrees about the symbol origin"}}),&["name","pin","degrees"])),
         ("library.symbol.pin_mirror","Flip one pin of a project-library symbol about the vertical axis, as one undoable step, mirroring its position and turning its facing to match, so a single left-facing lead can become a right-facing one without rewriting the symbol; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"string","description":"pin number, exactly as stored"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","pin","axis"])),
+        ("library.symbol.renumber_pins","Renumber pins on a project-library symbol with an ordered old-to-new map; embedded copies and their placed pins follow, no-connect flags on those pins follow too, and a target number already held by an untouched pin is refused",schema(json!({"name":{"type":"string"},"renames":{"type":"array","maxItems":512,"items":{"type":"object","properties":{"old":{"type":"string","maxLength":32},"new":{"type":"string","maxLength":32}},"required":["old","new"],"additionalProperties":false}}}),&["name","renames"])),
         ("library.footprint.graphic_add","Draw one graphic (line, rectangle, circle, arc, polyline or text) onto a project-library footprint as one undoable step, the way a package gains its silk outline, courtyard art or documentation text; it travels with every embedded copy once the package is assigned or refreshed",schema(json!({"name":{"type":"string"},"graphic":{"type":"object","description":"a graphic primitive as library readers emit it: kind with its points, width, layer and optional fill"}}),&["name","graphic"])),
         ("library.footprint.graphic_clear","Remove artwork from a project-library footprint in one undoable step: give a layer to clear just that layer's graphics, or omit it to clear every graphic, so stale silk and fab art can be wiped before redrawing",schema(json!({"name":{"type":"string"},"layer":{"type":"string","description":"layer to clear; omit to clear all graphics"}}),&["name"])),
         ("library.symbol.graphic_add","Draw one graphic (line, rectangle, circle, arc, polyline or text) onto one unit of a project-library symbol as one undoable step, the way a symbol gains body art, pin decorations or documentation text; it travels with every embedded copy until symbol.refresh spreads it",schema(json!({"name":{"type":"string"},"unit":{"type":"integer","description":"symbol unit the graphic belongs to; defaults to 1"},"body_style":{"type":"integer","description":"body style the graphic belongs to; defaults to 1"},"graphic":{"type":"object","description":"a graphic primitive as library readers emit it: kind with its points, width, layer and optional fill"}}),&["name","graphic"])),
@@ -1254,6 +1255,117 @@ pub(super) fn run(
                 .map_err(|e| Error::Invalid(e.to_string()))?;
             p.library.validate()?;
             Ok(json!({"name": name, "pin": a.pin}))
+        }
+        "library.symbol.renumber_pins" => {
+            let a: RenumberParams = parse(params)?;
+            if a.renames.is_empty() || a.renames.len() > 512 {
+                return Err(Error::Invalid(
+                    "pin renumbering needs 1 to 512 old-new pairs".into(),
+                ));
+            }
+            for r in &a.renames {
+                if r.old.is_empty() || r.new.is_empty() || r.old.len() > 32 || r.new.len() > 32 {
+                    return Err(Error::Invalid("pin numbers must be 1 to 32 bytes".into()));
+                }
+            }
+            let mut sources: Vec<&str> = a.renames.iter().map(|r| r.old.as_str()).collect();
+            sources.sort_unstable();
+            sources.dedup();
+            if sources.len() != a.renames.len() {
+                return Err(Error::Invalid(
+                    "each old pin number may appear once in the map".into(),
+                ));
+            }
+            let targets: Vec<&str> = a.renames.iter().map(|r| r.new.as_str()).collect();
+            let mut dedup: Vec<&str> = targets.clone();
+            dedup.sort_unstable();
+            dedup.dedup();
+            if dedup.len() != targets.len() {
+                return Err(Error::Invalid(
+                    "two pins cannot be renumbered to the same number".into(),
+                ));
+            }
+            let def = p
+                .library
+                .symbols
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            for r in &a.renames {
+                if !def.pins.iter().any(|pin| pin.number == r.old) {
+                    return Err(Error::Invalid(format!("this symbol has no pin {}", r.old)));
+                }
+            }
+            for target in &targets {
+                if !a.renames.iter().any(|r| r.old == **target)
+                    && def.pins.iter().any(|pin| pin.number == **target)
+                {
+                    return Err(Error::Invalid(format!(
+                        "pin number {target} is already used by a pin this map leaves alone"
+                    )));
+                }
+            }
+            let touched: Vec<(usize, String)> = def
+                .pins
+                .iter()
+                .enumerate()
+                .filter(|(_, pin)| a.renames.iter().any(|r| r.old == pin.number))
+                .map(|(i, pin)| (i, pin.number.clone()))
+                .collect();
+            for &(i, _) in &touched {
+                def.pins[i].number = String::new();
+            }
+            for (i, old) in &touched {
+                if let Some(r) = a.renames.iter().find(|r| r.old == *old) {
+                    def.pins[*i].number = r.new.clone();
+                }
+            }
+            if def.pins.iter().any(|pin| pin.number.is_empty()) {
+                return Err(Error::Invalid(
+                    "every renamed pin needs a new number".into(),
+                ));
+            }
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            let affected: Vec<Id> = p
+                .components
+                .iter()
+                .filter(|c| {
+                    c.library_symbol
+                        .as_ref()
+                        .is_some_and(|sym| sym.definition.name == a.name)
+                })
+                .map(|c| c.id)
+                .collect();
+            for c in &mut p.components {
+                if !affected.contains(&c.id) {
+                    continue;
+                }
+                if let Some(embedded) = &mut c.library_symbol {
+                    for pin in &mut embedded.definition.pins {
+                        if let Some(r) = a.renames.iter().find(|r| r.old == pin.number) {
+                            pin.number = r.new.clone();
+                        }
+                    }
+                }
+                for pin in &mut c.pins {
+                    if let Some(r) = a.renames.iter().find(|r| r.old == pin.number) {
+                        pin.number = r.new.clone();
+                    }
+                }
+            }
+            for flag in &mut p.no_connects {
+                if !affected.contains(&flag.pin.component) {
+                    continue;
+                }
+                if let Some(r) = a.renames.iter().find(|r| r.old == flag.pin.pin) {
+                    flag.pin.pin = r.new.clone();
+                }
+            }
+            Ok(json!({
+                "name": a.name,
+                "renamed": touched.len(),
+                "components": affected.len()
+            }))
         }
         "library.footprint.graphic_add" => {
             let a: GraphicAddParams = parse(params)?;
