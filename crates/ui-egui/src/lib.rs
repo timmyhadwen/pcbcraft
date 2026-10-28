@@ -401,6 +401,88 @@ pub struct App {
     frames: u32,
     library: library::Browser,
 }
+/// Plain-language facts about a selected board or schematic object that is not
+/// a component, so the properties panel can describe tracks, vias, zones,
+/// labels, wires and graphics instead of showing a bare id.
+fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
+    let net = |id: Id| project.net_name(id).to_string();
+    let layer = |value: &pcbcraft_doc::Layer| {
+        serde_json::to_value(value)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default()
+    };
+    let mut rows: Vec<(String, String)> = Vec::new();
+    if let Some(t) = project.board.tracks.iter().find(|t| t.id == id) {
+        rows.push(("Net".into(), net(t.net)));
+        rows.push(("Layer".into(), layer(&t.layer)));
+        rows.push(("Width".into(), format!("{:.3} mm", t.width)));
+        rows.push((
+            "From".into(),
+            format!("{:.2}, {:.2} mm", t.start.x, t.start.y),
+        ));
+        rows.push(("To".into(), format!("{:.2}, {:.2} mm", t.end.x, t.end.y)));
+        if t.arc.is_some() {
+            rows.push(("Shape".into(), "curved through a midpoint".into()));
+        }
+    } else if let Some(v) = project.board.vias.iter().find(|v| v.id == id) {
+        rows.push(("Net".into(), net(v.net)));
+        rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
+        rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.push((
+            "Position".into(),
+            format!("{:.2}, {:.2} mm", v.position.x, v.position.y),
+        ));
+    } else if let Some(z) = project.board.zones.iter().find(|z| z.id == id) {
+        rows.push(("Net".into(), net(z.net)));
+        rows.push(("Layer".into(), layer(&z.layer)));
+        rows.push((
+            "Copper".into(),
+            if z.filled {
+                "poured".into()
+            } else {
+                "outline only".into()
+            },
+        ));
+        rows.push(("Outline".into(), format!("{} vertices", z.outline.len())));
+        if !z.cutouts.is_empty() {
+            rows.push(("Cutouts".into(), format!("{}", z.cutouts.len())));
+        }
+    } else if let Some(l) = project.labels.iter().find(|l| l.id == id) {
+        rows.push(("Kind".into(), l.kind.clone()));
+        rows.push(("Net".into(), net(l.net)));
+        rows.push((
+            "Position".into(),
+            format!("{:.2}, {:.2} mm", l.position.x, l.position.y),
+        ));
+    } else if let Some(w) = project.drawn_wires.iter().find(|w| w.id == id) {
+        rows.push((
+            "Net".into(),
+            w.net.map(net).unwrap_or_else(|| "unbound".into()),
+        ));
+        rows.push(("Points".into(), format!("{}", w.points.len())));
+    } else if let Some(t) = project.board.texts.iter().find(|t| t.id == id) {
+        rows.push(("Text".into(), t.text.clone()));
+        rows.push(("Size".into(), format!("{:.2} mm", t.size)));
+        rows.push(("Layer".into(), layer(&t.layer)));
+        rows.push(("Angle".into(), format!("{:.0} degrees", t.rotation)));
+    } else if let Some(g) = project.graphics.iter().find(|g| g.id == id) {
+        rows.push(("Shape".into(), g.shape.clone()));
+        rows.push(("Layer".into(), g.layer.clone()));
+        if !g.text.is_empty() {
+            rows.push(("Text".into(), g.text.clone()));
+        }
+        rows.push(("Stroke".into(), format!("{:.3} mm", g.width)));
+        rows.push(("Points".into(), format!("{}", g.points.len())));
+    } else if let Some(gr) = project.graphic_groups.iter().find(|gr| gr.id == id) {
+        rows.push((
+            "Group".into(),
+            format!("{} graphics move as one", gr.graphics.len()),
+        ));
+    }
+    rows
+}
+
 impl App {
     pub fn with_project_path(mut self, path: Option<String>) -> Self {
         if let Some(path) = path {
@@ -1280,6 +1362,12 @@ impl App {
                     } else {
                         ui.heading("Selected object");
                         ui.label(format!("Stable ID {id}"));
+                        for (name, value) in object_detail_rows(&self.project, id) {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(name).small().color(self.muted()));
+                                ui.label(value);
+                            });
+                        }
                     }
                     ui.add_space(10.0);
                     if ui.button("Delete  Del").on_hover_text(command_tip("object.delete")).clicked() {
@@ -1783,6 +1871,92 @@ fn pcbcraft_io_limit() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_board_objects_describe_themselves_in_the_properties_panel() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let made = |command: &str, params: Value| -> Result<u64, String> {
+            shared
+                .lock()
+                .map_err(|_| "session lock unavailable")?
+                .execute(command, params, None)
+                .map_err(|e| e.to_string())?["result"]["id"]
+                .as_u64()
+                .ok_or_else(|| format!("{command} returned no id"))
+        };
+        let net = made("net.create", json!({"name":"PWR"}))?;
+        let track = made(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":0.3}),
+        )?;
+        let via = made(
+            "via.place",
+            json!({"net":net,"position":{"x":5.0,"y":5.0},"diameter":0.7,"drill":0.3}),
+        )?;
+        let zone = made(
+            "zone.place",
+            json!({"net":net,"layer":"F.Cu","outline":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0},{"x":10.0,"y":10.0},{"x":0.0,"y":10.0},{"x":0.0,"y":0.0}]}),
+        )?;
+        let text = made(
+            "text.place",
+            json!({"text":"REV A","position":{"x":20.0,"y":20.0},"size":1.5,"layer":"F.Cu"}),
+        )?;
+        let label = made(
+            "label.place",
+            json!({"kind":"label","net":net,"position":{"x":1.0,"y":1.0}}),
+        )?;
+        let project = shared
+            .lock()
+            .map_err(|_| "session lock unavailable")?
+            .project
+            .clone();
+        let find = |id: u64, name: &str| {
+            object_detail_rows(&project, id)
+                .into_iter()
+                .find(|(row, _)| row == name)
+                .map(|(_, value)| value)
+        };
+        assert_eq!(
+            find(track, "Net").as_deref(),
+            Some("PWR"),
+            "a track names its net"
+        );
+        assert_eq!(
+            find(track, "Width").as_deref(),
+            Some("0.300 mm"),
+            "a track states its width"
+        );
+        assert_eq!(
+            find(via, "Drill").as_deref(),
+            Some("0.30 mm"),
+            "a via states its drill"
+        );
+        assert_eq!(
+            find(zone, "Copper").as_deref(),
+            Some("poured"),
+            "a zone states its pour"
+        );
+        assert_eq!(
+            find(zone, "Outline").as_deref(),
+            Some("5 vertices"),
+            "a zone counts its outline"
+        );
+        assert_eq!(
+            find(text, "Text").as_deref(),
+            Some("REV A"),
+            "text shows its string"
+        );
+        assert_eq!(
+            find(label, "Kind").as_deref(),
+            Some("label"),
+            "a schematic label states its kind"
+        );
+        assert!(
+            object_detail_rows(&project, 999).is_empty(),
+            "an unknown id stays quiet"
+        );
+        Ok(())
+    }
 
     #[test]
     fn library_filter_narrows_listed_entries_by_name_or_description() {
