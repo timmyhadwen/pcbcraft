@@ -504,33 +504,21 @@ impl App {
                     {
                         self.needs_fit = true;
                     }
-                    match self.tab {
-                        Tab::Schematic => {
-                            if ui
-                                .selectable_label(matches!(self.tool, Tool::Wire(_)), "Wire")
-                                .on_hover_text(command_tip("wire.draw"))
-                                .clicked()
-                            {
-                                self.tool = Tool::Wire(None);
-                            }
+                    if self.tab == Tab::Pcb {
+                        if ui
+                            .selectable_label(matches!(self.tool, Tool::Route(_)), "Route")
+                            .on_hover_text(command_tip("track.add"))
+                            .clicked()
+                        {
+                            self.tool = Tool::Route(None);
                         }
-                        Tab::Pcb => {
-                            if ui
-                                .selectable_label(matches!(self.tool, Tool::Route(_)), "Route")
-                                .on_hover_text(command_tip("track.add"))
-                                .clicked()
-                            {
-                                self.tool = Tool::Route(None);
-                            }
-                            if ui
-                                .selectable_label(matches!(self.tool, Tool::Cutout), "Cutout")
-                                .on_hover_text(command_tip("board.cutout.add"))
-                                .clicked()
-                            {
-                                self.tool = Tool::Cutout;
-                            }
+                        if ui
+                            .selectable_label(matches!(self.tool, Tool::Cutout), "Cutout")
+                            .on_hover_text(command_tip("board.cutout.add"))
+                            .clicked()
+                        {
+                            self.tool = Tool::Cutout;
                         }
-                        _ => {}
                     }
                 });
             });
@@ -563,18 +551,6 @@ impl App {
                                     .clicked()
                                 {
                                     self.rotate();
-                                }
-                                if matches!(self.tab, Tab::Schematic)
-                                    && self
-                                        .project
-                                        .component(id)
-                                        .is_some_and(|c| !c.pins.is_empty())
-                                    && ui
-                                        .small_button("Wire")
-                                        .on_hover_text(command_tip("wire.draw"))
-                                        .clicked()
-                                {
-                                    self.tool = Tool::Wire(None);
                                 }
                             });
                         });
@@ -703,9 +679,19 @@ impl App {
         }
         None
     }
-    fn canvas_click(&mut self, pos: Point, zoom: f32) {
+    pub(super) fn canvas_click(&mut self, pos: Point, zoom: f32) {
         match self.tool.clone() {
-            Tool::Select => self.select_at(pos, zoom),
+            Tool::Select => {
+                // A click on a pin starts wiring straight away; no tool
+                // button has to be armed first.
+                if self.tab == Tab::Schematic
+                    && let Some(pin) = self.pick_pin(pos, zoom)
+                {
+                    self.tool = Tool::Wire(Some(pin));
+                } else {
+                    self.select_at(pos, zoom);
+                }
+            }
             Tool::Place(kind) => {
                 self.run("component.add", json!({"kind":kind,"position":snap(pos)}))
             }
@@ -740,7 +726,7 @@ impl App {
                 if let Some(pin) = self.pick_pin(pos, zoom) {
                     if let Some(start) = start {
                         self.run("wire.connect", json!({"from":start,"to":pin}));
-                        self.tool = Tool::Wire(None);
+                        self.tool = Tool::Select;
                     } else {
                         self.tool = Tool::Wire(Some(pin));
                     }

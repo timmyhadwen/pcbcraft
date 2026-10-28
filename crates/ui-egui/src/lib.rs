@@ -4263,6 +4263,49 @@ mod tests {
     }
 
     #[test]
+    fn clicking_a_pin_starts_a_wire_without_any_button() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tab = Tab::Schematic;
+        app.tool_call(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":0.0,"y":0.0}}),
+        );
+        app.tool_call(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":20.0,"y":0.0}}),
+        );
+        let first = app.project.components[0].clone();
+        let second = app.project.components[1].clone();
+        let from = first
+            .pin_position("1")
+            .ok_or("a resistor should have a pin 1")?;
+        let to = second
+            .pin_position("1")
+            .ok_or("a resistor should have a pin 1")?;
+        app.canvas_click(from, 1.0);
+        assert!(
+            matches!(&app.tool, Tool::Wire(Some(pin)) if pin.component == first.id && pin.pin == "1"),
+            "clicking a pin starts a wire: {:?}",
+            app.tool
+        );
+        app.canvas_click(to, 1.0);
+        assert_eq!(
+            app.project.wires.len(),
+            1,
+            "the two pins are wired together: {}",
+            app.message
+        );
+        assert!(
+            matches!(app.tool, Tool::Select),
+            "finishing a wire hands the mouse straight back: {:?}",
+            app.tool
+        );
+        Ok(())
+    }
+
+    #[test]
     fn an_idle_board_shows_no_mouse_legend() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
