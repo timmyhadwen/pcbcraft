@@ -25,7 +25,8 @@ impl Browser {
             return;
         }
         self.error.clear();
-        self.notice.clear();
+        // Notices stay on screen until the next source change; a refresh
+        // request right after an add must not erase the confirmation.
         #[cfg(not(target_arch = "wasm32"))]
         {
             let (tx, rx) = std::sync::mpsc::channel();

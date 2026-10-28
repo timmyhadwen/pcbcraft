@@ -1971,6 +1971,135 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_added_from_anywhere_joins_the_list_and_removal_forgets_it_again()
+    -> Result<(), String> {
+        let _turn = pcbcraft_engine::library::SOURCES_TEST_LOCK
+            .lock()
+            .map_err(|_| "source test lock unavailable")?;
+        let file =
+            std::env::temp_dir().join(format!("pcbcraft-source-e2e-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        {
+            let mut slot = pcbcraft_engine::library::SOURCES_PATH_TEST
+                .lock()
+                .map_err(|_| "source path slot unavailable")?;
+            *slot = Some(file.clone());
+        }
+        let outcome = source_round_trip(&file);
+        {
+            let mut slot = pcbcraft_engine::library::SOURCES_PATH_TEST
+                .lock()
+                .map_err(|_| "source path slot unavailable")?;
+            *slot = None;
+        }
+        let _ = std::fs::remove_file(&file);
+        outcome
+    }
+    /// The visible loop a newcomer follows: type a folder, press Add folder,
+    /// watch its collections appear, select one, press Remove source, and
+    /// watch both the list and the remembered config forget it.
+    fn source_round_trip(file: &std::path::Path) -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.change_tab(Tab::Libraries);
+        app.refresh();
+        let ctx = egui::Context::default();
+        for _ in 0..80 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            if app.library.catalog.is_some() && app.library.sources.is_some() {
+                break;
+            }
+        }
+        assert!(
+            app.library.catalog.is_some(),
+            "the catalog arrives on its own"
+        );
+        let shelf = std::fs::canonicalize(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../library/tests/fixtures"),
+        )
+        .map_err(|e| format!("fixture shelf missing: {e}"))?
+        .to_string_lossy()
+        .into_owned();
+        app.library.new_source = shelf.clone();
+        authoring::tests::tap(&ctx, &mut app, "Add folder")?;
+        let mut added = false;
+        for _ in 0..80 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            if app.library.notice.contains("Added") {
+                added = true;
+                break;
+            }
+        }
+        assert!(
+            added,
+            "adding the folder reports back: {}",
+            app.library.notice
+        );
+        let saved =
+            std::fs::read_to_string(file).map_err(|e| format!("config not written: {e}"))?;
+        assert!(
+            saved.contains(&shelf),
+            "the folder is remembered in the config file"
+        );
+        let mut listed = false;
+        for _ in 0..80 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            listed = app
+                .library
+                .catalog
+                .as_ref()
+                .and_then(|catalog| catalog.get("symbol_libraries"))
+                .and_then(Value::as_array)
+                .is_some_and(|libs| {
+                    libs.iter().any(|lib| {
+                        lib.get("path")
+                            .and_then(Value::as_str)
+                            .is_some_and(|path| path.starts_with(&shelf))
+                    })
+                });
+            if listed {
+                break;
+            }
+        }
+        assert!(
+            listed,
+            "the added folder's collections join the unified list"
+        );
+        let added_path = app
+            .library
+            .catalog
+            .as_ref()
+            .and_then(|catalog| catalog.get("symbol_libraries"))
+            .and_then(Value::as_array)
+            .and_then(|libs| {
+                libs.iter().find_map(|lib| {
+                    lib.get("path")
+                        .and_then(Value::as_str)
+                        .filter(|path| path.starts_with(&shelf))
+                        .map(str::to_owned)
+                })
+            })
+            .ok_or("the added collection vanished from the list")?;
+        app.library.path = added_path;
+        authoring::tests::tap(&ctx, &mut app, "Remove source")?;
+        let mut removed = false;
+        for _ in 0..80 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            if app.library.notice.contains("Removed") {
+                removed = true;
+                break;
+            }
+        }
+        assert!(removed, "removal reports back: {}", app.library.notice);
+        let saved = std::fs::read_to_string(file).map_err(|_| "config vanished")?;
+        assert!(
+            !saved.contains(&shelf),
+            "the forgotten folder is out of the config file"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn the_library_split_pages_now_open_one_unified_page() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
