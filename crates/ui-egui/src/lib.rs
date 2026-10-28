@@ -3207,6 +3207,20 @@ impl App {
         }
         self.tool_call(tool, json!({"path": directory}));
     }
+    fn write_3d_file(&mut self, job: &str, kind: &str, label: &str) {
+        let directory = self.make_directory();
+        if std::fs::create_dir_all(&directory).is_err() {
+            self.message = "that folder could not be created".into();
+            return;
+        }
+        let _ = self.tool_call("output_job.add", json!({"name": job, "kinds": [kind]}));
+        if self.tool_call(
+            "output_job.run",
+            json!({"name": job, "directory": &directory}),
+        ) {
+            self.message = format!("{label} saved in {directory}");
+        }
+    }
     fn board_body(&mut self, ui: &mut egui::Ui) {
         if self.project.board.footprints.is_empty() {
             empty_state(ui, EMPTY_BOARD, self.muted());
@@ -3576,6 +3590,33 @@ impl App {
                     .clicked()
                 {
                     self.write_make_files("report.write");
+                }
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("3D MODEL").size(10.0).color(self.muted()));
+                ui.label(
+                    egui::RichText::new(
+                        "A solid picture of the finished board you can spin in a 3D viewer.",
+                    )
+                    .small()
+                    .color(self.muted()),
+                );
+                if ui
+                    .button("3D model (Step)")
+                    .on_hover_text(
+                        "The standard 3D file for mechanical programs and free viewers. It lands in the make folder.",
+                    )
+                    .clicked()
+                {
+                    self.write_3d_file("step3d", "step", "3D model");
+                }
+                if ui
+                    .button("3D viewer file")
+                    .on_hover_text(
+                        "A lighter 3D file that simple viewers open quickly. It lands in the make folder.",
+                    )
+                    .clicked()
+                {
+                    self.write_3d_file("wrl3d", "vrml", "3D viewer file");
                 }
                 ui.add_space(6.0);
                 ui.label(egui::RichText::new("PANEL PLAN").size(10.0).color(self.muted()));
@@ -5501,6 +5542,61 @@ mod tests {
     }
 
     #[test]
+    fn a_newcomer_gets_a_3d_model_of_the_board() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let folder = std::env::temp_dir().join(format!("pcbcraft3d-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        app.make_dir = folder.to_string_lossy().into_owned();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "3D MODEL")?,
+            "the factory folder section should also offer a 3D look: {}",
+            app.message
+        );
+        for _ in 0..3 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        authoring::tests::tap(&ctx, &mut app, "3D model (Step)")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            folder.join("board.step").is_file(),
+            "one click leaves a Step model on disk: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "3D viewer file")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            folder.join("board.wrl").is_file(),
+            "the viewer file lands next to the model: {}",
+            app.message
+        );
+        assert!(
+            app.message.contains("3D viewer file saved"),
+            "the app says where the file went: {}",
+            app.message
+        );
+        let _ = std::fs::remove_dir_all(&folder);
+        Ok(())
+    }
+
+    #[test]
     fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
@@ -5508,12 +5604,6 @@ mod tests {
         app.tool_call("sample_design", json!({}));
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "PANEL PLAN")?,
-            "the factory folder section should also plan panels: {}",
-            app.message
-        );
-        let width = app.project.board.width;
         for _ in 0..8 {
             frame(
                 &ctx,
@@ -5530,6 +5620,12 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
+        assert!(
+            paints_text(&ctx, &mut app, "PANEL PLAN")?,
+            "the factory folder section should also plan panels: {}",
+            app.message
+        );
+        let width = app.project.board.width;
         authoring::tests::tap(&ctx, &mut app, "Preview panel")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
