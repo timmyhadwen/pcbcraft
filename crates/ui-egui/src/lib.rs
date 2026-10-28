@@ -3395,6 +3395,22 @@ impl App {
                                     }
                                 }
                             });
+                            let locked =
+                                self.project.footprint(id).is_some_and(|fp| fp.locked == Some(true));
+                            if ui
+                                .button(if locked { "Unlock" } else { "Lock in place" })
+                                .on_hover_text(if locked {
+                                    "Let this part move, rotate and dock again."
+                                } else {
+                                    "Freeze this part so no accidental click, key or dock can nudge it off where you placed it."
+                                })
+                                .clicked()
+                            {
+                                self.run(
+                                    "footprint.set_locked",
+                                    json!({"id": id, "locked": !locked}),
+                                );
+                            }
                         }
                         ui.label(
                             c.library_footprint
@@ -5878,6 +5894,53 @@ mod tests {
             total(&app),
             before,
             "bringing it back shows every hidden finding again: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_freezes_a_part_so_nothing_moves_it() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.select(Some(10));
+        app.refresh();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Lock in place")?,
+            "a chosen footprint offers to be frozen: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Lock in place")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        let frozen = |app: &App| {
+            app.project
+                .board
+                .footprints
+                .iter()
+                .find(|f| f.id == 10)
+                .and_then(|f| f.locked)
+                == Some(true)
+        };
+        assert!(frozen(&app), "one click freezes the part: {}", app.message);
+        assert!(
+            !app.tool_call(
+                "footprint.move",
+                json!({"id":10,"position":{"x":20.0,"y":20.0}})
+            ),
+            "a frozen part refuses to be shoved: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Unlock")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            !frozen(&app),
+            "unlocking lets the part move freely again: {}",
             app.message
         );
         Ok(())
