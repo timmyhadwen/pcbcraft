@@ -3372,6 +3372,20 @@ impl App {
                         if ui.button("Rotate 90°  R").on_hover_text(command_tip("component.rotate")).clicked() {
                             self.rotate();
                         }
+                        if ui
+                            .button("Duplicate")
+                            .on_hover_text(
+                                "Places a copy of this part nearby, with its own new reference number. Undo removes the copy.",
+                            )
+                            .clicked()
+                        {
+                            let target =
+                                self.project.footprint(id).map_or(id, |fp| fp.component);
+                            self.run(
+                                "object.duplicate",
+                                json!({"ids": [target], "offset": {"x": 2.0, "y": 2.0}}),
+                            );
+                        }
                         if self.project.footprint(id).is_some() {
                             ui.label("Dock to board edge");
                             field_help(
@@ -5895,6 +5909,56 @@ mod tests {
             before,
             "bringing it back shows every hidden finding again: {}",
             app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_copies_a_part_with_one_click() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let resistor = app
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference.starts_with('R'))
+            .map(|c| c.id)
+            .ok_or("the practice design should carry a resistor")?;
+        app.select(Some(resistor));
+        app.refresh();
+        let refs: Vec<String> = app
+            .project
+            .components
+            .iter()
+            .map(|c| c.reference.clone())
+            .collect();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Duplicate")?,
+            "a chosen part offers to be copied: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Duplicate")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        let after: Vec<String> = app
+            .project
+            .components
+            .iter()
+            .map(|c| c.reference.clone())
+            .collect();
+        assert_eq!(
+            after.len(),
+            refs.len() + 1,
+            "one more part sits on the board: {refs:?} -> {after:?}"
+        );
+        assert_eq!(
+            after.iter().filter(|r| r.starts_with('R')).count(),
+            refs.iter().filter(|r| r.starts_with('R')).count() + 1,
+            "the copy got its own new reference: {after:?}"
         );
         Ok(())
     }
