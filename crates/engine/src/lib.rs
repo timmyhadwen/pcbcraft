@@ -459,6 +459,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "padstack.rename",
+            "Rename a defined padstack in place; pads already shaped by it keep their copper, and the new name must still be free",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"new_name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name", "new_name"],
+            ),
+        ),
+        (
+            "padstack.duplicate",
+            "Copy a defined padstack under a fresh name, same copper and drill, ready to reshape other pads without touching the original",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"new_name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name", "new_name"],
+            ),
+        ),
+        (
             "padstack.report",
             "Report every defined padstack with its copper and drill, which placed pads carry it, and which stacks no pad uses, so unused stacks can be tidied away; reads the design without touching it",
             schema(json!({}), &[]),
@@ -2617,6 +2633,12 @@ struct PadstackDefineParams {
 #[serde(deny_unknown_fields)]
 struct PadstackRemoveParams {
     name: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PadstackRenameParams {
+    name: String,
+    new_name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5487,6 +5509,66 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 )));
             }
             Ok(json!({"name": a.name, "padstacks": p.padstacks.len()}))
+        }
+        "padstack.rename" => {
+            let a: PadstackRenameParams = parse(params)?;
+            if a.new_name.is_empty() || a.new_name.len() > 64 {
+                return Err(Error::Invalid("padstack names are 1 to 64 bytes".into()));
+            }
+            if a.name == a.new_name {
+                return Err(Error::Invalid(format!(
+                    "padstack {} already goes by that name",
+                    a.name
+                )));
+            }
+            if !p.padstacks.iter().any(|s| s.name == a.name) {
+                return Err(Error::Invalid(format!(
+                    "no padstack named {} in the design",
+                    a.name
+                )));
+            }
+            if p.padstacks.iter().any(|s| s.name == a.new_name) {
+                return Err(Error::Invalid(format!(
+                    "a padstack named {} is already defined",
+                    a.new_name
+                )));
+            }
+            let stack = p
+                .padstacks
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            stack.name.clone_from(&a.new_name);
+            Ok(json!({"old": a.name, "stack": stack}))
+        }
+        "padstack.duplicate" => {
+            let a: PadstackRenameParams = parse(params)?;
+            if a.new_name.is_empty() || a.new_name.len() > 64 {
+                return Err(Error::Invalid("padstack names are 1 to 64 bytes".into()));
+            }
+            let stack = p
+                .padstacks
+                .iter()
+                .find(|s| s.name == a.name)
+                .cloned()
+                .ok_or_else(|| {
+                    Error::Invalid(format!("no padstack named {} in the design", a.name))
+                })?;
+            if p.padstacks.iter().any(|s| s.name == a.new_name) {
+                return Err(Error::Invalid(format!(
+                    "a padstack named {} is already defined",
+                    a.new_name
+                )));
+            }
+            if p.padstacks.len() >= 256 {
+                return Err(Error::Invalid(
+                    "the design defines at most 256 padstacks".into(),
+                ));
+            }
+            let mut copy = stack;
+            copy.name.clone_from(&a.new_name);
+            p.padstacks.push(copy.clone());
+            Ok(json!({"from": a.name, "stack": copy}))
         }
         "footprint.set_pad_stack" => {
             let a: SetPadStackParams = parse(params)?;
@@ -22531,6 +22613,124 @@ mod tests {
         assert!(s.project.validate().is_ok());
         Ok(())
     }
+    #[test]
+    fn padstacks_rename_and_duplicate_without_disturbing_shaped_pads() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "padstack.define",
+            json!({"name":"sig","shape":"circle","width":1.6,"height":1.6,"drill":0.8}),
+            None,
+        )?;
+        let out = s.execute(
+            "padstack.rename",
+            json!({"name":"sig","new_name":"tht"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["old"], "sig");
+        assert_eq!(out["stack"]["name"], "tht");
+        assert_eq!(out["stack"]["drill"], json!(0.8), "the stack echoes itself");
+        assert!(
+            s.execute(
+                "padstack.rename",
+                json!({"name":"sig","new_name":"x"}),
+                None
+            )
+            .is_err(),
+            "the old name is gone once the stack is renamed"
+        );
+        s.execute(
+            "padstack.define",
+            json!({"name":"old","shape":"rect","width":2.0,"height":1.0}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "padstack.rename",
+                json!({"name":"tht","new_name":"old"}),
+                None
+            )
+            .is_err(),
+            "names must stay unique"
+        );
+        assert!(
+            s.execute(
+                "padstack.rename",
+                json!({"name":"tht","new_name":"tht"}),
+                None
+            )
+            .is_err(),
+            "a no-op rename is refused"
+        );
+        assert!(
+            s.execute("padstack.rename", json!({"name":"tht","new_name":""}), None)
+                .is_err(),
+            "an empty name is refused"
+        );
+        assert!(
+            s.execute(
+                "padstack.rename",
+                json!({"name":"tht","new_name":"x".repeat(65)}),
+                None
+            )
+            .is_err(),
+            "names stay bounded"
+        );
+        let out = s.execute(
+            "padstack.duplicate",
+            json!({"name":"tht","new_name":"tht-b"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["from"], "tht");
+        assert_eq!(out["stack"]["shape"], "circle");
+        assert_eq!(out["stack"]["drill"], json!(0.8));
+        let copy = s
+            .project
+            .padstacks
+            .iter()
+            .find(|st| st.name == "tht-b")
+            .ok_or_else(missing)?;
+        assert_eq!(
+            copy.size,
+            Point::new(1.6, 1.6),
+            "the copy carries the same copper"
+        );
+        assert!(
+            s.execute(
+                "padstack.duplicate",
+                json!({"name":"tht","new_name":"tht-b"}),
+                None
+            )
+            .is_err(),
+            "the copy name must be free"
+        );
+        assert!(
+            s.execute(
+                "padstack.duplicate",
+                json!({"name":"tht","new_name":"tht"}),
+                None
+            )
+            .is_err(),
+            "copying a stack onto its own name is refused"
+        );
+        s.undo()?;
+        assert!(
+            !s.project.padstacks.iter().any(|st| st.name == "tht-b"),
+            "undo drops the copy"
+        );
+        s.undo()?;
+        s.undo()?;
+        let back = s
+            .project
+            .padstacks
+            .iter()
+            .find(|st| st.name == "sig")
+            .ok_or_else(missing)?;
+        assert_eq!(back.drill, Some(0.8), "undo restores the original name");
+        Ok(())
+    }
+
     #[test]
     fn a_padstack_report_shows_which_stacks_the_board_actually_uses() -> Result<(), Error> {
         let mut s = Session::default();
