@@ -143,6 +143,9 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Move => format!("LMB: drop the selected object at the cursor{common}"),
         Tool::Cutout => format!("LMB: place a circular cutout at the cursor{common}"),
         Tool::Hole => format!("LMB: drill a mounting hole at the cursor{common}"),
+        Tool::NoConnect => {
+            format!("LMB: click a pin to mark it unused, or again to undo{common}")
+        }
     }
 }
 
@@ -368,6 +371,7 @@ enum Tool {
     Move,
     Cutout,
     Hole,
+    NoConnect,
 }
 #[derive(Clone, Copy)]
 struct Camera {
@@ -4648,6 +4652,7 @@ mod tests {
             (Tool::Move, "drop"),
             (Tool::Cutout, "cutout"),
             (Tool::Hole, "mounting hole"),
+            (Tool::NoConnect, "unused"),
         ];
         for (tool, verb) in cases {
             let hint = tool_hint(&tool);
@@ -4856,6 +4861,69 @@ mod tests {
         assert!(
             app.project.board.layer_records.is_empty(),
             "the stackup notes are forgotten: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_marks_an_unused_pin_so_no_one_asks_again() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.run(
+            "component.add",
+            json!({"kind":"resistor","reference":"R9","value":"1 k","position":{"x":20.0,"y":40.0}}),
+        );
+        app.refresh();
+        app.tab = Tab::Schematic;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "No connect")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let spare = app
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R9")
+            .and_then(|c| c.pin_position("1"))
+            .ok_or("the spare resistor should have a pin 1")?;
+        let before = app.project.no_connects.len();
+        app.canvas_click(spare, 1.0);
+        assert_eq!(
+            app.project.no_connects.len(),
+            before + 1,
+            "clicking the pin marks it unused: {}",
+            app.message
+        );
+        assert!(
+            app.project.no_connects.iter().any(|f| {
+                f.pin.component
+                    == app
+                        .project
+                        .components
+                        .iter()
+                        .find(|c| c.reference == "R9")
+                        .map(|c| c.id)
+                        .unwrap_or_default()
+                    && f.pin.pin == "1"
+            }),
+            "the mark lands on the pin that was clicked: {}",
+            app.message
+        );
+        app.canvas_click(spare, 1.0);
+        assert_eq!(
+            app.project.no_connects.len(),
+            before,
+            "clicking the mark again clears it: {}",
+            app.message
+        );
+        app.canvas_click(spare, 1.0);
+        assert_eq!(
+            app.project.no_connects.len(),
+            before + 1,
+            "the tool stays ready for the next unused pin: {}",
             app.message
         );
         Ok(())

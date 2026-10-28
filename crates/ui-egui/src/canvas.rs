@@ -376,6 +376,7 @@ impl App {
             Tool::Move => "MOVE · CLICK TO PLACE SELECTION",
             Tool::Cutout => "CUTOUT · CLICK TO PLACE",
             Tool::Hole => "MOUNTING HOLE · CLICK TO DRILL",
+            Tool::NoConnect => "NO CONNECT · CLICK A PIN TO MARK IT UNUSED",
         };
         painter.text(
             rect.left_top() + Vec2::new(20.0, 20.0),
@@ -511,6 +512,16 @@ impl App {
                         .clicked()
                     {
                         self.needs_fit = true;
+                    }
+                    if self.tab == Tab::Schematic
+                        && ui
+                            .selectable_label(matches!(self.tool, Tool::NoConnect), "No connect")
+                            .on_hover_text(
+                                "Click a pin to mark it deliberately unconnected, or click a mark to clear it.",
+                            )
+                            .clicked()
+                    {
+                        self.tool = Tool::NoConnect;
                     }
                     if self.tab == Tab::Pcb
                         && ui
@@ -768,6 +779,21 @@ impl App {
                     }
                 } else {
                     self.message = "Pick a pad to start or finish a route".into();
+                }
+            }
+            Tool::NoConnect => {
+                if let Some(pin) = self.pick_pin(pos, zoom) {
+                    if let Some(id) = self
+                        .project
+                        .no_connects
+                        .iter()
+                        .find(|f| f.pin == pin)
+                        .map(|f| f.id)
+                    {
+                        self.run("object.delete", json!({"id": id}));
+                    } else {
+                        self.run("pin.no_connect", json!({"pin": pin}));
+                    }
                 }
             }
             Tool::Hole => self.run(
