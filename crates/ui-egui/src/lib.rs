@@ -113,6 +113,7 @@ type StackShape = (
     &'static str,
     &'static [(&'static str, &'static str, f64)],
 );
+type CheckGroup = (String, Vec<(String, Vec<Id>)>);
 type AnatGroup = (
     &'static str,
     &'static str,
@@ -120,6 +121,19 @@ type AnatGroup = (
     Vec<(Option<Id>, String)>,
     &'static str,
 );
+fn human_code(code: &str) -> String {
+    let words = code.replace('_', " ");
+    let mut chars = words.chars();
+    match chars.next() {
+        Some(first) => first
+            .to_uppercase()
+            .next()
+            .into_iter()
+            .chain(chars)
+            .collect(),
+        None => words,
+    }
+}
 fn role_label(kind: &str) -> String {
     STACK_ROLES
         .iter()
@@ -5275,8 +5289,20 @@ impl App {
         }
         ui.add_space(16.0);
         let checks = self.checks.clone();
-        for (key, label) in [("erc", "Electrical"), ("drc", "Board")] {
+        for (key, label, blurb) in [
+            (
+                "erc",
+                "Electrical",
+                "Whether the wiring makes electrical sense: pins with no connection, parts missing footprints, and power pins left floating.",
+            ),
+            (
+                "drc",
+                "Board",
+                "Whether the copper can actually be made: gaps too small, wires not joined, and widths the factory cannot etch.",
+            ),
+        ] {
             ui.label(egui::RichText::new(label).size(18.0).strong());
+            ui.label(egui::RichText::new(blurb).small().color(self.muted()));
             if let Some(findings) = checks.get(key).and_then(Value::as_array) {
                 if findings.is_empty() {
                     ui.label(
@@ -5284,6 +5310,7 @@ impl App {
                             .color(self.accent()),
                     );
                 }
+                let mut groups: Vec<CheckGroup> = Vec::new();
                 for f in findings {
                     let code = f
                         .get("code")
@@ -5295,70 +5322,119 @@ impl App {
                         .and_then(Value::as_array)
                         .map(|v| v.iter().filter_map(|x| x.as_u64()).collect())
                         .unwrap_or_default();
-                    let text = format!(
-                        "{}   {}",
-                        code,
-                        f.get("message").and_then(Value::as_str).unwrap_or("")
+                    let message = f
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    if let Some(group) = groups.iter_mut().find(|(c, _)| *c == code) {
+                        group.1.push((message, objects));
+                    } else {
+                        groups.push((code, vec![(message, objects)]));
+                    }
+                }
+                groups.sort_by(|a, b| {
+                    let rank =
+                        |code: &str| match self.project.rule_severity(code, "warning").as_str() {
+                            "error" => 0,
+                            "info" => 2,
+                            _ => 1,
+                        };
+                    rank(&a.0)
+                        .cmp(&rank(&b.0))
+                        .then(b.1.len().cmp(&a.1.len()))
+                        .then(a.0.cmp(&b.0))
+                });
+                let louds: Vec<bool> = groups
+                    .iter()
+                    .map(|(code, _)| self.project.rule_severity(code, "warning") == "error")
+                    .collect();
+                for ((code, rows), loud) in groups.into_iter().zip(louds) {
+                    let title = format!(
+                        "{} · {} {}",
+                        human_code(&code),
+                        rows.len(),
+                        if rows.len() == 1 { "place" } else { "places" }
                     );
-                    ui.horizontal(|ui| {
-                        if ui.button(text).clicked()
-                            && let Some(id) = objects.first().copied()
-                        {
-                            self.change_tab(if key == "erc" {
-                                Tab::Schematic
-                            } else {
-                                Tab::Pcb
-                            });
-                            self.select(Some(id));
+                    let title_text = if loud {
+                        egui::RichText::new(title).strong()
+                    } else {
+                        egui::RichText::new(title)
+                    };
+                    ui.add_space(6.0);
+                    ui.label(title_text).on_hover_text(format!(
+                        "Check {code}. {}The list below shows every place it fired; click one to jump to it.",
+                        if loud {
+                            "This one must be fixed before the board is built. "
+                        } else {
+                            "This one is worth a look, but does not block the build. "
                         }
-                        if !objects.is_empty()
-                            && ui
-                                .small_button("Hide this")
-                                .on_hover_text(
-                                    "You have looked at this and it is fine: hide just this finding. Everything you hide can be brought back below.",
-                                )
+                    ));
+                    for (message, objects) in rows {
+                        ui.horizontal(|ui| {
+                            ui.add_space(14.0);
+                            if ui
+                                .button(message)
+                                .on_hover_text("Select this on the drawing.")
                                 .clicked()
-                        {
-                            self.run(
-                                "rules.exclude",
-                                json!({"code": code.clone(), "ids": objects}),
-                            );
-                        }
-                        if !objects.is_empty() {
-                            let spots: Vec<Point> = objects
-                                .iter()
-                                .filter_map(|o| self.project.object_position(*o))
-                                .collect();
-                            if spots.len() == objects.len()
-                                && let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) = (
-                                    spots.iter().map(|p| p.x).reduce(f64::min),
-                                    spots.iter().map(|p| p.x).reduce(f64::max),
-                                    spots.iter().map(|p| p.y).reduce(f64::min),
-                                    spots.iter().map(|p| p.y).reduce(f64::max),
-                                )
+                                && let Some(id) = objects.first().copied()
                             {
-                                let pad = 2.0;
-                                if ui
-                                    .small_button("Quiet this area")
+                                self.change_tab(if key == "erc" {
+                                    Tab::Schematic
+                                } else {
+                                    Tab::Pcb
+                                });
+                                self.select(Some(id));
+                            }
+                            if !objects.is_empty()
+                                && ui
+                                    .small_button("Hide this")
                                     .on_hover_text(
-                                        "This corner of the board is the way you want it: ask the check to leave anything inside a box drawn around these items alone. You can clear the box below.",
+                                        "You have looked at this and it is fine: hide just this finding. Everything you hide can be brought back below.",
                                     )
                                     .clicked()
+                            {
+                                self.run(
+                                    "rules.exclude",
+                                    json!({"code": code.clone(), "ids": objects}),
+                                );
+                            }
+                            if !objects.is_empty() {
+                                let spots: Vec<Point> = objects
+                                    .iter()
+                                    .filter_map(|o| self.project.object_position(*o))
+                                    .collect();
+                                if spots.len() == objects.len()
+                                    && let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) = (
+                                        spots.iter().map(|p| p.x).reduce(f64::min),
+                                        spots.iter().map(|p| p.x).reduce(f64::max),
+                                        spots.iter().map(|p| p.y).reduce(f64::min),
+                                        spots.iter().map(|p| p.y).reduce(f64::max),
+                                    )
                                 {
-                                    self.run(
-                                        "rules.exclude_region",
-                                        json!({
-                                            "code": code,
-                                            "x": min_x - pad,
-                                            "y": min_y - pad,
-                                            "width": (max_x - min_x) + pad * 2.0,
-                                            "height": (max_y - min_y) + pad * 2.0,
-                                        }),
-                                    );
+                                    let pad = 2.0;
+                                    if ui
+                                        .small_button("Quiet this area")
+                                        .on_hover_text(
+                                            "This corner of the board is the way you want it: ask the check to leave anything inside a box drawn around these items alone. You can clear the box below.",
+                                        )
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "rules.exclude_region",
+                                            json!({
+                                                "code": code,
+                                                "x": min_x - pad,
+                                                "y": min_y - pad,
+                                                "width": (max_x - min_x) + pad * 2.0,
+                                                "height": (max_y - min_y) + pad * 2.0,
+                                            }),
+                                        );
+                                    }
                                 }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
             }
             ui.add_space(20.0);
@@ -7038,6 +7114,85 @@ mod tests {
             teardrops(&app),
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_sees_findings_grouped_by_check() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let mut best: Option<(String, usize)> = None;
+        for key in ["erc", "drc"] {
+            if let Some(findings) = app.checks.get(key).and_then(serde_json::Value::as_array) {
+                let mut counts: Vec<(String, usize)> = Vec::new();
+                for finding in findings {
+                    let code = finding
+                        .get("code")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("finding")
+                        .to_owned();
+                    if let Some(row) = counts.iter_mut().find(|(c, _)| *c == code) {
+                        row.1 += 1;
+                    } else {
+                        counts.push((code, 1));
+                    }
+                }
+                if let Some(top) = counts.iter().max_by_key(|(_, n)| *n)
+                    && best.as_ref().is_none_or(|(_, n)| top.1 > *n)
+                {
+                    best = Some(top.clone());
+                }
+            }
+        }
+        let (code, count) = best.ok_or("the practice board should have findings")?;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Checks")?;
+        let words = code.replace('_', " ");
+        let mut chars = words.chars();
+        let human = match chars.next() {
+            Some(first) => first
+                .to_uppercase()
+                .next()
+                .into_iter()
+                .chain(chars)
+                .collect::<String>(),
+            None => words,
+        };
+        let title = format!("{human} · {count} places");
+        let mut shown = false;
+        for _ in 0..10 {
+            if paints_text(&ctx, &mut app, &title)? {
+                shown = true;
+                break;
+            }
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            shown,
+            "the checks list should group every place one check fired under one heading ({title}): {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Whether the wiring makes electrical sense")?,
+            "each checks group should say in plain words what it looks at: {}",
             app.message
         );
         Ok(())
