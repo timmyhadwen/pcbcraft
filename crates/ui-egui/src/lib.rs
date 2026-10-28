@@ -903,10 +903,17 @@ impl App {
                 ui.add_space(12.0);
                 ui.label(
                     egui::RichText::new("PCBCraft")
-                        .size(22.0)
+                        .size(20.0)
                         .strong()
                         .color(self.accent()),
                 );
+                if self.library.editor.mode == 0 {
+                    ui.separator();
+                    self.file_menu(ui);
+                    self.edit_menu(ui);
+                    self.settings_menu(ui);
+                    self.help_menu(ui);
+                }
                 ui.label(egui::RichText::new("/").color(self.muted()));
                 match self.title_draft.as_mut() {
                     None => {
@@ -945,25 +952,7 @@ impl App {
                 if self.saved_revision != Some(self.revision) {
                     ui.label(egui::RichText::new("*").color(self.accent()));
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Appearance").clicked() {
-                        self.appearance = !self.appearance;
-                    }
-                    if ui.button("Save  Ctrl+S").on_hover_text("Write the design to its file on disk.").clicked() {
-                        self.tool_call("save", json!({"path":self.path}));
-                    }
-                    if ui.button("Redo").on_hover_text("Step forward to the action you undid.").clicked() {
-                        self.tool_call("redo", json!({}));
-                    }
-                    if ui.button("Undo").on_hover_text("Step back one action; every edit here is one undoable step.").clicked() {
-                        self.tool_call("undo", json!({}));
-                    }
-                    ui.label(
-                        egui::RichText::new("MCP FIRST")
-                            .size(10.0)
-                            .color(self.muted()),
-                    );
-                });
+
             });
             ui.add_space(5.0);
             ui.horizontal(|ui| {
@@ -1036,18 +1025,18 @@ impl App {
                     }
                     Tab::Pcb => {
                         egui::ComboBox::from_id_salt("route-layer")
-                            .selected_text(self.route_layer.name())
+                            .selected_text(self.route_layer.label())
                             .width(64.0)
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(
                                     &mut self.route_layer,
                                     pcbcraft_doc::Layer::Front,
-                                    "F.Cu",
+                                    "Top",
                                 );
                                 ui.selectable_value(
                                     &mut self.route_layer,
                                     pcbcraft_doc::Layer::Back,
-                                    "B.Cu",
+                                    "Bottom",
                                 );
                             });
                         if ui
@@ -1108,18 +1097,6 @@ impl App {
                 if ui.button("Fit").on_hover_text("Zoom the view so the whole design fits.").clicked() {
                     self.needs_fit = true;
                 }
-                if ui
-                    .button("Shortcuts  ?")
-                    .on_hover_text("Show every keyboard shortcut and mouse gesture in one list.")
-                    .clicked()
-                {
-                    self.shortcuts_open = !self.shortcuts_open;
-                }
-                if ui.button("Commands  Ctrl+K").on_hover_text("Search every command by name and run it, with its parameters explained.").clicked() {
-                    self.command_open = !self.command_open;
-        self.command_focus = self.command_open;
-        self.command_index = 0;
-                }
             });
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
@@ -1130,6 +1107,161 @@ impl App {
                 );
             });
         });
+    }
+    fn file_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("File", |ui| {
+            if ui
+                .button("New empty design")
+                .on_hover_text("Start a fresh empty design.")
+                .clicked()
+            {
+                self.tool_call("new_design", json!({}));
+                self.select(None);
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.path)
+                        .hint_text("design file path")
+                        .desired_width(240.0),
+                )
+                .on_hover_text("The file that Open and Save on this page use.");
+                if ui
+                    .button("Open")
+                    .on_hover_text(
+                        "Load a saved design file from the path beside this button.",
+                    )
+                    .clicked()
+                {
+                    self.tool_call("open", json!({"path":self.path}));
+                }
+            });
+            if ui
+                .button("Save design  Ctrl+S")
+                .on_hover_text("Write the design to its file on disk.")
+                .clicked()
+            {
+                self.tool_call("save", json!({"path":self.path}));
+            }
+            ui.separator();
+            if ui
+                .button("Export interchange board")
+                .on_hover_text("Write the board out so other design tools can open it.")
+                .clicked()
+            {
+                let path = std::path::Path::new(&self.path)
+                    .with_extension("kicad_pcb")
+                    .to_string_lossy()
+                    .into_owned();
+                self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
+            }
+            if ui
+                .button("Copy view picture to clipboard")
+                .on_hover_text("Copy a PNG snapshot of the current view, the same picture a plotter would draw, so it can be pasted into a document.")
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.copy_plot_to_clipboard(&ctx);
+            }
+            ui.separator();
+            if ui
+                .button("Load LED example")
+                .on_hover_text("Start from a small worked example: a battery, resistor and LED.")
+                .clicked()
+            {
+                self.tool_call("sample_design", json!({}));
+                self.needs_fit = true;
+            }
+        })
+        .response
+        .on_hover_text("Start, open, save, export and share this design.");
+    }
+    fn edit_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("Edit", |ui| {
+            if ui
+                .button("Undo")
+                .on_hover_text("Step back one action; every edit here is one undoable step.")
+                .clicked()
+            {
+                self.tool_call("undo", json!({}));
+            }
+            if ui
+                .button("Redo")
+                .on_hover_text("Step forward to the action you undid.")
+                .clicked()
+            {
+                self.tool_call("redo", json!({}));
+            }
+        })
+        .response
+        .on_hover_text("Step back and forward through every edit.");
+    }
+    fn settings_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("Settings", |ui| {
+            if ui
+                .button("Appearance…")
+                .on_hover_text("Pick the theme, accent colour and what sits on each pad.")
+                .clicked()
+            {
+                self.appearance = !self.appearance;
+            }
+            if ui
+                .button(if self.preferences.dark {
+                    "Switch to the light theme"
+                } else {
+                    "Switch to the dark theme"
+                })
+                .on_hover_text("Change between the dark and light look.")
+                .clicked()
+            {
+                self.preferences.dark = !self.preferences.dark;
+            }
+            if ui
+                .button(if self.preferences.grid {
+                    "Hide the grid"
+                } else {
+                    "Show the grid"
+                })
+                .on_hover_text("Show or hide the placement grid in the work area.")
+                .clicked()
+            {
+                self.preferences.grid = !self.preferences.grid;
+            }
+            ui.separator();
+            if ui
+                .button("Library sources…")
+                .on_hover_text("Manage the folders that feed the component list.")
+                .clicked()
+            {
+                self.change_tab(Tab::Libraries);
+            }
+        })
+        .response
+        .on_hover_text("Theme, grid and library folders.");
+    }
+    fn help_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("Help", |ui| {
+            if ui
+                .button("Keyboard shortcuts")
+                .on_hover_text("Show every keyboard shortcut and mouse gesture in one list.")
+                .clicked()
+            {
+                self.shortcuts_open = !self.shortcuts_open;
+            }
+            if ui
+                .button("Commands  Ctrl+K")
+                .on_hover_text(
+                    "Search every command by name and run it, with its parameters explained.",
+                )
+                .clicked()
+            {
+                self.command_open = !self.command_open;
+                self.command_focus = self.command_open;
+                self.command_index = 0;
+            }
+        })
+        .response
+        .on_hover_text("Shortcuts list and the command search.");
     }
     fn browser(&mut self, ui: &mut egui::Ui) {
         egui::Panel::left("browser")
@@ -1483,96 +1615,6 @@ impl App {
                     }
                 });
             });
-        });
-        egui::Panel::bottom("files").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Project file");
-                ui.add(egui::TextEdit::singleline(&mut self.path).desired_width(260.0));
-                if ui
-                    .button("Open")
-                    .on_hover_text("Load a saved design file from the path next to this button.")
-                    .clicked()
-                {
-                    self.tool_call("open", json!({"path":self.path}));
-                }
-                if ui
-                    .button("Save")
-                    .on_hover_text("Write the design to the file named next to this button.")
-                    .clicked()
-                {
-                    self.tool_call("save", json!({"path":self.path}));
-                }
-                if ui
-                    .button("Export interchange board")
-                    .on_hover_text("Write the board out so other design tools can open it.")
-                    .clicked()
-                {
-                    let path = std::path::Path::new(&self.path)
-                        .with_extension("kicad_pcb")
-                        .to_string_lossy()
-                        .into_owned();
-                    self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
-                }
-                if ui
-                    .button("Copy plot to clipboard")
-                    .on_hover_text(
-                        "Copy a PNG snapshot of the current view, the same picture a plotter would draw, so it can be pasted into a document.",
-                    )
-                    .clicked()
-                {
-                    self.copy_plot_to_clipboard(&ui.ctx().clone());
-                }
-                if ui
-                    .button("LED example")
-                    .on_hover_text(
-                        "Start from a small worked example: a battery, resistor and LED.",
-                    )
-                    .clicked()
-                {
-                    self.tool_call("sample_design", json!({}));
-                    self.needs_fit = true;
-                }
-                if ui
-                    .button("New project")
-                    .on_hover_text("Start a fresh empty design.")
-                    .clicked()
-                {
-                    self.tool_call("new_design", json!({}));
-                    self.select(None);
-                }
-            });
-            if !self.recent_designs.is_empty() {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("Recent designs")
-                            .small()
-                            .color(self.muted()),
-                    );
-                    egui::ScrollArea::horizontal()
-                        .max_width(520.0)
-                        .show(ui, |ui| {
-                            for design in self.recent_designs.clone() {
-                                let name = std::path::Path::new(&design)
-                                    .file_name()
-                                    .map(|name| name.to_string_lossy().into_owned())
-                                    .unwrap_or_else(|| design.clone());
-                                if ui
-                                    .button(&name)
-                                    .on_hover_text(format!(
-                                        "Open this design again: {design}"
-                                    ))
-                                    .clicked()
-                                {
-                                    self.path = design.clone();
-                                    if self.tool_call("open", json!({"path": design})) {
-                                        self.recent_designs =
-                                            pcbcraft_engine::recents::load_recent_paths();
-                                    }
-                                }
-                            }
-                        });
-                });
-            }
         });
         if self.command_open {
             egui::Panel::bottom("commands")
@@ -2136,6 +2178,77 @@ mod tests {
     }
 
     #[test]
+    fn the_file_menu_is_where_you_open_save_and_start_a_design() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        let file = std::env::temp_dir()
+            .join(format!(
+                "pcbcraft-menu-save-{}.pcbcraft",
+                std::process::id()
+            ))
+            .to_string_lossy()
+            .into_owned();
+        app.path = file.clone();
+        let ctx = egui::Context::default();
+        for _ in 0..4 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        }
+        assert!(
+            !paints_text(&ctx, &mut app, "Project file")?,
+            "the old bottom file strip is gone; file jobs live in the File menu"
+        );
+        authoring::tests::tap(&ctx, &mut app, "File")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Load LED example")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            !app.project.components.is_empty(),
+            "the worked example fills the design from one menu click"
+        );
+        authoring::tests::tap(&ctx, &mut app, "File")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Save design  Ctrl+S")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.message.starts_with("save"),
+            "saving answers: {}",
+            app.message
+        );
+        assert!(
+            std::fs::metadata(&file).is_ok_and(|m| m.len() > 0),
+            "the design lands in the file the menu names"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Edit")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Undo")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.message.starts_with("undo"),
+            "undo answers: {}",
+            app.message
+        );
+        let _ = std::fs::remove_file(&file);
+        Ok(())
+    }
+    /// True when the named words appear anywhere on screen this frame or the
+    /// next two, so tests can assert what a person actually sees.
+    fn paints_text(ctx: &egui::Context, app: &mut App, needle: &str) -> Result<bool, String> {
+        for _ in 0..3 {
+            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+            if output.shapes.iter().any(|shape| {
+                if let egui::Shape::Text(text) = &shape.shape {
+                    return text.galley.text().contains(needle);
+                }
+                false
+            }) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    #[test]
     fn the_library_split_pages_now_open_one_unified_page() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
@@ -2341,7 +2454,7 @@ mod tests {
     }
 
     #[test]
-    fn designs_opened_on_this_computer_are_one_click_from_the_bottom_bar() -> Result<(), String> {
+    fn designs_opened_on_this_computer_are_remembered_for_the_start_screen() -> Result<(), String> {
         let _turn = pcbcraft_engine::recents::RECENTS_TEST_LOCK
             .lock()
             .map_err(|_| "test lock unavailable")?;
@@ -2370,7 +2483,7 @@ mod tests {
         assert_eq!(
             output.viewport_output.len(),
             1,
-            "the bottom bar with its recent designs paints"
+            "the app keeps the recent list ready for the Start screen"
         );
         pcbcraft_engine::recents::clear_recent_paths();
         *pcbcraft_engine::recents::RECENTS_PATH_TEST

@@ -684,6 +684,14 @@ impl Layer {
             Self::Back => "B.Cu",
         }
     }
+    /// Plain-English layer name for people who have never seen copper-layer
+    /// shorthand; file formats keep using [`Self::name`].
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Front => "Top",
+            Self::Back => "Bottom",
+        }
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Track {

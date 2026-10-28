@@ -819,7 +819,7 @@ impl App {
             painter.text(
                 rect.center() + Vec2::new(0.0, 20.0),
                 Align2::CENTER_CENTER,
-                "Press A to add a symbol, or load the LED example below",
+                "Press A to add a symbol, or choose Load LED example in the File menu",
                 FontId::proportional(14.0),
                 self.muted(),
             );
@@ -1267,7 +1267,7 @@ impl App {
             board.left_bottom() + Vec2::new(0.0, 18.0),
             Align2::LEFT_TOP,
             format!(
-                "{} × {} mm    F.Cu / B.Cu    clearance {} mm",
+                "{} × {} mm    Top / Bottom    clearance {} mm",
                 p.board.width, p.board.height, p.board.clearance
             ),
             FontId::monospace(11.0),
