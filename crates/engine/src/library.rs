@@ -551,6 +551,7 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     match name {
         "library.catalog" => catalog(),
         "library.sources" => sources(),
+        "design.recents" => Ok(json!({"designs": crate::recents::load_recent_paths()})),
         "library.add_folder" => {
             let name = match args.get("name") {
                 None => None,
@@ -825,6 +826,10 @@ mod tests {
         assert!(
             listing["sources"].is_array(),
             "sources always answers with a list"
+        );
+        assert!(
+            read_tool("design.recents", &json!({}))?["designs"].is_array(),
+            "the recent designs tool answers through the same router"
         );
         assert!(
             read_tool("library.add_folder", &json!({"path": 4}))

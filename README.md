@@ -243,8 +243,8 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   board default rules.
 - 272 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 323 MCP tools: every engine command plus library discovery/search/inspection,
-  source management for adding library folders from anywhere,
+- 324 MCP tools: every engine command plus library discovery/search/inspection,
+  source management for adding library folders from anywhere, recent designs,
   design inspection, checks, persistence,
   export, PNG raster previews saved to disk or returned inline, SVG vector
   previews, and plot report CSVs. Headless or bridged into the actual running desktop.

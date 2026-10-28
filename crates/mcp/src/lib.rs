@@ -51,6 +51,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.search","description":"Search a KiCad symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
         json!({"name":"library.inspect_footprint","description":"Read footprint graphics/pads/drills; include_source preserves up to 512KiB of original nodes","inputSchema":object(json!({"path":{"type":"string"},"include_source":{"type":"boolean"}}),&["path"])}),
+        json!({"name":"design.recents","description":"List the design files this computer opened or saved most recently, newest first, for one-click reopening","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.sources","description":"List every library location the unified browser reads: folders the user added and installed locations, each with collection counts","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.add_folder","description":"Register any folder on this computer as a library source so its symbol and footprint collections join the unified browser; returns discovered counts","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string","description":"optional friendly name, defaults to the folder name"}}),&["path"])}),
         json!({"name":"library.remove_folder","description":"Forget an added library folder; installed locations are never removed","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -132,6 +133,7 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
         .ok_or("unknown tool")?;
     validate_schema(args, schema, "arguments")?;
     if [
+        "design.recents",
         "library.catalog",
         "library.search",
         "library.inspect_symbol",

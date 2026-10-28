@@ -373,6 +373,7 @@ pub struct App {
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
     preferences: Preferences,
+    recent_designs: Vec<String>,
     appearance: bool,
     palette: bool,
     needs_fit: bool,
@@ -556,6 +557,7 @@ impl App {
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
             preferences,
+            recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             appearance: false,
             palette: false,
             needs_fit: true,
@@ -673,6 +675,8 @@ impl App {
         };
         self.refresh();
         if success && (name == "save" || name == "open") {
+            pcbcraft_engine::recents::record_recent_path(&self.path);
+            self.recent_designs = pcbcraft_engine::recents::load_recent_paths();
             self.saved_revision = Some(self.revision);
         }
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
@@ -1537,6 +1541,38 @@ impl App {
                     self.select(None);
                 }
             });
+            if !self.recent_designs.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Recent designs")
+                            .small()
+                            .color(self.muted()),
+                    );
+                    egui::ScrollArea::horizontal()
+                        .max_width(520.0)
+                        .show(ui, |ui| {
+                            for design in self.recent_designs.clone() {
+                                let name = std::path::Path::new(&design)
+                                    .file_name()
+                                    .map(|name| name.to_string_lossy().into_owned())
+                                    .unwrap_or_else(|| design.clone());
+                                if ui
+                                    .button(&name)
+                                    .on_hover_text(format!(
+                                        "Open this design again: {design}"
+                                    ))
+                                    .clicked()
+                                {
+                                    self.path = design.clone();
+                                    if self.tool_call("open", json!({"path": design})) {
+                                        self.recent_designs =
+                                            pcbcraft_engine::recents::load_recent_paths();
+                                    }
+                                }
+                            }
+                        });
+                });
+            }
         });
         if self.command_open {
             egui::Panel::bottom("commands")
@@ -2173,6 +2209,46 @@ mod tests {
             offenders.is_empty(),
             "buttons and labels must speak plainly, not name other tools: {offenders:?}"
         );
+    }
+
+    #[test]
+    fn designs_opened_on_this_computer_are_one_click_from_the_bottom_bar() -> Result<(), String> {
+        let _turn = pcbcraft_engine::recents::RECENTS_TEST_LOCK
+            .lock()
+            .map_err(|_| "test lock unavailable")?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-ui-recents-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+        *pcbcraft_engine::recents::RECENTS_PATH_TEST
+            .lock()
+            .map_err(|_| "test lock unavailable")? = Some(directory.join("recent-designs.json"));
+        pcbcraft_engine::recents::clear_recent_paths();
+        pcbcraft_engine::recents::record_recent_path("/designs/flashlight.board.json");
+        pcbcraft_engine::recents::record_recent_path("/designs/radio.board.json");
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        assert_eq!(
+            app.recent_designs,
+            vec![
+                "/designs/radio.board.json",
+                "/designs/flashlight.board.json"
+            ],
+            "the newest design leads the list"
+        );
+        let ctx = egui::Context::default();
+        let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            output.viewport_output.len(),
+            1,
+            "the bottom bar with its recent designs paints"
+        );
+        pcbcraft_engine::recents::clear_recent_paths();
+        *pcbcraft_engine::recents::RECENTS_PATH_TEST
+            .lock()
+            .map_err(|_| "test lock unavailable")? = None;
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
     }
 
     #[test]
