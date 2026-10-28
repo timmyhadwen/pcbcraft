@@ -889,17 +889,19 @@ pub(crate) mod tests {
         frame(ctx, app, vec![]);
         for attempt in 0..16 {
             let output = frame(ctx, app, vec![]);
-            let found = output.shapes.iter().find_map(|shape| {
+            // Later shapes sit on top of earlier ones, so the last visible
+            // copy of a label is the one a real click would land on.
+            let mut found = None;
+            for shape in &output.shapes {
                 if let egui::Shape::Text(text) = &shape.shape
                     && text.galley.text() == label
                 {
                     let center = text.pos + text.galley.size() / 2.0;
                     if shape.clip_rect.contains(center) {
-                        return Some(center);
+                        found = Some(center);
                     }
                 }
-                None
-            });
+            }
             if let Some(pos) = found {
                 for pressed in [true, false] {
                     frame(

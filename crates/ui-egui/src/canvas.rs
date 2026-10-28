@@ -490,6 +490,97 @@ impl App {
         {
             self.canvas_click(pos, camera.zoom);
         }
+        // Floating controls replace the old button bar: Fit in the corner of
+        // the work area, and small handles beside whatever is selected.
+        egui::Area::new(egui::Id::new("fit-fab"))
+            .fixed_pos(egui::pos2(rect.max.x - 64.0, rect.min.y + 14.0))
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("Fit")
+                        .on_hover_text("Zoom the view so the whole design fits.")
+                        .clicked()
+                    {
+                        self.needs_fit = true;
+                    }
+                    match self.tab {
+                        Tab::Schematic => {
+                            if ui
+                                .selectable_label(matches!(self.tool, Tool::Wire(_)), "Wire")
+                                .on_hover_text(command_tip("wire.draw"))
+                                .clicked()
+                            {
+                                self.tool = Tool::Wire(None);
+                            }
+                        }
+                        Tab::Pcb => {
+                            if ui
+                                .selectable_label(matches!(self.tool, Tool::Route(_)), "Route")
+                                .on_hover_text(command_tip("track.add"))
+                                .clicked()
+                            {
+                                self.tool = Tool::Route(None);
+                            }
+                            if ui
+                                .selectable_label(matches!(self.tool, Tool::Cutout), "Cutout")
+                                .on_hover_text(command_tip("board.cutout.add"))
+                                .clicked()
+                            {
+                                self.tool = Tool::Cutout;
+                            }
+                        }
+                        _ => {}
+                    }
+                });
+            });
+        if matches!(self.tab, Tab::Schematic | Tab::Pcb)
+            && let Some(id) = self.selected
+        {
+            let world = self
+                .project
+                .component(id)
+                .and_then(|c| c.unit_placement(self.selected_unit).map(|p| p.0))
+                .or_else(|| self.project.footprint(id).map(|f| f.position));
+            if let Some(at) = world {
+                let screen = camera.screen(at, rect);
+                if rect.contains(screen) {
+                    egui::Area::new(egui::Id::new("selection-handles"))
+                        .fixed_pos(screen + egui::vec2(12.0, -34.0))
+                        .order(egui::Order::Foreground)
+                        .show(ui.ctx(), |ui| {
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .small_button("Move")
+                                    .on_hover_text("Drop the selected object where you click next.")
+                                    .clicked()
+                                {
+                                    self.tool = Tool::Move;
+                                }
+                                if ui
+                                    .small_button("Rotate")
+                                    .on_hover_text(command_tip("component.rotate"))
+                                    .clicked()
+                                {
+                                    self.rotate();
+                                }
+                                if matches!(self.tab, Tab::Schematic)
+                                    && self
+                                        .project
+                                        .component(id)
+                                        .is_some_and(|c| !c.pins.is_empty())
+                                    && ui
+                                        .small_button("Wire")
+                                        .on_hover_text(command_tip("wire.draw"))
+                                        .clicked()
+                                {
+                                    self.tool = Tool::Wire(None);
+                                }
+                            });
+                        });
+                }
+            }
+        }
     }
     fn pick_object(&self, pos: Point, zoom: f32) -> Option<Id> {
         if self.tab == Tab::Schematic {

@@ -894,7 +894,7 @@ impl App {
         });
     }
     fn header(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("header").exact_size(140.0).show(ui, |ui| {
+        egui::Panel::top("header").exact_size(100.0).show(ui, |ui| {
             ui.add_space(7.0);
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
@@ -964,106 +964,6 @@ impl App {
                 }
                 ui.add_enabled(false, egui::Button::new("3D Board"))
                     .on_hover_text("A real Rust 3D viewer is planned.");
-            });
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                if ui
-                    .selectable_label(matches!(self.tool, Tool::Select), "Select  Esc")
-                    .clicked()
-                {
-                    self.tool = Tool::Select;
-                }
-                match self.tab {
-                    Tab::Schematic => {
-                        if ui.button("Add symbol  A").on_hover_text(command_tip("component.add")).clicked() {
-                            self.palette = !self.palette;
-                        }
-                        if ui
-                            .selectable_label(matches!(self.tool, Tool::Wire(_)), "Wire  W")
-                            .on_hover_text(command_tip("wire.draw"))
-                            .clicked()
-                        {
-                            self.tool = Tool::Wire(None);
-                        }
-                        if ui.button("Sync to PCB >").on_hover_text(command_tip("board.sync")).clicked() {
-                            self.run("board.sync", json!({}));
-                            self.change_tab(Tab::Pcb);
-                        }
-                    }
-                    Tab::Pcb => {
-                        egui::ComboBox::from_id_salt("route-layer")
-                            .selected_text(self.route_layer.label())
-                            .width(64.0)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut self.route_layer,
-                                    pcbcraft_doc::Layer::Front,
-                                    "Top",
-                                );
-                                ui.selectable_value(
-                                    &mut self.route_layer,
-                                    pcbcraft_doc::Layer::Back,
-                                    "Bottom",
-                                );
-                            });
-                        if ui
-                            .selectable_label(matches!(self.tool, Tool::Route(_)), "Route  X")
-                            .on_hover_text(command_tip("track.add"))
-                            .clicked()
-                        {
-                            self.tool = Tool::Route(None);
-                        }
-                        if ui.button("Sync schematic").on_hover_text(command_tip("board.sync")).clicked() {
-                            self.run("board.sync", json!({}));
-                        }
-                        if ui
-                            .selectable_label(matches!(self.tool, Tool::Cutout), "Circular cutout")
-                            .on_hover_text(command_tip("board.cutout.add"))
-                            .clicked()
-                        {
-                            self.tool = Tool::Cutout;
-                        }
-                        egui::ComboBox::from_id_salt("pad-labels")
-                            .selected_text(self.preferences.pad_labels.name())
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut self.preferences.pad_labels,
-                                    PadLabels::Number,
-                                    PadLabels::Number.name(),
-                                );
-                                ui.selectable_value(
-                                    &mut self.preferences.pad_labels,
-                                    PadLabels::Net,
-                                    PadLabels::Net.name(),
-                                );
-                                ui.selectable_value(
-                                    &mut self.preferences.pad_labels,
-                                    PadLabels::Off,
-                                    PadLabels::Off.name(),
-                                );
-                            })
-                            .response
-                            .on_hover_text(
-                                "Pad display mode: pick what sits at each pad centre on the board, its number, the net it belongs to, or nothing. The choice is remembered between sessions.",
-                            );
-                    }
-                    _ => {}
-                }
-                if ui
-                    .selectable_label(matches!(self.tool, Tool::Move), "Move  M")
-                    .on_hover_text(
-                        "Click to drop the selected object at the cursor; press M to switch to this tool.",
-                    )
-                    .clicked()
-                {
-                    self.tool = Tool::Move;
-                }
-                if ui.button("Rotate  R").on_hover_text(command_tip("component.rotate")).clicked() {
-                    self.rotate();
-                }
-                if ui.button("Fit").on_hover_text("Zoom the view so the whole design fits.").clicked() {
-                    self.needs_fit = true;
-                }
             });
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
@@ -1144,34 +1044,6 @@ impl App {
                                 self.tool_call("sample_design", json!({}));
                                 self.home_open = false;
                             }
-                            if !self.recent_designs.is_empty() {
-                                ui.add_space(18.0);
-                                ui.label(
-                                    egui::RichText::new("Open one you worked on recently")
-                                        .size(14.0)
-                                        .strong(),
-                                );
-                                for design in self.recent_designs.clone() {
-                                    if ui
-                                        .add(
-                                            egui::Button::new(
-                                                egui::RichText::new(&design).small(),
-                                            )
-                                            .min_size(egui::vec2(300.0, 28.0)),
-                                        )
-                                        .on_hover_text(
-                                            "Open this design again where you left off.",
-                                        )
-                                        .clicked()
-                                    {
-                                        self.path = design;
-                                        self.tool_call("open", json!({"path": self.path}));
-                                        if self.message.starts_with("open") {
-                                            self.home_open = false;
-                                        }
-                                    }
-                                }
-                            }
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
@@ -1224,6 +1096,34 @@ impl App {
                                     }
                                 }
                             });
+                            if !self.recent_designs.is_empty() {
+                                ui.add_space(18.0);
+                                ui.label(
+                                    egui::RichText::new("Open one you worked on recently")
+                                        .size(14.0)
+                                        .strong(),
+                                );
+                                for design in self.recent_designs.clone() {
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                egui::RichText::new(&design).small(),
+                                            )
+                                            .min_size(egui::vec2(300.0, 28.0)),
+                                        )
+                                        .on_hover_text(
+                                            "Open this design again where you left off.",
+                                        )
+                                        .clicked()
+                                    {
+                                        self.path = design;
+                                        self.tool_call("open", json!({"path": self.path}));
+                                        if self.message.starts_with("open") {
+                                            self.home_open = false;
+                                        }
+                                    }
+                                }
+                            }
                             ui.add_space(14.0);
                             ui.label(
                                 egui::RichText::new(
@@ -1306,6 +1206,17 @@ impl App {
             {
                 self.tool_call("redo", json!({}));
             }
+            ui.separator();
+            if ui
+                .button("Update board from schematic")
+                .on_hover_text(
+                    "Copy every symbol, wire and net onto the board, then show the board.",
+                )
+                .clicked()
+            {
+                self.run("board.sync", json!({}));
+                self.change_tab(Tab::Pcb);
+            }
         })
         .response
         .on_hover_text("Step back and forward through every edit.");
@@ -1341,6 +1252,33 @@ impl App {
             {
                 self.preferences.grid = !self.preferences.grid;
             }
+            ui.menu_button("Route on", |ui| {
+                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top");
+                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Back, "Bottom");
+            })
+            .response
+            .on_hover_text("Choose which copper layer new tracks are drawn on.");
+            ui.menu_button("Pad labels", |ui| {
+                ui.selectable_value(
+                    &mut self.preferences.pad_labels,
+                    PadLabels::Number,
+                    PadLabels::Number.name(),
+                );
+                ui.selectable_value(
+                    &mut self.preferences.pad_labels,
+                    PadLabels::Net,
+                    PadLabels::Net.name(),
+                );
+                ui.selectable_value(
+                    &mut self.preferences.pad_labels,
+                    PadLabels::Off,
+                    PadLabels::Off.name(),
+                );
+            })
+            .response
+            .on_hover_text(
+                "Pick what sits at each pad centre on the board: its number, its net, or nothing.",
+            );
             ui.separator();
             if ui
                 .button("Library sources…")
@@ -1416,6 +1354,15 @@ impl App {
                     ui.add_space(20.0);
                     self.board_summary(ui);
                     return;
+                }
+                if ui
+                    .button("Add part")
+                    .on_hover_text(
+                        "Show the quick symbols and the way to the component library.",
+                    )
+                    .clicked()
+                {
+                    self.palette = true;
                 }
                 if self.palette {
                     ui.label(egui::RichText::new("Add symbol").strong());
@@ -2472,6 +2419,48 @@ mod tests {
             }
         }
         Ok(false)
+    }
+
+    #[test]
+    fn selection_grows_handles_and_the_old_button_bar_is_gone() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            !paints_text(&ctx, &mut app, "Select  Esc")?,
+            "the wall of tool buttons is gone from the top"
+        );
+        assert!(
+            !paints_text(&ctx, &mut app, "Sync to PCB >")?,
+            "sync moved into the Edit menu"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Fit")?,
+            "a floating Fit control sits in the work area"
+        );
+        let first = app.project.components[0].id;
+        let before = app.project.components[0].rotation;
+        app.select(Some(first));
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Rotate")?,
+            "a selected part grows a Rotate handle beside it"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Rotate")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let after = app
+            .project
+            .component(first)
+            .map(|c| c.rotation)
+            .unwrap_or(before);
+        assert!(
+            (after - before).abs() > 1e-6,
+            "the handle turns the part: {before} -> {after}"
+        );
+        Ok(())
     }
 
     #[test]
