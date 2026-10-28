@@ -37,6 +37,10 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.rename","Rename a project-library footprint in place as one undoable step, keeping every pad and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
         ("library.symbol.set_extends","Point a project-library symbol at the parent symbol it inherits from as one undoable step, recording the inheritance link the library readers use so derived symbols document where their pins and text come from",schema(json!({"name":{"type":"string"},"extends":{"type":"string","minLength":1,"maxLength":128,"description":"parent symbol name within the project library"}}),&["name","extends"])),
         ("library.symbol.clear_extends","Drop a project-library symbol's inheritance link in one undoable step, so a symbol that was copying another can stand on its own without rewriting the definition",schema(json!({"name":{"type":"string"}}),&["name"])),
+        ("library.symbol.rotate","Turn a project-library symbol about its origin by any angle as one undoable step, swinging every pin and every graphic together, so an imported symbol facing the wrong way can be re-aimed without rewriting the definition",schema(json!({"name":{"type":"string"},"degrees":{"type":"number","description":"counter-clockwise turn in degrees about the symbol origin"}}),&["name","degrees"])),
+        ("library.symbol.mirror","Flip a project-library symbol about the vertical axis as one undoable step, mirroring every pin and graphic and turning each graphic so its face follows, so a left-facing symbol becomes a right-facing one without rewriting the definition",schema(json!({"name":{"type":"string"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","axis"])),
+        ("library.footprint.rotate","Turn a project-library footprint about its origin by any angle as one undoable step, swinging every pad and graphic together, so an imported package can be re-aimed without rewriting the definition",schema(json!({"name":{"type":"string"},"degrees":{"type":"number","description":"counter-clockwise turn in degrees about the footprint origin"}}),&["name","degrees"])),
+        ("library.footprint.mirror","Flip a project-library footprint about the vertical axis as one undoable step, mirroring every pad and graphic and turning each so its face follows, so a package can be re-aimed without rewriting the definition",schema(json!({"name":{"type":"string"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","axis"])),
         ("library.footprint.adopt","Copy a placed component's embedded footprint into the project library under a chosen name as one undoable step, so a package that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the package under"}}),&["id","name"])),
         ("library.symbol.adopt","Copy a placed component's embedded symbol into the project library under a chosen name as one undoable step, so a symbol that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the symbol under"}}),&["id","name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
@@ -94,6 +98,16 @@ struct PadSetParams {
     name: String,
     pad: FootprintPad,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GeometryParams {
+    name: String,
+    #[serde(default)]
+    degrees: Option<f64>,
+    #[serde(default)]
+    axis: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SymbolExtendsParams {
@@ -1236,6 +1250,84 @@ pub(super) fn run(
             p.validate()?;
             Ok(json!({"name": name, "extends": linked}))
         }
+        "library.symbol.rotate" | "library.symbol.mirror" => {
+            let a: GeometryParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid("symbol names must be 1 to 128 bytes".into()));
+            }
+            let name = a.name.clone();
+            let symbol = p
+                .library
+                .symbols
+                .iter_mut()
+                .find(|s| s.name == name)
+                .ok_or_else(missing)?;
+            let counts = if command == "library.symbol.rotate" {
+                if !a.degrees.is_some_and(f64::is_finite) || a.degrees.unwrap_or(0.0).abs() > 1e5 {
+                    return Err(Error::Invalid(
+                        "rotation must be finite and within 100000 degrees".into(),
+                    ));
+                }
+                if a.axis.is_some() {
+                    return Err(Error::Invalid("rotation needs degrees, not an axis".into()));
+                }
+                rotate_symbol(symbol, a.degrees.unwrap_or(0.0))?
+            } else {
+                if a.axis.as_deref() != Some("y") {
+                    return Err(Error::Invalid("mirror needs axis \"y\"".into()));
+                }
+                if a.degrees.is_some() {
+                    return Err(Error::Invalid("mirror needs an axis, not degrees".into()));
+                }
+                mirror_symbol(symbol)?
+            };
+            symbol
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            p.library.validate()?;
+            p.validate()?;
+            Ok(json!({"name": name, "pins": counts.0, "graphics": counts.1}))
+        }
+        "library.footprint.rotate" | "library.footprint.mirror" => {
+            let a: GeometryParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "footprint names must be 1 to 128 bytes".into(),
+                ));
+            }
+            let name = a.name.clone();
+            let footprint = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == name)
+                .ok_or_else(missing)?;
+            let counts = if command == "library.footprint.rotate" {
+                if !a.degrees.is_some_and(f64::is_finite) || a.degrees.unwrap_or(0.0).abs() > 1e5 {
+                    return Err(Error::Invalid(
+                        "rotation must be finite and within 100000 degrees".into(),
+                    ));
+                }
+                if a.axis.is_some() {
+                    return Err(Error::Invalid("rotation needs degrees, not an axis".into()));
+                }
+                rotate_footprint(footprint, a.degrees.unwrap_or(0.0))?
+            } else {
+                if a.axis.as_deref() != Some("y") {
+                    return Err(Error::Invalid("mirror needs axis \"y\"".into()));
+                }
+                if a.degrees.is_some() {
+                    return Err(Error::Invalid("mirror needs an axis, not degrees".into()));
+                }
+                mirror_footprint(footprint)?
+            };
+            footprint
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            p.library.validate()?;
+            p.validate()?;
+            Ok(json!({"name": name, "pads": counts.0, "graphics": counts.1}))
+        }
         "component.place_custom" => {
             let a: Place = parse(params)?;
             let def = p
@@ -1301,4 +1393,177 @@ fn graphic_layer(graphic: &Graphic) -> Result<String, Error> {
         return Err(Error::Invalid("layer must be 1 to 64 bytes".into()));
     }
     Ok(layer.clone())
+}
+
+fn rot(p: Point, cos: f64, sin: f64) -> Result<Point, Error> {
+    let out = Point::new(p.x * cos - p.y * sin, p.x * sin + p.y * cos);
+    if out.valid() {
+        Ok(out)
+    } else {
+        Err(Error::Invalid(
+            "the turned shape left the board coordinate range".into(),
+        ))
+    }
+}
+
+fn turn(angle: f64, sin: f64) -> Result<f64, Error> {
+    let turned = angle + sin.clamp(-1.0, 1.0).asin().to_degrees();
+    if turned.is_finite() {
+        Ok(turned)
+    } else {
+        Err(Error::Invalid("turned angle left range".into()))
+    }
+}
+
+fn flip_x(p: Point) -> Point {
+    Point::new(-p.x, p.y)
+}
+
+fn flip_angle(angle: f64) -> Result<f64, Error> {
+    let mut turned = 180.0 - angle;
+    while turned > 180.0 {
+        turned -= 360.0;
+    }
+    while turned <= -180.0 {
+        turned += 360.0;
+    }
+    if turned.is_finite() {
+        Ok(turned)
+    } else {
+        Err(Error::Invalid("flipped angle left range".into()))
+    }
+}
+
+fn rotate_graphic(g: &mut Graphic, cos: f64, sin: f64) -> Result<(), Error> {
+    match g {
+        Graphic::Line { start, end, .. } => {
+            *start = rot(*start, cos, sin)?;
+            *end = rot(*end, cos, sin)?;
+        }
+        Graphic::Rectangle { start, end, .. } => {
+            *start = rot(*start, cos, sin)?;
+            *end = rot(*end, cos, sin)?;
+        }
+        Graphic::Circle { center, .. } => *center = rot(*center, cos, sin)?,
+        Graphic::Arc {
+            start, mid, end, ..
+        } => {
+            *start = rot(*start, cos, sin)?;
+            *mid = rot(*mid, cos, sin)?;
+            *end = rot(*end, cos, sin)?;
+        }
+        Graphic::Polyline { points, .. } => {
+            for p in points.iter_mut() {
+                *p = rot(*p, cos, sin)?;
+            }
+        }
+        Graphic::Text {
+            position, angle, ..
+        } => {
+            *position = rot(*position, cos, sin)?;
+            *angle = turn(*angle, sin)?;
+        }
+    }
+    Ok(())
+}
+
+fn mirror_graphic(g: &mut Graphic) -> Result<(), Error> {
+    match g {
+        Graphic::Line { start, end, .. } => {
+            let flipped = flip_x(*end);
+            *end = flip_x(*start);
+            *start = flipped;
+        }
+        Graphic::Rectangle { start, end, .. } => {
+            *start = flip_x(*start);
+            *end = flip_x(*end);
+        }
+        Graphic::Circle { center, .. } => *center = flip_x(*center),
+        Graphic::Arc {
+            start, mid, end, ..
+        } => {
+            let flipped = flip_x(*end);
+            *end = flip_x(*start);
+            *start = flipped;
+            *mid = flip_x(*mid);
+        }
+        Graphic::Polyline { points, .. } => {
+            for p in points.iter_mut() {
+                *p = flip_x(*p);
+            }
+            points.reverse();
+        }
+        Graphic::Text {
+            position, angle, ..
+        } => {
+            *position = flip_x(*position);
+            *angle = flip_angle(*angle)?;
+        }
+    }
+    Ok(())
+}
+
+fn rotate_symbol(symbol: &mut SymbolDefinition, degrees: f64) -> Result<(usize, usize), Error> {
+    let rad = degrees.to_radians();
+    let (cos, sin) = (rad.cos(), rad.sin());
+    for pin in symbol.pins.iter_mut() {
+        pin.position = rot(pin.position, cos, sin)?;
+        pin.angle = turn(pin.angle, sin)?;
+    }
+    let mut count = 0;
+    for art in symbol.graphics.iter_mut() {
+        rotate_graphic(&mut art.primitive, cos, sin)?;
+        count += 1;
+    }
+    Ok((symbol.pins.len(), count))
+}
+
+fn mirror_symbol(symbol: &mut SymbolDefinition) -> Result<(usize, usize), Error> {
+    for pin in symbol.pins.iter_mut() {
+        pin.position = flip_x(pin.position);
+        pin.angle = -pin.angle;
+    }
+    let mut count = 0;
+    for art in symbol.graphics.iter_mut() {
+        mirror_graphic(&mut art.primitive)?;
+        count += 1;
+    }
+    Ok((symbol.pins.len(), count))
+}
+
+fn rotate_footprint(
+    footprint: &mut FootprintDefinition,
+    degrees: f64,
+) -> Result<(usize, usize), Error> {
+    let rad = degrees.to_radians();
+    let (cos, sin) = (rad.cos(), rad.sin());
+    for pad in footprint.pads.iter_mut() {
+        pad.position = rot(pad.position, cos, sin)?;
+        pad.rotation = turn(pad.rotation, sin)?;
+        if let Some(drill) = &mut pad.drill {
+            drill.offset = rot(drill.offset, cos, sin)?;
+        }
+    }
+    let mut count = 0;
+    for art in footprint.graphics.iter_mut() {
+        rotate_graphic(art, cos, sin)?;
+        count += 1;
+    }
+    Ok((footprint.pads.len(), count))
+}
+
+fn mirror_footprint(footprint: &mut FootprintDefinition) -> Result<(usize, usize), Error> {
+    for pad in footprint.pads.iter_mut() {
+        pad.position = flip_x(pad.position);
+        pad.rotation = flip_angle(pad.rotation)?;
+        if let Some(drill) = &mut pad.drill {
+            drill.offset = flip_x(drill.offset);
+        }
+    }
+    let mut count = 0;
+    for art in footprint.graphics.iter_mut() {
+        mirror_graphic(art)?;
+        count += 1;
+    }
+    Ok((footprint.pads.len(), count))
 }
