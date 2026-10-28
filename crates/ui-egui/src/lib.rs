@@ -3323,6 +3323,30 @@ impl App {
                         if ui.button("Rotate 90°  R").on_hover_text(command_tip("component.rotate")).clicked() {
                             self.rotate();
                         }
+                        if self.project.footprint(id).is_some() {
+                            ui.label("Dock to board edge");
+                            field_help(
+                                ui,
+                                "For an edge connector: the part slides until its copper just touches that edge, and keeps facing the way it faces.",
+                                self.muted(),
+                            );
+                            ui.horizontal(|ui| {
+                                for edge in ["left", "right", "top", "bottom"] {
+                                    if ui
+                                        .button(format!("Dock {}", edge))
+                                        .on_hover_text(format!(
+                                            "Slide this part until its copper sits flush against the {edge} board edge. Undo slides it back."
+                                        ))
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "footprint.dock_edge",
+                                            json!({"id": id, "edge": edge}),
+                                        );
+                                    }
+                                }
+                            });
+                        }
                         ui.label(
                             c.library_footprint
                                 .as_ref()
@@ -5603,6 +5627,47 @@ mod tests {
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
             app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_docks_a_part_flush_to_the_board_edge() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.select(Some(10));
+        app.refresh();
+        let before = app
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.id == 10)
+            .map(|f| f.position.x)
+            .ok_or("the practice board should carry J1's footprint")?;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Dock left")?,
+            "a chosen footprint offers to sit flush to an edge: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Dock left")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        let after = app
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.id == 10)
+            .map(|f| f.position.x)
+            .ok_or("the practice board should still carry J1's footprint")?;
+        assert!(
+            after < before && after > 0.0,
+            "the part slid in to kiss the left edge: {before} -> {after}"
         );
         Ok(())
     }
