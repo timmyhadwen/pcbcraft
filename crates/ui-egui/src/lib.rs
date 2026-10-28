@@ -460,6 +460,7 @@ pub struct App {
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
     renumber_prefix: Option<String>,
+    teardrop_depth: f64,
     panel_columns: usize,
     panel_rows: usize,
     panel_gap: f64,
@@ -679,6 +680,7 @@ impl App {
             fiducial_diameter: 1.0,
             fiducial_edit: None,
             renumber_prefix: None,
+            teardrop_depth: 0.5,
             panel_columns: 2,
             panel_rows: 2,
             panel_gap: 2.0,
@@ -2838,6 +2840,48 @@ impl App {
                 .color(self.muted()),
             );
         }
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("TEARDROPS")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "Stem-shaped copper where wires meet pads and vias, so the joints survive etching and soldering.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::DragValue::new(&mut self.teardrop_depth)
+                    .range(0.05..=5.0)
+                    .speed(0.05)
+                    .suffix(" mm deep"),
+            )
+            .on_hover_text(
+                "How far each teardrop runs along the wire from the joint. Bigger stems are sturdier but eat board space.",
+            );
+            if ui
+                .button("Harden junctions")
+                .on_hover_text(
+                    "Grow a teardrop at every pad and via junction in one go. Undo brings the plain wires back.",
+                )
+                .clicked()
+            {
+                self.run("teardrop.add", json!({"depth": self.teardrop_depth}));
+            }
+            if ui
+                .small_button("Remove teardrops")
+                .on_hover_text(
+                    "Take the teardrop copper away again, leaving the ordinary wires exactly as they were.",
+                )
+                .clicked()
+            {
+                self.run("teardrop.remove", json!({}));
+            }
+        });
     }
     fn builds_tab(&mut self, ui: &mut egui::Ui) {
         if let Some((name, _)) = &self.build_note
@@ -5307,6 +5351,55 @@ mod tests {
         assert!(
             app.project.board.layer_records.is_empty(),
             "the stackup notes are forgotten: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_hardens_the_junctions_for_the_etcher() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.run(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        app.refresh();
+        let teardrops = |app: &App| -> usize {
+            app.project
+                .board
+                .zones
+                .iter()
+                .filter(|zone| zone.kind.as_deref() == Some("teardrop"))
+                .count()
+        };
+        assert_eq!(
+            teardrops(&app),
+            0,
+            "a fresh route has no teardrops yet: {}",
+            app.message
+        );
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Harden junctions")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            teardrops(&app) > 0,
+            "one click grows teardrop copper at every joint: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Remove teardrops")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            teardrops(&app),
+            0,
+            "removing teardrops leaves the plain wires exactly as they were: {}",
             app.message
         );
         Ok(())
