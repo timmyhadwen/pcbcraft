@@ -2430,6 +2430,24 @@ impl App {
                 {
                     self.write_make_files("netlist.write");
                 }
+                if ui
+                    .button("Pick and place file")
+                    .on_hover_text(
+                        "Where every part sits, which way it faces and which side it goes on, for the assembly machine.",
+                    )
+                    .clicked()
+                {
+                    self.write_make_files("placement.write");
+                }
+                if ui
+                    .button("Design report")
+                    .on_hover_text(
+                        "A readable summary of the whole design: board, every part and every connection.",
+                    )
+                    .clicked()
+                {
+                    self.write_make_files("report.write");
+                }
                 ui.label(
                     egui::RichText::new("Writing these files changes nothing in the design.")
                         .small()
@@ -3435,10 +3453,17 @@ mod tests {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         authoring::tests::tap(&ctx, &mut app, "Net list")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Pick and place file")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Design report")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let names = listed(&directory)?;
         assert!(
-            names.iter().any(|n| n.ends_with(".csv")) && names.iter().any(|n| n.ends_with(".net")),
-            "the parts list and net list should join the folder: {names:?}"
+            names.iter().any(|n| n.ends_with(".csv"))
+                && names.iter().any(|n| n.ends_with(".net"))
+                && names.iter().any(|n| n == "placement.txt")
+                && names.iter().any(|n| n.ends_with(".txt")),
+            "every factory file should land in the folder: {names:?}"
         );
         assert_eq!(
             app.revision, revision,
