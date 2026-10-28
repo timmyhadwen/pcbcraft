@@ -49,6 +49,16 @@ fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
         ("Ctrl+Y", "Redo an undone action", "anywhere"),
         ("Ctrl+S", "Save the design to its file", "anywhere"),
         ("Ctrl+K", "Open the command palette", "anywhere"),
+        (
+            "Up/Down",
+            "Move the highlight through the command list",
+            "command palette",
+        ),
+        (
+            "Enter",
+            "Load the highlighted command, then run it from the parameters box",
+            "command palette",
+        ),
         ("?", "Show or hide this shortcut list", "anywhere"),
         ("A", "Open the symbol palette", "schematic tab"),
         (
@@ -110,6 +120,17 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Move => format!("LMB: drop the selected object at the cursor{common}"),
         Tool::Cutout => format!("LMB: place a circular cutout at the cursor{common}"),
     }
+}
+
+/// Move the palette highlight by `delta` rows, wrapping around the ends so
+/// the list behaves like a ring; an empty list always lands on row 0 and a
+/// stale index (after the filter shrinks the list) is pulled back in range.
+fn step_index(current: usize, count: usize, delta: isize) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    let base = current.min(count - 1) as isize;
+    (base + delta).rem_euclid(count as isize) as usize
 }
 
 /// Case-insensitive subsequence match: every character of the query must
@@ -311,6 +332,8 @@ pub struct App {
     command_query: String,
     shortcuts_open: bool,
     command_focus: bool,
+    command_index: usize,
+    command_scroll: bool,
     capture: Option<String>,
     frames: u32,
     library: library::Browser,
@@ -423,6 +446,8 @@ impl App {
             command_query: String::new(),
             shortcuts_open: false,
             command_focus: false,
+            command_index: 0,
+            command_scroll: false,
             capture,
             frames: 0,
             library,
@@ -625,6 +650,7 @@ impl App {
                 if i.key_pressed(egui::Key::K) {
                     self.command_open = !self.command_open;
                     self.command_focus = self.command_open;
+                    self.command_index = 0;
                 }
                 return;
             }
@@ -895,6 +921,7 @@ impl App {
                 if ui.button("Commands  Ctrl+K").on_hover_text("Search every command by name and run it, with its parameters explained.").clicked() {
                     self.command_open = !self.command_open;
         self.command_focus = self.command_open;
+        self.command_index = 0;
                 }
             });
             ui.horizontal(|ui| {
@@ -1397,9 +1424,25 @@ impl App {
                             self.execute_palette_params();
                         }
                         let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if query != self.command_query {
+                            self.command_index = 0;
+                        }
+                        let stepped = ui.input(|i| {
+                            i.key_pressed(egui::Key::ArrowDown) as isize
+                                - i.key_pressed(egui::Key::ArrowUp) as isize
+                        });
+                        if stepped != 0 {
+                            self.command_index =
+                                step_index(self.command_index, matches.len(), stepped);
+                            self.command_scroll = true;
+                            if !search.has_focus() {
+                                search.request_focus();
+                            }
+                        }
                         if enter
                             && search.lost_focus()
-                            && let Some(spec) = matches.first()
+                            && let Some(spec) =
+                                matches.get(step_index(self.command_index, matches.len(), 0))
                         {
                             self.command = spec.id.into();
                             self.params = params_template(spec);
@@ -1410,7 +1453,7 @@ impl App {
                     });
                     ui.label(
                         egui::RichText::new(format!(
-                            "{} of {} commands match; click one to load it with a starter parameter set, or press Enter in the search box to load the top match",
+                            "{} of {} commands match; click one to load it with a starter parameter set, or step the highlight with Up and Down and press Enter in the search box to load it",
                             matches.len(),
                             pcbcraft_engine::commands().len()
                         ))
@@ -1420,18 +1463,22 @@ impl App {
                     egui::ScrollArea::vertical()
                         .max_height(180.0)
                         .show(ui, |ui| {
-                            for spec in matches {
-                                if ui
-                                    .selectable_label(
-                                        self.command == spec.id,
-                                        format!("{}   {}", spec.id, spec.description),
-                                    )
-                                    .clicked()
-                                {
+                            for (row, spec) in matches.iter().enumerate() {
+                                let response = ui.selectable_label(
+                                    self.command == spec.id
+                                        || row == step_index(self.command_index, matches.len(), 0),
+                                    format!("{}   {}", spec.id, spec.description),
+                                );
+                                if row == self.command_index && self.command_scroll {
+                                    response.scroll_to_me(Some(egui::Align::Center));
+                                }
+                                if response.clicked() {
                                     self.command = spec.id.into();
-                                    self.params = params_template(&spec);
+                                    self.params = params_template(spec);
+                                    self.command_index = row;
                                 }
                             }
+                            self.command_scroll = false;
                         });
                 });
         }
@@ -1764,7 +1811,14 @@ mod tests {
         for (keys, action, context) in &rows {
             assert!(!keys.is_empty() && !action.is_empty());
             assert!(
-                ["anywhere", "schematic tab", "pcb tab", "canvas"].contains(context),
+                [
+                    "anywhere",
+                    "schematic tab",
+                    "pcb tab",
+                    "canvas",
+                    "command palette",
+                ]
+                .contains(context),
                 "{keys} claims an unknown context {context}"
             );
         }
@@ -1799,6 +1853,23 @@ mod tests {
                 "{verb} must be spelled out for the active tool: {hint}"
             );
         }
+    }
+
+    #[test]
+    fn palette_highlight_walks_the_list_as_a_ring() {
+        assert_eq!(step_index(0, 5, 1), 1);
+        assert_eq!(
+            step_index(4, 5, 1),
+            0,
+            "walking past the last row wraps to the first"
+        );
+        assert_eq!(
+            step_index(0, 5, -1),
+            4,
+            "walking above the first row wraps to the last"
+        );
+        assert_eq!(step_index(9, 3, 0), 2, "a stale index is pulled back");
+        assert_eq!(step_index(0, 0, 1), 0, "an empty list stays put");
     }
 
     #[test]
