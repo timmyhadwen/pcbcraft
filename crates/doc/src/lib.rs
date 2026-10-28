@@ -3226,6 +3226,7 @@ mod drill_tests {
             diameter: 0.4,
             net: None,
             geometry: Some(definition.pads[0].clone()),
+            castellated: None,
         };
         assert!(!pad.outline_is_convex());
         assert_eq!(pad.outline_points().len(), 7);
