@@ -380,6 +380,7 @@ pub struct App {
     home_open: bool,
     home_path_focus: bool,
     left_tab: usize,
+    make_dir: String,
     net_editor: Option<pcbcraft_doc::Id>,
     pin_pick: Option<String>,
     net_draft: Option<(pcbcraft_doc::Id, String)>,
@@ -575,6 +576,7 @@ impl App {
             home_open: false,
             home_path_focus: false,
             left_tab: 0,
+            make_dir: String::new(),
             net_editor: None,
             pin_pick: None,
             net_draft: None,
@@ -1825,6 +1827,25 @@ impl App {
         ui.label(egui::RichText::new("BOARD").size(10.0).color(self.muted()));
         self.board_body(ui);
     }
+    /// The folder make files land in: the typed one, or "outputs" beside the design.
+    fn make_directory(&self) -> String {
+        if !self.make_dir.trim().is_empty() {
+            return self.make_dir.trim().to_owned();
+        }
+        let parent = std::path::Path::new(&self.path)
+            .parent()
+            .map_or_else(|| std::path::PathBuf::from("."), |p| p.to_path_buf());
+        parent.join("outputs").to_string_lossy().into_owned()
+    }
+    /// Run a write-only make file tool into the make folder, creating it first.
+    fn write_make_files(&mut self, tool: &str) {
+        let directory = self.make_directory();
+        if std::fs::create_dir_all(&directory).is_err() {
+            self.message = "that folder could not be created".into();
+            return;
+        }
+        self.tool_call(tool, json!({"path": directory}));
+    }
     fn board_body(&mut self, ui: &mut egui::Ui) {
         ui.label(format!(
             "{} × {} mm",
@@ -2099,6 +2120,53 @@ impl App {
                 }
                 ui.label(
                     egui::RichText::new("Initial checks; full ERC/DRC is in development.")
+                        .small()
+                        .color(self.muted()),
+                );
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("MAKE FILES").size(10.0).color(self.muted()));
+                ui.label(
+                    egui::RichText::new(
+                        "Plain files for the board factory, written beside your design unless you name another folder.",
+                    )
+                    .small()
+                    .color(self.muted()),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.make_dir)
+                        .hint_text("folder for the files (blank means \"outputs\" beside the design)")
+                        .desired_width(220.0),
+                )
+                .on_hover_text(
+                    "Where the make files land. Leave blank to use a folder named outputs next to the design file.",
+                );
+                if ui
+                    .button("Copper & drill files")
+                    .on_hover_text(
+                        "The Gerber copper layers, board outline and drill file a board house asks for.",
+                    )
+                    .clicked()
+                {
+                    self.write_make_files("gerber.export");
+                }
+                if ui
+                    .button("Parts list (CSV)")
+                    .on_hover_text(
+                        "A spreadsheet of every part: one row per unique part with all its references.",
+                    )
+                    .clicked()
+                {
+                    self.write_make_files("bom.write");
+                }
+                if ui
+                    .button("Net list")
+                    .on_hover_text("A plain text list of every connection and the pins on it.")
+                    .clicked()
+                {
+                    self.write_make_files("netlist.write");
+                }
+                ui.label(
+                    egui::RichText::new("Writing these files changes nothing in the design.")
                         .small()
                         .color(self.muted()),
                 );
@@ -3064,6 +3132,54 @@ mod tests {
             "one click takes the pin back off: {}",
             app.message
         );
+        Ok(())
+    }
+
+    #[test]
+    fn the_make_files_section_writes_the_factory_folder() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let directory = std::env::temp_dir().join(format!("pcbcraft-make-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        app.make_dir = directory.to_string_lossy().into_owned();
+        let revision = app.revision;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "MAKE FILES")?,
+            "the inspector should offer the factory files"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let listed = |directory: &std::path::Path| -> Result<Vec<String>, String> {
+            std::fs::read_dir(directory)
+                .map_err(|e| format!("the folder should exist: {e}"))?
+                .filter_map(|entry| entry.ok())
+                .map(|entry| Ok(entry.file_name().to_string_lossy().into_owned()))
+                .collect()
+        };
+        let names = listed(&directory)?;
+        assert!(
+            !names.is_empty(),
+            "copper and drill files should land in the folder: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Parts list (CSV)")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Net list")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let names = listed(&directory)?;
+        assert!(
+            names.iter().any(|n| n.ends_with(".csv")) && names.iter().any(|n| n.ends_with(".net")),
+            "the parts list and net list should join the folder: {names:?}"
+        );
+        assert_eq!(
+            app.revision, revision,
+            "writing files leaves the design itself untouched"
+        );
+        let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }
 
