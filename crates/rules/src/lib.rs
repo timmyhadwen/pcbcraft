@@ -1441,6 +1441,8 @@ mod tests {
         p.nets.push(Net {
             id: 4,
             name: "gnd".into(),
+            target_length: None,
+            length_tolerance: None,
         });
         p.board.clearance = clearance;
         if let Some(pad) = p
@@ -1459,6 +1461,7 @@ mod tests {
             end: track.1,
             width: 0.2,
             layer: Layer::Front,
+            arc: None,
         });
         drc(&p)
             .into_iter()

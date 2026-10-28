@@ -7560,6 +7560,8 @@ mod tests {
                 }),
                 roundrect_ratio: None,
                 raw_source: String::new(),
+                chamfer: None,
+                polygon: Vec::new(),
             }),
         };
         let embedded_pad = through_pad.geometry.as_ref().ok_or("pad geometry")?.clone();
@@ -7729,6 +7731,8 @@ mod tests {
             }),
             roundrect_ratio: None,
             raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
         };
         let oval_pad = |component: u64| pcbcraft_doc::Footprint {
             id: 10 + component,
@@ -7832,6 +7836,8 @@ mod tests {
             }),
             roundrect_ratio: None,
             raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
@@ -8037,6 +8043,8 @@ mod tests {
             }),
             roundrect_ratio: None,
             raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
@@ -8190,6 +8198,8 @@ mod tests {
             }),
             roundrect_ratio: None,
             raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
@@ -8357,6 +8367,8 @@ mod tests {
             drill: None,
             roundrect_ratio: None,
             raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
         };
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
@@ -9576,6 +9588,8 @@ mod tests {
             }),
             roundrect_ratio: None,
             raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
@@ -9713,6 +9727,8 @@ mod tests {
             }),
             roundrect_ratio: None,
             raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
         };
         let geometry_two = pcbcraft_library::FootprintPad {
             number: "2".into(),
@@ -10536,6 +10552,8 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 7,
             name: "probe".into(),
+            target_length: None,
+            length_tolerance: None,
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 8,
@@ -10544,6 +10562,7 @@ mod tests {
             end: Point::new(15.0, 30.0),
             width: 0.25,
             layer: pcbcraft_doc::Layer::Front,
+            arc: None,
         });
         project.validate()?;
         Ok(project)
