@@ -361,6 +361,8 @@ impl Default for Preferences {
         }
     }
 }
+/// A held-off renumbering: the letter filter and the planned old/new pairs.
+type RenumberPlan = (Option<String>, Vec<(String, String)>);
 #[derive(Clone, Debug)]
 enum Tool {
     Select,
@@ -422,6 +424,8 @@ pub struct App {
     hole_edit: Option<(Id, f64)>,
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
+    renumber_prefix: Option<String>,
+    renumber_plan: Option<RenumberPlan>,
     stack_name: String,
     stack_kind: String,
     stack_thickness: f64,
@@ -634,6 +638,8 @@ impl App {
             hole_edit: None,
             fiducial_diameter: 1.0,
             fiducial_edit: None,
+            renumber_prefix: None,
+            renumber_plan: None,
             stack_name: String::new(),
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
@@ -747,6 +753,28 @@ impl App {
             Err(e) => self.message = e,
         }
         self.refresh();
+    }
+    /// Run a command and hand back its result object, for commands whose
+    /// answer is worth reading (a dry run, a plan, a count).
+    fn run_and_keep(&mut self, command: &str, params: Value) -> Value {
+        let outcome = self
+            .session
+            .lock()
+            .map_err(|_| "Session unavailable".to_string())
+            .and_then(|mut s| {
+                s.execute(command, params, Some(self.revision))
+                    .map_err(|e| e.to_string())
+            });
+        match outcome {
+            Ok(v) => {
+                self.message = format!("{command} · reported");
+                v.pointer("/result").cloned().unwrap_or(Value::Null)
+            }
+            Err(e) => {
+                self.message = e;
+                Value::Null
+            }
+        }
     }
     fn tool_call(&mut self, name: &str, args: Value) -> bool {
         let result = pcbcraft_mcp::call_tool(&self.session, name, &args);
@@ -2135,6 +2163,136 @@ impl App {
                 }
                 if self.project.components.is_empty() {
                     empty_state(ui, EMPTY_SYMBOLS, self.muted());
+                }
+                if self.project.components.len() >= 2 {
+                    ui.add_space(20.0);
+                    ui.label(
+                        egui::RichText::new("RENUMBER PARTS")
+                            .size(10.0)
+                            .color(self.muted()),
+                    );
+                    let mut prefixes: Vec<String> = self
+                        .project
+                        .components
+                        .iter()
+                        .map(|c| {
+                            c.reference
+                                .chars()
+                                .take_while(char::is_ascii_alphabetic)
+                                .collect::<String>()
+                        })
+                        .filter(|p| !p.is_empty())
+                        .collect();
+                    prefixes.sort();
+                    prefixes.dedup();
+                    let mut pick = self.renumber_plan.clone().map_or_else(
+                        || self.renumber_prefix.clone(),
+                        |(prefix, _)| prefix,
+                    );
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt("renumber-prefix")
+                            .selected_text(pick.clone().unwrap_or_else(|| "all letters".into()))
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_label(pick.is_none(), "all letters")
+                                    .on_hover_text(
+                                        "Number every kind of part again, one run of numbers per letter.",
+                                    )
+                                    .clicked()
+                                {
+                                    pick = None;
+                                    ui.close();
+                                }
+                                for prefix in &prefixes {
+                                    if ui
+                                        .selectable_label(
+                                            pick.as_deref() == Some(prefix.as_str()),
+                                            prefix,
+                                        )
+                                        .on_hover_text(
+                                            "Only renumber the parts that start with this letter.",
+                                        )
+                                        .clicked()
+                                    {
+                                        pick = Some(prefix.clone());
+                                        ui.close();
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text(
+                                "Renumber one kind of part, or every part at once.",
+                            );
+                        if ui
+                            .button("Preview")
+                            .on_hover_text(
+                                "Show the new numbers, in placement order, before anything changes.",
+                            )
+                            .clicked()
+                        {
+                            let out = self.run_and_keep(
+                                "components.reannotate",
+                                json!({"dry_run": true, "prefix": pick}),
+                            );
+                            self.renumber_plan = out
+                                .get("renamed")
+                                .and_then(Value::as_array)
+                                .map(|rows| {
+                                    (
+                                        pick.clone(),
+                                        rows.iter()
+                                            .filter_map(|row| {
+                                                let from =
+                                                    row.get("from")?.as_str()?.to_owned();
+                                                let to = row.get("to")?.as_str()?.to_owned();
+                                                Some((from, to))
+                                            })
+                                            .collect(),
+                                    )
+                                });
+                        }
+                    });
+                    if self.renumber_plan.is_none() {
+                        self.renumber_prefix = pick.clone();
+                    }
+                    if let Some((_, plan)) = self.renumber_plan.clone() {
+                        for (from, to) in plan.iter().take(12) {
+                            ui.label(
+                                egui::RichText::new(format!("{from}  →  {to}"))
+                                    .small()
+                                    .color(self.muted()),
+                            );
+                        }
+                        if plan.len() > 12 {
+                            ui.label(
+                                egui::RichText::new(format!("… and {} more", plan.len() - 12))
+                                    .small()
+                                    .color(self.muted()),
+                            );
+                        }
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button("Renumber")
+                                .on_hover_text(
+                                    "Write these numbers now; Undo puts the old ones back.",
+                                )
+                                .clicked()
+                            {
+                                self.renumber_plan = None;
+                                self.run(
+                                    "components.reannotate",
+                                    json!({"prefix": pick}),
+                                );
+                            }
+                            if ui
+                                .button("Cancel")
+                                .on_hover_text("Drop this plan; nothing changes.")
+                                .clicked()
+                            {
+                                self.renumber_plan = None;
+                            }
+                        });
+                    }
                 }
                 ui.add_space(20.0);
                 ui.label(egui::RichText::new("BOARD").size(10.0).color(self.muted()));
@@ -4975,6 +5133,49 @@ mod tests {
         assert!(
             app.project.board.layer_records.is_empty(),
             "the stackup notes are forgotten: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_renumbers_a_messy_pile_of_parts_in_one_step() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.run(
+            "component.add",
+            json!({"kind":"resistor","reference":"R7","value":"1 k","position":{"x":50.0,"y":40.0}}),
+        );
+        app.run(
+            "component.add",
+            json!({"kind":"resistor","reference":"R9","value":"10 k","position":{"x":10.0,"y":40.0}}),
+        );
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Preview")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "R7  →  R3")?,
+            "the plan spells out a new number before anything changes: {}",
+            app.message
+        );
+        let untouched = app.project.components.iter().any(|c| c.reference == "R9");
+        assert!(untouched, "a preview never touches the design");
+        authoring::tests::tap(&ctx, &mut app, "Renumber")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let mut references: Vec<String> = app
+            .project
+            .components
+            .iter()
+            .map(|c| c.reference.clone())
+            .collect();
+        references.sort();
+        assert_eq!(
+            references,
+            ["D1", "J1", "R1", "R2", "R3"],
+            "the numbers follow placement order: {}",
             app.message
         );
         Ok(())
