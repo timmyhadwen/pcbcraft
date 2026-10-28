@@ -378,6 +378,7 @@ impl App {
             Tool::Hole => "MOUNTING HOLE · CLICK TO DRILL",
             Tool::NoConnect => "NO CONNECT · CLICK A PIN TO MARK IT UNUSED",
             Tool::Fiducial => "ASSEMBLY MARK · CLICK A CLEAR CORNER",
+            Tool::DrawLayer => "DRAW SHAPE · PICK THE LAYER IN THE PANEL",
         };
         painter.text(
             rect.left_top() + Vec2::new(20.0, 20.0),
@@ -459,6 +460,56 @@ impl App {
                         );
                     }
                 }
+                Tool::DrawLayer => {
+                    let stroke = Stroke::new(1.0, self.accent());
+                    match self.art_shape {
+                        DrawShape::Words => {
+                            if !self.art_text.trim().is_empty() {
+                                painter.text(
+                                    camera.screen(snapped, rect),
+                                    Align2::LEFT_TOP,
+                                    &self.art_text,
+                                    FontId::proportional(11.0),
+                                    self.accent(),
+                                );
+                            }
+                        }
+                        DrawShape::Poly => {
+                            let mut pts: Vec<Pos2> = self
+                                .art_points
+                                .iter()
+                                .map(|pt| camera.screen(*pt, rect))
+                                .collect();
+                            pts.push(camera.screen(snapped, rect));
+                            if pts.len() >= 2 {
+                                painter.add(egui::Shape::line(pts, stroke));
+                            }
+                        }
+                        _ => {
+                            if let Some(start) = self.art_start {
+                                let a = camera.screen(start, rect);
+                                let b = camera.screen(snapped, rect);
+                                match self.art_shape {
+                                    DrawShape::Line => {
+                                        painter.line_segment([a, b], stroke);
+                                    }
+                                    DrawShape::Rect => {
+                                        painter.rect_stroke(
+                                            egui::Rect::from_min_max(a, b),
+                                            0.0,
+                                            stroke,
+                                            egui::StrokeKind::Inside,
+                                        );
+                                    }
+                                    _ => {
+                                        let radius = (b - a).length().max(1.0);
+                                        painter.circle_stroke(a, radius, stroke);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -501,6 +552,15 @@ impl App {
                 },
                 params,
             );
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::Enter))
+            && matches!(self.tool, Tool::DrawLayer)
+            && self.art_shape == DrawShape::Poly
+            && self.art_layer.is_some()
+            && self.art_points.len() >= 3
+        {
+            let layer = self.art_layer.unwrap_or_default();
+            self.commit_poly(layer);
         }
         if response.clicked()
             && let Some(pos) = cursor
@@ -579,8 +639,92 @@ impl App {
                     {
                         self.tool = Tool::Cutout;
                     }
+                    if self.tab == Tab::Pcb
+                        && ui
+                            .selectable_label(matches!(self.tool, Tool::DrawLayer), "Draw shape")
+                            .on_hover_text(
+                                "Draw cut lines, perforations or printed marks on your own layer; pick the layer and the shape in the panel that appears.",
+                            )
+                            .clicked()
+                    {
+                        self.tool = Tool::DrawLayer;
+                    }
                 });
             });
+        if self.tab == Tab::Pcb && matches!(self.tool, Tool::DrawLayer) {
+            egui::Area::new(egui::Id::new("draw-options"))
+                .fixed_pos(egui::pos2(rect.max.x - 240.0, rect.min.y + 44.0))
+                .order(egui::Order::Foreground)
+                .show(ui.ctx(), |ui| {
+                    ui.vertical(|ui| {
+                        let names: Vec<(Id, String)> = self
+                            .project
+                            .board
+                            .user_layers
+                            .iter()
+                            .map(|l| (l.id, l.name.clone()))
+                            .collect();
+                        let current = self
+                            .art_layer
+                            .and_then(|id| {
+                                names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone())
+                            })
+                            .unwrap_or_else(|| "no layer yet".into());
+                        egui::ComboBox::from_id_salt("art-layer-pick")
+                            .selected_text(current)
+                            .width(150.0)
+                            .show_ui(ui, |ui| {
+                                for (id, name) in &names {
+                                    ui.radio_value(&mut self.art_layer, Some(*id), name.as_str())
+                                        .on_hover_text("New figures land on this layer.");
+                                }
+                            });
+                        if ui
+                            .button("New layer")
+                            .on_hover_text(
+                                "Make a new drawn layer and switch to it; give it a real name in the layers list.",
+                            )
+                            .clicked()
+                        {
+                            let name = format!("Art {}", names.len() + 1);
+                            self.run(
+                                "board.layer_add",
+                                json!({"name": name, "kind": "other"}),
+                            );
+                            if self.message.starts_with("board.layer_add") {
+                                self.art_layer = self.selected;
+                            }
+                        }
+                        ui.horizontal(|ui| {
+                            for (shape, label, tip) in [
+                                (DrawShape::Line, "Line", "Two clicks: the start and end of one straight stroke."),
+                                (DrawShape::Rect, "Box", "Two clicks on opposite corners."),
+                                (DrawShape::Circle, "Circle", "Click the centre, then a point on the edge."),
+                                (DrawShape::Poly, "Outline", "Click each corner; click the first point or press Enter to close it."),
+                                (DrawShape::Words, "Words", "Type below, then click once where the text starts."),
+                            ] {
+                                if ui
+                                    .selectable_label(self.art_shape == shape, label)
+                                    .on_hover_text(tip)
+                                    .clicked()
+                                {
+                                    self.art_shape = shape;
+                                    self.art_start = None;
+                                    self.art_points.clear();
+                                }
+                            }
+                        });
+                        if self.art_shape == DrawShape::Words {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.art_text)
+                                    .hint_text("words to print")
+                                    .desired_width(150.0),
+                            )
+                            .on_hover_text("The words a click will print on the active layer.");
+                        }
+                    });
+                });
+        }
         if matches!(self.tab, Tab::Schematic | Tab::Pcb)
             && let Some(id) = self.selected
         {
@@ -617,6 +761,121 @@ impl App {
             }
         }
     }
+    /// Draw the shapes the designer put on their own layers. Cut layers read
+    /// as a strong outline, perforation layers are dotted so they say
+    /// "break apart here", and the rest stay quiet so copper stays loudest.
+    fn draw_user_layers(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
+        for layer in &p.board.user_layers {
+            if !layer.visible {
+                continue;
+            }
+            let colour = match layer.kind {
+                pcbcraft_doc::ArtKind::Cut => Color32::from_rgb(245, 141, 121),
+                pcbcraft_doc::ArtKind::Perforation => Color32::from_rgb(230, 194, 125),
+                pcbcraft_doc::ArtKind::Silk => self.ink(),
+                pcbcraft_doc::ArtKind::Mask => Color32::from_rgb(96, 170, 130),
+                pcbcraft_doc::ArtKind::Other => self.ink().linear_multiply(0.55),
+            };
+            let stroke = Stroke::new(1.2, colour);
+            let dotted = layer.dotted;
+            for shape in &layer.shapes {
+                match shape {
+                    pcbcraft_doc::ArtShape::Line { start, end } => {
+                        Self::push_art(
+                            painter,
+                            vec![camera.screen(*start, rect), camera.screen(*end, rect)],
+                            stroke,
+                            dotted,
+                        );
+                    }
+                    pcbcraft_doc::ArtShape::Rect {
+                        x,
+                        y,
+                        width,
+                        height,
+                        rotate,
+                    } => {
+                        let center = Point::new(x + width / 2.0, y + height / 2.0);
+                        let mut ring: Vec<Pos2> = [
+                            Point::new(*x, *y),
+                            Point::new(x + width, *y),
+                            Point::new(x + width, y + height),
+                            Point::new(*x, y + height),
+                        ]
+                        .into_iter()
+                        .map(|c| {
+                            center
+                                .offset(Point::new(c.x - center.x, c.y - center.y).rotate(*rotate))
+                        })
+                        .map(|c| camera.screen(c, rect))
+                        .collect();
+                        ring.push(ring[0]);
+                        Self::push_art(painter, ring, stroke, dotted);
+                    }
+                    pcbcraft_doc::ArtShape::Circle { center, radius } => {
+                        let c = camera.screen(*center, rect);
+                        let r = (*radius as f32 * camera.zoom).max(1.0);
+                        let ring: Vec<Pos2> = (0..=48)
+                            .map(|i| {
+                                let a = std::f32::consts::TAU * i as f32 / 48.0;
+                                c + egui::vec2(a.cos() * r, a.sin() * r)
+                            })
+                            .collect();
+                        Self::push_art(painter, ring, stroke, dotted);
+                    }
+                    pcbcraft_doc::ArtShape::Poly { points } => {
+                        if points.len() < 2 {
+                            continue;
+                        }
+                        let mut ring: Vec<Pos2> =
+                            points.iter().map(|pt| camera.screen(*pt, rect)).collect();
+                        ring.push(ring[0]);
+                        Self::push_art(painter, ring, stroke, dotted);
+                    }
+                    pcbcraft_doc::ArtShape::Text { at, text, size, .. } => {
+                        painter.text(
+                            camera.screen(*at, rect),
+                            Align2::LEFT_TOP,
+                            text,
+                            FontId::proportional((*size as f32 * camera.zoom).clamp(6.0, 36.0)),
+                            colour,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// One polyline in the layer's style: plain, or broken into dashes when
+    /// the layer is a perforation layer.
+    fn push_art(painter: &egui::Painter, points: Vec<Pos2>, stroke: Stroke, dotted: bool) {
+        if dotted {
+            for shape in egui::Shape::dashed_line(&points, stroke, 2.0, 3.0) {
+                painter.add(shape);
+            }
+        } else {
+            painter.add(egui::Shape::line(points, stroke));
+        }
+    }
+
+    /// Close the outline started with the outline draw tool, if enough
+    /// corners exist, and hand it to the engine.
+    fn commit_poly(&mut self, layer: Id) {
+        let points: Vec<[f64; 2]> = self
+            .art_points
+            .iter()
+            .map(|pt| {
+                let q = snap(*pt);
+                [q.x, q.y]
+            })
+            .collect();
+        self.art_points.clear();
+        self.run(
+            "board.layer_poly_add",
+            json!({"layer": layer, "points": points}),
+        );
+    }
+
     fn pick_object(&self, pos: Point, zoom: f32) -> Option<Id> {
         if self.tab == Tab::Schematic {
             self.project
@@ -862,6 +1121,79 @@ impl App {
                 "board.cutout.add",
                 json!({"center":snap(pos),"radius":self.cutout_radius}),
             ),
+            Tool::DrawLayer => {
+                let Some(layer) = self.art_layer else {
+                    self.message = "Pick or make a layer to draw on first".into();
+                    return;
+                };
+                let at = snap(pos);
+                match self.art_shape {
+                    DrawShape::Words => {
+                        let text = self.art_text.trim().to_owned();
+                        if text.is_empty() {
+                            self.message = "Type the words to print first".into();
+                        } else {
+                            self.run(
+                                "board.layer_text_add",
+                                json!({"layer": layer, "x": at.x, "y": at.y, "text": text}),
+                            );
+                        }
+                    }
+                    DrawShape::Poly => {
+                        let closing = self
+                            .art_points
+                            .first()
+                            .is_some_and(|first| pos.distance(*first) < 6.0 / zoom as f64);
+                        if closing && self.art_points.len() >= 3 {
+                            self.commit_poly(layer);
+                        } else if self.art_points.len() >= 64 {
+                            self.message =
+                                "An outline holds up to 64 corners; click the first point to close it"
+                                    .into();
+                        } else {
+                            self.art_points.push(pos);
+                        }
+                    }
+                    _ => match self.art_start {
+                        None => self.art_start = Some(pos),
+                        Some(start) => {
+                            let start = snap(start);
+                            match self.art_shape {
+                                DrawShape::Line => self.run(
+                                    "board.layer_line_add",
+                                    json!({
+                                        "layer": layer,
+                                        "x1": start.x,
+                                        "y1": start.y,
+                                        "x2": at.x,
+                                        "y2": at.y,
+                                    }),
+                                ),
+                                DrawShape::Rect => self.run(
+                                    "board.layer_rect_add",
+                                    json!({
+                                        "layer": layer,
+                                        "x": start.x.min(at.x),
+                                        "y": start.y.min(at.y),
+                                        "width": (at.x - start.x).abs(),
+                                        "height": (at.y - start.y).abs(),
+                                    }),
+                                ),
+                                _ => self.run(
+                                    "board.layer_circle_add",
+                                    json!({
+                                        "layer": layer,
+                                        "x": start.x,
+                                        "y": start.y,
+                                        "radius": start.distance(at),
+                                    }),
+                                ),
+                            }
+                            self.art_start = None;
+                        }
+                    },
+                }
+            }
         }
     }
     fn path(
@@ -1491,6 +1823,7 @@ impl App {
                 color,
             );
         }
+        self.draw_user_layers(painter, rect, camera, p);
         painter.text(
             board.left_bottom() + Vec2::new(0.0, 18.0),
             Align2::LEFT_TOP,

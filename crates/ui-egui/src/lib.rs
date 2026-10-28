@@ -215,6 +215,9 @@ fn tool_hint(tool: &Tool) -> String {
             format!("LMB: click a pin to mark it unused, or again to undo{common}")
         }
         Tool::Fiducial => format!("LMB: place an assembly mark at the cursor{common}"),
+        Tool::DrawLayer => {
+            format!("LMB: place the shape on the active layer{common}")
+        }
     }
 }
 
@@ -479,6 +482,16 @@ enum Tool {
     Hole,
     NoConnect,
     Fiducial,
+    DrawLayer,
+}
+#[derive(Clone, Copy, PartialEq, Default)]
+enum DrawShape {
+    #[default]
+    Line,
+    Rect,
+    Circle,
+    Poly,
+    Words,
 }
 #[derive(Clone, Copy)]
 struct Camera {
@@ -524,6 +537,11 @@ pub struct App {
     swap_pick: Option<String>,
     swap_name: String,
     hole_diameter: f64,
+    art_layer: Option<Id>,
+    art_shape: DrawShape,
+    art_start: Option<Point>,
+    art_points: Vec<Point>,
+    art_text: String,
     hole_edit: Option<(Id, f64)>,
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
@@ -852,6 +870,11 @@ impl App {
             swap_pick: None,
             swap_name: String::new(),
             hole_diameter: 3.2,
+            art_layer: None,
+            art_shape: DrawShape::Line,
+            art_start: None,
+            art_points: Vec::new(),
+            art_text: "MY BOARD".into(),
             hole_edit: None,
             fiducial_diameter: 1.0,
             fiducial_edit: None,
@@ -5347,6 +5370,7 @@ impl App {
             Tool::Hole => "Drill hole".to_owned(),
             Tool::NoConnect => "No connection".to_owned(),
             Tool::Fiducial => "Fiducial mark".to_owned(),
+            Tool::DrawLayer => "Draw on a layer".to_owned(),
         };
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -9488,6 +9512,91 @@ mod tests {
         assert!(checked >= 150, "the sweep covered the whole registry");
         Ok(())
     }
+    #[test]
+    fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.change_tab(Tab::Pcb);
+        app.refresh();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Draw shape")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "New layer")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.board.user_layers.len(),
+            1,
+            "the new layer button should add a layer: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Line")?;
+        let click = |p: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(p),
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        };
+        frame(
+            &ctx,
+            &mut app,
+            click(egui::pos2(660.0, 460.0)),
+            egui::Modifiers::NONE,
+        );
+        frame(
+            &ctx,
+            &mut app,
+            click(egui::pos2(760.0, 540.0)),
+            egui::Modifiers::NONE,
+        );
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            app.project.board.user_layers[0].shapes.len(),
+            1,
+            "two clicks should leave one straight cut line: {}",
+            app.message
+        );
+        app.art_text = "HELLO LASER".into();
+        authoring::tests::tap(&ctx, &mut app, "Words")?;
+        frame(
+            &ctx,
+            &mut app,
+            click(egui::pos2(700.0, 600.0)),
+            egui::Modifiers::NONE,
+        );
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        let layer = &app.project.board.user_layers[0];
+        assert_eq!(
+            layer.shapes.len(),
+            2,
+            "one click with words armed should print them: {}",
+            app.message
+        );
+        assert!(
+            layer.shapes.iter().any(|sh| matches!(
+                sh,
+                pcbcraft_doc::ArtShape::Text { text, .. } if text == "HELLO LASER"
+            )),
+            "the printed words should be exactly what was typed"
+        );
+        Ok(())
+    }
+
     fn frame(
         ctx: &egui::Context,
         app: &mut App,
