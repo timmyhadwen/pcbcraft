@@ -412,6 +412,8 @@ pub struct App {
     stack_kind: String,
     stack_thickness: f64,
     stack_edit: Option<(String, String, f64)>,
+    notes_thick: f64,
+    notes_er: f64,
     net_editor: Option<pcbcraft_doc::Id>,
     pin_pick: Option<String>,
     net_draft: Option<(pcbcraft_doc::Id, String)>,
@@ -616,6 +618,8 @@ impl App {
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
             stack_edit: None,
+            notes_thick: 1.6,
+            notes_er: 4.4,
             net_editor: None,
             pin_pick: None,
             net_draft: None,
@@ -1010,6 +1014,81 @@ impl App {
         {
             self.stack_edit = None;
             self.run("board.clear_layer_records", json!({}));
+        }
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.label("Finish");
+            egui::ComboBox::from_id_salt("board-finish")
+                .selected_text(self.project.board.finish.clone())
+                .show_ui(ui, |ui| {
+                    for finish in ["HASL", "Lead-free HASL", "ENIG", "OSP", "Immersion silver"] {
+                        if ui
+                            .selectable_label(self.project.board.finish == finish, finish)
+                            .on_hover_text("A common coating for exposed copper.")
+                            .clicked()
+                        {
+                            self.run("board.set_finish", json!({"finish": finish}));
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "The coating on exposed copper; it goes on the factory notes and reports.",
+                );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Thickness");
+            ui.add(
+                egui::DragValue::new(&mut self.notes_thick)
+                    .speed(0.01)
+                    .range(0.2..=100.0)
+                    .suffix(" mm"),
+            )
+            .on_hover_text("How thick the whole board is; the factory uses this to pick bits.");
+            if ui
+                .button("Set thickness")
+                .on_hover_text("Record this board thickness.")
+                .clicked()
+            {
+                let thickness = self.notes_thick;
+                self.run("board.set_stackup", json!({"thickness": thickness}));
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Substrate");
+            ui.add(
+                egui::DragValue::new(&mut self.notes_er)
+                    .speed(0.05)
+                    .range(1.0..=20.0),
+            )
+            .on_hover_text(
+                "How the material between layers slows signals; it tunes impedance estimates.",
+            );
+            if ui
+                .button("Set substrate")
+                .on_hover_text("Record this substrate number.")
+                .clicked()
+            {
+                let er = self.notes_er;
+                self.run("board.set_stackup", json!({"er": er}));
+            }
+        });
+        let mut plated = self
+            .project
+            .board
+            .machining
+            .as_ref()
+            .and_then(|m| m.edge_plating)
+            .unwrap_or(false);
+        if ui
+            .checkbox(&mut plated, "Plated board edge")
+            .on_hover_text(
+                "Copper plating around the board's rim, for shielding and soldering to a frame.",
+            )
+            .clicked()
+        {
+            self.run("board.set_machining", json!({"edge_plating": plated}));
         }
     }
     fn layers_tab(&mut self, ui: &mut egui::Ui) {
@@ -4466,6 +4545,59 @@ mod tests {
         assert!(
             app.project.variants.is_empty(),
             "the build is gone: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "HASL")?,
+            "the board shows the finish it ships with"
+        );
+        authoring::tests::tap(&ctx, &mut app, "HASL")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "ENIG")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.board.finish, "ENIG",
+            "the finish is recorded: {}",
+            app.message
+        );
+        app.notes_thick = 1.2;
+        app.notes_er = 4.2;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Set thickness")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Set substrate")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            (app.project.board.thickness - 1.2).abs() < 1e-9
+                && (app.project.board.er - 4.2).abs() < 1e-9,
+            "thickness and substrate are recorded: {} {} · {}",
+            app.project.board.thickness,
+            app.project.board.er,
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Plated board edge")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project
+                .board
+                .machining
+                .as_ref()
+                .and_then(|m| m.edge_plating)
+                == Some(true),
+            "the edge plating note is kept: {}",
             app.message
         );
         Ok(())
