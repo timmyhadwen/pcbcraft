@@ -1455,27 +1455,390 @@ impl App {
                 .small()
                 .color(self.muted()),
             );
-            return;
+        } else {
+            ui.label(
+                egui::RichText::new("WHAT THE DRAWING SHOWS")
+                    .size(10.0)
+                    .color(self.muted()),
+            );
+            for name in rows {
+                let mut shown = self.layer_shown(name);
+                if ui
+                    .checkbox(&mut shown, *name)
+                    .on_hover_text(format!(
+                        "Show or hide {name} on the drawing. Hiding changes only the view, never the design."
+                    ))
+                    .clicked()
+                {
+                    if shown {
+                        self.preferences.hidden_layers.retain(|hidden| hidden != name);
+                    } else {
+                        self.preferences.hidden_layers.push((*name).to_string());
+                    }
+                }
+            }
         }
+        self.board_anatomy_section(ui);
+    }
+    fn board_anatomy_section(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(16.0);
         ui.label(
-            egui::RichText::new("WHAT THE DRAWING SHOWS")
+            egui::RichText::new("BOARD ANATOMY")
                 .size(10.0)
                 .color(self.muted()),
         );
-        for name in rows {
-            let mut shown = self.layer_shown(name);
-            if ui
-                .checkbox(&mut shown, *name)
-                .on_hover_text(format!(
-                    "Show or hide {name} on the drawing. Hiding changes only the view, never the design."
-                ))
-                .clicked()
-            {
-                if shown {
-                    self.preferences.hidden_layers.retain(|hidden| hidden != name);
-                } else {
-                    self.preferences.hidden_layers.push((*name).to_string());
+        ui.label(
+            egui::RichText::new(
+                "Every piece on the board, sorted into its layer. Open a layer to see its pieces; pick one to select it on the drawing.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        let front: Vec<(Id, String)> = self
+            .project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.layer == pcbcraft_doc::Layer::Front)
+            .map(|t| {
+                (
+                    t.id,
+                    format!(
+                        "Wire · {:.2} mm · {} · at {}, {}",
+                        t.width,
+                        self.project.net_name(t.net),
+                        t.start.x.round(),
+                        t.start.y.round()
+                    ),
+                )
+            })
+            .collect();
+        let back: Vec<(Id, String)> = self
+            .project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.layer == pcbcraft_doc::Layer::Back)
+            .map(|t| {
+                (
+                    t.id,
+                    format!(
+                        "Wire · {:.2} mm · {} · at {}, {}",
+                        t.width,
+                        self.project.net_name(t.net),
+                        t.start.x.round(),
+                        t.start.y.round()
+                    ),
+                )
+            })
+            .collect();
+        let vias: Vec<(Id, String)> = self
+            .project
+            .board
+            .vias
+            .iter()
+            .map(|v| {
+                (
+                    v.id,
+                    format!(
+                        "Via at {}, {} · {} mm hole · {}",
+                        v.position.x.round(),
+                        v.position.y.round(),
+                        v.drill,
+                        self.project.net_name(v.net)
+                    ),
+                )
+            })
+            .collect();
+        let zones: Vec<(Id, String)> = self
+            .project
+            .board
+            .zones
+            .iter()
+            .map(|z| {
+                (
+                    z.id,
+                    format!(
+                        "Copper zone · {} · {}",
+                        self.project.net_name(z.net),
+                        if z.layer == pcbcraft_doc::Layer::Front {
+                            "top"
+                        } else {
+                            "bottom"
+                        }
+                    ),
+                )
+            })
+            .collect();
+        let holes: Vec<(Id, String)> = self
+            .project
+            .board
+            .cutouts
+            .iter()
+            .map(|c| {
+                (
+                    c.id,
+                    format!(
+                        "Hole at {}, {} · {} mm across",
+                        c.center.x.round(),
+                        c.center.y.round(),
+                        c.radius * 2.0
+                    ),
+                )
+            })
+            .collect();
+        let words: Vec<(Id, String)> = self
+            .project
+            .board
+            .texts
+            .iter()
+            .map(|t| {
+                (
+                    t.id,
+                    format!(
+                        "\"{}\" · {}",
+                        t.text,
+                        if t.layer == pcbcraft_doc::Layer::Front {
+                            "top"
+                        } else {
+                            "bottom"
+                        }
+                    ),
+                )
+            })
+            .collect();
+        let parts: Vec<(Id, String, Vec<String>)> = self
+            .project
+            .board
+            .footprints
+            .iter()
+            .map(|f| {
+                let name = self
+                    .project
+                    .component(f.component)
+                    .map_or("a part", |c| c.reference.as_str())
+                    .to_owned();
+                let pads = f
+                    .pads
+                    .iter()
+                    .map(|pad| {
+                        format!(
+                            "Pad {} · {} mm · {}",
+                            pad.number,
+                            pad.diameter,
+                            pad.net.map_or("no net".to_owned(), |n| self
+                                .project
+                                .net_name(n)
+                                .to_owned())
+                        )
+                    })
+                    .collect();
+                (f.id, format!("{name} · {} pads", f.pads.len()), pads)
+            })
+            .collect();
+        let areas: Vec<String> = self
+            .project
+            .board
+            .rule_areas
+            .iter()
+            .map(|a| {
+                format!(
+                    "Stricter area at {}, {} · gap {} mm{}",
+                    a.region.x.round(),
+                    a.region.y.round(),
+                    a.clearance,
+                    a.max_height
+                        .map_or(String::new(), |h| format!(" · up to {h} mm tall"))
+                )
+            })
+            .collect();
+        let pairs: Vec<String> = self
+            .project
+            .board
+            .diff_pairs
+            .iter()
+            .map(|d| {
+                format!(
+                    "{} · {} + {} · gap {} mm",
+                    d.name,
+                    self.project.net_name(d.net_p),
+                    self.project.net_name(d.net_n),
+                    d.gap
+                )
+            })
+            .collect();
+        let picked = self.selected;
+        let pick = |ui: &mut egui::Ui, id: Id, text: String| -> bool {
+            ui.selectable_label(picked == Some(id), text).clicked()
+        };
+        let mut chosen: Option<Id> = None;
+        egui::CollapsingHeader::new("Top copper")
+            .id_salt("anat-front")
+            .default_open(false)
+            .show(ui, |ui| {
+                if front.is_empty() {
+                    ui.label(
+                        egui::RichText::new("Nothing drawn here yet.")
+                            .small()
+                            .color(self.muted()),
+                    );
                 }
+                for (id, text) in front {
+                    if pick(ui, id, text) {
+                        chosen = Some(id);
+                    }
+                }
+            });
+        egui::CollapsingHeader::new("Bottom copper")
+            .id_salt("anat-back")
+            .default_open(false)
+            .show(ui, |ui| {
+                if back.is_empty() {
+                    ui.label(
+                        egui::RichText::new("Nothing drawn here yet.")
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+                for (id, text) in back {
+                    if pick(ui, id, text) {
+                        chosen = Some(id);
+                    }
+                }
+            });
+        egui::CollapsingHeader::new("Pads")
+            .id_salt("anat-pads")
+            .default_open(false)
+            .show(ui, |ui| {
+                if parts.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No parts on the board yet.")
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+                for (id, title, pads) in parts {
+                    egui::CollapsingHeader::new(title)
+                        .id_salt(format!("anat-fp-{id}"))
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            if ui
+                                .button("Pick up this part")
+                                .on_hover_text(
+                                    "Select this part so its properties open on the right.",
+                                )
+                                .clicked()
+                            {
+                                chosen = Some(id);
+                            }
+                            for pad in pads {
+                                ui.label(egui::RichText::new(pad).small());
+                            }
+                        });
+                }
+            });
+        egui::CollapsingHeader::new("Vias")
+            .id_salt("anat-vias")
+            .default_open(false)
+            .show(ui, |ui| {
+                if vias.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No vias yet.")
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+                for (id, text) in vias {
+                    if pick(ui, id, text) {
+                        chosen = Some(id);
+                    }
+                }
+            });
+        egui::CollapsingHeader::new("Copper zones")
+            .id_salt("anat-zones")
+            .default_open(false)
+            .show(ui, |ui| {
+                if zones.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No copper zones yet.")
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+                for (id, text) in zones {
+                    if pick(ui, id, text) {
+                        chosen = Some(id);
+                    }
+                }
+            });
+        egui::CollapsingHeader::new("Holes and cut-outs")
+            .id_salt("anat-holes")
+            .default_open(false)
+            .show(ui, |ui| {
+                if holes.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No holes yet.")
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+                for (id, text) in holes {
+                    if pick(ui, id, text) {
+                        chosen = Some(id);
+                    }
+                }
+            });
+        egui::CollapsingHeader::new("Words on the board")
+            .id_salt("anat-words")
+            .default_open(false)
+            .show(ui, |ui| {
+                if words.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No words printed yet.")
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+                for (id, text) in words {
+                    if pick(ui, id, text) {
+                        chosen = Some(id);
+                    }
+                }
+            });
+        egui::CollapsingHeader::new("Stricter areas")
+            .id_salt("anat-areas")
+            .default_open(false)
+            .show(ui, |ui| {
+                if areas.is_empty() {
+                    ui.label(
+                        egui::RichText::new("The whole board follows one set of rules.")
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+                for text in areas {
+                    ui.label(egui::RichText::new(text).small());
+                }
+            });
+        egui::CollapsingHeader::new("Watched pairs")
+            .id_salt("anat-pairs")
+            .default_open(false)
+            .show(ui, |ui| {
+                if pairs.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No pairs are being watched.")
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+                for text in pairs {
+                    ui.label(egui::RichText::new(text).small());
+                }
+            });
+        if let Some(id) = chosen {
+            self.select(Some(id));
+            if self.tab != Tab::Pcb {
+                self.change_tab(Tab::Pcb);
             }
         }
     }
@@ -6553,6 +6916,108 @@ mod tests {
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
             app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        let (id, label) = app
+            .project
+            .board
+            .tracks
+            .iter()
+            .rev()
+            .find(|t| t.layer == pcbcraft_doc::Layer::Front)
+            .map(|t| {
+                (
+                    t.id,
+                    format!(
+                        "Wire · {:.2} mm · {} · at {}, {}",
+                        t.width,
+                        app.project.net_name(t.net),
+                        t.start.x.round(),
+                        t.start.y.round()
+                    ),
+                )
+            })
+            .ok_or("routing should leave a wire on the top layer")?;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        let mut shown = false;
+        for _ in 0..14 {
+            if paints_text(&ctx, &mut app, "BOARD ANATOMY")? {
+                shown = true;
+                break;
+            }
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            shown,
+            "the layers dock should list every piece of the board: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Top copper")?;
+        let mut row = false;
+        for _ in 0..8 {
+            if paints_text(&ctx, &mut app, &label)? {
+                row = true;
+                break;
+            }
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            row,
+            "the top copper layer should show the drawn wire {label}: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, &label)?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.selected,
+            Some(id),
+            "picking the wire in the tree selects it on the drawing: {}",
+            app.message
+        );
+        assert_eq!(
+            app.tab,
+            Tab::Pcb,
+            "the drawing jumps to the board so the pick is visible"
         );
         Ok(())
     }
