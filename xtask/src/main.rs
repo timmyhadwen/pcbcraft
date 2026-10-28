@@ -35,6 +35,16 @@ fn run() -> Result<(), String> {
             ])?;
         }
         "layers" => layers()?,
+        "bless-parity" => {
+            let status = Command::new("cargo")
+                .args(["test", "-p", "pcbcraft-engine", "--test", "parity"])
+                .env("PCBCRAFT_BLESS", "1")
+                .status()
+                .map_err(|e| e.to_string())?;
+            if !status.success() {
+                return Err("parity bless run failed".into());
+            }
+        }
         "wasm" => cargo(&[
             "check",
             "--target",
@@ -44,7 +54,7 @@ fn run() -> Result<(), String> {
             "-p",
             "pcbcraft-web",
         ])?,
-        _ => return Err("usage: cargo xtask [ci|wasm]".into()),
+        _ => return Err("usage: cargo xtask [ci|layers|wasm|bless-parity]".into()),
     }
     Ok(())
 }
