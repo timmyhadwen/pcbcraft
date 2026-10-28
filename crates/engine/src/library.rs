@@ -120,7 +120,10 @@ pub struct LibrarySource {
     pub path: String,
 }
 const MAX_LIBRARY_SOURCES: usize = 64;
-static SOURCES_PATH_TEST: Mutex<Option<PathBuf>> = Mutex::new(None);
+pub static SOURCES_PATH_TEST: Mutex<Option<PathBuf>> = Mutex::new(None);
+/// Held by any test that redirects the sources file, so two never
+/// race over the shared slot.
+pub static SOURCES_TEST_LOCK: Mutex<()> = Mutex::new(());
 fn sources_path() -> Result<PathBuf, String> {
     if let Some(path) = SOURCES_PATH_TEST
         .lock()
@@ -258,7 +261,7 @@ pub fn add_folder(path: &str, name: Option<&str>) -> Result<Value, String> {
         "path": canonical.to_string_lossy(),
         "symbol_libraries": symbols,
         "footprint_libraries": footprints,
-        "sources": sources,
+        "sources": self::sources()?["sources"].clone(),
     }))
 }
 /// Forget an added folder; the installed locations are never removed.
@@ -281,7 +284,7 @@ pub fn remove_folder(path: &str) -> Result<Value, String> {
         return Err("that folder is not one of the added library sources".into());
     };
     write_sources(&sources)?;
-    Ok(json!({"removed": name, "sources": sources}))
+    Ok(json!({"removed": name, "sources": self::sources()?["sources"].clone()}))
 }
 /// Every place collections are read from: added folders first, then installed
 /// locations, each with how many collections it contributes.
@@ -743,7 +746,6 @@ mod tests {
         assert_eq!(results["entries"].as_array().map(Vec::len), Some(1));
         Ok(())
     }
-    static SOURCES_TEST_LOCK: Mutex<()> = Mutex::new(());
     #[test]
     fn added_folders_join_the_one_library_and_can_be_removed_again() -> Result<(), String> {
         let _guard = SOURCES_TEST_LOCK
