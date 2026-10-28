@@ -383,6 +383,8 @@ pub struct App {
     make_dir: String,
     rule_draft: Option<(pcbcraft_doc::Id, f64, f64)>,
     class_pick: Option<String>,
+    build_note: Option<(String, String)>,
+    build_pick: Option<String>,
     net_editor: Option<pcbcraft_doc::Id>,
     pin_pick: Option<String>,
     net_draft: Option<(pcbcraft_doc::Id, String)>,
@@ -581,6 +583,8 @@ impl App {
             make_dir: String::new(),
             rule_draft: None,
             class_pick: None,
+            build_note: None,
+            build_pick: None,
             net_editor: None,
             pin_pick: None,
             net_draft: None,
@@ -1468,6 +1472,15 @@ impl App {
                     {
                         self.left_tab = 3;
                     }
+                    if ui
+                        .selectable_label(self.left_tab == 4, "Builds")
+                        .on_hover_text(
+                            "Extra versions of this board: parts left off or swapped for another package.",
+                        )
+                        .clicked()
+                    {
+                        self.left_tab = 4;
+                    }
                 });
                 ui.separator();
                 if self.left_tab == 1 {
@@ -1482,6 +1495,10 @@ impl App {
                 }
                 if self.left_tab == 3 {
                     self.rules_tab(ui);
+                    return;
+                }
+                if self.left_tab == 4 {
+                    self.builds_tab(ui);
                     return;
                 }
                 if ui
@@ -2085,6 +2102,209 @@ impl App {
                 )
                 .small()
                 .color(self.muted()),
+            );
+        }
+    }
+    fn builds_tab(&mut self, ui: &mut egui::Ui) {
+        if let Some((name, _)) = &self.build_note
+            && !self.project.variants.iter().any(|v| v.name == *name)
+        {
+            self.build_note = None;
+        }
+        if let Some(pick) = &self.build_pick
+            && !self.project.components.iter().any(|c| c.reference == *pick)
+        {
+            self.build_pick = None;
+        }
+        ui.label(
+            egui::RichText::new(
+                "One design, several builds: each extra build lists parts it leaves off the board.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        if ui
+            .button("New build")
+            .on_hover_text(
+                "Start an extra version of this board; say which parts to leave off from its row.",
+            )
+            .clicked()
+        {
+            let name = format!("Build {}", self.project.variants.len() + 1);
+            self.run("variant.create", json!({"name": name}));
+        }
+        ui.add_space(4.0);
+        for variant in self.project.variants.clone() {
+            let editing = self
+                .build_note
+                .as_ref()
+                .is_some_and(|(name, _)| *name == variant.name);
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&variant.name).strong());
+                    ui.label(format!("{} left off", variant.dnp.len())).on_hover_text(
+                        "Parts this build skips; the bill of materials leaves them out too.",
+                    );
+                    if !editing {
+                        if ui
+                            .small_button("Note")
+                            .on_hover_text(
+                                "Write a short reminder of what makes this build different.",
+                            )
+                            .clicked()
+                        {
+                            self.build_note = Some((
+                                variant.name.clone(),
+                                variant.note.clone().unwrap_or_default(),
+                            ));
+                        }
+                        if ui
+                            .small_button("Remove")
+                            .on_hover_text(
+                                "Delete this extra build; the design itself does not change.",
+                            )
+                            .clicked()
+                        {
+                            self.run("variant.remove", json!({"name": variant.name}));
+                        }
+                    }
+                });
+                if let Some(note) = &variant.note
+                    && !editing
+                {
+                    ui.label(egui::RichText::new(note).small().color(self.muted()));
+                }
+                if editing {
+                    let mut text = self
+                        .build_note
+                        .as_ref()
+                        .map(|(_, note)| note.clone())
+                        .unwrap_or_default();
+                    ui.add(
+                        egui::TextEdit::multiline(&mut text)
+                            .desired_width(200.0)
+                            .hint_text("what this build changes"),
+                    )
+                    .on_hover_text("A sentence or two, saved with the design.");
+                    let save = ui
+                        .button("Save note")
+                        .on_hover_text("Keep this reminder on the build.")
+                        .clicked();
+                    let cancel = ui
+                        .small_button("Cancel")
+                        .on_hover_text("Leave the build's reminder as it was.")
+                        .clicked();
+                    if save {
+                        self.build_note = None;
+                        let note = if text.trim().is_empty() {
+                            None
+                        } else {
+                            Some(text.trim().to_owned())
+                        };
+                        self.run("variant.set_note", json!({"name": variant.name, "note": note}));
+                    } else if cancel {
+                        self.build_note = None;
+                    } else if let Some((_, held)) = self.build_note.as_mut() {
+                        *held = text;
+                    }
+                } else {
+                    for id in &variant.dnp {
+                        let Some(reference) = self
+                            .project
+                            .components
+                            .iter()
+                            .find(|c| c.id == *id)
+                            .map(|c| c.reference.clone())
+                        else {
+                            continue;
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label("· ");
+                            ui.label(&reference);
+                            if ui
+                                .small_button("\u{d7}")
+                                .on_hover_text("Put this part back on for this build.")
+                                .clicked()
+                            {
+                                self.run(
+                                    "variant.set_dnp",
+                                    json!({"name": variant.name, "ids": [id], "dnp": false}),
+                                );
+                            }
+                        });
+                    }
+                    let free: Vec<String> = self
+                        .project
+                        .components
+                        .iter()
+                        .filter(|c| !variant.dnp.contains(&c.id))
+                        .map(|c| c.reference.clone())
+                        .collect();
+                    let mut pick = self.build_pick.clone().unwrap_or_default();
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt(("build-pick", variant.name.clone()))
+                            .selected_text(if pick.is_empty() {
+                                "choose a part to leave off".to_owned()
+                            } else {
+                                pick.clone()
+                            })
+                            .show_ui(ui, |ui| {
+                                for reference in &free {
+                                    if ui
+                                        .selectable_label(&pick == reference, reference)
+                                        .on_hover_text("A part this build still populates.")
+                                        .clicked()
+                                    {
+                                        pick = reference.clone();
+                                        ui.close();
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text(
+                                "Pick a part, then Leave off: this build skips it and its parts list leaves it out.",
+                            );
+                        if ui
+                            .add_enabled(!pick.is_empty(), egui::Button::new("Leave off"))
+                            .on_hover_text(
+                                "This build skips the chosen part; nothing is deleted.",
+                            )
+                            .clicked()
+                            && let Some(component) = self
+                                .project
+                                .components
+                                .iter()
+                                .find(|c| c.reference == pick)
+                                .map(|c| c.id)
+                        {
+                            self.run(
+                                "variant.set_dnp",
+                                json!({"name": variant.name, "ids": [component], "dnp": true}),
+                            );
+                            self.build_pick = None;
+                            pick.clear();
+                        }
+                    });
+                    self.build_pick = if pick.is_empty() {
+                        None
+                    } else {
+                        Some(pick)
+                    };
+                    if free.is_empty() {
+                        ui.label(
+                            egui::RichText::new("Every part in this design is left off.")
+                                .small()
+                                .color(self.muted()),
+                        );
+                    }
+                }
+            });
+        }
+        if self.project.variants.is_empty() {
+            ui.label(
+                egui::RichText::new("No extra builds; this board is built exactly as designed.")
+                    .small()
+                    .color(self.muted()),
             );
         }
     }
@@ -3625,6 +3845,84 @@ mod tests {
         assert!(
             app.project.net_classes[0].nets.is_empty(),
             "the connection is released to the defaults: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Builds")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "No extra builds")?,
+            "a plain design says so: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "New build")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.variants.len(),
+            1,
+            "one click adds one build: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "choose a part to leave off")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "R1")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Leave off")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let r1 = app
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R1")
+            .map(|c| c.id)
+            .ok_or("the sample should have an R1")?;
+        assert!(
+            app.project.variants[0].dnp.contains(&r1),
+            "the build leaves R1 off: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "1 left off")?,
+            "the row counts what it skips"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Note")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.build_note = Some((app.project.variants[0].name.clone(), "no blue LED".into()));
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Save note")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.variants[0].note.as_deref(),
+            Some("no blue LED"),
+            "the reminder is kept: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "no blue LED")?,
+            "the reminder shows on the row"
+        );
+        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.variants[0].dnp.is_empty(),
+            "the part is back on the build: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Remove")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.variants.is_empty(),
+            "the build is gone: {}",
             app.message
         );
         Ok(())
