@@ -98,6 +98,29 @@ fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
     ]
 }
 
+/// The stackup roles the engine accepts, paired with the words a newcomer reads.
+const STACK_ROLES: [(&str, &str); 7] = [
+    ("copper", "copper"),
+    ("core", "core"),
+    ("prepreg", "prepreg"),
+    ("soldermask", "solder mask"),
+    ("silkscreen", "silk"),
+    ("paste", "paste"),
+    ("custom", "custom"),
+];
+fn role_label(kind: &str) -> String {
+    STACK_ROLES
+        .iter()
+        .find(|(token, _)| *token == kind)
+        .map_or_else(|| kind.to_owned(), |(_, label)| (*label).to_owned())
+}
+fn role_token(label: &str) -> Option<&'static str> {
+    STACK_ROLES
+        .iter()
+        .find(|(_, l)| *l == label)
+        .map(|(token, _)| *token)
+}
+
 /// What the mouse and keys will do next for the active tool. The strip is
 /// rendered under the toolbar so the next action is always visible instead
 /// of being something the user has to remember.
@@ -385,6 +408,10 @@ pub struct App {
     class_pick: Option<String>,
     build_note: Option<(String, String)>,
     build_pick: Option<String>,
+    stack_name: String,
+    stack_kind: String,
+    stack_thickness: f64,
+    stack_edit: Option<(String, String, f64)>,
     net_editor: Option<pcbcraft_doc::Id>,
     pin_pick: Option<String>,
     net_draft: Option<(pcbcraft_doc::Id, String)>,
@@ -585,6 +612,10 @@ impl App {
             class_pick: None,
             build_note: None,
             build_pick: None,
+            stack_name: String::new(),
+            stack_kind: "core".to_owned(),
+            stack_thickness: 1.2,
+            stack_edit: None,
             net_editor: None,
             pin_pick: None,
             net_draft: None,
@@ -805,7 +836,185 @@ impl App {
             .iter()
             .any(|hidden| hidden == name)
     }
+    fn stackup_section(&mut self, ui: &mut egui::Ui) {
+        ui.label(
+            egui::RichText::new("BOARD STACKUP")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "The physical board: copper, core and covering layers, recorded for the factory.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        if self.project.board.layer_records.is_empty() {
+            ui.label(
+                egui::RichText::new(
+                    "Nothing recorded yet: this board leaves the shop as two copper layers, 1.6 mm.",
+                )
+                .small()
+                .color(self.muted()),
+            );
+        }
+        for record in self.project.board.layer_records.clone() {
+            let editing = self
+                .stack_edit
+                .as_ref()
+                .is_some_and(|(name, _, _)| *name == record.name);
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&record.name).strong());
+                    ui.label(format!(
+                        "{} · {:.3} mm",
+                        role_label(&record.kind),
+                        record.thickness
+                    ))
+                    .on_hover_text("What this layer is and how thick it is, as recorded.");
+                    if !editing
+                        && ui
+                            .small_button("Tune")
+                            .on_hover_text("Change this layer's role or thickness.")
+                            .clicked()
+                    {
+                        self.stack_edit = Some((
+                            record.name.clone(),
+                            role_label(&record.kind),
+                            record.thickness,
+                        ));
+                    }
+                });
+                if editing {
+                    let Some((_, label, thickness)) = self.stack_edit.as_mut() else {
+                        return;
+                    };
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt(("stack-kind", record.name.clone()))
+                            .selected_text(label.clone())
+                            .show_ui(ui, |ui| {
+                                for (_, words) in STACK_ROLES {
+                                    if ui
+                                        .selectable_label(label == words, words)
+                                        .on_hover_text("What this layer does in the board.")
+                                        .clicked()
+                                    {
+                                        *label = (*words).to_owned();
+                                        ui.close();
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text("Pick what this layer is made of and does.");
+                        ui.add(
+                            egui::DragValue::new(thickness)
+                                .speed(0.01)
+                                .range(0.0..=100.0)
+                                .suffix(" mm"),
+                        )
+                        .on_hover_text("How thick this layer is, in millimetres.");
+                    });
+                    let apply = ui
+                        .button("Apply")
+                        .on_hover_text("Keep these changes for this layer.")
+                        .clicked();
+                    let cancel = ui
+                        .small_button("Cancel")
+                        .on_hover_text("Leave this layer as it was.")
+                        .clicked();
+                    if apply {
+                        if let Some((name, label, thickness)) = self.stack_edit.take()
+                            && let Some(token) = role_token(&label)
+                        {
+                            self.run(
+                                "board.set_layer_record",
+                                json!({"name": name, "kind": token, "thickness": thickness}),
+                            );
+                        }
+                    } else if cancel {
+                        self.stack_edit = None;
+                    }
+                }
+            });
+        }
+        if !self.project.board.layer_records.is_empty() {
+            let total: f64 = self
+                .project
+                .board
+                .layer_records
+                .iter()
+                .map(|r| r.thickness)
+                .sum();
+            ui.label(
+                egui::RichText::new(format!("Recorded layers add up to {:.3} mm.", total))
+                    .small()
+                    .color(self.muted()),
+            );
+        }
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.stack_name)
+                    .desired_width(70.0)
+                    .hint_text("layer name"),
+            )
+            .on_hover_text("Name this layer, for example Core, Prepreg or L2.");
+            egui::ComboBox::from_id_salt("stack-add-kind")
+                .selected_text(self.stack_kind.clone())
+                .show_ui(ui, |ui| {
+                    for (_, words) in STACK_ROLES {
+                        if ui
+                            .selectable_label(self.stack_kind == words, words)
+                            .on_hover_text("What this layer does in the board.")
+                            .clicked()
+                        {
+                            self.stack_kind = (*words).to_owned();
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("Pick what this layer is made of and does.");
+            ui.add(
+                egui::DragValue::new(&mut self.stack_thickness)
+                    .speed(0.01)
+                    .range(0.0..=100.0)
+                    .suffix(" mm"),
+            )
+            .on_hover_text("How thick this layer is, in millimetres.");
+            if ui
+                .add_enabled(
+                    !self.stack_name.trim().is_empty(),
+                    egui::Button::new("Add layer"),
+                )
+                .on_hover_text(
+                    "Record this layer in the board stackup; the factory sheets list it.",
+                )
+                .clicked()
+                && let Some(token) = role_token(&self.stack_kind.clone())
+            {
+                let name = self.stack_name.trim().to_owned();
+                self.run(
+                    "board.set_layer_record",
+                    json!({"name": name, "kind": token, "thickness": self.stack_thickness}),
+                );
+                self.stack_name.clear();
+            }
+        });
+        if !self.project.board.layer_records.is_empty()
+            && ui
+                .button("Back to a plain two-layer board")
+                .on_hover_text(
+                    "Forget every recorded layer; the board itself and its wiring stay as they are.",
+                )
+                .clicked()
+        {
+            self.stack_edit = None;
+            self.run("board.clear_layer_records", json!({}));
+        }
+    }
     fn layers_tab(&mut self, ui: &mut egui::Ui) {
+        self.stackup_section(ui);
+        ui.add_space(16.0);
         let rows: &[&str] = match self.tab {
             Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
             Tab::Pcb => &[
@@ -4257,6 +4466,78 @@ mod tests {
         assert!(
             app.project.variants.is_empty(),
             "the build is gone: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Nothing recorded yet")?,
+            "a plain board says what it is: {}",
+            app.message
+        );
+        app.stack_name = "Core".into();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Add layer")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.board.layer_records.len(),
+            1,
+            "one layer is recorded: {}",
+            app.message
+        );
+        app.stack_name = "L2".into();
+        app.stack_kind = "copper".into();
+        app.stack_thickness = 0.035;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Add layer")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.board.layer_records.len(),
+            2,
+            "the stackup grows layer by layer: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "add up to 1.235 mm")?,
+            "the sheet totals the board: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Tune")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.stack_edit = Some(("L2".into(), "copper".into(), 0.05));
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Apply")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let l2 = app
+            .project
+            .board
+            .layer_records
+            .iter()
+            .find(|r| r.name == "L2")
+            .ok_or("L2 should still be in the stackup")?;
+        assert!(
+            (l2.thickness - 0.05).abs() < 1e-9 && l2.kind == "copper",
+            "the tuned layer keeps its new numbers: {} {} · {}",
+            l2.kind,
+            l2.thickness,
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Back to a plain two-layer board")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.board.layer_records.is_empty(),
+            "the stackup notes are forgotten: {}",
             app.message
         );
         Ok(())
