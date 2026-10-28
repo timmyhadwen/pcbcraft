@@ -3478,6 +3478,10 @@ impl App {
                         {
                             let curved = track.arc.is_some();
                             let net = track.net;
+                            let mid = (
+                                (track.start.x + track.end.x) / 2.0,
+                                (track.start.y + track.end.y) / 2.0,
+                            );
                             let near = |a: Point, b: Point| {
                                 (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
                             };
@@ -3576,6 +3580,18 @@ impl App {
                                     );
                                 }
                             });
+                            if ui
+                                .button("Cut in half")
+                                .on_hover_text(
+                                    "Break this stretch of wire into two equal halves so you can bend, branch or re-route part of it. Undo joins it back into one.",
+                                )
+                                .clicked()
+                            {
+                                self.run(
+                                    "track.split",
+                                    json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
+                                );
+                            }
                         }
                     }
                     ui.add_space(10.0);
@@ -6203,6 +6219,58 @@ mod tests {
             legs.len() > 1 && legs.iter().all(|w| (w - 0.6).abs() < 1e-9),
             "every stretch of the connection is now half a millimetre across: {:?}",
             legs
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_cuts_a_wire_in_half() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        let (id, middle, before) = app
+            .project
+            .board
+            .tracks
+            .first()
+            .map(|t| {
+                (
+                    t.id,
+                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
+                    app.project.board.tracks.len(),
+                )
+            })
+            .ok_or("routing should leave a wire to cut")?;
+        app.select(Some(id));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Cut in half")?,
+            "a chosen wire offers to be cut in half: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Cut in half")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            app.project.board.tracks.len(),
+            before + 1,
+            "one wire becomes two: {}",
+            app.message
+        );
+        let on_mid = |p: Point| (p.x - middle.x).abs() < 1e-6 && (p.y - middle.y).abs() < 1e-6;
+        assert!(
+            app.project
+                .board
+                .tracks
+                .iter()
+                .any(|t| on_mid(t.start) || on_mid(t.end)),
+            "the two halves meet exactly at the middle of the original wire"
         );
         Ok(())
     }
