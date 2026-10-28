@@ -704,12 +704,14 @@ impl App {
                                         &mut pad.pad_type,
                                         "smd".into(),
                                         "Front SMD",
-                                    );
+                                    )
+                                    .on_hover_text("Soldered to the board surface; no drill hole.");
                                     ui.selectable_value(
                                         &mut pad.pad_type,
                                         "thru_hole".into(),
                                         "Plated through-hole",
-                                    );
+                                    )
+                                    .on_hover_text("Drilled and plated so legs can pass through.");
                                 });
                             if before != pad.pad_type {
                                 if pad.pad_type == "thru_hole" {
@@ -728,7 +730,10 @@ impl App {
                                 .selected_text(&pad.shape)
                                 .show_ui(ui, |ui| {
                                     for shape in ["circle", "rect", "oval", "roundrect"] {
-                                        ui.selectable_value(&mut pad.shape, shape.into(), shape);
+                                        ui.selectable_value(&mut pad.shape, shape.into(), shape)
+                                            .on_hover_text(
+                                                "Copper outline of the pad; the mask follows it.",
+                                            );
                                     }
                                 });
                             if pad.shape == "roundrect" {

@@ -1039,12 +1039,14 @@ impl App {
                                     &mut self.route_layer,
                                     pcbcraft_doc::Layer::Front,
                                     "F.Cu",
-                                );
+                                )
+                                .on_hover_text("Route on the copper layer facing the components.");
                                 ui.selectable_value(
                                     &mut self.route_layer,
                                     pcbcraft_doc::Layer::Back,
                                     "B.Cu",
-                                );
+                                )
+                                .on_hover_text("Route on the copper layer on the underside.");
                             });
                         if ui
                             .selectable_label(matches!(self.tool, Tool::Route(_)), "Route  X")
@@ -1070,17 +1072,20 @@ impl App {
                                     &mut self.preferences.pad_labels,
                                     PadLabels::Number,
                                     PadLabels::Number.name(),
-                                );
+                                )
+                                .on_hover_text("Draw each pad's own number on the board.");
                                 ui.selectable_value(
                                     &mut self.preferences.pad_labels,
                                     PadLabels::Net,
                                     PadLabels::Net.name(),
-                                );
+                                )
+                                .on_hover_text("Draw the net name on each pad, useful when debugging.");
                                 ui.selectable_value(
                                     &mut self.preferences.pad_labels,
                                     PadLabels::Off,
                                     PadLabels::Off.name(),
-                                );
+                                )
+                                .on_hover_text("Hide the pad labels for a clean picture.");
                             })
                             .response
                             .on_hover_text(
@@ -1147,7 +1152,11 @@ impl App {
                         self.palette = false;
                     }
                     for t in TEMPLATES {
-                        if ui.button(t.label).clicked() {
+                        if ui
+                            .button(t.label)
+                            .on_hover_text("Place this part on the schematic; click the sheet to drop it.")
+                            .clicked()
+                        {
                             self.change_tab(Tab::Schematic);
                             self.tool = Tool::Place(t.kind.into());
                             self.palette = false;
@@ -1177,6 +1186,7 @@ impl App {
                             self.selected == Some(id),
                             format!("{}   {}", c.reference, c.value),
                         )
+                        .on_hover_text("Select this component and show its properties.")
                         .clicked()
                     {
                         self.select(Some(id));
@@ -1257,8 +1267,10 @@ impl App {
                     ui.heading("Appearance");
                     ui.add_space(12.0);
                     ui.horizontal(|ui| {
-                        ui.selectable_value(&mut self.preferences.dark, true, "Dark");
-                        ui.selectable_value(&mut self.preferences.dark, false, "Light");
+                        ui.selectable_value(&mut self.preferences.dark, true, "Dark")
+                            .on_hover_text("Dark canvas and panels, the usual working look.");
+                        ui.selectable_value(&mut self.preferences.dark, false, "Light")
+                            .on_hover_text("Light canvas and panels, easier on printed previews.");
                     });
                     ui.checkbox(&mut self.preferences.grid, "Show grid");
                     ui.label("Accent color");
@@ -1293,7 +1305,8 @@ impl App {
                                             &mut self.selected_unit,
                                             unit,
                                             format!("Unit {unit}"),
-                                        );
+                                        )
+                                        .on_hover_text("Edit or move this half of the part on its own.");
                                     }
                                 });
                             if before != self.selected_unit {
@@ -1445,6 +1458,7 @@ impl App {
                     .unwrap_or(0);
                 if ui
                     .button(format!("{erc} electrical · {drc} board >"))
+                    .on_hover_text("Open the checks tab for the full list of findings.")
                     .clicked()
                 {
                     self.change_tab(Tab::Checks);
@@ -1648,11 +1662,17 @@ impl App {
                                 }
                             }
                             for (row, spec) in matches.iter().enumerate() {
-                                let response = ui.selectable_label(
-                                    self.command == spec.id
-                                        || row == step_index(self.command_index, matches.len(), 0),
-                                    format!("{}   {}", spec.id, spec.description),
-                                );
+                                let response = ui
+                                    .selectable_label(
+                                        self.command == spec.id
+                                            || row == step_index(
+                                                self.command_index,
+                                                matches.len(),
+                                                0,
+                                            ),
+                                        format!("{}   {}", spec.id, spec.description),
+                                    )
+                                    .on_hover_text("Load this command with a starter parameter set.");
                                 if row == self.command_index && self.command_scroll {
                                     response.scroll_to_me(Some(egui::Align::Center));
                                 }
@@ -1750,7 +1770,10 @@ impl App {
                         f.get("code").and_then(Value::as_str).unwrap_or("finding"),
                         f.get("message").and_then(Value::as_str).unwrap_or("")
                     );
-                    if ui.button(text).clicked()
+                    if ui
+                        .button(text)
+                        .on_hover_text("Jump to the first object this finding points at.")
+                        .clicked()
                         && let Some(id) = f.pointer("/objects/0").and_then(Value::as_u64)
                     {
                         self.change_tab(if key == "erc" {
@@ -2181,6 +2204,37 @@ mod tests {
         assert!(
             offenders.is_empty(),
             "buttons and labels must speak plainly, not name other tools: {offenders:?}"
+        );
+    }
+
+    #[test]
+    fn every_control_hovers_a_plain_sentence_for_a_first_time_user() {
+        let click = [".button", "("].concat();
+        let pick = [".selectable_", "label("].concat();
+        let choice = [".selectable_", "value("].concat();
+        let tip = ["on_hover", "_text"].concat();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders = Vec::new();
+        for file in ["lib.rs", "canvas.rs", "library.rs", "authoring.rs"] {
+            let text = std::fs::read_to_string(dir.join(file)).unwrap_or_default();
+            let lines: Vec<&str> = text.lines().collect();
+            for (n, line) in lines.iter().enumerate() {
+                let code = line.split("//").next().unwrap_or("");
+                if !(code.contains(&click) || code.contains(&pick) || code.contains(&choice)) {
+                    continue;
+                }
+                let window: String = lines[n.min(n)..(n + 10).min(lines.len())]
+                    .iter()
+                    .map(|l| l.split("//").next().unwrap_or(""))
+                    .collect();
+                if !window.contains(&tip) {
+                    offenders.push(format!("{file}:{}: {}", n + 1, code.trim()));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "every clickable control must explain itself on hover: {offenders:?}"
         );
     }
 

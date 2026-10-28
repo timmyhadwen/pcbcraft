@@ -281,6 +281,7 @@ impl App {
                         ) {
                             changed |= ui
                                 .selectable_value(&mut self.library.path, path.to_owned(), name)
+                                .on_hover_text("Browse this collection.")
                                 .changed();
                         }
                     }
@@ -469,7 +470,8 @@ impl App {
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Preview unit");
                     for unit in units {
-                        ui.selectable_value(&mut self.library.preview_unit, unit, unit.to_string());
+                        ui.selectable_value(&mut self.library.preview_unit, unit, unit.to_string())
+                            .on_hover_text("Draw this half of the part in the preview.");
                     }
                 });
             }
