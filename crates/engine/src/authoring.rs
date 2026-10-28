@@ -51,7 +51,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.graphic_mirror","Flip one graphic on a project-library symbol about the vertical axis, as one undoable step, turning its text to follow, so a single mirrored drawing element can be corrected without flipping the whole symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","index","axis"])),
         ("library.footprint.graphic_scale","Resize one graphic on a project-library footprint about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the package",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the footprint origin, above 0 and up to 1000"}}),&["name","index","factor"])),
         ("library.symbol.graphic_scale","Resize one graphic on a project-library symbol about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the symbol origin, above 0 and up to 1000"}}),&["name","index","factor"])),
-        ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords or linked footprint one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"}}),&["name"])),
+        ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords, linked footprint or set name one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"},"set":{"type":"string","description":"name of the collection this part belongs to; empty clears it, and the parts list groups parts by set"}}),&["name"])),
         ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
         ("library.symbol.rename","Rename a project-library symbol in place as one undoable step, keeping every pin and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
         ("library.footprint.rename","Rename a project-library footprint in place as one undoable step, keeping every pad and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
@@ -175,6 +175,8 @@ struct SetPropertyParams {
     keywords: Option<String>,
     #[serde(default)]
     footprint: Option<String>,
+    #[serde(default)]
+    set: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1890,7 +1892,8 @@ pub(super) fn run(
                 || a.value.is_some()
                 || a.description.is_some()
                 || a.keywords.is_some()
-                || a.footprint.is_some();
+                || a.footprint.is_some()
+                || a.set.is_some();
             if !touched {
                 return Err(Error::Invalid(
                     "give at least one property to change".into(),
@@ -1902,6 +1905,7 @@ pub(super) fn run(
                 a.description.as_deref(),
                 a.keywords.as_deref(),
                 a.footprint.as_deref(),
+                a.set.as_deref(),
             ]
             .into_iter()
             .flatten()
@@ -1935,6 +1939,9 @@ pub(super) fn run(
                 if let Some(v) = a.footprint {
                     symbol.footprint = v;
                 }
+                if let Some(v) = a.set {
+                    symbol.set = v;
+                }
                 symbol
                     .validate()
                     .map_err(|e| Error::Invalid(e.to_string()))?;
@@ -1946,7 +1953,11 @@ pub(super) fn run(
                     .iter_mut()
                     .find(|f| f.name == name)
                     .ok_or_else(missing)?;
-                if a.reference.is_some() || a.value.is_some() || a.footprint.is_some() {
+                if a.reference.is_some()
+                    || a.value.is_some()
+                    || a.footprint.is_some()
+                    || a.set.is_some()
+                {
                     return Err(Error::Invalid(
                         "footprints carry description and keywords only".into(),
                     ));

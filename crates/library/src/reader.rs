@@ -192,6 +192,7 @@ fn resolve(
             description: String::new(),
             keywords: String::new(),
             footprint: String::new(),
+            set: String::new(),
             pins: Vec::new(),
             graphics: Vec::new(),
             extends: None,

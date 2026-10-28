@@ -2890,4 +2890,35 @@ mod drill_tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn a_set_name_on_a_library_part_survives_a_save() -> Result<(), String> {
+        let def = pcbcraft_library::SymbolDefinition {
+            name: "SetR".into(),
+            reference: "R".into(),
+            value: "10k".into(),
+            description: "thin film".into(),
+            keywords: "resistor".into(),
+            footprint: String::new(),
+            set: "Power bits".into(),
+            pins: vec![],
+            graphics: vec![],
+            extends: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        let text = serde_json::to_string(&def).map_err(|e| e.to_string())?;
+        assert!(text.contains("Power bits"), "the set travels in the file");
+        let back: pcbcraft_library::SymbolDefinition =
+            serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert_eq!(back.set, "Power bits", "and reads back intact");
+        let plain = text.replace("\"set\":\"Power bits\",", "");
+        let old: pcbcraft_library::SymbolDefinition =
+            serde_json::from_str(&plain).map_err(|e| e.to_string())?;
+        assert_eq!(
+            old.set, "",
+            "parts saved before sets existed load with no set"
+        );
+        Ok(())
+    }
 }

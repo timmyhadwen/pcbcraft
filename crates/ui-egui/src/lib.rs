@@ -583,6 +583,7 @@ pub struct App {
     appearance: bool,
     palette: bool,
     part_search: String,
+    hidden_sets: Vec<String>,
     svg_path: String,
     part_search_focus: bool,
     needs_fit: bool,
@@ -611,6 +612,33 @@ pub struct App {
     capture: Option<String>,
     frames: u32,
     library: library::Browser,
+}
+impl App {
+    /// One library part offered as a small card: its name to pick, and a
+    /// plain line saying what it is and what it answers to when searched.
+    fn part_card(&mut self, ui: &mut egui::Ui, definition: &pcbcraft_library::SymbolDefinition) {
+        if ui
+            .button(&definition.name)
+            .on_hover_text("Pick this saved part; the next click on the schematic places it.")
+            .clicked()
+        {
+            self.change_tab(Tab::Schematic);
+            self.tool = Tool::CustomPlace(definition.name.clone(), Box::new(definition.clone()));
+            self.palette = false;
+            self.part_search.clear();
+        }
+        let tags: Vec<&str> = definition.keywords.split_whitespace().collect();
+        let words = tags.join(" · ");
+        let note = match (definition.description.trim(), words.as_str()) {
+            ("", "") => String::new(),
+            ("", tags) => format!("search words: {tags}"),
+            (what, "") => what.to_owned(),
+            (what, tags) => format!("{what} · search words: {tags}"),
+        };
+        if !note.is_empty() {
+            ui.label(egui::RichText::new(note).small().color(self.muted()));
+        }
+    }
 }
 /// Plain-language facts about a selected board or schematic object that is not
 /// a component, so the properties panel can describe tracks, vias, zones,
@@ -882,6 +910,7 @@ impl App {
             appearance: false,
             palette: false,
             part_search: String::new(),
+            hidden_sets: Vec::new(),
             svg_path: String::new(),
             part_search_focus: false,
             needs_fit: true,
@@ -2702,7 +2731,10 @@ impl App {
                         .symbols
                         .iter()
                         .filter(|d| {
-                            query.is_empty() || d.name.to_lowercase().contains(&query)
+                            query.is_empty()
+                                || d.name.to_lowercase().contains(&query)
+                                || d.keywords.to_lowercase().contains(query.as_str())
+                                || d.set.to_lowercase().contains(query.as_str())
                         })
                         .cloned()
                         .collect();
@@ -2743,22 +2775,50 @@ impl App {
                                 .size(10.0)
                                 .color(self.muted()),
                         );
+                        let mut sets: std::collections::BTreeMap<
+                            String,
+                            Vec<pcbcraft_library::SymbolDefinition>,
+                        > = std::collections::BTreeMap::new();
                         for definition in saved {
-                            if ui
-                                .button(&definition.name)
-                                .on_hover_text(
-                                    "Pick this saved part; the next click on the schematic places it.",
-                                )
-                                .clicked()
-                            {
-                                self.change_tab(Tab::Schematic);
-                                self.tool = Tool::CustomPlace(
-                                    definition.name.clone(),
-                                    Box::new(definition),
-                                );
-                                self.palette = false;
-                                self.part_search.clear();
+                            sets.entry(definition.set.trim().to_owned())
+                                .or_default()
+                                .push(definition);
+                        }
+                        let loose = sets.remove("");
+                        for (set, definitions) in &sets {
+                            let mut shown = !self.hidden_sets.iter().any(|h| h == set);
+                            let row = ui.checkbox(
+                                &mut shown,
+                                egui::RichText::new(format!(
+                                    "{set} ({} part{})",
+                                    definitions.len(),
+                                    if definitions.len() == 1 {
+                                        ""
+                                    } else {
+                                        "s"
+                                    }
+                                ))
+                                .strong(),
+                            )
+                            .on_hover_text(
+                                "Parts grouped under this name. Untick to hide the whole group while you add parts.",
+                            );
+                            if row.changed() {
+                                if shown {
+                                    self.hidden_sets.retain(|h| h != set);
+                                } else {
+                                    self.hidden_sets.push(set.clone());
+                                }
                             }
+                            if !shown {
+                                continue;
+                            }
+                            for definition in definitions {
+                                self.part_card(ui, definition);
+                            }
+                        }
+                        for definition in loose.unwrap_or_default() {
+                            self.part_card(ui, &definition);
                         }
                     }
                     if ui
@@ -2796,6 +2856,29 @@ impl App {
                     {
                         self.select(Some(id));
                     }
+                    let what = c
+                        .field("Description")
+                        .map(str::to_owned)
+                        .or_else(|| {
+                            c.library_symbol.as_ref().map(|ls| {
+                                ls.definition.description.clone()
+                            })
+                        })
+                        .map(|d| d.trim().to_owned())
+                        .filter(|d| !d.is_empty());
+                    let origin = c.library_symbol.as_ref().map_or_else(
+                        || "built in".to_string(),
+                        |ls| format!("from {}", ls.definition.name),
+                    );
+                    let note = what.map_or_else(
+                        || origin.clone(),
+                        |d| format!("{d} · {origin}"),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!("    {note}"))
+                            .small()
+                            .color(self.muted()),
+                    );
                 }
                 if self.project.components.is_empty() {
                     empty_state(ui, EMPTY_SYMBOLS, self.muted());
@@ -9705,6 +9788,83 @@ mod tests {
         assert!(
             app.project.custom_checks.is_empty(),
             "one click takes the check away again: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let r1 = app
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R1")
+            .map(|c| c.id)
+            .ok_or("the practice board should have a resistor")?;
+        app.tool_call(
+            "component.field",
+            json!({"id": r1, "key": "Description", "value": "blinky red"}),
+        );
+        app.tool_call(
+            "library.symbol.upsert",
+            json!({"definition": {
+                "name": "SetR",
+                "reference": "R",
+                "value": "10k",
+                "description": "thin film",
+                "keywords": "resistor trim",
+                "footprint": "",
+                "set": "Power bits",
+                "pins": [{"number": "1", "name": "", "position": {"x": -5.0, "y": 0.0},
+                    "angle": 0.0, "length": 2.5, "electrical_type": "passive",
+                    "unit": 1, "body_style": 0}],
+                "graphics": [],
+                "extends": null,
+                "raw_source": "",
+                "unsupported": []
+            }}),
+        );
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "    blinky red · built in")?,
+            "a part row says what the part is and where it came from: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Add part")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Power bits (1 part)")?,
+            "library parts are grouped under their set name: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "thin film · search words: resistor · trim")?,
+            "each library part is a card that says what it is: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "SetR")?,
+            "the part itself is offered under its set: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Power bits (1 part)")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            !paints_text(&ctx, &mut app, "SetR")?,
+            "unticking the set hides every part inside it: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Power bits (1 part)")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "SetR")?,
+            "ticking it again brings the group back: {}",
             app.message
         );
         Ok(())

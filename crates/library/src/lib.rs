@@ -17,6 +17,10 @@ pub struct SymbolDefinition {
     pub description: String,
     pub keywords: String,
     pub footprint: String,
+    /// Name of the collection this part belongs to, for example "Common
+    /// parts". Empty means the part has no set and is listed on its own.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub set: String,
     pub pins: Vec<SymbolPin>,
     pub graphics: Vec<UnitGraphic>,
     pub extends: Option<String>,

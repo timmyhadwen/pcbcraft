@@ -75,6 +75,7 @@ fn new_symbol() -> SymbolDefinition {
         description: "Custom symbol".into(),
         keywords: String::new(),
         footprint: String::new(),
+        set: String::new(),
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
@@ -496,6 +497,11 @@ impl App {
                 text(ui, "Default value", &mut def.value);
                 text(ui, "Description", &mut def.description);
                 text(ui, "Suggested footprint", &mut def.footprint);
+                ui.horizontal(|ui| {
+                    ui.label("Set")
+                        .on_hover_text("Optional group name, like Power bits. Parts that share a set are grouped together when you add parts, and the group can be hidden.");
+                    ui.text_edit_singleline(&mut def.set);
+                });
                 self.library_preview(ui, Some(def), None);
                 if let Err(e) = def.validate() {
                     ui.colored_label(Color32::LIGHT_RED, e.to_string());

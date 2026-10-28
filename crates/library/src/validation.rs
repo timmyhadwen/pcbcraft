@@ -116,6 +116,7 @@ impl SymbolDefinition {
             &self.description,
             &self.keywords,
             &self.footprint,
+            &self.set,
         ] {
             text(s)?;
         }
