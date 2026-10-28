@@ -28,15 +28,19 @@ allow = [
     "CC0-1.0",
     "MPL-2.0",
 ]
-exceptions = []
+# egui ships the Ubuntu and Hack fonts as embedded data. Both are free font
+# licenses; the exception is limited to the one crate that carries them.
+exceptions = [
+    { allow = ["OFL-1.1", "Ubuntu-font-1.0"], crate = "epaint_default_fonts" },
+]
 
 [licenses.private]
 ignore = true
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
-allow-wildcard-paths = true
+# Workspace crates depend on each other by path without a version.
+wildcards = "allow"
 
 [sources]
 unknown-registry = "deny"
