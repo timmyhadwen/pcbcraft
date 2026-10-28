@@ -390,6 +390,7 @@ pub struct App {
     cutout_radius: f64,
     path: String,
     saved_revision: Option<u64>,
+    title_draft: Option<String>,
     command: String,
     params: String,
     command_open: bool,
@@ -581,6 +582,7 @@ impl App {
             command: "component.add".into(),
             params: "{\"kind\":\"resistor\",\"position\":{\"x\":30,\"y\":20}}".into(),
             command_open: false,
+            title_draft: None,
             command_query: String::new(),
             shortcuts_open: false,
             command_focus: false,
@@ -678,6 +680,19 @@ impl App {
         }
         success
     }
+    fn commit_title(&mut self) {
+        let draft = self
+            .title_draft
+            .take()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if draft.is_empty() || draft == self.project.name {
+            return;
+        }
+        self.tool_call("project.rename", json!({"name": draft}));
+    }
+
     fn accent(&self) -> Color32 {
         if !self.preferences.dark && self.preferences.accent == [91, 224, 188] {
             return Color32::from_rgb(18, 135, 110);
@@ -889,7 +904,40 @@ impl App {
                         .color(self.accent()),
                 );
                 ui.label(egui::RichText::new("/").color(self.muted()));
-                ui.label(egui::RichText::new(&self.project.name).size(16.0));
+                match self.title_draft.as_mut() {
+                    None => {
+                        let title = ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&self.project.name).size(16.0),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if title
+                            .on_hover_cursor(egui::CursorIcon::Text)
+                            .on_hover_text("Click to rename this design.")
+                            .clicked()
+                        {
+                            self.title_draft = Some(self.project.name.clone());
+                        }
+                    }
+                    Some(draft) => {
+                        let editor = ui.add(
+                            egui::TextEdit::singleline(draft)
+                                .font(egui::FontId::proportional(16.0))
+                                .desired_width(220.0)
+                                .hint_text("design name"),
+                        );
+                        editor.request_focus();
+                        let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                        let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        let lost = editor.lost_focus();
+                        if escape {
+                            self.title_draft = None;
+                        } else if enter || lost {
+                            self.commit_title();
+                        }
+                    }
+                }
                 if self.saved_revision != Some(self.revision) {
                     ui.label(egui::RichText::new("*").color(self.accent()));
                 }
@@ -1990,6 +2038,45 @@ mod tests {
             );
         }
         assert!(EMPTY_CHECKS.contains("automatically"));
+    }
+
+    #[test]
+    fn the_design_name_can_be_renamed_from_the_header() {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+        let undo_count = |app: &App| {
+            app.session
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .inspect()["history"]["undo"]
+                .as_u64()
+                .unwrap_or_default()
+        };
+        let before = undo_count(&app);
+        app.title_draft = Some("Flight computer".into());
+        app.commit_title();
+        assert_eq!(
+            app.project.name, "Flight computer",
+            "renaming from the header renames the design"
+        );
+        assert_eq!(undo_count(&app), before + 1, "one rename is one undo step");
+        app.title_draft = Some("   ".into());
+        app.commit_title();
+        assert_eq!(
+            app.project.name, "Flight computer",
+            "a blank name keeps the last good one"
+        );
+        app.title_draft = Some("Flight computer".into());
+        app.commit_title();
+        assert_eq!(
+            undo_count(&app),
+            before + 1,
+            "an unchanged name adds no step"
+        );
+        assert!(
+            app.title_draft.is_none(),
+            "committing always closes the editor"
+        );
     }
 
     #[test]
