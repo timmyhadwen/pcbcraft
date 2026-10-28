@@ -463,6 +463,9 @@ pub struct App {
     track_width: f64,
     chamfer_size: f64,
     stitch_spacing: f64,
+    pair_a: Id,
+    pair_b: Id,
+    pair_clearance: f64,
     cut_x: f64,
     cut_y: f64,
     cut_r: f64,
@@ -694,6 +697,9 @@ impl App {
             track_width: 0.25,
             chamfer_size: 0.25,
             stitch_spacing: 3.0,
+            pair_a: 0,
+            pair_b: 0,
+            pair_clearance: 0.4,
             cut_x: 25.0,
             cut_y: 15.0,
             cut_r: 1.5,
@@ -2952,6 +2958,117 @@ impl App {
                     self.run("rules.severity", json!({"code": code, "severity": null}));
                 }
             });
+        }
+        ui.add_space(10.0);
+        ui.label(
+            egui::RichText::new("PAIR CLEARANCES")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "Extra room between two connections that must keep their distance, like a noisy one next to a sensitive one.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        let nets: Vec<(Id, String)> = self
+            .project
+            .nets
+            .iter()
+            .take(64)
+            .map(|n| (n.id, self.project.net_name(n.id).to_owned()))
+            .collect();
+        let name_of = |wanted: Id| {
+            nets.iter()
+                .find(|(id, _)| *id == wanted)
+                .map(|(_, name)| name.clone())
+                .unwrap_or_else(|| format!("net {wanted}"))
+        };
+        if nets.len() >= 2 {
+            if !nets.iter().any(|(id, _)| *id == self.pair_a) {
+                self.pair_a = nets[0].0;
+            }
+            if !nets.iter().any(|(id, _)| *id == self.pair_b) || self.pair_b == self.pair_a {
+                self.pair_b = nets
+                    .iter()
+                    .map(|(id, _)| *id)
+                    .find(|id| *id != self.pair_a)
+                    .unwrap_or(self.pair_b);
+            }
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt("pair_a")
+                    .selected_text(name_of(self.pair_a))
+                    .show_ui(ui, |ui| {
+                        for (id, name) in &nets {
+                            ui.selectable_value(&mut self.pair_a, *id, name);
+                        }
+                    });
+                ui.label("away from");
+                egui::ComboBox::from_id_salt("pair_b")
+                    .selected_text(name_of(self.pair_b))
+                    .show_ui(ui, |ui| {
+                        for (id, name) in &nets {
+                            ui.selectable_value(&mut self.pair_b, *id, name);
+                        }
+                    });
+            });
+            ui.horizontal(|ui| {
+                ui.label("Keep apart by");
+                ui.add(
+                    egui::DragValue::new(&mut self.pair_clearance)
+                        .range(0.05..=25.0)
+                        .speed(0.05)
+                        .suffix(" mm"),
+                )
+                .on_hover_text(
+                    "The least distance the two connections' copper may sit from each other.",
+                );
+            });
+            if ui
+                .button("Set spacing")
+                .on_hover_text(
+                    "Tell the checks these two connections must stay this far apart everywhere on the board. Undo takes the rule away.",
+                )
+                .clicked()
+            {
+                self.run(
+                    "board.set_pair_rule",
+                    json!({"net_a": self.pair_a, "net_b": self.pair_b, "clearance": self.pair_clearance}),
+                );
+            }
+        }
+        let pairs: Vec<(Id, Id, f64)> = self
+            .project
+            .board
+            .pair_rules
+            .iter()
+            .map(|r| (r.a, r.b, r.clearance))
+            .collect();
+        if !pairs.is_empty() {
+            ui.label(
+                egui::RichText::new("Spacing rules you have set between connections")
+                    .small()
+                    .color(self.muted()),
+            );
+            for (a, b, clearance) in pairs {
+                ui.horizontal(|ui| {
+                    ui.label(format!(
+                        "{} away from {} · {clearance} mm",
+                        name_of(a),
+                        name_of(b)
+                    ));
+                    if ui
+                        .small_button("Clear")
+                        .on_hover_text(
+                            "Let these two connections fall back to the normal spacing rules.",
+                        )
+                        .clicked()
+                    {
+                        self.run("board.remove_pair_rule", json!({"net_a": a, "net_b": b}));
+                    }
+                });
+            }
         }
     }
     fn builds_tab(&mut self, ui: &mut egui::Ui) {
@@ -6057,6 +6174,69 @@ mod tests {
             teardrops(&app),
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        assert!(
+            app.project.nets.len() >= 2,
+            "the practice design has more than one connection"
+        );
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        for _ in 0..14 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            paints_text(&ctx, &mut app, "PAIR CLEARANCES")?,
+            "the rules dock should offer pair spacing: {}",
+            app.message
+        );
+        app.pair_clearance = 0.9;
+        authoring::tests::tap(&ctx, &mut app, "Set spacing")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            app.project
+                .board
+                .pair_rules
+                .iter()
+                .any(|r| r.clearance > 0.89 && r.a != r.b),
+            "one click sets a spacing rule between two different connections: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "away from")?,
+            "the rule is listed in plain words: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Clear")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            app.project.board.pair_rules.is_empty(),
+            "clearing hands the pair back to the normal rules: {}",
             app.message
         );
         Ok(())
