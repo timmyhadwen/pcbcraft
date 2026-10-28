@@ -4676,6 +4676,46 @@ mod tests {
     }
 
     #[test]
+    fn clicking_a_pad_starts_a_track_without_any_button() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tab = Tab::Pcb;
+        let from = app
+            .project
+            .footprint(10)
+            .and_then(|f| f.pad_position("1"))
+            .ok_or("the sample should have a footprint 10 with a pad 1")?;
+        let to = app
+            .project
+            .footprint(11)
+            .and_then(|f| f.pad_position("1"))
+            .ok_or("the sample should have a footprint 11 with a pad 1")?;
+        let before = app.project.board.tracks.len();
+        app.canvas_click(from, 1.0);
+        assert!(
+            matches!(&app.tool, Tool::Route(Some((id, pad))) if *id == 10 && pad == "1"),
+            "clicking a pad starts a track: {:?}",
+            app.tool
+        );
+        app.canvas_click(to, 1.0);
+        assert!(
+            app.project.board.tracks.len() > before,
+            "the two pads are joined by a track: {} -> {} · {}",
+            before,
+            app.project.board.tracks.len(),
+            app.message
+        );
+        assert!(
+            matches!(app.tool, Tool::Select),
+            "finishing a track hands the mouse straight back: {:?}",
+            app.tool
+        );
+        Ok(())
+    }
+
+    #[test]
     fn clicking_a_pin_starts_a_wire_without_any_button() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);

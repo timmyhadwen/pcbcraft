@@ -504,21 +504,13 @@ impl App {
                     {
                         self.needs_fit = true;
                     }
-                    if self.tab == Tab::Pcb {
-                        if ui
-                            .selectable_label(matches!(self.tool, Tool::Route(_)), "Route")
-                            .on_hover_text(command_tip("track.add"))
-                            .clicked()
-                        {
-                            self.tool = Tool::Route(None);
-                        }
-                        if ui
+                    if self.tab == Tab::Pcb
+                        && ui
                             .selectable_label(matches!(self.tool, Tool::Cutout), "Cutout")
                             .on_hover_text(command_tip("board.cutout.add"))
                             .clicked()
-                        {
-                            self.tool = Tool::Cutout;
-                        }
+                    {
+                        self.tool = Tool::Cutout;
                     }
                 });
             });
@@ -682,14 +674,17 @@ impl App {
     pub(super) fn canvas_click(&mut self, pos: Point, zoom: f32) {
         match self.tool.clone() {
             Tool::Select => {
-                // A click on a pin starts wiring straight away; no tool
-                // button has to be armed first.
+                self.select_at(pos, zoom);
+                // A click on a pin or pad starts a wire or a track straight
+                // away; no tool button has to be armed first.
                 if self.tab == Tab::Schematic
                     && let Some(pin) = self.pick_pin(pos, zoom)
                 {
                     self.tool = Tool::Wire(Some(pin));
-                } else {
-                    self.select_at(pos, zoom);
+                } else if self.tab == Tab::Pcb
+                    && let Some((id, pad)) = self.pick_pad(pos, zoom)
+                {
+                    self.tool = Tool::Route(Some((id, pad)));
                 }
             }
             Tool::Place(kind) => {
@@ -738,7 +733,7 @@ impl App {
                 if let Some((id, pad)) = self.pick_pad(pos, zoom) {
                     if let Some((from, from_pad)) = start {
                         self.run("track.route",json!({"from":{"footprint":from,"pad":from_pad},"to":{"footprint":id,"pad":pad},"layer":self.route_layer}));
-                        self.tool = Tool::Route(None);
+                        self.tool = Tool::Select;
                     } else {
                         self.tool = Tool::Route(Some((id, pad)));
                     }
