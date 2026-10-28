@@ -498,6 +498,8 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             }
             let text = match format {
                 "kicad_pcb" => pcbcraft_io::kicad_board(&s.project)?,
+                "gerber_f_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Front)?,
+                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Back)?,
                 "svg" => pcbcraft_io::svg(
                     &s.project,
                     args.get("view").and_then(Value::as_str).unwrap_or("pcb"),

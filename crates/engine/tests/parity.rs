@@ -12,8 +12,6 @@
 //! (#351), so it is not frozen as golden truth. Only structural properties of
 //! the stable KiCad export are asserted until the new writers land.
 
-#![allow(clippy::expect_used, clippy::unwrap_used)]
-
 use pcbcraft_doc::Project;
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
@@ -98,12 +96,12 @@ fn line_diff(expected: &str, actual: &str) -> String {
     out
 }
 
-fn compare(case: &str, name: &str, actual: &str, failures: &mut Vec<String>) {
+fn compare(case: &str, name: &str, actual: &str, failures: &mut Vec<String>) -> Result<(), String> {
     let path = golden_dir(case).join(name);
     if blessing() {
         let _ = std::fs::create_dir_all(golden_dir(case));
-        std::fs::write(&path, actual).expect("write golden");
-        return;
+        std::fs::write(&path, actual).map_err(|e| format!("write golden: {e}"))?;
+        return Ok(());
     }
     match std::fs::read_to_string(&path) {
         Ok(expected) if expected == actual => {}
@@ -115,66 +113,78 @@ fn compare(case: &str, name: &str, actual: &str, failures: &mut Vec<String>) {
             "{case}/{name} has no golden (run with PCBCRAFT_BLESS=1)"
         )),
     }
+    Ok(())
 }
 
-fn run_script(session: &mut Session, file: &str) -> Value {
-    let text = std::fs::read_to_string(root().join("examples").join(file)).expect("script");
-    let script: Value = serde_json::from_str(&text).expect("script json");
+fn run_script(session: &mut Session, file: &str) -> Result<Value, String> {
+    let text = std::fs::read_to_string(root().join("examples").join(file))
+        .map_err(|e| format!("script: {e}"))?;
+    let script: Value = serde_json::from_str(&text).map_err(|e| format!("script json: {e}"))?;
     let commands: Vec<Command> =
-        serde_json::from_value(script["commands"].clone()).expect("commands");
-    session.batch(&commands, None).expect("batch")
+        serde_json::from_value(script["commands"].clone()).map_err(|e| format!("commands: {e}"))?;
+    session
+        .batch(&commands, None)
+        .map_err(|e| format!("batch: {e}"))
 }
 
-fn load_example(file: &str) -> Session {
-    let project = pcbcraft_io::load(&root().join("examples").join(file)).expect("load example");
+fn load_example(file: &str) -> Result<Session, String> {
+    let project = pcbcraft_io::load(&root().join("examples").join(file))
+        .map_err(|e| format!("load example: {e}"))?;
     let mut session = Session::default();
-    session.replace(project).expect("replace");
     session
+        .replace(project)
+        .map_err(|e| format!("replace: {e}"))?;
+    Ok(session)
 }
 
 /// Every stable text output of a session, by file name.
-fn outputs(session: &Session) -> Vec<(String, String)> {
+fn outputs(session: &Session) -> Result<Vec<(String, String)>, String> {
     let p = &session.project;
-    let project_json = serde_json::to_string_pretty(p).expect("project json") + "\n";
-    let png = |view: &str| binary_summary(&pcbcraft_io::preview_png(p, view).expect("png"));
-    vec![
+    let project_json =
+        serde_json::to_string_pretty(p).map_err(|e| format!("project json: {e}"))? + "\n";
+    let png = |view: &str| -> Result<String, String> {
+        let bytes = pcbcraft_io::preview_png(p, view).map_err(|e| format!("png: {e}"))?;
+        Ok(binary_summary(&bytes))
+    };
+    Ok(vec![
         ("project.json".into(), project_json),
         ("checks.json".into(), normalised_checks(session)),
         (
             "board.kicad_pcb".into(),
-            pcbcraft_io::kicad_board(p).expect("kicad"),
+            pcbcraft_io::kicad_board(p).map_err(|e| format!("kicad: {e}"))?,
         ),
         (
             "pcb.svg".into(),
-            pcbcraft_io::svg(p, "pcb").expect("pcb svg"),
+            pcbcraft_io::svg(p, "pcb").map_err(|e| format!("pcb svg: {e}"))?,
         ),
         (
             "schematic.svg".into(),
-            pcbcraft_io::svg(p, "schematic").expect("schematic svg"),
+            pcbcraft_io::svg(p, "schematic").map_err(|e| format!("schematic svg: {e}"))?,
         ),
-        ("pcb.png.summary".into(), png("pcb")),
-        ("schematic.png.summary".into(), png("schematic")),
-    ]
+        ("pcb.png.summary".into(), png("pcb")?),
+        ("schematic.png.summary".into(), png("schematic")?),
+    ])
 }
 
-fn check_case(case: &str, session: &Session, extra: Vec<(String, String)>) {
+fn check_case(case: &str, session: &Session, extra: Vec<(String, String)>) -> Result<(), String> {
     let mut failures = vec![];
-    for (name, text) in outputs(session).into_iter().chain(extra) {
-        compare(case, &name, &text, &mut failures);
+    for (name, text) in outputs(session)?.into_iter().chain(extra) {
+        compare(case, &name, &text, &mut failures)?;
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    Ok(())
 }
 
-fn led_routed() -> (Session, Value, Value) {
+fn led_routed() -> Result<(Session, Value, Value), String> {
     let mut session = Session::default();
-    let build = run_script(&mut session, "led-indicator.json");
-    let route = run_script(&mut session, "route-led.json");
-    (session, build, route)
+    let build = run_script(&mut session, "led-indicator.json")?;
+    let route = run_script(&mut session, "route-led.json")?;
+    Ok((session, build, route))
 }
 
 #[test]
-fn parity_led_indicator_matches_goldens() {
-    let (session, build, route) = led_routed();
+fn parity_led_indicator_matches_goldens() -> Result<(), String> {
+    let (session, build, route) = led_routed()?;
     let findings = session.checks();
     // docs/validation.md records zero findings and zero airwires once routed.
     assert_eq!(findings["drc"], json!([]));
@@ -188,13 +198,13 @@ fn parity_led_indicator_matches_goldens() {
         "led-indicator",
         &session,
         vec![("command-results.json".into(), results)],
-    );
+    )
 }
 
 #[test]
-fn parity_led_indicator_unrouted_reports_airwires() {
+fn parity_led_indicator_unrouted_reports_airwires() -> Result<(), String> {
     let mut session = Session::default();
-    run_script(&mut session, "led-indicator.json");
+    run_script(&mut session, "led-indicator.json")?;
     let airwires = session.checks()["airwires"].as_array().map_or(0, Vec::len);
     assert_eq!(airwires, 3, "docs/validation.md: three disconnected links");
     let mut failures = vec![];
@@ -203,31 +213,32 @@ fn parity_led_indicator_unrouted_reports_airwires() {
         "checks.json",
         &normalised_checks(&session),
         &mut failures,
-    );
+    )?;
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    Ok(())
 }
 
 #[test]
-fn parity_dual_amplifier_matches_goldens() {
+fn parity_dual_amplifier_matches_goldens() -> Result<(), String> {
     check_case(
         "dual-amplifier",
-        &load_example("dual-amplifier.pcbcraft"),
+        &load_example("dual-amplifier.pcbcraft")?,
         vec![],
-    );
+    )
 }
 
 #[test]
-fn parity_library_rc_matches_goldens() {
+fn parity_library_rc_matches_goldens() -> Result<(), String> {
     check_case(
         "kicad-library-rc",
-        &load_example("kicad-library-rc.pcbcraft"),
+        &load_example("kicad-library-rc.pcbcraft")?,
         vec![],
-    );
+    )
 }
 
 #[test]
-fn failed_batch_leaves_session_untouched() {
-    let (mut session, _, _) = led_routed();
+fn failed_batch_leaves_session_untouched() -> Result<(), String> {
+    let (mut session, _, _) = led_routed()?;
     let before = (session.project.clone(), session.revision);
     let bad = [
         Command {
@@ -241,55 +252,58 @@ fn failed_batch_leaves_session_untouched() {
     ];
     assert!(session.batch(&bad, None).is_err());
     assert_eq!(before, (session.project.clone(), session.revision));
+    Ok(())
 }
 
-fn all_cases() -> Vec<(&'static str, Session)> {
-    vec![
-        ("led-indicator", led_routed().0),
-        ("dual-amplifier", load_example("dual-amplifier.pcbcraft")),
+fn all_cases() -> Result<Vec<(&'static str, Session)>, String> {
+    Ok(vec![
+        ("led-indicator", led_routed()?.0),
+        ("dual-amplifier", load_example("dual-amplifier.pcbcraft")?),
         (
             "kicad-library-rc",
-            load_example("kicad-library-rc.pcbcraft"),
+            load_example("kicad-library-rc.pcbcraft")?,
         ),
-    ]
+    ])
 }
 
 #[test]
-fn every_writer_is_deterministic() {
-    for (case, session) in all_cases() {
-        let first = outputs(&session);
-        let second = outputs(&session);
+fn every_writer_is_deterministic() -> Result<(), String> {
+    for (case, session) in all_cases()? {
+        let first = outputs(&session)?;
+        let second = outputs(&session)?;
         assert_eq!(first, second, "{case}: writer output changed between runs");
         // A rebuilt session from the same source must also match.
-        assert_eq!(first, outputs(&session.clone()), "{case}");
+        assert_eq!(first, outputs(&session.clone())?, "{case}");
     }
+    Ok(())
 }
 
 #[test]
-fn every_reader_round_trips_its_own_writer() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    for (case, session) in all_cases() {
+fn every_reader_round_trips_its_own_writer() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
+    for (case, session) in all_cases()? {
         let path = dir.path().join(format!("{case}.pcbcraft"));
-        pcbcraft_io::save(&session.project, &path).expect("save");
-        let loaded: Project = pcbcraft_io::load(&path).expect("load");
+        pcbcraft_io::save(&session.project, &path).map_err(|e| format!("save: {e}"))?;
+        let loaded: Project = pcbcraft_io::load(&path).map_err(|e| format!("load: {e}"))?;
         assert_eq!(loaded, session.project, "{case}: native round trip");
         // Saving the loaded project is byte-identical.
         let again = dir.path().join(format!("{case}-again.pcbcraft"));
-        pcbcraft_io::save(&loaded, &again).expect("save again");
+        pcbcraft_io::save(&loaded, &again).map_err(|e| format!("save again: {e}"))?;
         assert_eq!(
-            std::fs::read(&path).expect("read"),
-            std::fs::read(&again).expect("read again"),
+            std::fs::read(&path).map_err(|e| format!("read: {e}"))?,
+            std::fs::read(&again).map_err(|e| format!("read again: {e}"))?,
             "{case}: save is not idempotent"
         );
     }
+    Ok(())
 }
 
 /// Structural properties only. Gerber and drill output are pending #351 and
 /// must not be frozen as goldens; the limited KiCad export is stable.
 #[test]
-fn kicad_export_is_structurally_sound() {
-    for (case, session) in all_cases() {
-        let text = pcbcraft_io::kicad_board(&session.project).expect("kicad");
+fn kicad_export_is_structurally_sound() -> Result<(), String> {
+    for (case, session) in all_cases()? {
+        let text = pcbcraft_io::kicad_board(&session.project).map_err(|e| format!("kicad: {e}"))?;
         assert!(text.starts_with("(kicad_pcb"), "{case}");
         let (mut open, mut close, mut in_string, mut escaped) = (0i64, 0i64, false, false);
         for c in text.chars() {
@@ -317,4 +331,5 @@ fn kicad_export_is_structurally_sound() {
             "{case}: footprint count"
         );
     }
+    Ok(())
 }
