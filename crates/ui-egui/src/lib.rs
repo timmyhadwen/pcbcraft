@@ -381,6 +381,7 @@ pub struct App {
     home_path_focus: bool,
     left_tab: usize,
     make_dir: String,
+    rule_draft: Option<(pcbcraft_doc::Id, f64, f64)>,
     net_editor: Option<pcbcraft_doc::Id>,
     pin_pick: Option<String>,
     net_draft: Option<(pcbcraft_doc::Id, String)>,
@@ -577,6 +578,7 @@ impl App {
             home_path_focus: false,
             left_tab: 0,
             make_dir: String::new(),
+            rule_draft: None,
             net_editor: None,
             pin_pick: None,
             net_draft: None,
@@ -1455,6 +1457,15 @@ impl App {
                     {
                         self.left_tab = 2;
                     }
+                    if ui
+                        .selectable_label(self.left_tab == 3, "Rules")
+                        .on_hover_text(
+                            "The gaps and wire widths the checks hold this design to, per group of connections.",
+                        )
+                        .clicked()
+                    {
+                        self.left_tab = 3;
+                    }
                 });
                 ui.separator();
                 if self.left_tab == 1 {
@@ -1465,6 +1476,10 @@ impl App {
                 }
                 if self.left_tab == 2 {
                     self.layers_tab(ui);
+                    return;
+                }
+                if self.left_tab == 3 {
+                    self.rules_tab(ui);
                     return;
                 }
                 if ui
@@ -1846,6 +1861,133 @@ impl App {
                 egui::RichText::new(format!("Spotlighting {} on the board.", net.name))
                     .size(10.0)
                     .color(self.accent()),
+            );
+        }
+    }
+    fn rules_tab(&mut self, ui: &mut egui::Ui) {
+        if self
+            .rule_draft
+            .is_some_and(|(id, _, _)| !self.project.net_classes.iter().any(|k| k.id == id))
+        {
+            self.rule_draft = None;
+        }
+        ui.label(
+            egui::RichText::new(
+                "Design rules travel with the design and steer the checks and any new wiring.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        if ui
+            .button("New class")
+            .on_hover_text(
+                "Add a rule set with a starting gap and wire width; rename and tune it from its row.",
+            )
+            .clicked()
+        {
+            let name = format!("Class {}", self.project.net_classes.len() + 1);
+            self.run(
+                "netclass.add",
+                json!({"name": name, "clearance": 0.2, "width": 0.25}),
+            );
+        }
+        ui.add_space(4.0);
+        for class in self.project.net_classes.clone() {
+            let editing = self.rule_draft.is_some_and(|(id, _, _)| id == class.id);
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&class.name).strong());
+                    ui.label(format!("{} nets", class.nets.len())).on_hover_text(
+                        "Connections that follow this rule set. Assign them from the command search.",
+                    );
+                    if !editing {
+                        if ui
+                            .small_button("Tune")
+                            .on_hover_text("Change this rule set's gap and wire width.")
+                            .clicked()
+                        {
+                            self.rule_draft =
+                                Some((class.id, class.clearance, class.width));
+                        }
+                        if ui
+                            .small_button("Remove")
+                            .on_hover_text(
+                                "Delete this rule set; its connections fall back to the default rules.",
+                            )
+                            .clicked()
+                        {
+                            self.run("netclass.remove", json!({"class": class.id}));
+                        }
+                    }
+                });
+                if editing {
+                    let Some((_, clearance, width)) = self.rule_draft.as_mut() else {
+                        return;
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label("Gap");
+                        ui.add(
+                            egui::DragValue::new(clearance)
+                                .speed(0.01)
+                                .range(0.001..=100.0)
+                                .suffix(" mm"),
+                        )
+                        .on_hover_text(
+                            "Smallest allowed clear space between this group's copper and everything else.",
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Wire width");
+                        ui.add(
+                            egui::DragValue::new(width)
+                                .speed(0.01)
+                                .range(0.001..=100.0)
+                                .suffix(" mm"),
+                        )
+                        .on_hover_text(
+                            "Width new tracks on these connections start with.",
+                        );
+                    });
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button("Apply")
+                            .on_hover_text("Keep these numbers for this rule set.")
+                            .clicked()
+                            && let Some((id, clearance, width)) = self.rule_draft.take()
+                        {
+                            self.run(
+                                "netclass.clearance",
+                                json!({"class": id, "clearance": clearance}),
+                            );
+                            self.run("netclass.set", json!({"class": id, "width": width}));
+                        }
+                        if ui
+                            .small_button("Cancel")
+                            .on_hover_text("Leave this rule set as it was.")
+                            .clicked()
+                        {
+                            self.rule_draft = None;
+                        }
+                    });
+                } else {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Gap {:.3} mm · wire {:.3} mm",
+                            class.clearance, class.width
+                        ))
+                        .small()
+                        .color(self.muted()),
+                    );
+                }
+            });
+        }
+        if self.project.net_classes.is_empty() {
+            ui.label(
+                egui::RichText::new(
+                    "No rule sets yet; the default rules apply to every connection.",
+                )
+                .small()
+                .color(self.muted()),
             );
         }
     }
@@ -3268,6 +3410,57 @@ mod tests {
             app.message
         );
         assert_eq!(app.project.nets.len(), 3, "the connections themselves stay");
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_adds_a_rule_set_and_tunes_its_numbers() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "No rule sets yet")?,
+            "a design without rule sets says so"
+        );
+        authoring::tests::tap(&ctx, &mut app, "New class")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.net_classes.len(),
+            1,
+            "one click adds one rule set: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Gap 0.200 mm")?,
+            "the new rule set shows its starting numbers"
+        );
+        let id = app.project.net_classes[0].id;
+        authoring::tests::tap(&ctx, &mut app, "Tune")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.rule_draft = Some((id, 0.5, 0.6));
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Apply")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let class = &app.project.net_classes[0];
+        assert!(
+            (class.clearance - 0.5).abs() < 1e-9 && (class.width - 0.6).abs() < 1e-9,
+            "the tuned numbers stick: {} {} · {}",
+            class.clearance,
+            class.width,
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Remove")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.net_classes.is_empty(),
+            "the rule set is removed: {}",
+            app.message
+        );
         Ok(())
     }
 
