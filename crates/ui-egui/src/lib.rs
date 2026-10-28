@@ -380,6 +380,8 @@ pub struct App {
     home_open: bool,
     home_path_focus: bool,
     left_tab: usize,
+    net_editor: Option<pcbcraft_doc::Id>,
+    pin_pick: Option<String>,
     net_draft: Option<(pcbcraft_doc::Id, String)>,
     appearance: bool,
     palette: bool,
@@ -573,6 +575,8 @@ impl App {
             home_open: false,
             home_path_focus: false,
             left_tab: 0,
+            net_editor: None,
+            pin_pick: None,
             net_draft: None,
             appearance: false,
             palette: false,
@@ -1613,6 +1617,13 @@ impl App {
         {
             self.net_draft = None;
         }
+        if self
+            .net_editor
+            .is_some_and(|id| !self.project.nets.iter().any(|n| n.id == id))
+        {
+            self.net_editor = None;
+            self.pin_pick = None;
+        }
         if ui
             .button("New net")
             .on_hover_text("Add a blank connection you can name and draw wires onto.")
@@ -1620,6 +1631,13 @@ impl App {
         {
             let name = format!("Net {}", self.project.nets.len() + 1);
             self.tool_call("net.create", json!({"name": name}));
+            self.net_editor = self
+                .project
+                .nets
+                .iter()
+                .rev()
+                .find(|n| n.name == name)
+                .map(|n| n.id);
         }
         ui.add_space(4.0);
         for net in self.project.nets.clone() {
@@ -1680,8 +1698,115 @@ impl App {
                     {
                         self.net_draft = Some((net.id, net.name.clone()));
                     }
+                    let open = self.net_editor == Some(net.id);
+                    if ui
+                        .small_button(if open { "Hide pins" } else { "Pins" })
+                        .on_hover_text("Show or hide the list of pins on this connection.")
+                        .clicked()
+                    {
+                        self.net_editor = if open { None } else { Some(net.id) };
+                        self.pin_pick = None;
+                    }
                 }
             });
+            if self.net_editor == Some(net.id) {
+                let mut members: Vec<(String, PinRef)> = Vec::new();
+                let mut spares: Vec<(String, PinRef)> = Vec::new();
+                for comp in &self.project.components {
+                    for pin in &comp.pins {
+                        let label = if pin.name.is_empty() || pin.name == pin.number {
+                            format!("{} pin {}", comp.reference, pin.number)
+                        } else {
+                            format!("{} pin {} ({})", comp.reference, pin.number, pin.name)
+                        };
+                        let r = PinRef {
+                            component: comp.id,
+                            pin: pin.number.clone(),
+                        };
+                        if pin.net == Some(net.id) {
+                            members.push((label, r));
+                        } else if pin.net.is_none() {
+                            spares.push((label, r));
+                        }
+                    }
+                }
+                let mut pick = self.pin_pick.clone().unwrap_or_default();
+                ui.indent(("net-pins", net.id), |ui| {
+                    if members.is_empty() {
+                        ui.label(
+                            egui::RichText::new("No pins on this connection yet.")
+                                .size(10.0)
+                                .color(self.muted()),
+                        );
+                    } else {
+                        for (label, r) in &members {
+                            ui.horizontal(|ui| {
+                                ui.label(label);
+                                if ui
+                                    .small_button("\u{d7}")
+                                    .on_hover_text(
+                                        "Take this pin off the connection. Nothing moves on the board.",
+                                    )
+                                    .clicked()
+                                {
+                                    self.tool_call(
+                                        "net.disconnect",
+                                        json!({"net": net.id, "pins": [r]}),
+                                    );
+                                    self.pin_pick = None;
+                                }
+                            });
+                        }
+                    }
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt(("pin-pick", net.id))
+                            .selected_text(if pick.is_empty() {
+                                "choose a spare pin".to_owned()
+                            } else {
+                                pick.clone()
+                            })
+                            .show_ui(ui, |ui| {
+                                for (label, _) in &spares {
+                                    if ui
+                                        .selectable_label(&pick == label, label)
+                                        .on_hover_text(
+                                            "A pin that is not on any connection yet.",
+                                        )
+                                        .clicked()
+                                    {
+                                        pick = label.clone();
+                                        ui.close();
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text("Pick a pin to add to this connection.");
+                        if ui
+                            .add_enabled(
+                                !pick.is_empty(),
+                                egui::Button::new("Connect"),
+                            )
+                            .on_hover_text("Add the pin chosen above to this connection.")
+                            .clicked()
+                            && let Some((_, r)) =
+                                spares.iter().find(|(label, _)| *label == pick)
+                        {
+                            self.tool_call("net.connect", json!({"net": net.id, "pins": [r]}));
+                            self.pin_pick = None;
+                        }
+                    });
+                    if spares.is_empty() {
+                        ui.label(
+                            egui::RichText::new(
+                                "Every pin in this design is already on a connection.",
+                            )
+                            .size(10.0)
+                            .color(self.muted()),
+                        );
+                    }
+                });
+                self.pin_pick = if pick.is_empty() { None } else { Some(pick) };
+            }
         }
         if self.project.nets.is_empty() {
             empty_state(ui, EMPTY_NETS, self.muted());
@@ -2879,6 +3004,64 @@ mod tests {
                 .iter()
                 .any(|n| n.id == fresh_id && n.name == "Flashlight"),
             "the rename sticks: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"330","position":{"x":40.0,"y":14.0}}),
+        );
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Nets")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "New net")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(app.project.nets.len(), 1, "one click adds one connection");
+        assert!(
+            paints_text(&ctx, &mut app, "No pins on this connection yet.")?,
+            "a fresh connection says so plainly: {}",
+            app.message
+        );
+        let net_id = app.project.nets[0].id;
+        let on_net = |app: &App| -> usize {
+            app.project
+                .components
+                .iter()
+                .flat_map(|c| c.pins.iter())
+                .filter(|p| p.net == Some(net_id))
+                .count()
+        };
+        assert_eq!(on_net(&app), 0, "the resistor starts unconnected");
+        authoring::tests::tap(&ctx, &mut app, "choose a spare pin")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "R1 pin 1")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Connect")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            on_net(&app),
+            1,
+            "the chosen pin joins the connection: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "R1 pin 1")?,
+            "the pin is listed on the connection"
+        );
+        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            on_net(&app),
+            0,
+            "one click takes the pin back off: {}",
             app.message
         );
         Ok(())
