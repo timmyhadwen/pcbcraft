@@ -146,6 +146,7 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::NoConnect => {
             format!("LMB: click a pin to mark it unused, or again to undo{common}")
         }
+        Tool::Fiducial => format!("LMB: place an assembly mark at the cursor{common}"),
     }
 }
 
@@ -372,6 +373,7 @@ enum Tool {
     Cutout,
     Hole,
     NoConnect,
+    Fiducial,
 }
 #[derive(Clone, Copy)]
 struct Camera {
@@ -418,6 +420,8 @@ pub struct App {
     swap_name: String,
     hole_diameter: f64,
     hole_edit: Option<(Id, f64)>,
+    fiducial_diameter: f64,
+    fiducial_edit: Option<(Id, f64, bool)>,
     stack_name: String,
     stack_kind: String,
     stack_thickness: f64,
@@ -628,6 +632,8 @@ impl App {
             swap_name: String::new(),
             hole_diameter: 3.2,
             hole_edit: None,
+            fiducial_diameter: 1.0,
+            fiducial_edit: None,
             stack_name: String::new(),
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
@@ -1181,9 +1187,116 @@ impl App {
         }
     }
 
+    fn fiducials_section(&mut self, ui: &mut egui::Ui) {
+        ui.label(
+            egui::RichText::new("ASSEMBLY MARKS")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        if self.project.board.fiducials.is_empty() {
+            ui.label(
+                egui::RichText::new(
+                    "No assembly marks yet. Press Assembly mark at the top of the board, then click a clear corner the build camera can find.",
+                )
+                .small()
+                .color(self.muted()),
+            );
+            return;
+        }
+        for fid in self.project.board.fiducials.clone() {
+            let edit = self.fiducial_edit.filter(|(id, _, _)| *id == fid.id);
+            ui.horizontal(|ui| {
+                ui.label("· ");
+                if let Some((_, mut diameter, mut front)) = edit {
+                    ui.add(
+                        egui::DragValue::new(&mut diameter)
+                            .speed(0.05)
+                            .range(0.2..=10.0)
+                            .suffix(" mm"),
+                    )
+                    .on_hover_text("How wide the bare copper disc is.");
+                    if ui
+                        .selectable_label(front, "Top")
+                        .on_hover_text("Put the mark on the top side of the board.")
+                        .clicked()
+                    {
+                        front = true;
+                    }
+                    if ui
+                        .selectable_label(!front, "Bottom")
+                        .on_hover_text("Put the mark on the bottom side of the board.")
+                        .clicked()
+                    {
+                        front = false;
+                    }
+                    if ui
+                        .button("Apply")
+                        .on_hover_text("Resize this mark and move it to the chosen side.")
+                        .clicked()
+                    {
+                        self.fiducial_edit = None;
+                        self.run(
+                            "board.fiducial_set",
+                            json!({
+                                "id": fid.id,
+                                "diameter": diameter,
+                                "layer": if front { "F.Cu" } else { "B.Cu" },
+                            }),
+                        );
+                    }
+                    if ui
+                        .button("Cancel")
+                        .on_hover_text("Leave this mark as it is.")
+                        .clicked()
+                    {
+                        self.fiducial_edit = None;
+                    }
+                    if let Some((held_id, held, held_front)) = &mut self.fiducial_edit
+                        && *held_id == fid.id
+                    {
+                        *held = diameter;
+                        *held_front = front;
+                    }
+                } else {
+                    ui.label(format!(
+                        "{:.2} mm on {} at {:.1}, {:.1}",
+                        fid.diameter,
+                        if fid.layer == pcbcraft_doc::Layer::Front {
+                            "Top"
+                        } else {
+                            "Bottom"
+                        },
+                        fid.position.x,
+                        fid.position.y
+                    ));
+                    if ui
+                        .small_button("Tune")
+                        .on_hover_text("Change this mark's size or side.")
+                        .clicked()
+                    {
+                        self.fiducial_edit = Some((
+                            fid.id,
+                            fid.diameter,
+                            fid.layer == pcbcraft_doc::Layer::Front,
+                        ));
+                    }
+                }
+                if ui
+                    .small_button("\u{d7}")
+                    .on_hover_text("Take this mark off the board.")
+                    .clicked()
+                {
+                    self.fiducial_edit = None;
+                    self.run("board.fiducial_remove", json!({"id": fid.id}));
+                }
+            });
+        }
+    }
+
     fn layers_tab(&mut self, ui: &mut egui::Ui) {
         self.stackup_section(ui);
         self.holes_section(ui);
+        self.fiducials_section(ui);
         ui.add_space(16.0);
         let rows: &[&str] = match self.tab {
             Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
@@ -4653,6 +4766,7 @@ mod tests {
             (Tool::Cutout, "cutout"),
             (Tool::Hole, "mounting hole"),
             (Tool::NoConnect, "unused"),
+            (Tool::Fiducial, "assembly"),
         ];
         for (tool, verb) in cases {
             let hint = tool_hint(&tool);
@@ -4861,6 +4975,76 @@ mod tests {
         assert!(
             app.project.board.layer_records.is_empty(),
             "the stackup notes are forgotten: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tab = Tab::Pcb;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Assembly mark")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.canvas_click(Point::new(-27.0, -17.0), 1.0);
+        assert_eq!(
+            app.project.board.fiducials.len(),
+            1,
+            "one click lays one mark: {}",
+            app.message
+        );
+        app.canvas_click(Point::new(27.0, 17.0), 1.0);
+        assert_eq!(
+            app.project.board.fiducials.len(),
+            2,
+            "the tool stays ready for the next corner: {}",
+            app.message
+        );
+        assert!(
+            app.project
+                .board
+                .fiducials
+                .iter()
+                .all(|fid| (fid.diameter - 1.0).abs() < 1e-9),
+            "both marks are the usual 1 mm disc: {}",
+            app.message
+        );
+        app.tool = Tool::Select;
+        app.tab = Tab::Schematic;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "1.00 mm on Top")?,
+            "the marks are listed with their size and side"
+        );
+        let last = app.project.board.fiducials[1].id;
+        authoring::tests::tap(&ctx, &mut app, "Tune")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.fiducial_edit = Some((last, 1.2, false));
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Apply")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.board.fiducials.iter().any(|fid| {
+                fid.id == last
+                    && (fid.diameter - 1.2).abs() < 1e-9
+                    && fid.layer == pcbcraft_doc::Layer::Back
+            }),
+            "the mark is resized and moved to the bottom: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.board.fiducials.len(),
+            1,
+            "the other mark comes off the board: {}",
             app.message
         );
         Ok(())

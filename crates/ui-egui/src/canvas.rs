@@ -377,6 +377,7 @@ impl App {
             Tool::Cutout => "CUTOUT · CLICK TO PLACE",
             Tool::Hole => "MOUNTING HOLE · CLICK TO DRILL",
             Tool::NoConnect => "NO CONNECT · CLICK A PIN TO MARK IT UNUSED",
+            Tool::Fiducial => "ASSEMBLY MARK · CLICK A CLEAR CORNER",
         };
         painter.text(
             rect.left_top() + Vec2::new(20.0, 20.0),
@@ -408,6 +409,13 @@ impl App {
                             self.symbol(&painter, rect, camera, &view, false, true);
                         }
                     }
+                }
+                Tool::Fiducial => {
+                    painter.circle_stroke(
+                        camera.screen(snapped, rect),
+                        (self.fiducial_diameter / 2.0) as f32 * camera.zoom,
+                        Stroke::new(1.5, self.accent()),
+                    );
                 }
                 Tool::Hole => {
                     painter.circle_stroke(
@@ -522,6 +530,25 @@ impl App {
                             .clicked()
                     {
                         self.tool = Tool::NoConnect;
+                    }
+                    if self.tab == Tab::Pcb
+                        && ui
+                            .selectable_label(matches!(self.tool, Tool::Fiducial), "Assembly mark")
+                            .on_hover_text(
+                                "A bare copper disc the pick-and-place camera finds the board by; then click a clear corner.",
+                            )
+                            .clicked()
+                    {
+                        self.tool = Tool::Fiducial;
+                    }
+                    if self.tab == Tab::Pcb && matches!(self.tool, Tool::Fiducial) {
+                        ui.add(
+                            egui::DragValue::new(&mut self.fiducial_diameter)
+                                .speed(0.05)
+                                .range(0.2..=10.0)
+                                .suffix(" mm"),
+                        )
+                        .on_hover_text("Disc size for new marks; 1 mm is the usual size.");
                     }
                     if self.tab == Tab::Pcb
                         && ui
@@ -781,6 +808,10 @@ impl App {
                     self.message = "Pick a pad to start or finish a route".into();
                 }
             }
+            Tool::Fiducial => self.run(
+                "board.fiducial_place",
+                json!({"position":snap(pos),"diameter":self.fiducial_diameter}),
+            ),
             Tool::NoConnect => {
                 if let Some(pin) = self.pick_pin(pos, zoom) {
                     if let Some(id) = self
@@ -1154,6 +1185,17 @@ impl App {
             Stroke::new(1.5, self.accent()),
             egui::StrokeKind::Inside,
         );
+        for fid in &p.board.fiducials {
+            let center = camera.screen(fid.position, rect);
+            let radius = ((fid.diameter / 2.0) as f32 * camera.zoom).max(1.5);
+            let color = if fid.layer == Layer::Front {
+                Color32::from_rgb(245, 141, 121)
+            } else {
+                Color32::from_rgb(116, 167, 236)
+            };
+            painter.circle_filled(center, radius, color);
+            painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
+        }
         for h in &p.board.holes {
             let center = camera.screen(h.position, rect);
             let radius = ((h.diameter / 2.0) as f32 * camera.zoom).max(1.5);
