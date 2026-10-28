@@ -134,6 +134,48 @@ fn human_code(code: &str) -> String {
         None => words,
     }
 }
+/// The plain measurements a designer can write a check about, with the
+/// token the engine stores for each.
+const CUSTOM_MEASURES: [(&str, &str); 5] = [
+    ("A wire thinner than", "track width below"),
+    ("A wire longer than", "track length above"),
+    ("More parts than", "part count above"),
+    ("More vias than", "via count above"),
+    ("More wires on one net than", "net track count above"),
+];
+/// One line in plain words for a check the designer wrote, e.g. "more than
+/// 5 parts" or "wires thinner than 0.20 mm".
+fn custom_measure_line(measure: &str, limit: f64) -> String {
+    let n = if measure.contains("count") {
+        limit as i64
+    } else {
+        // counts print whole; wire measures keep two decimals
+        return format!(
+            "{} {limit:.2} mm",
+            match measure {
+                "track width below" => "wires thinner than",
+                "track length above" => "wires longer than",
+                other => other,
+            }
+        );
+    };
+    match measure {
+        "part count above" => format!("more than {n} parts"),
+        "via count above" => format!("more than {n} vias"),
+        "net track count above" => format!("more than {n} wires on one net"),
+        other => format!("{other} {n}"),
+    }
+}
+/// Heading for a group of findings in the review: a check the designer
+/// wrote shows the name they gave it, not a code.
+fn custom_heading(project: &pcbcraft_doc::Project, code: &str) -> String {
+    let written = code
+        .strip_prefix("custom_")
+        .and_then(|rest| rest.parse::<u64>().ok())
+        .and_then(|id| project.custom_checks.iter().find(|c| c.id == id))
+        .map(|c| format!("Your check: {}", c.name));
+    written.unwrap_or_else(|| human_code(code))
+}
 fn role_label(kind: &str) -> String {
     STACK_ROLES
         .iter()
@@ -517,6 +559,11 @@ pub struct App {
     pour_h: f64,
     pour_net: Id,
     teardrop_depth: f64,
+    /// Draft name, measure, limit and volume for a check of your own.
+    custom_name: String,
+    custom_measure: usize,
+    custom_limit: f64,
+    custom_loud: bool,
     panel_columns: usize,
     panel_rows: usize,
     panel_gap: f64,
@@ -779,6 +826,10 @@ impl App {
             pour_h: 12.0,
             pour_net: 0,
             teardrop_depth: 0.5,
+            custom_name: String::new(),
+            custom_measure: 0,
+            custom_limit: 0.2,
+            custom_loud: false,
             panel_columns: 2,
             panel_rows: 2,
             panel_gap: 2.0,
@@ -3389,6 +3440,121 @@ impl App {
         });
         ui.add_space(12.0);
         ui.label(
+            egui::RichText::new("CHECKS YOU WRITE")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "Rules only you know about: pick one plain measurement, set one limit, and it runs with the other checks after every edit. It travels inside the design, so anyone who opens it is covered too.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        for c in self.project.custom_checks.clone() {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} · {} · {}",
+                        c.name,
+                        custom_measure_line(&c.measure, c.limit),
+                        if c.severity == "error" {
+                            "must fix"
+                        } else {
+                            "a nudge"
+                        }
+                    ))
+                    .small(),
+                )
+                .on_hover_text(
+                    "A check you wrote. It is saved with the design and re-run after every edit.",
+                );
+                if ui
+                    .small_button("Remove this check")
+                    .on_hover_text(
+                        "Stop running this check. Nothing about the design itself changes.",
+                    )
+                    .clicked()
+                {
+                    self.run("checks.custom_remove", json!({"id": c.id}));
+                }
+            });
+        }
+        if self.project.custom_checks.len() < 32 {
+            ui.horizontal(|ui| {
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.custom_name)
+                        .hint_text("What this check means, in your words")
+                        .desired_width(150.0),
+                );
+                response
+                    .on_hover_text("The name this check reports under, e.g. \"keep power wires meaty\".");
+                egui::ComboBox::from_id_salt("custom-measure")
+                    .selected_text(CUSTOM_MEASURES[self.custom_measure.min(4)].0)
+                    .show_ui(ui, |ui| {
+                        for (i, (label, _)) in CUSTOM_MEASURES.iter().enumerate() {
+                            ui.selectable_value(&mut self.custom_measure, i, *label);
+                        }
+                    })
+                    .response
+                    .on_hover_text(
+                        "The one thing this check measures. Every check stays a plain sentence, never a puzzle.",
+                    );
+                let unit = if CUSTOM_MEASURES[self.custom_measure.min(4)]
+                    .1
+                    .contains("count")
+                {
+                    ""
+                } else {
+                    " mm"
+                };
+                ui.add(
+                    egui::DragValue::new(&mut self.custom_limit)
+                        .range(0.01..=100000.0)
+                        .speed(0.05)
+                        .suffix(unit),
+                )
+                .on_hover_text(
+                    "The limit: millimetres for wire measures, a plain number of things otherwise.",
+                );
+                if ui
+                    .selectable_label(self.custom_loud, "must fix")
+                    .on_hover_text("Treat a breach as a real problem, counted under \"to fix\".")
+                    .clicked()
+                {
+                    self.custom_loud = true;
+                }
+                if ui
+                    .selectable_label(!self.custom_loud, "a nudge")
+                    .on_hover_text("Mention a breach, but do not call the board a failure.")
+                    .clicked()
+                {
+                    self.custom_loud = false;
+                }
+            });
+            if ui
+                .button("Add this check")
+                .on_hover_text(
+                    "Start running this rule after every edit. It lives inside the design; Undo takes it away again.",
+                )
+                .clicked()
+                && !self.custom_name.trim().is_empty()
+            {
+                let measure = CUSTOM_MEASURES[self.custom_measure.min(4)].1;
+                self.run(
+                    "checks.custom_add",
+                    json!({
+                        "name": self.custom_name,
+                        "measure": measure,
+                        "limit": self.custom_limit,
+                        "severity": if self.custom_loud { "error" } else { "warning" },
+                    }),
+                );
+                self.custom_name.clear();
+            }
+        }
+        ui.add_space(12.0);
+        ui.label(
             egui::RichText::new("HOW STRICT TO BE")
                 .size(10.0)
                 .color(self.muted()),
@@ -5034,7 +5200,13 @@ impl App {
             if let Some(findings) = checks.get(key).and_then(Value::as_array) {
                 for f in findings {
                     let code = f.get("code").and_then(Value::as_str).unwrap_or("finding");
-                    if self.project.rule_severity(code, "warning") == "error" {
+                    // Built-in checks follow the designer's chosen loudness;
+                    // a check of their own reports at the volume it was set.
+                    let loud = match code.strip_prefix("custom_") {
+                        Some(_) => f.get("severity").and_then(Value::as_str) == Some("error"),
+                        None => self.project.rule_severity(code, "warning") == "error",
+                    };
+                    if loud {
                         fix += 1;
                     } else {
                         mind += 1;
@@ -5363,7 +5535,7 @@ impl App {
                 for ((code, rows), loud) in groups.into_iter().zip(louds) {
                     let title = format!(
                         "{} · {} {}",
-                        human_code(&code),
+                        custom_heading(&self.project, &code),
                         rows.len(),
                         if rows.len() == 1 { "place" } else { "places" }
                     );
@@ -5373,12 +5545,17 @@ impl App {
                         egui::RichText::new(title)
                     };
                     ui.add_space(6.0);
+                    let whose = if code.starts_with("custom_") {
+                        "A check you wrote. "
+                    } else {
+                        "The board is checked against this rule after every edit. "
+                    };
                     ui.label(title_text).on_hover_text(format!(
-                        "Check {code}. {}The list below shows every place it fired; click one to jump to it.",
-                        if loud {
-                            "This one must be fixed before the board is built. "
+                        "{whose}{who}The list below shows every place it fired; click one to jump to it.",
+                        who = if loud {
+                            "It must be fixed before the board is built. "
                         } else {
-                            "This one is worth a look, but does not block the build. "
+                            "It is worth a look, but does not block the build. "
                         }
                     ));
                     for (message, objects) in rows {
@@ -9347,6 +9524,113 @@ mod tests {
         assert_eq!(
             app.project.component(2).map(|c| c.value.as_str()),
             Some("470 Ω")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_writes_their_own_check() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        for _ in 0..1 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            paints_text(&ctx, &mut app, "CHECKS YOU WRITE")?,
+            "the rules dock invites a check of your own: {}",
+            app.message
+        );
+        app.custom_name = "keep it small".into();
+        app.custom_measure = 2;
+        app.custom_limit = 2.0;
+        app.custom_loud = true;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Add this check")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            app.project
+                .custom_checks
+                .iter()
+                .any(|c| c.name == "keep it small"),
+            "the check is written into the design: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Checks")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        for _ in 0..4 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            paints_text(&ctx, &mut app, "Your check: keep it small · 1 place")?,
+            "the review shows the check under the name it was given: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "1 to fix")?,
+            "a breach of a must-fix check lands in the footer count: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Schematic")?;
+        for _ in 0..24 {
+            if paints_text(&ctx, &mut app, "Remove this check")? {
+                break;
+            }
+            let dir = 4.0;
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(150.0, 430.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, dir),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        authoring::tests::tap(&ctx, &mut app, "Remove this check")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            app.project.custom_checks.is_empty(),
+            "one click takes the check away again: {}",
+            app.message
         );
         Ok(())
     }

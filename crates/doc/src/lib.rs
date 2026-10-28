@@ -179,6 +179,25 @@ pub struct Net {
     #[serde(default)]
     pub length_tolerance: Option<f64>,
 }
+/// A check the designer wrote themselves: one plain measurement with one
+/// limit, re-run with the built-in checks after every edit. The measure is
+/// one of a fixed list (a wire thinner than, a wire longer than, more parts,
+/// more vias, or more wires on one net than the limit), so a check stays
+/// readable without any query language.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct CustomCheck {
+    pub id: Id,
+    /// Plain words for what this check means, shown wherever it reports.
+    pub name: String,
+    /// One of: "track width below", "track length above", "part count above",
+    /// "via count above", "net track count above".
+    pub measure: String,
+    /// The number the measure is compared against: millimetres for wire
+    /// measures, a plain count otherwise.
+    pub limit: f64,
+    /// "error" or "warning", how loudly a breach is reported.
+    pub severity: String,
+}
 /// A named group of nets sharing one clearance requirement and one default
 /// track width. A net belongs to at most one class; nets in no class follow
 /// the board default.
@@ -1162,6 +1181,9 @@ pub struct Project {
     /// any edit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output_jobs: Vec<OutputJob>,
+    /// Checks the designer wrote themselves, in the order they were made.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_checks: Vec<CustomCheck>,
     /// Free-form project metadata such as title, revision, company or notes,
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1289,6 +1311,7 @@ impl Default for Project {
             ports: vec![],
             bom_fields: vec![],
             output_jobs: vec![],
+            custom_checks: vec![],
             files: vec![],
             variants: vec![],
             graphic_groups: vec![],
@@ -2843,6 +2866,28 @@ mod drill_tests {
             offset: Point::new(0.6, 0.6),
         });
         validate_footprint_support(&definition)?;
+        Ok(())
+    }
+
+    #[test]
+    fn checks_written_by_the_designer_survive_a_save_and_reload() -> Result<(), String> {
+        let mut p = Project::default();
+        p.custom_checks.push(CustomCheck {
+            id: 7,
+            name: "keep it small".into(),
+            measure: "part count above".into(),
+            limit: 5.0,
+            severity: "warning".into(),
+        });
+        let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
+        let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert_eq!(back.custom_checks, p.custom_checks, "the check travels");
+        let plain = serde_json::to_string(&Project::default()).map_err(|e| e.to_string())?;
+        let old: Project = serde_json::from_str(&plain).map_err(|e| e.to_string())?;
+        assert!(
+            old.custom_checks.is_empty(),
+            "designs saved before this feature load with none"
+        );
         Ok(())
     }
 }
