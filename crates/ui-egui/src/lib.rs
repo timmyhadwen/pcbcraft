@@ -108,6 +108,18 @@ const STACK_ROLES: [(&str, &str); 7] = [
     ("paste", "paste"),
     ("custom", "custom"),
 ];
+type StackShape = (
+    &'static str,
+    &'static str,
+    &'static [(&'static str, &'static str, f64)],
+);
+type AnatGroup = (
+    &'static str,
+    &'static str,
+    &'static str,
+    Vec<(Option<Id>, String)>,
+    &'static str,
+);
 fn role_label(kind: &str) -> String {
     STACK_ROLES
         .iter()
@@ -501,6 +513,7 @@ pub struct App {
     stack_kind: String,
     stack_thickness: f64,
     stack_edit: Option<(String, String, f64)>,
+    anat_open: Vec<String>,
     notes_thick: f64,
     notes_er: f64,
     net_editor: Option<pcbcraft_doc::Id>,
@@ -751,6 +764,7 @@ impl App {
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
             stack_edit: None,
+            anat_open: Vec::new(),
             notes_thick: 1.6,
             notes_er: 4.4,
             net_editor: None,
@@ -1008,6 +1022,63 @@ impl App {
             .small()
             .color(self.muted()),
         );
+        ui.label(
+            egui::RichText::new("START FROM A SHAPE")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.horizontal_wrapped(|ui| {
+            const PRESETS: [StackShape; 3] = [
+                (
+                    "Two layers · 1.6 mm",
+                    "The usual starter board: copper on each side of a plain 1.6 mm core. Choose this unless the shop told you otherwise.",
+                    &[
+                        ("Top copper", "copper", 0.035),
+                        ("Core", "core", 1.53),
+                        ("Bottom copper", "copper", 0.035),
+                    ],
+                ),
+                (
+                    "Two layers · thin 1.0 mm",
+                    "A slimmer board for tight cases. Same two copper sides, thinner core.",
+                    &[
+                        ("Top copper", "copper", 0.035),
+                        ("Core", "core", 0.93),
+                        ("Bottom copper", "copper", 0.035),
+                    ],
+                ),
+                (
+                    "Four layers",
+                    "Two extra inner copper layers for a solid ground plane and cleaner signals. Worth it once a board has more than a handful of parts.",
+                    &[
+                        ("Top copper", "copper", 0.035),
+                        ("Prepreg", "prepreg", 0.2),
+                        ("Inner 1", "copper", 0.035),
+                        ("Core", "core", 0.86),
+                        ("Inner 2", "copper", 0.035),
+                        ("Prepreg 2", "prepreg", 0.2),
+                        ("Bottom copper", "copper", 0.035),
+                    ],
+                ),
+            ];
+            for (title, help, layers) in PRESETS {
+                if ui
+                    .small_button(title)
+                    .on_hover_text(format!(
+                        "{help} Choosing it replaces whatever stackup is recorded now."
+                    ))
+                    .clicked()
+                {
+                    self.tool_call("board.clear_layer_records", serde_json::json!({}));
+                    for (name, kind, thickness) in layers {
+                        self.tool_call(
+                            "board.set_layer_record",
+                            serde_json::json!({"name": name, "kind": kind, "thickness": thickness}),
+                        );
+                    }
+                }
+            }
+        });
         if self.project.board.layer_records.is_empty() {
             ui.label(
                 egui::RichText::new(
@@ -1668,47 +1739,124 @@ impl App {
             })
             .collect();
         let picked = self.selected;
-        let pick = |ui: &mut egui::Ui, id: Id, text: String| -> bool {
-            ui.selectable_label(picked == Some(id), text).clicked()
-        };
         let mut chosen: Option<Id> = None;
-        egui::CollapsingHeader::new("Top copper")
-            .id_salt("anat-front")
-            .default_open(false)
-            .show(ui, |ui| {
-                if front.is_empty() {
-                    ui.label(
-                        egui::RichText::new("Nothing drawn here yet.")
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-                for (id, text) in front {
-                    if pick(ui, id, text) {
-                        chosen = Some(id);
+        let groups: [AnatGroup; 8] = [
+            (
+                "front",
+                "Top copper wires",
+                "Copper wires drawn on the top face of the board. Pick one to select it on the drawing.",
+                front
+                    .into_iter()
+                    .map(|(id, text)| (Some(id), text))
+                    .collect(),
+                "Nothing drawn here yet.",
+            ),
+            (
+                "back",
+                "Bottom copper wires",
+                "Copper wires drawn on the bottom face of the board. Pick one to select it on the drawing.",
+                back.into_iter()
+                    .map(|(id, text)| (Some(id), text))
+                    .collect(),
+                "Nothing drawn here yet.",
+            ),
+            (
+                "vias",
+                "Via holes",
+                "Small plated holes that carry a connection between the two copper faces. Pick one to select it on the drawing.",
+                vias.into_iter()
+                    .map(|(id, text)| (Some(id), text))
+                    .collect(),
+                "No vias yet.",
+            ),
+            (
+                "zones",
+                "Poured copper",
+                "Solid copper poured over an area, usually ground or power. Pick one to select it on the drawing.",
+                zones
+                    .into_iter()
+                    .map(|(id, text)| (Some(id), text))
+                    .collect(),
+                "No copper zones yet.",
+            ),
+            (
+                "holes",
+                "Holes and cut-outs",
+                "Holes drilled through the board, such as mounting holes. Pick one to select it on the drawing.",
+                holes
+                    .into_iter()
+                    .map(|(id, text)| (Some(id), text))
+                    .collect(),
+                "No holes yet.",
+            ),
+            (
+                "words",
+                "Words on the board",
+                "Silk text printed on the board, such as names and labels. Pick one to select it on the drawing.",
+                words
+                    .into_iter()
+                    .map(|(id, text)| (Some(id), text))
+                    .collect(),
+                "No words printed yet.",
+            ),
+            (
+                "areas",
+                "Stricter areas",
+                "Patches of the board where the rules are stricter than everywhere else.",
+                areas.into_iter().map(|text| (None, text)).collect(),
+                "The whole board follows one set of rules.",
+            ),
+            (
+                "pairs",
+                "Watched pairs",
+                "Pairs of nets that must run side by side with a fixed gap between them.",
+                pairs.into_iter().map(|text| (None, text)).collect(),
+                "No pairs are being watched.",
+            ),
+        ];
+        for (key, title, tip, rows, empty) in groups {
+            let open = self.anat_open.iter().any(|k| k == key);
+            let header = egui::CollapsingHeader::new(title)
+                .id_salt(format!("anat-{key}"))
+                .open(Some(open))
+                .show(ui, |ui| {
+                    if rows.is_empty() {
+                        ui.label(egui::RichText::new(empty).small().color(self.muted()));
                     }
-                }
-            });
-        egui::CollapsingHeader::new("Bottom copper")
-            .id_salt("anat-back")
-            .default_open(false)
-            .show(ui, |ui| {
-                if back.is_empty() {
-                    ui.label(
-                        egui::RichText::new("Nothing drawn here yet.")
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-                for (id, text) in back {
-                    if pick(ui, id, text) {
-                        chosen = Some(id);
+                    for (id, text) in rows {
+                        let mut row = egui::RichText::new(text);
+                        if id.is_none() {
+                            row = row.small();
+                        }
+                        let clicked = match id {
+                            Some(id) => ui
+                                .selectable_label(picked == Some(id), row)
+                                .on_hover_text("Select this on the drawing.")
+                                .clicked(),
+                            None => {
+                                ui.label(row);
+                                false
+                            }
+                        };
+                        if clicked && let Some(id) = id {
+                            chosen = Some(id);
+                        }
                     }
+                });
+            let clicked = header.header_response.clicked();
+            header.header_response.on_hover_text(tip);
+            if clicked {
+                if open {
+                    self.anat_open.retain(|k| k != key);
+                } else {
+                    self.anat_open.push(key.to_owned());
                 }
-            });
-        egui::CollapsingHeader::new("Pads")
-            .id_salt("anat-pads")
-            .default_open(false)
+            }
+        }
+        let open = self.anat_open.iter().any(|k| k == "parts");
+        let header = egui::CollapsingHeader::new("Parts and pads")
+            .id_salt("anat-parts")
+            .open(Some(open))
             .show(ui, |ui| {
                 if parts.is_empty() {
                     ui.label(
@@ -1737,104 +1885,17 @@ impl App {
                         });
                 }
             });
-        egui::CollapsingHeader::new("Vias")
-            .id_salt("anat-vias")
-            .default_open(false)
-            .show(ui, |ui| {
-                if vias.is_empty() {
-                    ui.label(
-                        egui::RichText::new("No vias yet.")
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-                for (id, text) in vias {
-                    if pick(ui, id, text) {
-                        chosen = Some(id);
-                    }
-                }
-            });
-        egui::CollapsingHeader::new("Copper zones")
-            .id_salt("anat-zones")
-            .default_open(false)
-            .show(ui, |ui| {
-                if zones.is_empty() {
-                    ui.label(
-                        egui::RichText::new("No copper zones yet.")
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-                for (id, text) in zones {
-                    if pick(ui, id, text) {
-                        chosen = Some(id);
-                    }
-                }
-            });
-        egui::CollapsingHeader::new("Holes and cut-outs")
-            .id_salt("anat-holes")
-            .default_open(false)
-            .show(ui, |ui| {
-                if holes.is_empty() {
-                    ui.label(
-                        egui::RichText::new("No holes yet.")
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-                for (id, text) in holes {
-                    if pick(ui, id, text) {
-                        chosen = Some(id);
-                    }
-                }
-            });
-        egui::CollapsingHeader::new("Words on the board")
-            .id_salt("anat-words")
-            .default_open(false)
-            .show(ui, |ui| {
-                if words.is_empty() {
-                    ui.label(
-                        egui::RichText::new("No words printed yet.")
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-                for (id, text) in words {
-                    if pick(ui, id, text) {
-                        chosen = Some(id);
-                    }
-                }
-            });
-        egui::CollapsingHeader::new("Stricter areas")
-            .id_salt("anat-areas")
-            .default_open(false)
-            .show(ui, |ui| {
-                if areas.is_empty() {
-                    ui.label(
-                        egui::RichText::new("The whole board follows one set of rules.")
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-                for text in areas {
-                    ui.label(egui::RichText::new(text).small());
-                }
-            });
-        egui::CollapsingHeader::new("Watched pairs")
-            .id_salt("anat-pairs")
-            .default_open(false)
-            .show(ui, |ui| {
-                if pairs.is_empty() {
-                    ui.label(
-                        egui::RichText::new("No pairs are being watched.")
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-                for text in pairs {
-                    ui.label(egui::RichText::new(text).small());
-                }
-            });
+        let clicked = header.header_response.clicked();
+        header
+            .header_response
+            .on_hover_text("Every part on the board. Open one to see its pads.");
+        if clicked {
+            if open {
+                self.anat_open.retain(|k| k != "parts");
+            } else {
+                self.anat_open.push("parts".to_owned());
+            }
+        }
         if let Some(id) = chosen {
             self.select(Some(id));
             if self.tab != Tab::Pcb {
@@ -6921,6 +6982,73 @@ mod tests {
     }
 
     #[test]
+    fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        let mut shown = false;
+        for _ in 0..8 {
+            if paints_text(&ctx, &mut app, "START FROM A SHAPE")? {
+                shown = true;
+                break;
+            }
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            shown,
+            "the layers dock should offer ready-made board shapes: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Four layers")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let names: Vec<String> = self_names(&app);
+        assert_eq!(
+            names.len(),
+            7,
+            "the four-layer shape should record seven layers: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n == "Inner 1"),
+            "the four-layer shape should add inner copper planes: {names:?}"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Two layers · 1.6 mm")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let names = self_names(&app);
+        assert_eq!(
+            names.len(),
+            3,
+            "the starter shape should replace the four-layer stack with three layers: {names:?}"
+        );
+        Ok(())
+    }
+
+    fn self_names(app: &App) -> Vec<String> {
+        app.project
+            .board
+            .layer_records
+            .iter()
+            .map(|r| r.name.clone())
+            .collect()
+    }
+
+    #[test]
     fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
@@ -6979,9 +7107,35 @@ mod tests {
             "the layers dock should list every piece of the board: {}",
             app.message
         );
-        authoring::tests::tap(&ctx, &mut app, "Top copper")?;
+        let mut seen = false;
+        for _ in 0..12 {
+            if paints_text(&ctx, &mut app, "Top copper wires")? {
+                seen = true;
+                break;
+            }
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            seen,
+            "the anatomy list should show the top copper wires layer: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
         let mut row = false;
-        for _ in 0..8 {
+        for _ in 0..18 {
             if paints_text(&ctx, &mut app, &label)? {
                 row = true;
                 break;
