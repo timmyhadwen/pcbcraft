@@ -462,6 +462,7 @@ pub struct App {
     renumber_prefix: Option<String>,
     track_width: f64,
     chamfer_size: f64,
+    stitch_spacing: f64,
     cut_x: f64,
     cut_y: f64,
     cut_r: f64,
@@ -687,6 +688,7 @@ impl App {
             renumber_prefix: None,
             track_width: 0.25,
             chamfer_size: 0.25,
+            stitch_spacing: 3.0,
             cut_x: 25.0,
             cut_y: 15.0,
             cut_r: 1.5,
@@ -3590,6 +3592,54 @@ impl App {
                                 self.run(
                                     "track.split",
                                     json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
+                                );
+                            }
+                        }
+                        if let Some(zone) =
+                            self.project.board.zones.iter().find(|z| z.id == id)
+                                .filter(|z| z.kind.as_deref() != Some("teardrop"))
+                        {
+                            let net = zone.net;
+                            let (mut min_x, mut max_x, mut min_y, mut max_y) =
+                                (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+                            for p in &zone.outline {
+                                min_x = min_x.min(p.x);
+                                max_x = max_x.max(p.x);
+                                min_y = min_y.min(p.y);
+                                max_y = max_y.max(p.y);
+                            }
+                            ui.add_space(10.0);
+                            ui.label("Ground stitching");
+                            ui.add(
+                                egui::DragValue::new(&mut self.stitch_spacing)
+                                    .range(0.5..=50.0)
+                                    .speed(0.5)
+                                    .suffix(" mm"),
+                            )
+                            .on_hover_text(
+                                "How far apart the little connecting holes sit. Smaller numbers pack more in.",
+                            );
+                            if ui
+                                .button("Fill with vias")
+                                .on_hover_text(
+                                    "Drops a grid of small plated holes across this copper so it stays at one potential from every corner. Undo sweeps them up.",
+                                )
+                                .clicked()
+                            {
+                                self.run(
+                                    "via.stitch",
+                                    json!({
+                                        "net": net,
+                                        "bounds": {
+                                            "x": min_x,
+                                            "y": min_y,
+                                            "width": max_x - min_x,
+                                            "height": max_y - min_y,
+                                        },
+                                        "spacing": self.stitch_spacing,
+                                        "diameter": 0.6,
+                                        "drill": 0.3,
+                                    }),
                                 );
                             }
                         }
@@ -6511,6 +6561,62 @@ mod tests {
             app.message
         );
         let _ = std::fs::remove_dir_all(&folder);
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_fills_a_copper_area_with_vias() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let net = app
+            .project
+            .nets
+            .first()
+            .map(|n| n.id)
+            .ok_or("the practice design should have a net")?;
+        app.tool_call(
+            "zone.place",
+            json!({"net": net, "layer":"F.Cu","outline":[
+                {"x":2.0,"y":2.0},{"x":8.0,"y":2.0},{"x":8.0,"y":6.0},{"x":2.0,"y":6.0},{"x":2.0,"y":2.0}
+            ]}),
+        );
+        let zone_id = app
+            .project
+            .board
+            .zones
+            .last()
+            .map(|z| z.id)
+            .ok_or("the poured area should be on the board")?;
+        let vias_before = app.project.board.vias.len();
+        app.select(Some(zone_id));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Fill with vias")?,
+            "a chosen copper area offers to be stitched: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Fill with vias")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        let stitched = app.project.board.vias.len() - vias_before;
+        assert!(
+            stitched >= 4,
+            "a grid of connecting holes lands inside the area: {}",
+            app.message
+        );
+        assert!(
+            app.project
+                .board
+                .vias
+                .iter()
+                .rev()
+                .take(stitched)
+                .all(|v| v.net == net),
+            "every new hole belongs to the area's connection"
+        );
         Ok(())
     }
 
