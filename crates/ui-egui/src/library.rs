@@ -89,7 +89,7 @@ impl App {
         if self.library.catalog.is_none() && self.library.pending.is_none() {
             self.library.request(ui.ctx(), "library.catalog", json!({}));
         }
-        ui.heading("KiCad libraries");
+        ui.heading("Component libraries");
         ui.label(
             "Browse installed libraries · definitions used by a project are embedded on placement.",
         );
@@ -273,7 +273,7 @@ impl App {
         });
         ui.separator();
         ui.hyperlink_to(
-            "KiCad libraries: CC-BY-SA 4.0 + design exception",
+            "Library data license: CC-BY-SA 4.0 + design exception",
             "https://www.kicad.org/libraries/license/",
         );
         ui.label("Placement: single/multi-unit symbols, matching front SMD or plated through-hole packages. Use Edit a copy to customize a definition.");

@@ -1142,7 +1142,7 @@ impl App {
                 ui.add_space(12.0);
                 if self.palette {
                     ui.label(egui::RichText::new("Add symbol").strong());
-                    if ui.button("Browse KiCad libraries →").on_hover_text("Open the library panel to browse installed symbol and footprint collections.").clicked() {
+                    if ui.button("Browse component libraries →").on_hover_text("Open the library panel to browse installed symbol and footprint collections.").clicked() {
                         self.change_tab(Tab::Libraries);
                         self.palette = false;
                     }
@@ -1499,7 +1499,7 @@ impl App {
                     self.tool_call("save", json!({"path":self.path}));
                 }
                 if ui
-                    .button("Export KiCad board")
+                    .button("Export interchange board")
                     .on_hover_text("Write the board out so other design tools can open it.")
                     .clicked()
                 {
@@ -2076,6 +2076,34 @@ mod tests {
         assert!(
             app.title_draft.is_none(),
             "committing always closes the editor"
+        );
+    }
+
+    #[test]
+    fn no_control_asks_the_user_to_know_a_tool_brand() {
+        let brand = ["Ki", "Cad"].concat();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders = Vec::new();
+        for file in ["lib.rs", "canvas.rs", "library.rs", "authoring.rs"] {
+            let text = std::fs::read_to_string(dir.join(file)).unwrap_or_default();
+            for line in text.lines() {
+                let code = line.split("//").next().unwrap_or("");
+                if !code.contains('"') || !code.contains(&brand) {
+                    continue;
+                }
+                let allowed = code.contains("credits the")
+                    || code.contains("-derived data")
+                    || code.contains("LICENSE-")
+                    || code.contains(".contains(&brand)")
+                    || code.contains("code.contains");
+                if !allowed {
+                    offenders.push(format!("{file}: {}", code.trim()));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "buttons and labels must speak plainly, not name other tools: {offenders:?}"
         );
     }
 
