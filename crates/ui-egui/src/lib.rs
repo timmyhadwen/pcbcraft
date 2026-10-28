@@ -2947,17 +2947,20 @@ impl App {
                     &mut self.preferences.pad_labels,
                     PadLabels::Number,
                     PadLabels::Number.name(),
-                );
+                )
+                .on_hover_text("Draw each pad's own number on the board.");
                 ui.selectable_value(
                     &mut self.preferences.pad_labels,
                     PadLabels::Net,
                     PadLabels::Net.name(),
-                );
+                )
+                .on_hover_text("Draw the net name on each pad, useful when debugging.");
                 ui.selectable_value(
                     &mut self.preferences.pad_labels,
                     PadLabels::Off,
                     PadLabels::Off.name(),
-                );
+                )
+                .on_hover_text("Hide the pad labels for a clean picture.");
             })
             .response
             .on_hover_text(
@@ -4148,7 +4151,8 @@ impl App {
                     .selected_text(name_of(self.pair_a))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
-                            ui.selectable_value(&mut self.pair_a, *id, name);
+                            ui.selectable_value(&mut self.pair_a, *id, name)
+                                .on_hover_text("Pick the first net of the pair.");
                         }
                     });
                 ui.label("away from");
@@ -4156,7 +4160,8 @@ impl App {
                     .selected_text(name_of(self.pair_b))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
-                            ui.selectable_value(&mut self.pair_b, *id, name);
+                            ui.selectable_value(&mut self.pair_b, *id, name)
+                                .on_hover_text("Pick the second net of the pair.");
                         }
                     });
             });
@@ -4255,7 +4260,8 @@ impl App {
                     .selected_text(name_of(self.dp_p))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
-                            ui.selectable_value(&mut self.dp_p, *id, name);
+                            ui.selectable_value(&mut self.dp_p, *id, name)
+                                .on_hover_text("Pick the net that carries the positive side.");
                         }
                     });
                 ui.label("+");
@@ -4263,7 +4269,8 @@ impl App {
                     .selected_text(name_of(self.dp_n))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
-                            ui.selectable_value(&mut self.dp_n, *id, name);
+                            ui.selectable_value(&mut self.dp_n, *id, name)
+                                .on_hover_text("Pick the net that carries the negative side.");
                         }
                     });
             });
