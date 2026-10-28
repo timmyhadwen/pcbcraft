@@ -43,6 +43,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.mirror","Flip a project-library footprint about the vertical axis as one undoable step, mirroring every pad and graphic and turning each so its face follows, so a package can be re-aimed without rewriting the definition",schema(json!({"name":{"type":"string"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","axis"])),
         ("library.footprint.recenter","Slide a project-library footprint's whole shape by an offset as one undoable step, moving every pad, graphic and model anchor together so the origin lands where the package should be centred, without rewriting the definition",schema(json!({"name":{"type":"string"},"delta":point_schema()}),&["name","delta"])),
         ("library.symbol.recenter","Slide a project-library symbol's whole shape by an offset as one undoable step, moving every pin and graphic together so the origin lands where the symbol should be centred, without rewriting the definition",schema(json!({"name":{"type":"string"},"delta":point_schema()}),&["name","delta"])),
+        ("library.footprint.scale","Grow or shrink a project-library footprint about its origin by one factor as one undoable step, scaling every pad, drill, graphic and model anchor together, so a package imported at the wrong unit scale is rescued without rewriting the definition",schema(json!({"name":{"type":"string"},"factor":{"type":"number","description":"uniform scale factor, e.g. 0.0254 to turn a hundred-mils drawing into millimetres"}}),&["name","factor"])),
+        ("library.symbol.scale","Grow or shrink a project-library symbol about its origin by one factor as one undoable step, scaling every pin position, pin length and graphic together, so a symbol imported at the wrong grid scale is resized without rewriting the definition",schema(json!({"name":{"type":"string"},"factor":{"type":"number","description":"uniform scale factor"}}),&["name","factor"])),
         ("library.footprint.adopt","Copy a placed component's embedded footprint into the project library under a chosen name as one undoable step, so a package that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the package under"}}),&["id","name"])),
         ("library.symbol.adopt","Copy a placed component's embedded symbol into the project library under a chosen name as one undoable step, so a symbol that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the symbol under"}}),&["id","name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
@@ -100,6 +102,13 @@ struct PadSetParams {
     name: String,
     pad: FootprintPad,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScaleParams {
+    name: String,
+    factor: f64,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RecenterParams {
@@ -1419,6 +1428,99 @@ pub(super) fn run(
             p.validate()?;
             Ok(json!({"name": name, "pads": counts.0, "graphics": counts.1}))
         }
+        "library.footprint.scale" | "library.symbol.scale" => {
+            let a: ScaleParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            if !a.factor.is_finite() || a.factor <= 0.0 || a.factor > 1000.0 {
+                return Err(Error::Invalid(
+                    "factor must be finite and within 0 to 1000".into(),
+                ));
+            }
+            let k = a.factor;
+            let scale = |p: Point| -> Result<Point, Error> {
+                let grown = Point::new(p.x * k, p.y * k);
+                if grown.valid() {
+                    Ok(grown)
+                } else {
+                    Err(Error::Invalid(
+                        "the scaled shape left the board coordinate range".into(),
+                    ))
+                }
+            };
+            let scale_dim = |v: f64| -> Result<f64, Error> {
+                let grown = v * k;
+                if grown.is_finite() {
+                    Ok(grown)
+                } else {
+                    Err(Error::Invalid("scaled size left range".into()))
+                }
+            };
+            let name = a.name.clone();
+            if command == "library.symbol.scale" {
+                let symbol = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|s| s.name == name)
+                    .ok_or_else(missing)?;
+                for pin in symbol.pins.iter_mut() {
+                    pin.position = scale(pin.position)?;
+                    pin.length = scale_dim(pin.length)?;
+                }
+                let mut count = 0;
+                for art in symbol.graphics.iter_mut() {
+                    scale_graphic(&mut art.primitive, &scale, scale_dim)?;
+                    count += 1;
+                }
+                let counts = (symbol.pins.len(), count);
+                symbol
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+                p.library.validate()?;
+                p.validate()?;
+                return Ok(json!({"name": name, "pins": counts.0, "graphics": counts.1}));
+            }
+            let footprint = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == name)
+                .ok_or_else(missing)?;
+            for pad in footprint.pads.iter_mut() {
+                pad.position = scale(pad.position)?;
+                pad.size = scale(pad.size)?;
+                if let Some(drill) = &mut pad.drill {
+                    drill.size = scale(drill.size)?;
+                    drill.offset = scale(drill.offset)?;
+                }
+            }
+            let mut count = 0;
+            for art in footprint.graphics.iter_mut() {
+                scale_graphic(art, &scale, scale_dim)?;
+                count += 1;
+            }
+            if let Some(model) = &mut footprint.model {
+                model.offset = [
+                    model.offset[0] * k,
+                    model.offset[1] * k,
+                    model.offset[2] * k,
+                ];
+                for axis in model.scale.iter_mut() {
+                    *axis = scale_dim(*axis)?;
+                }
+            }
+            let counts = (footprint.pads.len(), count);
+            footprint
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            p.library.validate()?;
+            p.validate()?;
+            Ok(json!({"name": name, "pads": counts.0, "graphics": counts.1}))
+        }
         "component.place_custom" => {
             let a: Place = parse(params)?;
             let def = p
@@ -1513,6 +1615,62 @@ fn shift_graphic(
             }
         }
         Graphic::Text { position, .. } => *position = shift(*position)?,
+    }
+    Ok(())
+}
+
+fn scale_graphic(
+    g: &mut Graphic,
+    scale: &dyn Fn(Point) -> Result<Point, Error>,
+    scale_dim: impl Fn(f64) -> Result<f64, Error>,
+) -> Result<(), Error> {
+    match g {
+        Graphic::Line {
+            start, end, width, ..
+        } => {
+            *start = scale(*start)?;
+            *end = scale(*end)?;
+            *width = scale_dim(*width)?;
+        }
+        Graphic::Rectangle {
+            start, end, width, ..
+        } => {
+            *start = scale(*start)?;
+            *end = scale(*end)?;
+            *width = scale_dim(*width)?;
+        }
+        Graphic::Circle {
+            center,
+            radius,
+            width,
+            ..
+        } => {
+            *center = scale(*center)?;
+            *radius = scale_dim(*radius)?;
+            *width = scale_dim(*width)?;
+        }
+        Graphic::Arc {
+            start,
+            mid,
+            end,
+            width,
+            ..
+        } => {
+            *start = scale(*start)?;
+            *mid = scale(*mid)?;
+            *end = scale(*end)?;
+            *width = scale_dim(*width)?;
+        }
+        Graphic::Polyline { points, width, .. } => {
+            for p in points.iter_mut() {
+                *p = scale(*p)?;
+            }
+            *width = scale_dim(*width)?;
+        }
+        Graphic::Text { position, size, .. } => {
+            *position = scale(*position)?;
+            *size = scale(*size)?;
+        }
     }
     Ok(())
 }
