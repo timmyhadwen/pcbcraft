@@ -466,6 +466,11 @@ pub struct App {
     cut_x: f64,
     cut_y: f64,
     cut_r: f64,
+    pour_x: f64,
+    pour_y: f64,
+    pour_w: f64,
+    pour_h: f64,
+    pour_net: Id,
     teardrop_depth: f64,
     panel_columns: usize,
     panel_rows: usize,
@@ -692,6 +697,11 @@ impl App {
             cut_x: 25.0,
             cut_y: 15.0,
             cut_r: 1.5,
+            pour_x: 10.0,
+            pour_y: 10.0,
+            pour_w: 20.0,
+            pour_h: 12.0,
+            pour_net: 0,
             teardrop_depth: 0.5,
             panel_columns: 2,
             panel_rows: 2,
@@ -3720,6 +3730,82 @@ impl App {
                     );
                 }
                 ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("COPPER POUR")
+                        .size(10.0)
+                        .color(self.muted()),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "A solid rectangle of copper that joins every wire and pad inside it to one connection.",
+                    )
+                    .small()
+                    .color(self.muted()),
+                );
+                if !self.project.nets.is_empty()
+                    && !self.project.nets.iter().any(|n| n.id == self.pour_net)
+                {
+                    self.pour_net = self.project.nets[0].id;
+                }
+                ui.horizontal(|ui| {
+                    ui.label("X");
+                    ui.add(egui::DragValue::new(&mut self.pour_x).speed(0.5).suffix(" mm"));
+                    ui.label("Y");
+                    ui.add(egui::DragValue::new(&mut self.pour_y).speed(0.5).suffix(" mm"));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("W");
+                    ui.add(
+                        egui::DragValue::new(&mut self.pour_w)
+                            .speed(0.5)
+                            .range(1.0..=500.0)
+                            .suffix(" mm"),
+                    );
+                    ui.label("H");
+                    ui.add(
+                        egui::DragValue::new(&mut self.pour_h)
+                            .speed(0.5)
+                            .range(1.0..=500.0)
+                            .suffix(" mm"),
+                    );
+                });
+                let pour_net = self.pour_net;
+                let net_choices: Vec<(Id, String)> = self
+                    .project
+                    .nets
+                    .iter()
+                    .take(64)
+                    .map(|n| (n.id, self.project.net_name(n.id).to_owned()))
+                    .collect();
+                egui::ComboBox::from_id_salt("pour_net")
+                    .selected_text(format!(
+                        "Copper for: {}",
+                        self.project.net_name(pour_net)
+                    ))
+                    .show_ui(ui, |ui| {
+                        for (id, name) in net_choices {
+                            ui.selectable_value(&mut self.pour_net, id, name);
+                        }
+                    });
+                if ui
+                    .button("Pour copper")
+                    .on_hover_text(
+                        "Pours this rectangle of copper onto the board. It joins every wire and pad it touches to the chosen connection, and undo pours it away again.",
+                    )
+                    .clicked()
+                {
+                    self.run(
+                        "zone.place",
+                        json!({"net": pour_net, "layer":"F.Cu","outline":[
+                            {"x":self.pour_x,"y":self.pour_y},
+                            {"x":self.pour_x+self.pour_w,"y":self.pour_y},
+                            {"x":self.pour_x+self.pour_w,"y":self.pour_y+self.pour_h},
+                            {"x":self.pour_x,"y":self.pour_y+self.pour_h},
+                            {"x":self.pour_x,"y":self.pour_y},
+                        ]}),
+                    );
+                }
+                ui.add_space(8.0);
                 ui.label(egui::RichText::new("BOARD EDGE").size(10.0).color(self.muted()));
                 let corners = self.project.board.outline.as_ref().map_or(0, |o| o.len());
                 if corners >= 3 {
@@ -5102,11 +5188,7 @@ mod tests {
         let revision = app.revision;
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "MAKE FILES")?,
-            "the inspector should offer the factory files"
-        );
-        for _ in 0..6 {
+        for _ in 0..10 {
             frame(
                 &ctx,
                 &mut app,
@@ -5122,6 +5204,10 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
+        assert!(
+            paints_text(&ctx, &mut app, "MAKE FILES")?,
+            "the inspector should offer the factory files"
+        );
         authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let listed = |directory: &std::path::Path| -> Result<Vec<String>, String> {
@@ -6561,6 +6647,53 @@ mod tests {
             app.message
         );
         let _ = std::fs::remove_dir_all(&folder);
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_pours_a_block_of_copper() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let before = app.project.board.zones.len();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Pour copper")?,
+            "the board geometry section should offer a copper pour: {}",
+            app.message
+        );
+        app.pour_x = 2.0;
+        app.pour_y = 2.0;
+        app.pour_w = 6.0;
+        app.pour_h = 4.0;
+        authoring::tests::tap(&ctx, &mut app, "Pour copper")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            app.project.board.zones.len(),
+            before + 1,
+            "one rectangle of copper is poured: {}",
+            app.message
+        );
+        let zone = app
+            .project
+            .board
+            .zones
+            .last()
+            .ok_or("the pour should be on the board")?;
+        assert_eq!(
+            zone.net, app.pour_net,
+            "the pour went to the connection picked in the box"
+        );
+        assert!(
+            zone.outline
+                .iter()
+                .all(|p| p.x >= 2.0 && p.x <= 8.0 && p.y >= 2.0 && p.y <= 6.0)
+                && zone.outline.iter().any(|p| (p.x - 8.0).abs() < 1e-9),
+            "the copper covers exactly the rectangle that was typed"
+        );
         Ok(())
     }
 
