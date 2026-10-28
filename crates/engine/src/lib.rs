@@ -393,6 +393,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netclass.set",
+            "Rename a net class, change the default track width its members route at, or both at once, with the class rules echoed back",
+            schema(
+                json!({"class":id_schema(),"name":{"type":"string","minLength":1,"maxLength":128},"width":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"default track width, millimetres"}}),
+                &["class"],
+            ),
+        ),
+        (
             "netclass.remove",
             "Delete a net class and return its nets to the board default rules",
             schema(json!({"class":id_schema()}), &["class"]),
@@ -2734,6 +2742,15 @@ struct LengthRulesParams {
 struct ClassClearanceParams {
     class: Id,
     clearance: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClassSetParams {
+    class: Id,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    width: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5256,6 +5273,59 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .ok_or_else(missing)?;
             class.clearance = a.clearance;
             Ok(json!({"class":a.class,"clearance":class.clearance,"nets":class.nets.len()}))
+        }
+        "netclass.set" => {
+            let a: ClassSetParams = parse(params)?;
+            if a.name.is_none() && a.width.is_none() {
+                return Err(Error::Invalid(
+                    "give a new name, a new width, or both".into(),
+                ));
+            }
+            if let Some(name) = &a.name {
+                if name.is_empty() || name.len() > 128 {
+                    return Err(Error::Invalid(
+                        "net class name must be 1 to 128 bytes".into(),
+                    ));
+                }
+                if p.net_classes
+                    .iter()
+                    .any(|k| k.id != a.class && k.name == *name)
+                {
+                    return Err(Error::Invalid("net class name already in use".into()));
+                }
+            }
+            if let Some(width) = a.width
+                && (!width.is_finite() || width <= 0.0 || width > 100.0)
+            {
+                return Err(Error::Invalid(
+                    "width must be between 0 and 100 millimetres".into(),
+                ));
+            }
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            if a.name.as_deref().is_none_or(|name| name == class.name)
+                && a.width.is_none_or(|width| width == class.width)
+            {
+                return Err(Error::Invalid(
+                    "that class already goes by that name and width".into(),
+                ));
+            }
+            if let Some(name) = a.name {
+                class.name = name;
+            }
+            if let Some(width) = a.width {
+                class.width = width;
+            }
+            Ok(json!({
+                "class": class.id,
+                "name": class.name,
+                "width": class.width,
+                "clearance": class.clearance,
+                "nets": class.nets.len()
+            }))
         }
         "netclass.remove" => {
             let a: ClassRemoveParams = parse(params)?;
@@ -17205,6 +17275,85 @@ mod tests {
         assert!(r1 > 0 && r2 > 0);
         Ok(())
     }
+    #[test]
+    fn a_netclass_set_renames_it_and_moves_its_default_width() -> Result<(), Error> {
+        let mut s = Session::default();
+        let power = s.execute("net.create", json!({"name":"PWR"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.3,"width":0.6,"nets":[power]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out =
+            s.execute("netclass.set", json!({"class":class,"width":0.9}), None)?["result"].clone();
+        assert_eq!(out["name"], "POWER");
+        assert_eq!(out["width"], json!(0.9));
+        assert_eq!(
+            out["clearance"],
+            json!(0.3),
+            "the untouched clearance is echoed back"
+        );
+        assert_eq!(out["nets"], 1, "membership survives a rule change");
+        let out = s.execute(
+            "netclass.set",
+            json!({"class":class,"name":"HIGH-POWER"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["name"], "HIGH-POWER");
+        assert_eq!(
+            out["width"],
+            json!(0.9),
+            "the width change survives the rename"
+        );
+        for bad in [
+            json!({"class":class}),
+            json!({"class":class,"name":"HIGH-POWER"}),
+            json!({"class":class,"width":0.9}),
+            json!({"class":class,"name":"HIGH-POWER","width":0.9}),
+            json!({"class":class,"name":""}),
+            json!({"class":class,"name":"n".repeat(129)}),
+            json!({"class":class,"width":0.0}),
+            json!({"class":class,"width":-1.0}),
+            json!({"class":class,"width":1e9}),
+            json!({"class":class + 77,"width":0.5}),
+        ] {
+            assert!(
+                s.execute("netclass.set", bad.clone(), None).is_err(),
+                "empty, no-op, over-long, out-of-range and unknown-class sets are refused: {bad}"
+            );
+        }
+        s.execute(
+            "netclass.add",
+            json!({"name":"SIG","clearance":0.2,"width":0.2}),
+            None,
+        )?;
+        assert!(
+            s.execute("netclass.set", json!({"class":class,"name":"SIG"}), None)
+                .is_err(),
+            "class names must stay unique"
+        );
+        s.undo()?;
+        s.undo()?;
+        s.undo()?;
+        let held = s
+            .project
+            .net_classes
+            .iter()
+            .find(|k| k.id == class)
+            .ok_or_else(missing)?;
+        assert_eq!(
+            (held.name.as_str(), held.width),
+            ("POWER", 0.6),
+            "undo steps back through the rename and the width change"
+        );
+        Ok(())
+    }
+
     #[test]
     fn net_class_width_bounds_flag_member_tracks_only() -> Result<(), Error> {
         let mut s = Session::default();
