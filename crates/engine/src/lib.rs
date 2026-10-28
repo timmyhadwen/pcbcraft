@@ -68,7 +68,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "component.place_library",
-            "Place a KiCad symbol package with independently movable units and embedded definitions",
+            "Place a symbol package with independently movable units and embedded definitions",
             schema(
                 json!({"path":{"type":"string"},"symbol":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"}}),
                 &["path", "symbol", "position"],
@@ -76,7 +76,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "footprint.assign",
-            "Assign a KiCad front SMD or plated through-hole footprint with matching physical pins",
+            "Assign a top-side SMD or plated through-hole footprint with matching physical pins",
             schema(
                 json!({"id":id_schema(),"path":{"type":"string"}}),
                 &["id", "path"],

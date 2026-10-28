@@ -18,8 +18,8 @@ pub fn tool_list() -> Value {
     let command = json!({"type":"object","properties":{"command":{"type":"string"},"params":{"type":"object"}},"required":["command","params"],"additionalProperties":false});
     let mut tools = vec![
         json!({"name":"library.save","description":"Atomically save the editable project library to a .pcbcraft-lib collection","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"library.catalog","description":"Discover installed KiCad symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
-        json!({"name":"library.search","description":"Search a KiCad symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
+        json!({"name":"library.catalog","description":"Discover installed symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
+        json!({"name":"library.search","description":"Search a symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
         json!({"name":"library.inspect_footprint","description":"Read footprint graphics/pads/drills; include_source preserves up to 512KiB of original nodes","inputSchema":object(json!({"path":{"type":"string"},"include_source":{"type":"boolean"}}),&["path"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
@@ -33,7 +33,7 @@ pub fn tool_list() -> Value {
         json!({"name":"sample_design","description":"Load the original LED indicator example; replacement is undoable","inputSchema":object(json!({}),&[])}),
         json!({"name":"open","description":"Open and validate a .pcbcraft project from the server host; replacement is undoable","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"save","description":"Atomically save the current project on the server host","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"export","description":"Export the supported PCB subset to KiCad, or export a schematic/PCB SVG preview","inputSchema":object(json!({"path":{"type":"string"},"format":{"type":"string","enum":["kicad_pcb","svg"]},"view":{"type":"string","enum":["schematic","pcb"]}}),&["path","format"])}),
+        json!({"name":"export","description":"Export the board to the interchange format, or export a schematic/PCB SVG preview","inputSchema":object(json!({"path":{"type":"string"},"format":{"type":"string","enum":["kicad_pcb","svg"]},"view":{"type":"string","enum":["schematic","pcb"]}}),&["path","format"])}),
         json!({"name":"screenshot","description":"Return a PNG design preview from current session state (not a desktop UI screenshot)","inputSchema":object(json!({"view":{"type":"string","enum":["schematic","pcb"]}}),&["view"])}),
     ];
     for spec in pcbcraft_engine::commands() {
