@@ -941,6 +941,141 @@ impl LayerRecord {
             && (0.0..=100.0).contains(&self.thickness)
     }
 }
+/// What a drawn layer tells a machine to do: a cutter follows cut and
+/// perforation layers, a UV printer prints silk and mask layers, and "other"
+/// layers are reference or documentation art.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ArtKind {
+    #[serde(rename = "cut")]
+    Cut,
+    #[serde(rename = "perforation")]
+    Perforation,
+    #[serde(rename = "silk")]
+    Silk,
+    #[serde(rename = "mask")]
+    Mask,
+    #[serde(rename = "other")]
+    Other,
+}
+impl ArtKind {
+    /// Plain-English name of the job this layer gives a machine.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Cut => "cut line",
+            Self::Perforation => "perforation",
+            Self::Silk => "silk screen",
+            Self::Mask => "solder mask",
+            Self::Other => "drawing",
+        }
+    }
+}
+/// One figure drawn on a user layer, in board millimetres.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum ArtShape {
+    /// A straight stroke between two points.
+    Line { start: Point, end: Point },
+    /// A rectangle outline, optionally rotated about its centre.
+    Rect {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        /// Turn in degrees about the rectangle centre.
+        #[serde(default)]
+        rotate: f64,
+    },
+    /// A circle outline.
+    Circle { center: Point, radius: f64 },
+    /// A closed outline through these points.
+    Poly { points: Vec<Point> },
+    /// Text drawn with the machine's pen.
+    Text {
+        at: Point,
+        text: String,
+        /// Cap height in millimetres.
+        #[serde(default = "art_text_size")]
+        size: f64,
+        /// Turn in degrees about the anchor point.
+        #[serde(default)]
+        rotate: f64,
+    },
+}
+impl ArtShape {
+    fn valid(&self) -> bool {
+        match self {
+            Self::Line { start, end } => start.valid() && end.valid(),
+            Self::Rect {
+                x,
+                y,
+                width,
+                height,
+                rotate,
+            } => {
+                x.is_finite()
+                    && y.is_finite()
+                    && (0.001..=1000.0).contains(width)
+                    && (0.001..=1000.0).contains(height)
+                    && rotate.is_finite()
+                    && *x >= -1000.0
+                    && *y >= -1000.0
+                    && *x + *width <= 2000.0
+                    && *y + *height <= 2000.0
+            }
+            Self::Circle { center, radius } => center.valid() && (0.001..=500.0).contains(radius),
+            Self::Poly { points } => {
+                (2..=64).contains(&points.len()) && points.iter().all(|pt| pt.valid())
+            }
+            Self::Text {
+                at,
+                text,
+                size,
+                rotate,
+            } => {
+                at.valid()
+                    && !text.trim().is_empty()
+                    && text.len() <= 128
+                    && (0.2..=50.0).contains(size)
+                    && rotate.is_finite()
+            }
+        }
+    }
+}
+/// A layer the designer draws: card outlines to cut, perforations to snap
+/// along, custom silk screens, masks or reference art. Copper stays where it
+/// is; these layers sit beside it and are plotted for laser, mill and
+/// printer output.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ArtLayer {
+    pub id: Id,
+    /// Display name, unique per board, for example "Card Outline".
+    pub name: String,
+    /// What this layer tells a machine to do.
+    pub kind: ArtKind,
+    /// True draws the layer as evenly spaced dots: a perforation the board
+    /// snaps along, or a light print guide.
+    #[serde(default)]
+    pub dotted: bool,
+    /// False hides the layer everywhere on screen.
+    #[serde(default = "art_visible")]
+    pub visible: bool,
+    /// The figures on this layer, in draw order.
+    #[serde(default)]
+    pub shapes: Vec<ArtShape>,
+}
+impl ArtLayer {
+    fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && self.shapes.len() <= 512
+            && self.shapes.iter().all(ArtShape::valid)
+    }
+}
+fn art_visible() -> bool {
+    true
+}
+fn art_text_size() -> f64 {
+    1.0
+}
 fn board_finish() -> String {
     "HASL".into()
 }
@@ -1026,6 +1161,10 @@ pub struct Board {
     /// no copper and belong to no net.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub holes: Vec<Hole>,
+    /// Layers the designer draws for machines: cuts, perforations, custom
+    /// silk and mask art, plotted alongside the copper.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub user_layers: Vec<ArtLayer>,
     /// Poured copper zones, one polygon per zone on a single layer.
     #[serde(default)]
     pub zones: Vec<CopperZone>,
@@ -1337,6 +1476,7 @@ impl Default for Project {
                 pair_rules: vec![],
                 diff_pairs: vec![],
                 rule_areas: vec![],
+                user_layers: vec![],
                 outline: None,
                 footprints: vec![],
                 tracks: vec![],
@@ -1604,6 +1744,10 @@ impl Project {
         }
         best
     }
+    /// The drawn layer with this id, if any.
+    pub fn user_layer(&self, id: Id) -> Option<&ArtLayer> {
+        self.board.user_layers.iter().find(|l| l.id == id)
+    }
     pub fn ids(&self) -> impl Iterator<Item = Id> + '_ {
         self.components
             .iter()
@@ -1627,6 +1771,7 @@ impl Project {
             .chain(self.board.netties.iter().map(|x| x.id))
             .chain(self.board.diff_pairs.iter().map(|x| x.id))
             .chain(self.board.rule_areas.iter().map(|x| x.id))
+            .chain(self.board.user_layers.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
     }
     pub fn validate(&self) -> Result<(), String> {
@@ -1852,6 +1997,15 @@ impl Project {
         for r in &self.board.rule_areas {
             if !r.valid() || r.net.is_some_and(|n| !nets.contains(&n)) {
                 return Err("rule areas need a valid rectangle, a sane gap and a known net".into());
+            }
+        }
+        if self.board.user_layers.len() > 32 {
+            return Err("a board carries at most 32 drawn layers".into());
+        }
+        let mut art_names: BTreeSet<&str> = BTreeSet::new();
+        for l in &self.board.user_layers {
+            if !l.valid() || !art_names.insert(l.name.as_str()) {
+                return Err("drawn layers need a unique name and sane figures".into());
             }
         }
         let mut paired: BTreeSet<(Id, Id)> = BTreeSet::new();
