@@ -252,28 +252,27 @@ fn net_impedance(p: &Project, params: &Value) -> Result<Value, Error> {
             .diff_pairs
             .iter()
             .find(|d| d.net_p == net.id || d.net_n == net.id)
+            && let Some(c) = imp::coupled_microstrip(width, pair.gap, height, er)
         {
-            if let Some(c) = imp::coupled_microstrip(width, pair.gap, height, er) {
-                let mut diff = json!({
-                    "pair": pair.name,
-                    "gap": pair.gap,
-                    "z_diff_ohm": r2(c.z_diff()),
-                    "z_odd_ohm": r2(c.z_odd),
-                    "z_even_ohm": r2(c.z_even),
-                    "model": "edge-coupled microstrip, zero thickness",
-                });
-                if let Some(note) = coupled_validity(width, pair.gap, height) {
-                    diff["validity"] = json!(note);
-                }
-                if let Some(target) = a.target_diff {
-                    diff["delta_ohm"] = json!(r2(c.z_diff() - target));
-                    let solved = imp::width_for_ohms(target / 2.0, |w| {
-                        imp::coupled_microstrip(w, pair.gap, height, er).map(|c| c.z_odd)
-                    });
-                    diff["recommended_width"] = solved.map_or(Value::Null, |w| json!(r3(w)));
-                }
-                row["diff"] = diff;
+            let mut diff = json!({
+                "pair": pair.name,
+                "gap": pair.gap,
+                "z_diff_ohm": r2(c.z_diff()),
+                "z_odd_ohm": r2(c.z_odd),
+                "z_even_ohm": r2(c.z_even),
+                "model": "edge-coupled microstrip, zero thickness",
+            });
+            if let Some(note) = coupled_validity(width, pair.gap, height) {
+                diff["validity"] = json!(note);
             }
+            if let Some(target) = a.target_diff {
+                diff["delta_ohm"] = json!(r2(c.z_diff() - target));
+                let solved = imp::width_for_ohms(target / 2.0, |w| {
+                    imp::coupled_microstrip(w, pair.gap, height, er).map(|c| c.z_odd)
+                });
+                diff["recommended_width"] = solved.map_or(Value::Null, |w| json!(r3(w)));
+            }
+            row["diff"] = diff;
         }
         rows.push(row);
     }

@@ -166,10 +166,10 @@ pub fn shape(run: &Run, bumps: usize, amplitude: f64) -> Option<Vec<Seg>> {
         // The first and last points are lead in and out ends, not corners.
         let mut piece = Vec::new();
         corner(&mut piece, before, here, after, cut, run.corner);
-        if let Some(first) = piece.first() {
-            if cursor.distance(first.start()) > 1e-9 {
-                path.push(Seg::Line(cursor, first.start()));
-            }
+        if let Some(first) = piece.first()
+            && cursor.distance(first.start()) > 1e-9
+        {
+            path.push(Seg::Line(cursor, first.start()));
         }
         if let Some(last) = piece.last() {
             cursor = last.end();
