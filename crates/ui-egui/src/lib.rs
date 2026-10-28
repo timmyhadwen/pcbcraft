@@ -466,6 +466,10 @@ pub struct App {
     pair_a: Id,
     pair_b: Id,
     pair_clearance: f64,
+    dp_name: String,
+    dp_p: Id,
+    dp_n: Id,
+    dp_gap: f64,
     cut_x: f64,
     cut_y: f64,
     cut_r: f64,
@@ -700,6 +704,10 @@ impl App {
             pair_a: 0,
             pair_b: 0,
             pair_clearance: 0.4,
+            dp_name: "USB".into(),
+            dp_p: 0,
+            dp_n: 0,
+            dp_gap: 0.2,
             cut_x: 25.0,
             cut_y: 15.0,
             cut_r: 1.5,
@@ -3066,6 +3074,111 @@ impl App {
                         .clicked()
                     {
                         self.run("board.remove_pair_rule", json!({"net_a": a, "net_b": b}));
+                    }
+                });
+            }
+        }
+        ui.add_space(10.0);
+        ui.label(
+            egui::RichText::new("DIFFERENTIAL PAIRS")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "Two connections that should run side by side as a team, like the data lines of a socket.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        if nets.len() >= 2 {
+            if !nets.iter().any(|(id, _)| *id == self.dp_p) {
+                self.dp_p = nets[0].0;
+            }
+            if !nets.iter().any(|(id, _)| *id == self.dp_n) || self.dp_n == self.dp_p {
+                self.dp_n = nets
+                    .iter()
+                    .map(|(id, _)| *id)
+                    .find(|id| *id != self.dp_p)
+                    .unwrap_or(self.dp_n);
+            }
+            ui.horizontal(|ui| {
+                ui.label("Name");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.dp_name)
+                        .hint_text("USB")
+                        .desired_width(90.0),
+                )
+                .on_hover_text("A name you will recognise, like USB or HDMI.");
+            });
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt("dp_p")
+                    .selected_text(name_of(self.dp_p))
+                    .show_ui(ui, |ui| {
+                        for (id, name) in &nets {
+                            ui.selectable_value(&mut self.dp_p, *id, name);
+                        }
+                    });
+                ui.label("+");
+                egui::ComboBox::from_id_salt("dp_n")
+                    .selected_text(name_of(self.dp_n))
+                    .show_ui(ui, |ui| {
+                        for (id, name) in &nets {
+                            ui.selectable_value(&mut self.dp_n, *id, name);
+                        }
+                    });
+            });
+            ui.horizontal(|ui| {
+                ui.label("Run together with a gap of");
+                ui.add(
+                    egui::DragValue::new(&mut self.dp_gap)
+                        .range(0.02..=10.0)
+                        .speed(0.02)
+                        .suffix(" mm"),
+                )
+                .on_hover_text(
+                    "How closely the two sides should hug each other; copper nearer than this gets reported.",
+                );
+            });
+            if ui
+                .button("Declare pair")
+                .on_hover_text(
+                    "Tell the checks these two connections are a team: they watch the gap between them. Reusing the name updates the same pair, and undo takes it away.",
+                )
+                .clicked()
+            {
+                self.run(
+                    "board.set_diffpair",
+                    json!({"name": self.dp_name, "net_p": self.dp_p, "net_n": self.dp_n, "gap": self.dp_gap}),
+                );
+            }
+        }
+        let pairs: Vec<(Id, String, Id, Id, f64)> = self
+            .project
+            .board
+            .diff_pairs
+            .iter()
+            .map(|d| (d.id, d.name.clone(), d.net_p, d.net_n, d.gap))
+            .collect();
+        if !pairs.is_empty() {
+            ui.label(
+                egui::RichText::new("Pairs you have declared")
+                    .small()
+                    .color(self.muted()),
+            );
+            for (id, name, p, n, gap) in pairs {
+                ui.horizontal(|ui| {
+                    ui.label(format!(
+                        "{name} · {} + {} · gap {gap} mm",
+                        name_of(p),
+                        name_of(n)
+                    ));
+                    if ui
+                        .small_button("Remove")
+                        .on_hover_text("Stop watching this pair; the lines stay as they are.")
+                        .clicked()
+                    {
+                        self.run("board.remove_diffpair", json!({"id": id}));
                     }
                 });
             }
@@ -6174,6 +6287,65 @@ mod tests {
             teardrops(&app),
             0,
             "removing teardrops leaves the plain wires exactly as they were: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        for _ in 0..18 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            paints_text(&ctx, &mut app, "DIFFERENTIAL PAIRS")?,
+            "the rules dock should offer team lines: {}",
+            app.message
+        );
+        app.dp_gap = 0.3;
+        authoring::tests::tap(&ctx, &mut app, "Declare pair")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            app.project
+                .board
+                .diff_pairs
+                .iter()
+                .any(|d| d.name == "USB" && (d.gap - 0.3).abs() < 1e-9 && d.net_p != d.net_n),
+            "one click declares the pair with the typed gap: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Pairs you have declared")?,
+            "the pair is listed so it can be taken away: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Remove")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            app.project.board.diff_pairs.is_empty(),
+            "removing stops the checks watching the pair: {}",
             app.message
         );
         Ok(())
