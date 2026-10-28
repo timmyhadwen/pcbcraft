@@ -1446,10 +1446,10 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 budget: &mut budget,
             };
             for (a, c, w, on_top) in &strokes {
-                if *on_top == top {
-                    if let Some(ring) = stroke_ring(*a, *c, *w) {
-                        b.prism(&ring, vec![], z0, z1, &mut warnings)?;
-                    }
+                if *on_top == top
+                    && let Some(ring) = stroke_ring(*a, *c, *w)
+                {
+                    b.prism(&ring, vec![], z0, z1, &mut warnings)?;
                 }
             }
             parts.push(b.part);
@@ -1565,10 +1565,10 @@ fn thin_polyline(points: &[Point], max_segments: usize) -> Vec<Point> {
     }
     let step = points.len().div_ceil(max_segments);
     let mut out: Vec<Point> = points.iter().copied().step_by(step).collect();
-    if let (Some(last), Some(kept)) = (points.last().copied(), out.last().copied()) {
-        if !same(last, kept) {
-            out.push(last);
-        }
+    if let (Some(last), Some(kept)) = (points.last().copied(), out.last().copied())
+        && !same(last, kept)
+    {
+        out.push(last);
     }
     out
 }
