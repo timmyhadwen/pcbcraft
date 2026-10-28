@@ -3,6 +3,7 @@ use pcbcraft_library::{
     Drill, FootprintDefinition, FootprintPad, Graphic, SymbolDefinition, SymbolPin, UnitGraphic,
 };
 
+#[derive(Clone)]
 pub(super) enum Draft {
     Symbol(SymbolDefinition),
     Footprint(FootprintDefinition),
@@ -876,6 +877,227 @@ mod tests {
         assert!(app.project.library.symbols.is_empty());
         app.tool_call("redo", json!({}));
         assert_eq!(app.project.library.symbols.len(), 1);
+        Ok(())
+    }
+    /// Find the button whose label reads exactly `label`, scrolling the page
+    /// down and then up if needed, and click it like a person would.
+    fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
+        // Two quiet passes first: hit-testing always trails the painter by a
+        // frame, and a scroll area only grows its scrollbar on the second
+        // pass, which shifts every row a hair.
+        frame(ctx, app, vec![]);
+        frame(ctx, app, vec![]);
+        for attempt in 0..16 {
+            let output = frame(ctx, app, vec![]);
+            let found = output.shapes.iter().find_map(|shape| {
+                if let egui::Shape::Text(text) = &shape.shape
+                    && text.galley.text() == label
+                {
+                    let center = text.pos + text.galley.size() / 2.0;
+                    if shape.clip_rect.contains(center) {
+                        return Some(center);
+                    }
+                }
+                None
+            });
+            if let Some(pos) = found {
+                for pressed in [true, false] {
+                    frame(
+                        ctx,
+                        app,
+                        vec![
+                            egui::Event::PointerMoved(pos),
+                            egui::Event::PointerButton {
+                                pos,
+                                button: egui::PointerButton::Primary,
+                                pressed,
+                                modifiers: egui::Modifiers::NONE,
+                            },
+                        ],
+                    );
+                }
+                return Ok(());
+            }
+            let direction = if attempt < 10 { -120.0 } else { 120.0 };
+            frame(
+                ctx,
+                app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(720.0, 750.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, direction),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            // A scrolled frame needs one more pass before its hit-testing
+            // matches what the painter just drew, so land the settle frame.
+            frame(ctx, app, vec![]);
+        }
+        Err(format!("{label} never appeared on screen"))
+    }
+    fn draft_symbol(app: &App) -> Result<SymbolDefinition, String> {
+        app.library
+            .editor
+            .draft
+            .as_ref()
+            .map(|draft| match draft {
+                Draft::Symbol(def) => Ok(def.clone()),
+                Draft::Footprint(_) => Err("the draft is a footprint".to_string()),
+            })
+            .unwrap_or_else(|| Err("there is no draft".to_string()))
+    }
+    fn editor(kind: &str) -> Result<(pcbcraft_mcp::SharedSession, App, egui::Context), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared.clone(), Preferences::default(), None, Some(kind));
+        app.refresh();
+        Ok((shared, app, egui::Context::default()))
+    }
+    #[test]
+    fn adding_pins_in_the_editor_then_saving_reaches_the_project_numbered_in_order()
+    -> Result<(), String> {
+        let (shared, mut app, ctx) = editor("symbol-editor")?;
+        tap(&ctx, &mut app, "Add pin")?;
+        tap(&ctx, &mut app, "Add pin")?;
+        let draft = draft_symbol(&app)?;
+        assert_eq!(draft.pins.len(), 4, "two clicks add two pins");
+        let numbers: Vec<&str> = draft.pins.iter().map(|p| p.number.as_str()).collect();
+        assert_eq!(
+            numbers,
+            ["1", "2", "3", "4"],
+            "new pins get the next free numbers"
+        );
+        tap(&ctx, &mut app, "Save symbol to project library")?;
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        assert_eq!(session.project.library.symbols[0].pins.len(), 4);
+        Ok(())
+    }
+    #[test]
+    fn adding_a_pad_to_a_new_footprint_and_saving_stores_three_pads() -> Result<(), String> {
+        let (shared, mut app, ctx) = editor("footprint-editor")?;
+        tap(&ctx, &mut app, "Add pad")?;
+        let Some(Draft::Footprint(draft)) = app.library.editor.draft.clone() else {
+            return Err("the footprint editor lost its draft".to_string());
+        };
+        assert_eq!(draft.pads.len(), 3, "one click adds one pad");
+        assert_eq!(
+            draft.pads[2].number, "3",
+            "the new pad gets the next free number"
+        );
+        tap(&ctx, &mut app, "Save footprint to project library")?;
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        assert_eq!(session.project.library.footprints[0].pads.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn duplicating_the_preview_unit_copies_the_pins_into_a_second_unit() -> Result<(), String> {
+        let (_shared, mut app, ctx) = editor("symbol-editor")?;
+        tap(&ctx, &mut app, "Duplicate preview unit")?;
+        let draft = draft_symbol(&app)?;
+        assert_eq!(draft.pins.len(), 4, "the unit copy doubles the pins");
+        assert!(
+            draft.pins.iter().any(|p| p.unit == 2),
+            "the copies live in a new unit"
+        );
+        assert_eq!(
+            app.library.preview_unit, 2,
+            "the preview follows the new unit"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_polyline_grows_a_vertex_and_gives_it_back() -> Result<(), String> {
+        let (_shared, mut app, ctx) = editor("symbol-editor")?;
+        tap(&ctx, &mut app, "Polyline")?;
+        let count = |app: &App| -> usize {
+            draft_symbol(app)
+                .map(|draft| {
+                    draft
+                        .graphics
+                        .iter()
+                        .filter(|g| matches!(g.primitive, Graphic::Polyline { .. }))
+                        .map(|g| match &g.primitive {
+                            Graphic::Polyline { points, .. } => points.len(),
+                            _ => 0,
+                        })
+                        .sum()
+                })
+                .unwrap_or(0)
+        };
+        assert_eq!(count(&app), 3, "a fresh polyline starts with three corners");
+        tap(&ctx, &mut app, "Graphic 2 · unit 1")?;
+        tap(&ctx, &mut app, "Add vertex")?;
+        assert_eq!(count(&app), 4, "the button appends a corner");
+        tap(&ctx, &mut app, "Remove last vertex")?;
+        assert_eq!(count(&app), 3, "the other button takes it back off");
+        Ok(())
+    }
+    #[test]
+    fn edit_then_remove_on_a_saved_definition_round_trip_the_project_library() -> Result<(), String>
+    {
+        let (shared, mut app, ctx) = editor("symbol-editor")?;
+        tap(&ctx, &mut app, "Save symbol to project library")?;
+        tap(&ctx, &mut app, "Library")?;
+        tap(&ctx, &mut app, "Edit")?;
+        assert_eq!(
+            draft_symbol(&app)?.name,
+            "NewSymbol",
+            "Edit reopens the very definition that was saved"
+        );
+        tap(&ctx, &mut app, "Library")?;
+        tap(&ctx, &mut app, "Remove")?;
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        assert!(
+            session.project.library.symbols.is_empty(),
+            "Remove takes the definition out of the project"
+        );
+        Ok(())
+    }
+    #[test]
+    fn saving_a_library_file_and_loading_it_back_restores_the_whole_collection()
+    -> Result<(), String> {
+        let file = std::env::temp_dir().join(format!(
+            "pcbcraft-lib-roundtrip-{}.pcbcraft-lib",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&file);
+        let (shared, mut app, ctx) = editor("symbol-editor")?;
+        tap(&ctx, &mut app, "Save symbol to project library")?;
+        tap(&ctx, &mut app, "Library")?;
+        app.library.editor.path = file.to_string_lossy().into_owned();
+        tap(&ctx, &mut app, "Save library")?;
+        assert!(
+            file.is_file(),
+            "the collection file lands on disk; the app said {:?}",
+            app.message
+        );
+        app.run("library.symbol.remove", json!({"name": "NewSymbol"}));
+        {
+            let session = shared.lock().map_err(|_| "session unavailable")?;
+            assert!(session.project.library.symbols.is_empty());
+        }
+        let mut app2 = App::create(
+            shared.clone(),
+            Preferences::default(),
+            None,
+            Some("symbol-editor"),
+        );
+        app2.refresh();
+        let ctx2 = egui::Context::default();
+        app2.library.editor.mode = 0;
+        app2.library.editor.path = file.to_string_lossy().into_owned();
+        tap(&ctx2, &mut app2, "Load library")?;
+
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        assert_eq!(
+            session.project.library.symbols.len(),
+            1,
+            "the saved collection comes back whole"
+        );
+        drop(session);
+        let _ = std::fs::remove_file(&file);
         Ok(())
     }
 }
