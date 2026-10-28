@@ -224,7 +224,7 @@ fn parity_dual_amplifier_matches_goldens() -> Result<(), String> {
         "dual-amplifier",
         &load_example("dual-amplifier.pcbcraft")?,
         vec![],
-    );
+    )
 }
 
 #[test]
