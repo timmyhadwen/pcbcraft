@@ -47,6 +47,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.graphic_rotate","Turn one graphic on a project-library symbol about the origin by any angle, as one undoable step, so a single slanted or wrongly aimed drawing element can be re-aimed without turning the whole symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"degrees":{"type":"number","description":"counter-clockwise turn in degrees about the symbol origin"}}),&["name","index","degrees"])),
         ("library.footprint.graphic_mirror","Flip one graphic on a project-library footprint about the vertical axis, as one undoable step, turning its text to follow, so a single mirrored drawing element can be corrected without flipping the whole package",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","index","axis"])),
         ("library.symbol.graphic_mirror","Flip one graphic on a project-library symbol about the vertical axis, as one undoable step, turning its text to follow, so a single mirrored drawing element can be corrected without flipping the whole symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","index","axis"])),
+        ("library.footprint.graphic_scale","Resize one graphic on a project-library footprint about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the package",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the footprint origin, above 0 and up to 1000"}}),&["name","index","factor"])),
+        ("library.symbol.graphic_scale","Resize one graphic on a project-library symbol about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the symbol origin, above 0 and up to 1000"}}),&["name","index","factor"])),
         ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords or linked footprint one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"}}),&["name"])),
         ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
         ("library.symbol.rename","Rename a project-library symbol in place as one undoable step, keeping every pin and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
@@ -207,6 +209,13 @@ struct GraphicTurnParams {
     degrees: Option<f64>,
     #[serde(default)]
     axis: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicScaleParams {
+    name: String,
+    index: usize,
+    factor: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1628,6 +1637,78 @@ pub(super) fn run(
                     .find(|f| f.name == name)
                     .ok_or_else(missing)?;
                 item.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            }
+            p.library.validate()?;
+            Ok(json!({"name": name, "index": a.index}))
+        }
+        "library.footprint.graphic_scale" | "library.symbol.graphic_scale" => {
+            let a: GraphicScaleParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            if !a.factor.is_finite() || a.factor <= 0.0 || a.factor > 1000.0 {
+                return Err(Error::Invalid(
+                    "factor must be finite and within 0 to 1000".into(),
+                ));
+            }
+            let k = a.factor;
+            let scale = |q: Point| -> Result<Point, Error> {
+                let grown = Point::new(q.x * k, q.y * k);
+                if grown.valid() {
+                    Ok(grown)
+                } else {
+                    Err(Error::Invalid(
+                        "the scaled graphic left the board coordinate range".into(),
+                    ))
+                }
+            };
+            let scale_dim = |v: f64| -> Result<f64, Error> {
+                let grown = v * k;
+                if grown.is_finite() {
+                    Ok(grown)
+                } else {
+                    Err(Error::Invalid("scaled size left range".into()))
+                }
+            };
+            let name = a.name.clone();
+            if command == "library.symbol.graphic_scale" {
+                let symbol = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let Some(art) = symbol.graphics.get_mut(a.index) else {
+                    return Err(Error::Invalid(format!(
+                        "artwork position {} is outside the 0 to {} this symbol has",
+                        a.index,
+                        symbol.graphics.len().saturating_sub(1)
+                    )));
+                };
+                scale_graphic(&mut art.primitive, &scale, scale_dim)?;
+                symbol
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+            } else {
+                let footprint = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let Some(art) = footprint.graphics.get_mut(a.index) else {
+                    return Err(Error::Invalid(format!(
+                        "artwork position {} is outside the 0 to {} this package has",
+                        a.index,
+                        footprint.graphics.len().saturating_sub(1)
+                    )));
+                };
+                scale_graphic(art, &scale, scale_dim)?;
+                footprint
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
             }
             p.library.validate()?;
             Ok(json!({"name": name, "index": a.index}))
