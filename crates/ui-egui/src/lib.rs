@@ -376,6 +376,8 @@ pub struct App {
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
+    left_tab: usize,
+    net_draft: Option<(pcbcraft_doc::Id, String)>,
     appearance: bool,
     palette: bool,
     needs_fit: bool,
@@ -564,6 +566,8 @@ impl App {
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,
             home_path_focus: false,
+            left_tab: 0,
+            net_draft: None,
             appearance: false,
             palette: false,
             needs_fit: true,
@@ -1386,6 +1390,33 @@ impl App {
                 );
                 ui.label(egui::RichText::new(&self.project.name).strong());
                 ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(self.left_tab == 0, "Parts")
+                        .on_hover_text(
+                            "Everything placed in this design, and quick ways to add more.",
+                        )
+                        .clicked()
+                    {
+                        self.left_tab = 0;
+                    }
+                    if ui
+                        .selectable_label(self.left_tab == 1, "Nets")
+                        .on_hover_text(
+                            "Every wire connection by name: add one, rename one, or light one up.",
+                        )
+                        .clicked()
+                    {
+                        self.left_tab = 1;
+                    }
+                });
+                ui.separator();
+                if self.left_tab == 1 {
+                    self.nets_tab(ui);
+                    ui.add_space(20.0);
+                    self.board_summary(ui);
+                    return;
+                }
                 if self.palette {
                     ui.label(egui::RichText::new("Add symbol").strong());
                     if ui.button("Browse component libraries →").on_hover_text("Open the library panel to browse installed symbol and footprint collections.").clicked() {
@@ -1432,53 +1463,8 @@ impl App {
                     empty_state(ui, EMPTY_SYMBOLS, self.muted());
                 }
                 ui.add_space(20.0);
-                ui.label(egui::RichText::new("NETS").size(10.0).color(self.muted()));
-                if let Some(lit) = self.highlight_net
-                    && !self.project.nets.iter().any(|n| n.id == lit)
-                {
-                    self.highlight_net = None;
-                }
-                for net in self.project.nets.clone() {
-                    let lit = self.highlight_net == Some(net.id);
-                    let row = ui
-                        .selectable_label(
-                            lit,
-                            format!("{}   {}", net.name, if lit { "\u{25cf}" } else { "" }),
-                        )
-                        .on_hover_text(
-                            "Spotlight this net: its copper, vias and pads light up on the board while everything else fades. Click again to clear the spotlight.",
-                        );
-                    if row.clicked() {
-                        self.highlight_net = if lit { None } else { Some(net.id) };
-                    }
-                }
-                if self.project.nets.is_empty() {
-                    empty_state(ui, EMPTY_NETS, self.muted());
-                }
-                if let Some(lit) = self.highlight_net
-                    && let Some(net) = self.project.nets.iter().find(|n| n.id == lit)
-                {
-                    ui.label(
-                        egui::RichText::new(format!("Spotlighting {} on the board.", net.name))
-                            .size(10.0)
-                            .color(self.accent()),
-                    );
-                }
-                ui.add_space(20.0);
                 ui.label(egui::RichText::new("BOARD").size(10.0).color(self.muted()));
-                ui.label(format!(
-                    "{} × {} mm",
-                    self.project.board.width, self.project.board.height
-                ));
-                ui.label("2 copper layers · 1.6 mm");
-                if self.project.board.footprints.is_empty() {
-                    empty_state(ui, EMPTY_BOARD, self.muted());
-                }
-                ui.label(format!(
-                    "{} footprints · {} segments",
-                    self.project.board.footprints.len(),
-                    self.project.board.tracks.len()
-                ));
+                self.board_body(ui);
                 ui.add_space(20.0);
                 ui.separator();
                 ui.label(
@@ -1492,6 +1478,122 @@ impl App {
                         .color(self.muted()),
                 );
             });
+    }
+    /// The Nets tab of the left dock: add, spotlight and rename connections.
+    fn nets_tab(&mut self, ui: &mut egui::Ui) {
+        if let Some(lit) = self.highlight_net
+            && !self.project.nets.iter().any(|n| n.id == lit)
+        {
+            self.highlight_net = None;
+        }
+        if self
+            .net_draft
+            .as_ref()
+            .is_some_and(|(id, _)| !self.project.nets.iter().any(|n| n.id == *id))
+        {
+            self.net_draft = None;
+        }
+        if ui
+            .button("New net")
+            .on_hover_text("Add a blank connection you can name and draw wires onto.")
+            .clicked()
+        {
+            let name = format!("Net {}", self.project.nets.len() + 1);
+            self.tool_call("net.create", json!({"name": name}));
+        }
+        ui.add_space(4.0);
+        for net in self.project.nets.clone() {
+            let lit = self.highlight_net == Some(net.id);
+            let renaming = self.net_draft.as_ref().is_some_and(|(id, _)| *id == net.id);
+            ui.horizontal(|ui| {
+                if ui
+                    .add(egui::Label::new(if lit { "\u{25cf}" } else { "\u{25cb}" }).sense(
+                        egui::Sense::click(),
+                    ))
+                    .on_hover_text(
+                        "Spotlight this net: its copper, vias and pads light up on the board while everything else fades. Click again to clear the spotlight.",
+                    )
+                    .clicked()
+                {
+                    self.highlight_net = if lit { None } else { Some(net.id) };
+                }
+                if renaming {
+                    let Some((_, draft)) = self.net_draft.as_mut() else {
+                        return;
+                    };
+                    ui.add(
+                        egui::TextEdit::singleline(draft)
+                            .desired_width(120.0)
+                            .hint_text("net name"),
+                    )
+                    .on_hover_text("1 to 128 characters; every net needs its own name.");
+                    if ui
+                        .button("Use name")
+                        .on_hover_text("Keep this name for the connection.")
+                        .clicked()
+                    {
+                        let name = draft.clone();
+                        self.net_draft = None;
+                        self.tool_call("net.rename", json!({"id": net.id, "name": name}));
+                    }
+                    if ui
+                        .button("Cancel")
+                        .on_hover_text("Leave the name as it was.")
+                        .clicked()
+                    {
+                        self.net_draft = None;
+                    }
+                } else {
+                    if ui
+                        .selectable_label(lit, &net.name)
+                        .on_hover_text(
+                            "Spotlight this net: its copper, vias and pads light up on the board while everything else fades. Click again to clear the spotlight.",
+                        )
+                        .clicked()
+                    {
+                        self.highlight_net = if lit { None } else { Some(net.id) };
+                    }
+                    if ui
+                        .small_button("Rename")
+                        .on_hover_text("Type a new name for this connection.")
+                        .clicked()
+                    {
+                        self.net_draft = Some((net.id, net.name.clone()));
+                    }
+                }
+            });
+        }
+        if self.project.nets.is_empty() {
+            empty_state(ui, EMPTY_NETS, self.muted());
+        }
+        if let Some(lit) = self.highlight_net
+            && let Some(net) = self.project.nets.iter().find(|n| n.id == lit)
+        {
+            ui.label(
+                egui::RichText::new(format!("Spotlighting {} on the board.", net.name))
+                    .size(10.0)
+                    .color(self.accent()),
+            );
+        }
+    }
+    fn board_summary(&mut self, ui: &mut egui::Ui) {
+        ui.label(egui::RichText::new("BOARD").size(10.0).color(self.muted()));
+        self.board_body(ui);
+    }
+    fn board_body(&mut self, ui: &mut egui::Ui) {
+        ui.label(format!(
+            "{} × {} mm",
+            self.project.board.width, self.project.board.height
+        ));
+        ui.label("2 copper layers · 1.6 mm");
+        if self.project.board.footprints.is_empty() {
+            empty_state(ui, EMPTY_BOARD, self.muted());
+        }
+        ui.label(format!(
+            "{} footprints · {} segments",
+            self.project.board.footprints.len(),
+            self.project.board.tracks.len()
+        ));
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
         egui::Panel::right("inspector")
@@ -2370,6 +2472,53 @@ mod tests {
             }
         }
         Ok(false)
+    }
+
+    #[test]
+    fn the_nets_tab_adds_names_and_shines_a_spotlight() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let before = app.project.nets.len();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Nets")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "New net")?,
+            "the Nets tab offers a way to add a connection"
+        );
+        authoring::tests::tap(&ctx, &mut app, "New net")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.nets.len(),
+            before + 1,
+            "one click adds one named connection"
+        );
+        let added = app.project.nets.len() - 1;
+        let fresh = app.project.nets[added].name.clone();
+        authoring::tests::tap(&ctx, &mut app, &fresh)?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.highlight_net,
+            Some(app.project.nets[added].id),
+            "clicking a net lights it up on the board"
+        );
+        let fresh_id = app.project.nets[added].id;
+        app.net_draft = Some((fresh_id, "Flashlight".into()));
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Use name")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project
+                .nets
+                .iter()
+                .any(|n| n.id == fresh_id && n.name == "Flashlight"),
+            "the rename sticks: {}",
+            app.message
+        );
+        Ok(())
     }
 
     #[test]
