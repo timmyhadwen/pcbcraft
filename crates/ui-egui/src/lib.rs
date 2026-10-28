@@ -374,6 +374,8 @@ pub struct App {
     route_layer: pcbcraft_doc::Layer,
     preferences: Preferences,
     recent_designs: Vec<String>,
+    home_open: bool,
+    home_path_focus: bool,
     appearance: bool,
     palette: bool,
     needs_fit: bool,
@@ -391,7 +393,6 @@ pub struct App {
     cutout_radius: f64,
     path: String,
     saved_revision: Option<u64>,
-    title_draft: Option<String>,
     command: String,
     params: String,
     command_open: bool,
@@ -520,7 +521,10 @@ impl App {
         {
             let _ = current.replace(project);
         }
-        Self::create(session, preferences, capture, tab)
+        let show_home = capture.is_none();
+        let mut app = Self::create(session, preferences, capture, tab);
+        app.home_open = show_home && app.project.components.is_empty();
+        app
     }
     fn create(
         session: SharedSession,
@@ -558,6 +562,8 @@ impl App {
             route_layer: pcbcraft_doc::Layer::Front,
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
+            home_open: false,
+            home_path_focus: false,
             appearance: false,
             palette: false,
             needs_fit: true,
@@ -584,7 +590,6 @@ impl App {
             command: "component.add".into(),
             params: "{\"kind\":\"resistor\",\"position\":{\"x\":30,\"y\":20}}".into(),
             command_open: false,
-            title_draft: None,
             command_query: String::new(),
             shortcuts_open: false,
             command_focus: false,
@@ -683,18 +688,6 @@ impl App {
             self.needs_fit = true;
         }
         success
-    }
-    fn commit_title(&mut self) {
-        let draft = self
-            .title_draft
-            .take()
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        if draft.is_empty() || draft == self.project.name {
-            return;
-        }
-        self.tool_call("project.rename", json!({"name": draft}));
     }
 
     fn accent(&self) -> Color32 {
@@ -901,12 +894,21 @@ impl App {
             ui.add_space(7.0);
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new("PCBCraft")
-                        .size(20.0)
-                        .strong()
-                        .color(self.accent()),
+                let brand = ui.add(
+                    egui::Label::new(
+                        egui::RichText::new("PCBCraft")
+                            .size(20.0)
+                            .strong()
+                            .color(self.accent()),
+                    )
+                    .sense(egui::Sense::click()),
                 );
+                if brand
+                    .on_hover_text("Back to the start screen, where you open or begin a design.")
+                    .clicked()
+                {
+                    self.home_open = true;
+                }
                 if self.library.editor.mode == 0 {
                     ui.separator();
                     self.file_menu(ui);
@@ -914,45 +916,6 @@ impl App {
                     self.settings_menu(ui);
                     self.help_menu(ui);
                 }
-                ui.label(egui::RichText::new("/").color(self.muted()));
-                match self.title_draft.as_mut() {
-                    None => {
-                        let title = ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(&self.project.name).size(16.0),
-                            )
-                            .sense(egui::Sense::click()),
-                        );
-                        if title
-                            .on_hover_cursor(egui::CursorIcon::Text)
-                            .on_hover_text("Click to rename this design.")
-                            .clicked()
-                        {
-                            self.title_draft = Some(self.project.name.clone());
-                        }
-                    }
-                    Some(draft) => {
-                        let editor = ui.add(
-                            egui::TextEdit::singleline(draft)
-                                .font(egui::FontId::proportional(16.0))
-                                .desired_width(220.0)
-                                .hint_text("design name"),
-                        );
-                        editor.request_focus();
-                        let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
-                        let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        let lost = editor.lost_focus();
-                        if escape {
-                            self.title_draft = None;
-                        } else if enter || lost {
-                            self.commit_title();
-                        }
-                    }
-                }
-                if self.saved_revision != Some(self.revision) {
-                    ui.label(egui::RichText::new("*").color(self.accent()));
-                }
-
             });
             ui.add_space(5.0);
             ui.horizontal(|ui| {
@@ -1108,37 +1071,193 @@ impl App {
             });
         });
     }
+    fn start_home(&mut self, ui: &mut egui::Ui) {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(self.surface()))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(36.0);
+                            ui.label(
+                                egui::RichText::new("Welcome to PCBCraft")
+                                    .size(30.0)
+                                    .strong()
+                                    .color(self.accent()),
+                            );
+                            ui.label(
+                                egui::RichText::new(
+                                    "Draw a circuit, place the parts, and finish with a board ready to order.",
+                                )
+                                .size(14.0)
+                                .color(self.muted()),
+                            );
+                            ui.add_space(24.0);
+                            if ui
+                                .add_sized(
+                                    [300.0, 64.0],
+                                    egui::Button::new(
+                                        (
+                                            egui::RichText::new("New design")
+                                                .size(16.0)
+                                                .strong(),
+                                            egui::RichText::new("Begin with a blank page.")
+                                                .small()
+                                                .color(self.muted()),
+                                        ),
+                                    ),
+                                )
+                                .on_hover_text("Start a fresh empty design.")
+                                .clicked()
+                            {
+                                self.tool_call("new_design", json!({}));
+                                self.select(None);
+                                self.home_open = false;
+                            }
+                            ui.add_space(6.0);
+                            if ui
+                                .add_sized(
+                                    [300.0, 64.0],
+                                    egui::Button::new(
+                                        (
+                                            egui::RichText::new("Worked example")
+                                                .size(16.0)
+                                                .strong(),
+                                            egui::RichText::new(
+                                                "A small battery, resistor and LED to explore.",
+                                            )
+                                            .small()
+                                            .color(self.muted()),
+                                        ),
+                                    ),
+                                )
+                                .on_hover_text(
+                                    "Start from a small worked example: a battery, resistor and LED.",
+                                )
+                                .clicked()
+                            {
+                                self.tool_call("sample_design", json!({}));
+                                self.home_open = false;
+                            }
+                            if !self.recent_designs.is_empty() {
+                                ui.add_space(18.0);
+                                ui.label(
+                                    egui::RichText::new("Open one you worked on recently")
+                                        .size(14.0)
+                                        .strong(),
+                                );
+                                for design in self.recent_designs.clone() {
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                egui::RichText::new(&design).small(),
+                                            )
+                                            .min_size(egui::vec2(300.0, 28.0)),
+                                        )
+                                        .on_hover_text(
+                                            "Open this design again where you left off.",
+                                        )
+                                        .clicked()
+                                    {
+                                        self.path = design;
+                                        self.tool_call("open", json!({"path": self.path}));
+                                        if self.message.starts_with("open") {
+                                            self.home_open = false;
+                                        }
+                                    }
+                                }
+                            }
+                            ui.add_space(6.0);
+                            if ui
+                                .add_sized(
+                                    [300.0, 64.0],
+                                    egui::Button::new(
+                                        (
+                                            egui::RichText::new("Open a design file…")
+                                                .size(16.0)
+                                                .strong(),
+                                            egui::RichText::new(
+                                                "Type a path, or pick one from the list below.",
+                                            )
+                                            .small()
+                                            .color(self.muted()),
+                                        ),
+                                    ),
+                                )
+                                .on_hover_text(
+                                    "Load a saved design file from the path beside this button.",
+                                )
+                                .clicked()
+                            {
+                                self.home_path_focus = true;
+                            }
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                let path_box = ui
+                                    .add(
+                                        egui::TextEdit::singleline(&mut self.path)
+                                            .hint_text("design file path")
+                                            .desired_width(240.0),
+                                    )
+                                    .on_hover_text(
+                                        "The file that Open on this page, and in the File menu, uses.",
+                                    );
+                                if self.home_path_focus {
+                                    path_box.request_focus();
+                                    self.home_path_focus = false;
+                                }
+                                if ui
+                                    .button("Open")
+                                    .on_hover_text(
+                                        "Load the design file named in the box beside this button.",
+                                    )
+                                    .clicked()
+                                {
+                                    self.tool_call("open", json!({"path": self.path}));
+                                    if self.message.starts_with("open") {
+                                        self.home_open = false;
+                                    }
+                                }
+                            });
+                            ui.add_space(14.0);
+                            ui.label(
+                                egui::RichText::new(
+                                    "Press Escape, or click PCBCraft in the corner, to return here any time.",
+                                )
+                                .small()
+                                .color(self.muted()),
+                            );
+                            ui.add_space(24.0);
+                        });
+                    });
+            });
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.home_open = false;
+        }
+    }
     fn file_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("File", |ui| {
             if ui
-                .button("New empty design")
+                .button("New")
                 .on_hover_text("Start a fresh empty design.")
                 .clicked()
             {
                 self.tool_call("new_design", json!({}));
                 self.select(None);
             }
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.path)
-                        .hint_text("design file path")
-                        .desired_width(240.0),
-                )
-                .on_hover_text("The file that Open and Save on this page use.");
-                if ui
-                    .button("Open")
-                    .on_hover_text(
-                        "Load a saved design file from the path beside this button.",
-                    )
-                    .clicked()
-                {
-                    self.tool_call("open", json!({"path":self.path}));
-                }
-            });
             if ui
-                .button("Save design  Ctrl+S")
-                .on_hover_text("Write the design to its file on disk.")
+                .button("Open")
+                .on_hover_text(
+                    "Choose a design to open; your recent designs are listed on the screen that appears.",
+                )
+                .clicked()
+            {
+                self.home_open = true;
+            }
+            if ui
+                .button("Save")
+                .on_hover_text("Write the design to its file on disk. (Ctrl+S works too.)")
                 .clicked()
             {
                 self.tool_call("save", json!({"path":self.path}));
@@ -1162,15 +1281,6 @@ impl App {
             {
                 let ctx = ui.ctx().clone();
                 self.copy_plot_to_clipboard(&ctx);
-            }
-            ui.separator();
-            if ui
-                .button("Load LED example")
-                .on_hover_text("Start from a small worked example: a battery, resistor and LED.")
-                .clicked()
-            {
-                self.tool_call("sample_design", json!({}));
-                self.needs_fit = true;
             }
         })
         .response
@@ -1919,23 +2029,27 @@ impl App {
         self.shortcuts(&ctx);
         self.header(ui);
         self.footer(ui);
-        self.browser(ui);
-        self.inspector(ui);
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(self.surface()))
-            .show(ui, |ui| match self.tab {
-                Tab::Schematic | Tab::Pcb => self.canvas(ui),
-                Tab::Libraries => {
-                    egui::ScrollArea::vertical()
-                        .show(ui, |ui| self.library(ui))
-                        .inner
-                }
-                Tab::Checks => {
-                    egui::ScrollArea::vertical()
-                        .show(ui, |ui| self.checks_view(ui))
-                        .inner
-                }
-            });
+        if self.home_open {
+            self.start_home(ui);
+        } else {
+            self.browser(ui);
+            self.inspector(ui);
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(self.surface()))
+                .show(ui, |ui| match self.tab {
+                    Tab::Schematic | Tab::Pcb => self.canvas(ui),
+                    Tab::Libraries => {
+                        egui::ScrollArea::vertical()
+                            .show(ui, |ui| self.library(ui))
+                            .inner
+                    }
+                    Tab::Checks => {
+                        egui::ScrollArea::vertical()
+                            .show(ui, |ui| self.checks_view(ui))
+                            .inner
+                    }
+                });
+        }
         self.capture(&ctx);
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
     }
@@ -2198,17 +2312,14 @@ mod tests {
             !paints_text(&ctx, &mut app, "Project file")?,
             "the old bottom file strip is gone; file jobs live in the File menu"
         );
+        app.tool_call("sample_design", json!({}));
         authoring::tests::tap(&ctx, &mut app, "File")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Load LED example")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            !app.project.components.is_empty(),
-            "the worked example fills the design from one menu click"
+            !paints_text(&ctx, &mut app, "Load LED example")?,
+            "the example lives on the start screen, not in the menu"
         );
-        authoring::tests::tap(&ctx, &mut app, "File")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Save design  Ctrl+S")?;
+        authoring::tests::tap(&ctx, &mut app, "Save")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.message.starts_with("save"),
@@ -2219,6 +2330,15 @@ mod tests {
             std::fs::metadata(&file).is_ok_and(|m| m.len() > 0),
             "the design lands in the file the menu names"
         );
+        authoring::tests::tap(&ctx, &mut app, "File")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "New")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.components.is_empty(),
+            "New empties the design: {} parts left",
+            app.project.components.len()
+        );
         authoring::tests::tap(&ctx, &mut app, "Edit")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         authoring::tests::tap(&ctx, &mut app, "Undo")?;
@@ -2227,6 +2347,10 @@ mod tests {
             app.message.starts_with("undo"),
             "undo answers: {}",
             app.message
+        );
+        assert!(
+            !app.project.components.is_empty(),
+            "undo brings the design back"
         );
         let _ = std::fs::remove_file(&file);
         Ok(())
@@ -2246,6 +2370,79 @@ mod tests {
             }
         }
         Ok(false)
+    }
+
+    #[test]
+    fn the_start_screen_is_the_first_thing_a_newcomer_sees() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.home_open = true;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "New design")?,
+            "the start screen offers a blank page"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Worked example")?,
+            "the start screen offers something to explore"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Worked example")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            !app.home_open,
+            "picking the example leaves the start screen"
+        );
+        assert!(
+            !app.project.components.is_empty(),
+            "the example fills the design from one click"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_start_screen_lists_designs_you_can_open_again() -> Result<(), String> {
+        let _turn = pcbcraft_engine::recents::RECENTS_TEST_LOCK
+            .lock()
+            .map_err(|_| "test lock unavailable")?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-home-recents-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+        *pcbcraft_engine::recents::RECENTS_PATH_TEST
+            .lock()
+            .map_err(|_| "test lock unavailable")? = Some(directory.join("recent-designs.json"));
+        pcbcraft_engine::recents::clear_recent_paths();
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        let file = directory
+            .join("flashlight.pcbcraft")
+            .to_string_lossy()
+            .into_owned();
+        app.path = file.clone();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call("save", json!({"path": file}));
+        app.home_open = true;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "flashlight.pcbcraft")?,
+            "a design you saved is listed for one-click return"
+        );
+        let want = app.path.clone();
+        authoring::tests::tap(&ctx, &mut app, &want)?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            !app.home_open,
+            "clicking a recent design opens it and leaves the start screen"
+        );
+        pcbcraft_engine::recents::clear_recent_paths();
+        *pcbcraft_engine::recents::RECENTS_PATH_TEST
+            .lock()
+            .map_err(|_| "test lock unavailable")? = None;
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
     }
 
     #[test]
@@ -2384,45 +2581,6 @@ mod tests {
             );
         }
         assert!(EMPTY_CHECKS.contains("automatically"));
-    }
-
-    #[test]
-    fn the_design_name_can_be_renamed_from_the_header() {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared.clone(), Preferences::default(), None, None);
-        let undo_count = |app: &App| {
-            app.session
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .inspect()["history"]["undo"]
-                .as_u64()
-                .unwrap_or_default()
-        };
-        let before = undo_count(&app);
-        app.title_draft = Some("Flight computer".into());
-        app.commit_title();
-        assert_eq!(
-            app.project.name, "Flight computer",
-            "renaming from the header renames the design"
-        );
-        assert_eq!(undo_count(&app), before + 1, "one rename is one undo step");
-        app.title_draft = Some("   ".into());
-        app.commit_title();
-        assert_eq!(
-            app.project.name, "Flight computer",
-            "a blank name keeps the last good one"
-        );
-        app.title_draft = Some("Flight computer".into());
-        app.commit_title();
-        assert_eq!(
-            undo_count(&app),
-            before + 1,
-            "an unchanged name adds no step"
-        );
-        assert!(
-            app.title_draft.is_none(),
-            "committing always closes the editor"
-        );
     }
 
     #[test]
