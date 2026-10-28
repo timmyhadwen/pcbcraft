@@ -3,6 +3,64 @@ use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Layer};
 use pcbcraft_geom::point_segment;
 
+/// The world rectangle each tab should show by default: the board outline on
+/// the PCB tab, everything drawn on the schematic tab, falling back to the
+/// default sheet area so a fresh project still frames sensibly.
+fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
+    let mut pts: Vec<Point> = Vec::new();
+    if pcb {
+        if let Some(ring) = &project.board.outline {
+            pts.extend(ring.iter().copied());
+        }
+        if pts.is_empty() {
+            pts.push(Point::new(0.0, 0.0));
+            pts.push(Point::new(project.board.width, project.board.height));
+        }
+    } else {
+        for c in &project.components {
+            pts.push(c.position);
+        }
+        for w in &project.drawn_wires {
+            pts.extend(w.points.iter().copied());
+        }
+        for l in &project.labels {
+            pts.push(l.position);
+        }
+        for g in &project.graphics {
+            pts.extend(g.points.iter().copied());
+        }
+        if pts.is_empty() {
+            pts.push(Point::new(0.0, 0.0));
+            pts.push(Point::new(80.0, 48.0));
+        }
+    }
+    let mut lo = pts[0];
+    let mut hi = pts[0];
+    for p in &pts {
+        lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
+        hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
+    }
+    let pad = 2.0;
+    (
+        Point::new(lo.x - pad, lo.y - pad),
+        Point::new(hi.x + pad, hi.y + pad),
+    )
+}
+
+/// Zoom and centre that fit a world rectangle inside a panel, keeping the
+/// whole design visible instead of a postage stamp at the minimum zoom.
+fn fit_camera(lo: Point, hi: Point, panel: (f32, f32)) -> Camera {
+    let w = (hi.x - lo.x).max(1.0);
+    let h = (hi.y - lo.y).max(1.0);
+    let zoom = ((panel.0 * 0.92) as f64 / w)
+        .min((panel.1 * 0.92) as f64 / h)
+        .clamp(0.02, 100.0) as f32;
+    Camera {
+        center: Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0),
+        zoom,
+    }
+}
+
 /// Net spotlight: copper on the spotlighted net takes the accent colour and
 /// everything else fades, so one click can trace a net across the board.
 fn spotlight(lit: Option<Id>, net: Option<Id>, base: Color32, hot: Color32) -> Color32 {
@@ -236,13 +294,18 @@ impl App {
         } else {
             self.schematic
         };
+        if self.needs_fit && rect.width() > 40.0 && rect.height() > 40.0 {
+            let (lo, hi) = view_bounds(&self.project, self.tab == Tab::Pcb);
+            camera = fit_camera(lo, hi, (rect.width(), rect.height()));
+            self.needs_fit = false;
+        }
         if response.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll.abs() > 0.01
                 && let Some(mouse) = ui.input(|i| i.pointer.hover_pos())
             {
                 let before = camera.world(mouse, rect);
-                camera.zoom = (camera.zoom * (scroll * 0.003).exp()).clamp(1.0, 100.0);
+                camera.zoom = (camera.zoom * (scroll * 0.003).exp()).clamp(0.02, 100.0);
                 let after = camera.world(mouse, rect);
                 camera.center = camera
                     .center
@@ -1384,6 +1447,42 @@ mod library_render_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fresh_view_frames_the_whole_board_instead_of_a_corner_of_it() -> Result<(), String> {
+        let mut s = pcbcraft_engine::Session::default();
+        let bounds = view_bounds(&s.project, true);
+        let camera = fit_camera(bounds.0, bounds.1, (1200.0, 700.0));
+        assert!(
+            camera.zoom > 1.0,
+            "a default board fills the panel, not 60 px of it"
+        );
+        assert_eq!(camera.center, Point::new(30.0, 20.0), "the board centres");
+        s.execute(
+            "board.set_outline",
+            serde_json::json!({"points":[{"x":0.0,"y":0.0},{"x":300.0,"y":0.0},{"x":300.0,"y":200.0},{"x":0.0,"y":200.0}]}),
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+        let (lo, hi) = view_bounds(&s.project, true);
+        assert!(hi.x > 290.0, "the outline drives the frame");
+        let camera = fit_camera(lo, hi, (1200.0, 700.0));
+        assert!(camera.zoom < 6.0, "a big board zooms out to fit");
+        assert!(camera.zoom >= 0.02, "zoom stays bounded");
+        let mut empty = pcbcraft_engine::Session::default();
+        let (lo, hi) = view_bounds(&empty.project, false);
+        assert!(hi.x > lo.x, "an empty sheet still has a frame");
+        empty
+            .execute(
+                "component.add",
+                serde_json::json!({"kind":"resistor","position":{"x":120.0,"y":60.0}}),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+        let (_lo, hi) = view_bounds(&empty.project, false);
+        assert!(hi.x > 110.0, "the schematic frame follows the drawn parts");
+        Ok(())
+    }
 
     #[test]
     fn the_net_spotlight_lights_one_net_and_fades_the_rest() {

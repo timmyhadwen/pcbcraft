@@ -375,6 +375,7 @@ pub struct App {
     preferences: Preferences,
     appearance: bool,
     palette: bool,
+    needs_fit: bool,
     schematic: Camera,
     pcb: Camera,
     drag: Option<(Id, Point)>,
@@ -517,16 +518,7 @@ impl App {
         {
             let _ = current.replace(project);
         }
-        let mut app = Self::create(session, preferences, capture, tab);
-        if !app.project.components.is_empty() {
-            let initial = app.tab;
-            app.tab = Tab::Schematic;
-            app.fit();
-            app.tab = Tab::Pcb;
-            app.fit();
-            app.tab = initial;
-        }
-        app
+        Self::create(session, preferences, capture, tab)
     }
     fn create(
         session: SharedSession,
@@ -565,6 +557,7 @@ impl App {
             preferences,
             appearance: false,
             palette: false,
+            needs_fit: true,
             schematic: Camera {
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
@@ -680,6 +673,9 @@ impl App {
         if success && (name == "save" || name == "open") {
             self.saved_revision = Some(self.revision);
         }
+        if success && (name == "open" || name == "new_design" || name == "sample_design") {
+            self.needs_fit = true;
+        }
         success
     }
     fn accent(&self) -> Color32 {
@@ -758,6 +754,7 @@ impl App {
             self.selected = Some(f.component);
         }
         self.tab = tab;
+        self.needs_fit = true;
         self.tool = Tool::Select;
         self.drag = None;
         self.load_properties();
@@ -783,6 +780,9 @@ impl App {
         }
         ctx.input(|i| {
             if i.modifiers.command {
+                if i.key_pressed(egui::Key::F) {
+                    self.needs_fit = true;
+                }
                 if i.key_pressed(egui::Key::Z) {
                     self.tool_call(if i.modifiers.shift { "redo" } else { "undo" }, json!({}));
                 }
@@ -822,7 +822,7 @@ impl App {
                 self.load_properties();
             }
             if i.key_pressed(egui::Key::Home) {
-                self.fit();
+                self.needs_fit = true;
             }
             if i.key_pressed(egui::Key::Escape) {
                 self.tool = Tool::Select;
@@ -1054,7 +1054,7 @@ impl App {
                     self.rotate();
                 }
                 if ui.button("Fit").on_hover_text("Zoom the view so the whole design fits.").clicked() {
-                    self.fit();
+                    self.needs_fit = true;
                 }
                 if ui
                     .button("Shortcuts  ?")
@@ -1078,42 +1078,6 @@ impl App {
                 );
             });
         });
-    }
-    fn fit(&mut self) {
-        if self.tab == Tab::Pcb {
-            self.pcb.center = Point::new(
-                self.project.board.width / 2.0,
-                self.project.board.height / 2.0,
-            );
-            self.pcb.zoom = (700.0 / self.project.board.width.max(self.project.board.height))
-                .clamp(1.0, 60.0) as f32;
-        } else {
-            let (mut xmin, mut ymin, mut xmax, mut ymax) = (
-                f64::INFINITY,
-                f64::INFINITY,
-                f64::NEG_INFINITY,
-                f64::NEG_INFINITY,
-            );
-            for c in self
-                .project
-                .components
-                .iter()
-                .flat_map(|c| c.schematic_views())
-            {
-                for point in c.drawing_points() {
-                    let point = c.position.offset(point.rotate(-c.rotation));
-                    xmin = xmin.min(point.x - 4.0);
-                    xmax = xmax.max(point.x + 4.0);
-                    ymin = ymin.min(point.y - 4.0);
-                    ymax = ymax.max(point.y + 4.0);
-                }
-            }
-            if xmin.is_finite() {
-                self.schematic.center = Point::new((xmin + xmax) / 2.0, (ymin + ymax) / 2.0);
-                self.schematic.zoom = (650.0 / (xmax - xmin).max((ymax - ymin) * 1.5).max(10.0))
-                    .clamp(2.0, 35.0) as f32;
-            }
-        }
     }
     fn browser(&mut self, ui: &mut egui::Ui) {
         egui::Panel::left("browser")
@@ -1514,7 +1478,7 @@ impl App {
                     .clicked()
                 {
                     self.tool_call("sample_design", json!({}));
-                    self.fit();
+                    self.needs_fit = true;
                 }
                 if ui
                     .button("New project")
