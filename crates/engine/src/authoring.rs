@@ -35,6 +35,12 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.graphic_remove","Remove one graphic from a project-library footprint by its position in the artwork list, as one undoable step, so a single stale silk or fab element can be deleted without clearing the rest",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"}}),&["name","index"])),
         ("library.symbol.graphic_set","Replace one graphic on a project-library symbol by its position in the artwork list, as one undoable step, keeping the unit it belongs to, so a single wrong symbol element can be corrected without clearing and redrawing the rest",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"graphic":{"type":"object","description":"the replacement graphic primitive, as library readers emit it"}}),&["name","index","graphic"])),
         ("library.symbol.graphic_remove","Remove one graphic from a project-library symbol by its position in the artwork list, as one undoable step, so a single wrong symbol element can be deleted without clearing the rest",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"}}),&["name","index"])),
+        ("library.footprint.graphic_move","Slide one graphic on a project-library footprint by an offset, as one undoable step, so a single misplaced silk or fab element can be nudged into place without touching the rest of the package",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"},"delta":point_schema()}),&["name","index","delta"])),
+        ("library.symbol.graphic_move","Slide one graphic on a project-library symbol by an offset, as one undoable step, so a single misplaced body line or pin decoration can be nudged into place without touching the rest of the symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"delta":point_schema()}),&["name","index","delta"])),
+        ("library.footprint.graphic_rotate","Turn one graphic on a project-library footprint about the origin by any angle, as one undoable step, so a single slanted or wrongly aimed drawing element can be re-aimed without turning the whole package",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"},"degrees":{"type":"number","description":"counter-clockwise turn in degrees about the footprint origin"}}),&["name","index","degrees"])),
+        ("library.symbol.graphic_rotate","Turn one graphic on a project-library symbol about the origin by any angle, as one undoable step, so a single slanted or wrongly aimed drawing element can be re-aimed without turning the whole symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"degrees":{"type":"number","description":"counter-clockwise turn in degrees about the symbol origin"}}),&["name","index","degrees"])),
+        ("library.footprint.graphic_mirror","Flip one graphic on a project-library footprint about the vertical axis, as one undoable step, turning its text to follow, so a single mirrored drawing element can be corrected without flipping the whole package",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","index","axis"])),
+        ("library.symbol.graphic_mirror","Flip one graphic on a project-library symbol about the vertical axis, as one undoable step, turning its text to follow, so a single mirrored drawing element can be corrected without flipping the whole symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","index","axis"])),
         ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords or linked footprint one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"}}),&["name"])),
         ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
         ("library.symbol.rename","Rename a project-library symbol in place as one undoable step, keeping every pin and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
@@ -178,6 +184,23 @@ struct GraphicSetParams {
 struct GraphicRemoveParams {
     name: String,
     index: usize,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicMoveParams {
+    name: String,
+    index: usize,
+    delta: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphicTurnParams {
+    name: String,
+    index: usize,
+    #[serde(default)]
+    degrees: Option<f64>,
+    #[serde(default)]
+    axis: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1219,6 +1242,156 @@ pub(super) fn run(
             };
             p.library.validate()?;
             Ok(json!({"name": name, "index": a.index, "graphics": graphics}))
+        }
+        "library.footprint.graphic_move" | "library.symbol.graphic_move" => {
+            let a: GraphicMoveParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            if !a.delta.x.is_finite()
+                || !a.delta.y.is_finite()
+                || a.delta.x.abs() > 1000.0
+                || a.delta.y.abs() > 1000.0
+            {
+                return Err(Error::Invalid(
+                    "offset must be finite and within 1000 mm".into(),
+                ));
+            }
+            let shift = |q: Point| -> Result<Point, Error> {
+                let moved = Point::new(q.x + a.delta.x, q.y + a.delta.y);
+                if moved.valid() {
+                    Ok(moved)
+                } else {
+                    Err(Error::Invalid(
+                        "the shifted graphic left the board coordinate range".into(),
+                    ))
+                }
+            };
+            let name = a.name.clone();
+            if command == "library.symbol.graphic_move" {
+                let symbol = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let Some(art) = symbol.graphics.get_mut(a.index) else {
+                    return Err(Error::Invalid(format!(
+                        "artwork position {} is outside the 0 to {} this symbol has",
+                        a.index,
+                        symbol.graphics.len().saturating_sub(1)
+                    )));
+                };
+                shift_graphic(&mut art.primitive, &shift)?;
+                symbol
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+            } else {
+                let footprint = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let Some(art) = footprint.graphics.get_mut(a.index) else {
+                    return Err(Error::Invalid(format!(
+                        "artwork position {} is outside the 0 to {} this package has",
+                        a.index,
+                        footprint.graphics.len().saturating_sub(1)
+                    )));
+                };
+                shift_graphic(art, &shift)?;
+                footprint
+                    .validate()
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+            }
+            p.library.validate()?;
+            Ok(json!({"name": name, "index": a.index}))
+        }
+        "library.footprint.graphic_rotate"
+        | "library.symbol.graphic_rotate"
+        | "library.footprint.graphic_mirror"
+        | "library.symbol.graphic_mirror" => {
+            let a: GraphicTurnParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            let symbol = command.starts_with("library.symbol.");
+            let name = a.name.clone();
+            let graphic = if symbol {
+                let item = p
+                    .library
+                    .symbols
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let Some(art) = item.graphics.get_mut(a.index) else {
+                    return Err(Error::Invalid(format!(
+                        "artwork position {} is outside the 0 to {} this symbol has",
+                        a.index,
+                        item.graphics.len().saturating_sub(1)
+                    )));
+                };
+                &mut art.primitive
+            } else {
+                let item = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                let Some(art) = item.graphics.get_mut(a.index) else {
+                    return Err(Error::Invalid(format!(
+                        "artwork position {} is outside the 0 to {} this package has",
+                        a.index,
+                        item.graphics.len().saturating_sub(1)
+                    )));
+                };
+                art
+            };
+            if command.ends_with("graphic_rotate") {
+                if !a.degrees.is_some_and(f64::is_finite) || a.degrees.unwrap_or(0.0).abs() > 1e5 {
+                    return Err(Error::Invalid(
+                        "rotation must be finite and within 100000 degrees".into(),
+                    ));
+                }
+                if a.axis.is_some() {
+                    return Err(Error::Invalid("rotation needs degrees, not an axis".into()));
+                }
+                let rad = a.degrees.unwrap_or(0.0).to_radians();
+                rotate_graphic(graphic, rad.cos(), rad.sin())?;
+            } else {
+                if a.axis.as_deref() != Some("y") {
+                    return Err(Error::Invalid("mirror needs axis \"y\"".into()));
+                }
+                if a.degrees.is_some() {
+                    return Err(Error::Invalid("mirror needs an axis, not degrees".into()));
+                }
+                mirror_graphic(graphic)?;
+            }
+            if symbol {
+                let item = p
+                    .library
+                    .symbols
+                    .iter()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                item.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            } else {
+                let item = p
+                    .library
+                    .footprints
+                    .iter()
+                    .find(|f| f.name == name)
+                    .ok_or_else(missing)?;
+                item.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            }
+            p.library.validate()?;
+            Ok(json!({"name": name, "index": a.index}))
         }
         "library.symbol.set_properties" | "library.footprint.set_properties" => {
             let a: SetPropertyParams = parse(params)?;
