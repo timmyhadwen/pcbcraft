@@ -76,7 +76,7 @@ fn spotlight(lit: Option<Id>, net: Option<Id>, base: Color32, hot: Color32) -> C
     }
 }
 
-fn snap(p: Point) -> Point {
+pub(crate) fn snap(p: Point) -> Point {
     Point::new((p.x * 2.0).round() / 2.0, (p.y * 2.0).round() / 2.0)
 }
 fn fill_polygon(painter: &egui::Painter, points: &[Pos2], color: Color32, clip: Rect) {
@@ -287,7 +287,10 @@ impl App {
         }
     }
     pub(super) fn canvas(&mut self, ui: &mut egui::Ui) {
-        let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
+        let (response, painter) = ui.allocate_painter(
+            ui.available_size(),
+            Sense::click_and_drag().union(Sense::hover()),
+        );
         let rect = response.rect;
         let mut camera = if self.tab == Tab::Pcb {
             self.pcb
@@ -326,6 +329,15 @@ impl App {
         }
         let cursor = response.hover_pos().map(|p| camera.world(p, rect));
         self.cursor = cursor;
+        if let Some(released) = response.dnd_release_payload::<Value>() {
+            let world = response
+                .hover_pos()
+                .or_else(|| ui.input(|i| i.pointer.hover_pos()))
+                .map(|p| camera.world(p, rect));
+            if let Some(world) = world {
+                self.place_dropped_library(&released, world);
+            }
+        }
         let mut visible = self.project.clone();
         if let Some((id, pos)) = self.drag {
             if let Some(c) = visible.components.iter_mut().find(|c| c.id == id) {
@@ -383,6 +395,19 @@ impl App {
             FontId::monospace(10.0),
             self.muted(),
         );
+        if let Some(hovered) = response.dnd_hover_payload::<Value>() {
+            let name = hovered
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("part");
+            painter.text(
+                rect.left_top() + Vec2::new(20.0, 38.0),
+                Align2::LEFT_TOP,
+                format!("RELEASE TO PLACE {name} WHERE THE POINTER IS"),
+                FontId::monospace(10.0),
+                self.accent(),
+            );
+        }
         if let Some(pos) = cursor {
             let snapped = snap(pos);
             match &self.tool {

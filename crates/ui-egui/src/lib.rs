@@ -628,6 +628,29 @@ impl App {
         }
     }
 
+    /// A list entry dragged from the library tab onto the canvas: the entry's
+    /// own path and name place a real symbol where the pointer let go.
+    fn place_dropped_library(&mut self, payload: &Value, position: Point) -> bool {
+        if payload
+            .get("kind")
+            .and_then(Value::as_str)
+            .is_none_or(|kind| kind != "symbol")
+        {
+            return false;
+        }
+        let path = payload.get("path").and_then(Value::as_str).unwrap_or("");
+        let symbol = payload.get("name").and_then(Value::as_str).unwrap_or("");
+        if path.is_empty() || symbol.is_empty() {
+            return false;
+        }
+        self.run(
+            "component.place_library",
+            json!({"path": path, "symbol": symbol, "position": canvas::snap(position)}),
+        );
+        self.change_tab(Tab::Schematic);
+        true
+    }
+
     fn run(&mut self, command: &str, params: Value) {
         let result = self
             .session
@@ -2209,6 +2232,46 @@ mod tests {
             offenders.is_empty(),
             "buttons and labels must speak plainly, not name other tools: {offenders:?}"
         );
+    }
+
+    #[test]
+    fn dragging_a_list_entry_onto_the_sheet_places_that_real_symbol() -> Result<(), String> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../library/tests/fixtures/device.kicad_sym")
+            .to_string_lossy()
+            .into_owned();
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+        app.refresh();
+        assert!(
+            !app.place_dropped_library(&json!({"kind": "footprint"}), Point::new(20.0, 15.0)),
+            "a footprint entry cannot be dropped on the schematic"
+        );
+        assert!(app.place_dropped_library(
+            &json!({"kind": "symbol", "path": path, "name": "R"}),
+            Point::new(20.0, 15.0)
+        ));
+        let placed = shared
+            .lock()
+            .map_err(|_| "session unavailable")?
+            .project
+            .components
+            .first()
+            .cloned();
+        let placed = placed.ok_or("the dropped entry never arrived")?;
+        assert!(
+            placed.library_symbol.is_some(),
+            "the drop places the library's own definition, not a template"
+        );
+        assert!(
+            (placed.position.x - 20.0).abs() < 2.0,
+            "the part lands where the pointer let go"
+        );
+        assert!(
+            matches!(app.tab, Tab::Schematic),
+            "the sheet shows the drop"
+        );
+        Ok(())
     }
 
     #[test]
