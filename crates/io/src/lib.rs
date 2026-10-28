@@ -5,8 +5,11 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod gerber;
 mod library_render;
+pub use gerber::gerber_copper;
 use library_render::*;
+pub use pcbcraft_doc::Layer;
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
@@ -133,7 +136,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
             let (pad_type, shape, size, rotation, layers, ratio, drill) =
                 if let Some(g) = &pad.geometry {
                     if !matches!(g.pad_type.as_str(), "smd" | "thru_hole")
-                        || !matches!(g.shape.as_str(), "circle" | "rect" | "oval" | "roundrect")
+                        || matches!(g.shape_kind(), pcbcraft_library::PadShape::Unsupported)
                         || (g.pad_type == "smd" && g.drill.is_some())
                         || (g.pad_type == "thru_hole" && g.drill.is_none())
                     {
@@ -144,7 +147,10 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                     }
                     (
                         g.pad_type.as_str(),
-                        g.shape.as_str(),
+                        match g.shape_kind() {
+                            pcbcraft_library::PadShape::Chamfered(_) => "roundrect",
+                            _ => g.shape.as_str(),
+                        },
                         g.size,
                         f.rotation + g.rotation,
                         g.layers
@@ -152,11 +158,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                             .map(|l| quote(l))
                             .collect::<Vec<_>>()
                             .join(" "),
-                        if g.shape == "roundrect" {
-                            format!(" (roundrect_rratio {})", g.roundrect_ratio.unwrap_or(0.0))
-                        } else {
-                            String::new()
-                        },
+                        kicad_pad_shape_detail(g),
                         g.drill
                             .as_ref()
                             .map(|d| {
@@ -205,6 +207,39 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
     Ok(s)
 }
 
+/// Shape-specific pad expressions. A chamfered pad is a KiCad roundrect with
+/// zero rounding plus chamfer corners. A custom pad is a rectangular anchor
+/// inside one filled polygon primitive, so its copper is the polygon.
+fn kicad_pad_shape_detail(g: &pcbcraft_library::FootprintPad) -> String {
+    match g.shape_kind() {
+        pcbcraft_library::PadShape::RoundRect { ratio } => format!(" (roundrect_rratio {ratio})"),
+        pcbcraft_library::PadShape::Chamfered(c) => {
+            let corners = [
+                (c.corners.top_left, "top_left"),
+                (c.corners.top_right, "top_right"),
+                (c.corners.bottom_left, "bottom_left"),
+                (c.corners.bottom_right, "bottom_right"),
+            ]
+            .into_iter()
+            .filter(|(on, _)| *on)
+            .map(|(_, name)| name)
+            .collect::<Vec<_>>()
+            .join(" ");
+            format!(
+                " (roundrect_rratio 0) (chamfer_ratio {}) (chamfer {corners})",
+                c.ratio
+            )
+        }
+        pcbcraft_library::PadShape::Custom { polygon } => format!(
+            " (options (clearance outline) (anchor rect)) (primitives (gr_poly (pts{}) (width 0) (fill yes)))",
+            polygon
+                .iter()
+                .map(|v| format!(" (xy {} {})", v.x, v.y))
+                .collect::<String>()
+        ),
+        _ => String::new(),
+    }
+}
 fn escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -558,6 +593,7 @@ fn line(image: &mut image::RgbImage, a: Point, b: Point, r: f64, color: [u8; 3])
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     fn real_library_project() -> Result<Project, String> {
         let definition = pcbcraft_library::read_symbols(include_str!(
             "../../library/tests/fixtures/device.kicad_sym"
@@ -1026,5 +1062,211 @@ mod tests {
         let mut bad = p;
         bad.version = 999;
         assert!(bad.validate().is_err());
+    }
+
+    /// The 0805 fixture with pad 1 chamfered on its outer corners and pad 2 a
+    /// concave custom polygon, plus a front track for the copper writer.
+    fn shaped_pad_project() -> Result<Project, String> {
+        let mut project = real_library_project()?;
+        let c = &mut project.components[0];
+        let source = c.library_footprint.as_mut().ok_or("no footprint")?;
+        let first = source.definition.pads.get_mut(0).ok_or("no pad 1")?;
+        first.shape = "chamfered".into();
+        first.roundrect_ratio = None;
+        first.chamfer = Some(pcbcraft_library::PadChamfer {
+            ratio: 0.25,
+            corners: pcbcraft_library::ChamferCorners {
+                top_left: true,
+                bottom_left: true,
+                ..Default::default()
+            },
+        });
+        let second = source.definition.pads.get_mut(1).ok_or("no pad 2")?;
+        second.shape = "custom".into();
+        second.roundrect_ratio = None;
+        second.size = Point::new(0.5, 0.5);
+        second.polygon = vec![
+            Point::new(-0.5, -0.7),
+            Point::new(0.5, -0.7),
+            Point::new(0.5, 0.7),
+            Point::new(0.0, 0.4),
+            Point::new(-0.5, 0.7),
+        ];
+        let pads = source.definition.pads.clone();
+        let placed = &mut project.board.footprints[0];
+        for (pad, geometry) in placed.pads.iter_mut().zip(pads) {
+            pad.diameter = geometry.size.x.min(geometry.size.y);
+            pad.geometry = Some(geometry);
+        }
+        project.nets.push(pcbcraft_doc::Net {
+            id: 7,
+            name: "probe".into(),
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 8,
+            net: 7,
+            start: Point::new(5.0, 30.0),
+            end: Point::new(15.0, 30.0),
+            width: 0.25,
+            layer: pcbcraft_doc::Layer::Front,
+        });
+        project.validate()?;
+        Ok(project)
+    }
+    #[test]
+    fn chamfered_and_custom_pads_survive_project_save_and_load() -> Result<(), String> {
+        let project = shaped_pad_project()?;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("shaped.pcbcraft");
+        save(&project, &path)?;
+        let loaded = load(&path)?;
+        assert_eq!(loaded, project);
+        let pads = &loaded.board.footprints[0].pads;
+        assert!(pads.iter().any(|p| {
+            p.geometry
+                .as_ref()
+                .is_some_and(|g| g.chamfer.is_some_and(|c| c.ratio == 0.25))
+        }));
+        assert!(
+            pads.iter()
+                .any(|p| p.geometry.as_ref().is_some_and(|g| g.polygon.len() == 5))
+        );
+        Ok(())
+    }
+    #[test]
+    fn chamfered_and_custom_pads_survive_kicad_export_and_reimport() -> Result<(), String> {
+        let project = shaped_pad_project()?;
+        let board = kicad_board(&project)?;
+        assert!(board.contains("(chamfer_ratio 0.25) (chamfer top_left bottom_left)"));
+        assert!(board.contains("(primitives (gr_poly (pts (xy -0.5 -0.7)"));
+        let exported = pcbcraft_library::read_footprint(extract_footprint(&board)?)
+            .map_err(|e| e.to_string())?;
+        // A footprint embedded in a board also carries placement expressions
+        // (uuid, at); only pad-level refusals matter here.
+        assert!(
+            exported.unsupported.iter().all(|u| !u.contains("pad")),
+            "{:?}",
+            exported.unsupported
+        );
+        let source = &project.components[0]
+            .library_footprint
+            .as_ref()
+            .ok_or("no footprint")?
+            .definition;
+        for (back, original) in exported.pads.iter().zip(&source.pads) {
+            assert_eq!(back.shape, original.shape);
+            assert_eq!(back.chamfer, original.chamfer);
+            assert_eq!(back.polygon, original.polygon);
+            assert_eq!(back.size, original.size);
+            assert_eq!(back.roundrect_ratio, original.roundrect_ratio);
+        }
+        Ok(())
+    }
+    /// Reads back the aperture macros and flashes of a writer-generated file and
+    /// returns each flashed outline in board coordinates (y-down).
+    fn gerber_outlines(text: &str, height: f64) -> Result<Vec<Vec<Point>>, String> {
+        let mut macros: BTreeMap<String, Vec<Point>> = BTreeMap::new();
+        let mut apertures: BTreeMap<String, Vec<Point>> = BTreeMap::new();
+        let mut current: Option<String> = None;
+        let mut outlines = vec![];
+        let mut lines = text.lines();
+        while let Some(line) = lines.next() {
+            if let Some(name) = line.strip_prefix("%AM").and_then(|l| l.strip_suffix('*')) {
+                let primitive = lines.next().ok_or("macro without primitive")?;
+                let numbers = primitive
+                    .trim_end_matches("*%")
+                    .split(',')
+                    .map(|n| n.parse::<f64>().map_err(|e| e.to_string()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let (head, rest) = numbers.split_at(3);
+                assert_eq!(head[..2], [4.0, 1.0], "outline primitive, exposure on");
+                assert_eq!(rest.last(), Some(&0.0), "no macro rotation");
+                let vertices: Vec<Point> = rest[..rest.len() - 1]
+                    .chunks(2)
+                    .map(|xy| Point::new(xy[0], xy[1]))
+                    .collect();
+                assert_eq!(vertices.len() as f64, head[2] + 1.0);
+                assert_eq!(vertices.first(), vertices.last(), "outline is closed");
+                macros.insert(name.to_owned(), vertices);
+            } else if let Some(def) = line.strip_prefix("%ADD").and_then(|l| l.strip_suffix("*%")) {
+                let split = def.find(|c: char| !c.is_ascii_digit()).ok_or("bad AD")?;
+                let (code, template) = def.split_at(split);
+                if let Some(vertices) = macros.get(template) {
+                    apertures.insert(format!("D{code}"), vertices.clone());
+                }
+            } else if let Some(code) = line.strip_suffix('*').filter(|l| l.starts_with('D')) {
+                current = Some(code.to_owned());
+            } else if let Some(flash) = line.strip_suffix("D03*") {
+                let (x, y) = flash
+                    .strip_prefix('X')
+                    .and_then(|l| l.split_once('Y'))
+                    .ok_or("bad flash")?;
+                let at = Point::new(
+                    x.parse::<f64>().map_err(|e| e.to_string())? / 1e6,
+                    y.parse::<f64>().map_err(|e| e.to_string())? / 1e6,
+                );
+                if let Some(vertices) = current.as_ref().and_then(|c| apertures.get(c)) {
+                    outlines.push(
+                        vertices
+                            .iter()
+                            .map(|v| Point::new(at.x + v.x, height - (at.y + v.y)))
+                            .collect(),
+                    );
+                }
+            }
+        }
+        Ok(outlines)
+    }
+    #[test]
+    fn gerber_copper_flashes_chamfered_and_custom_pads_through_outline_macros() -> Result<(), String>
+    {
+        let mut project = shaped_pad_project()?;
+        project.board.footprints[0].rotation = 30.0;
+        let text = gerber_copper(&project, pcbcraft_doc::Layer::Front)?;
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/shaped_pads_F_Cu.gbr");
+        if std::env::var_os("PCBCRAFT_BLESS").is_some() {
+            std::fs::write(&fixture, &text).map_err(|e| e.to_string())?;
+        }
+        let expected = std::fs::read_to_string(&fixture).map_err(|e| e.to_string())?;
+        assert_eq!(
+            text, expected,
+            "Gerber output drifted from the reviewed fixture"
+        );
+        assert!(text.contains("%FSLAX46Y46*%") && text.contains("%MOMM*%"));
+        assert!(text.ends_with("M02*\n"));
+        assert_eq!(
+            text.matches("%AMPAD").count(),
+            2,
+            "one macro per shaped pad"
+        );
+        assert!(text.contains("%ADD10C,0.25*%"), "track aperture");
+        // Oracle: macro vertices plus flash points must reproduce the outlines
+        // the document gives for the rotated footprint, chamfer cuts included.
+        let outlines = gerber_outlines(&text, project.board.height)?;
+        let f = &project.board.footprints[0];
+        assert_eq!(outlines.len(), 2);
+        for (pad, outline) in f.pads.iter().zip(&outlines) {
+            let expected: Vec<Point> = pad
+                .outline_points()
+                .into_iter()
+                .map(|v| f.position.offset(v.rotate(-f.rotation)))
+                .collect();
+            assert_eq!(expected.len(), outline.len());
+            for (a, b) in expected.iter().zip(outline) {
+                assert!(a.distance(*b) < 2e-6, "{a:?} vs {b:?}");
+            }
+        }
+        assert_eq!(
+            outlines[0].len(),
+            7,
+            "rectangle with two corners cut, closed"
+        );
+        assert_eq!(outlines[1].len(), 6, "five-vertex custom polygon, closed");
+        // The back layer of an SMD-only board has the back track only (none here).
+        let back = gerber_copper(&project, pcbcraft_doc::Layer::Back)?;
+        assert!(!back.contains("D03*") && !back.contains("%AM"));
+        assert!(back.contains("%TF.FileFunction,Copper,L2,Bot*%"));
+        Ok(())
     }
 }

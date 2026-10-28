@@ -1,5 +1,6 @@
 //! Canonical project data. No UI or protocol dependencies.
 use pcbcraft_geom::{Point, positive};
+use pcbcraft_library::PadShape;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -165,6 +166,8 @@ impl Pad {
         hole.size = drill.size;
         hole.shape = "oval".into();
         hole.roundrect_ratio = None;
+        hole.chamfer = None;
+        hole.polygon.clear();
         hole.position = self.offset.offset(drill.offset.rotate(-g.rotation));
         Pad {
             number: String::new(),
@@ -189,71 +192,157 @@ impl Pad {
             })
             .unwrap_or(0.0)
     }
-    /// Closed convex copper outline in footprint-local coordinates.
+    /// Closed copper outline in footprint-local coordinates. Every shape except
+    /// `custom` is convex; custom outlines are simple polygons.
     pub fn outline_points(&self) -> Vec<Point> {
-        let (size, rotation, shape, ratio) = self
-            .geometry
-            .as_ref()
-            .map(|p| {
-                (
-                    p.size,
-                    p.rotation,
-                    p.shape.as_str(),
-                    p.roundrect_ratio.unwrap_or(0.0),
-                )
-            })
-            .unwrap_or((Point::new(self.diameter, self.diameter), 0.0, "circle", 0.0));
-        let hx = size.x / 2.0;
-        let hy = size.y / 2.0;
-        let radius = match shape {
-            "circle" | "oval" => hx.min(hy),
-            "roundrect" => size.x.min(size.y) * ratio,
-            _ => 0.0,
+        let Some(g) = &self.geometry else {
+            return self.finish_outline(rounded_rect(
+                Point::new(self.diameter, self.diameter),
+                self.diameter / 2.0,
+            ));
         };
-        let mut points = vec![];
-        if radius <= 1e-9 {
-            points.extend([
-                Point::new(-hx, -hy),
-                Point::new(hx, -hy),
-                Point::new(hx, hy),
-                Point::new(-hx, hy),
-            ]);
-        } else {
-            for (x, y, start) in [
-                (hx - radius, hy - radius, 0.0),
-                (-hx + radius, hy - radius, 90.0),
-                (-hx + radius, -hy + radius, 180.0),
-                (hx - radius, -hy + radius, 270.0),
-            ] {
-                for i in 0..=16 {
-                    let angle = (start + i as f64 * 90.0 / 16.0).to_radians();
-                    points.push(Point::new(
-                        x + radius * angle.cos(),
-                        y + radius * angle.sin(),
-                    ));
-                }
-            }
+        let points = match g.shape_kind() {
+            PadShape::Circle | PadShape::Oval => rounded_rect(g.size, g.size.x.min(g.size.y) / 2.0),
+            PadShape::RoundRect { ratio } => rounded_rect(g.size, g.size.x.min(g.size.y) * ratio),
+            PadShape::Rect | PadShape::Unsupported => rounded_rect(g.size, 0.0),
+            PadShape::Chamfered(chamfer) => chamfered_rect(g.size, chamfer),
+            PadShape::Custom { polygon } => polygon.to_vec(),
+        };
+        let mut points = self.finish_outline(points);
+        for p in &mut points {
+            *p = self.offset.offset(p.rotate(-g.rotation));
         }
+        points
+    }
+    fn finish_outline(&self, mut points: Vec<Point>) -> Vec<Point> {
         if let Some(first) = points.first().copied() {
             points.push(first);
         }
+        if self.geometry.is_none() {
+            for p in &mut points {
+                *p = self.offset.offset(*p);
+            }
+        }
         points
-            .into_iter()
-            .map(|p| self.offset.offset(p.rotate(-rotation)))
-            .collect()
+    }
+    /// True when the outline can be filled as one convex polygon.
+    pub fn outline_is_convex(&self) -> bool {
+        !self
+            .geometry
+            .as_ref()
+            .is_some_and(|g| matches!(g.shape_kind(), PadShape::Custom { .. }))
+    }
+    /// Radius of a disc about the pad origin that is certainly copper; used for
+    /// conservative connectivity.
+    pub fn contact_radius(&self) -> f64 {
+        let Some(g) = &self.geometry else {
+            return self.diameter / 2.0;
+        };
+        match g.shape_kind() {
+            PadShape::Chamfered(chamfer) => {
+                let (hx, hy) = (g.size.x / 2.0, g.size.y / 2.0);
+                let cut = g.size.x.min(g.size.y) * chamfer.ratio;
+                hx.min(hy)
+                    .min((hx + hy - cut) / std::f64::consts::SQRT_2)
+                    .max(0.0)
+            }
+            _ => self.diameter / 2.0,
+        }
     }
     pub fn bounding_radius(&self) -> f64 {
         self.geometry
             .as_ref()
-            .map(|p| {
-                if p.shape == "circle" {
-                    p.size.x / 2.0
-                } else {
-                    p.size.x.hypot(p.size.y) / 2.0
-                }
+            .map(|p| match p.shape_kind() {
+                PadShape::Circle => p.size.x / 2.0,
+                PadShape::Custom { polygon } => polygon
+                    .iter()
+                    .map(|v| v.x.hypot(v.y))
+                    .fold(p.size.x.hypot(p.size.y) / 2.0, f64::max),
+                _ => p.size.x.hypot(p.size.y) / 2.0,
             })
             .unwrap_or(self.diameter / 2.0)
     }
+}
+/// Open vertex ring of a rectangle with circular corners of the given radius.
+fn rounded_rect(size: Point, radius: f64) -> Vec<Point> {
+    let hx = size.x / 2.0;
+    let hy = size.y / 2.0;
+    if radius <= 1e-9 {
+        return vec![
+            Point::new(-hx, -hy),
+            Point::new(hx, -hy),
+            Point::new(hx, hy),
+            Point::new(-hx, hy),
+        ];
+    }
+    let mut points = Vec::with_capacity(68);
+    for (x, y, start) in [
+        (hx - radius, hy - radius, 0.0),
+        (-hx + radius, hy - radius, 90.0),
+        (-hx + radius, -hy + radius, 180.0),
+        (hx - radius, -hy + radius, 270.0),
+    ] {
+        for i in 0..=16 {
+            let angle = (start + i as f64 * 90.0 / 16.0_f64).to_radians();
+            points.push(Point::new(
+                x + radius * angle.cos(),
+                y + radius * angle.sin(),
+            ));
+        }
+    }
+    points
+}
+/// Open vertex ring of a rectangle with straight cuts at the selected corners.
+/// Corner names are pad-local with y pointing down.
+pub fn chamfered_rect(size: Point, chamfer: pcbcraft_library::PadChamfer) -> Vec<Point> {
+    let hx = size.x / 2.0;
+    let hy = size.y / 2.0;
+    let cut = size.x.min(size.y) * chamfer.ratio;
+    let c = chamfer.corners;
+    let mut points = Vec::with_capacity(8);
+    let mut corner = |cut_it: bool, square: Point, before: Point, after: Point| {
+        if cut_it {
+            points.extend([before, after]);
+        } else {
+            points.push(square);
+        }
+    };
+    corner(
+        c.bottom_right,
+        Point::new(hx, hy),
+        Point::new(hx, hy - cut),
+        Point::new(hx - cut, hy),
+    );
+    corner(
+        c.bottom_left,
+        Point::new(-hx, hy),
+        Point::new(-hx + cut, hy),
+        Point::new(-hx, hy - cut),
+    );
+    corner(
+        c.top_left,
+        Point::new(-hx, -hy),
+        Point::new(-hx, -hy + cut),
+        Point::new(-hx + cut, -hy),
+    );
+    corner(
+        c.top_right,
+        Point::new(hx, -hy),
+        Point::new(hx - cut, -hy),
+        Point::new(hx, -hy + cut),
+    );
+    // A 0.5 ratio on a square side makes neighbouring cuts meet; drop the
+    // repeated meeting vertices so the ring stays simple.
+    points.dedup_by(|a, b| a.distance(*b) < 1e-12);
+    if points.len() > 1
+        && points
+            .first()
+            .zip(points.last())
+            .is_some_and(|(a, b)| a.distance(*b) < 1e-12)
+    {
+        points.pop();
+    }
+    points
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Footprint {
@@ -913,14 +1002,14 @@ pub fn validate_footprint_support(
             p.drill.is_none()
         };
         if !["smd", "thru_hole"].contains(&p.pad_type.as_str())
-            || !["circle", "rect", "roundrect", "oval"].contains(&p.shape.as_str())
+            || matches!(p.shape_kind(), PadShape::Unsupported)
             || (p.shape == "circle" && (p.size.x - p.size.y).abs() > 1e-6)
             || !copper_ok
             || !drill_ok
             || p.number.is_empty()
             || !numbers.insert(&p.number)
         {
-            return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval pads with a drill strictly inside the pad; custom pads, unnumbered mechanical holes and back SMD placement are planned".into());
+            return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads with a drill strictly inside the pad; unnumbered mechanical holes and back SMD placement are planned".into());
         }
     }
     if definition.pads.is_empty() || definition.pads.len() > 64 {
@@ -938,24 +1027,35 @@ fn drill_inside_pad(p: &pcbcraft_library::FootprintPad) -> bool {
         (drill.size.x / 2.0 - radius).max(0.0),
         (drill.size.y / 2.0 - radius).max(0.0),
     );
-    let corner = match p.shape.as_str() {
-        "circle" | "oval" => p.size.x.min(p.size.y) / 2.0,
-        "roundrect" => p.size.x.min(p.size.y) * p.roundrect_ratio.unwrap_or(0.0),
-        "rect" => 0.0,
-        _ => return false,
+    let ends = [
+        drill.offset.offset(half_axis),
+        drill.offset.offset(Point::new(-half_axis.x, -half_axis.y)),
+    ];
+    let corner = match p.shape_kind() {
+        PadShape::Circle | PadShape::Oval => p.size.x.min(p.size.y) / 2.0,
+        PadShape::RoundRect { ratio } => p.size.x.min(p.size.y) * ratio,
+        PadShape::Rect => 0.0,
+        PadShape::Chamfered(chamfer) => {
+            return capsule_inside_polygon(ends, radius, &chamfered_rect(p.size, chamfer));
+        }
+        PadShape::Custom { polygon } => return capsule_inside_polygon(ends, radius, polygon),
+        PadShape::Unsupported => return false,
     };
     let clearance = |point: Point| {
         let dx = point.x.abs() - (p.size.x / 2.0 - corner);
         let dy = point.y.abs() - (p.size.y / 2.0 - corner);
         -(dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0) - corner)
     };
+    radius > 0.0 && ends.into_iter().all(|end| clearance(end) > radius + 1e-6)
+}
+/// Exact for any simple polygon: the capsule axis starts inside and stays more
+/// than `radius` from every edge.
+fn capsule_inside_polygon(ends: [Point; 2], radius: f64, polygon: &[Point]) -> bool {
+    let [a, b] = ends;
     radius > 0.0
-        && [
-            drill.offset.offset(half_axis),
-            drill.offset.offset(Point::new(-half_axis.x, -half_axis.y)),
-        ]
-        .into_iter()
-        .all(|end| clearance(end) > radius + 1e-6)
+        && pcbcraft_geom::point_in_polygon(a, polygon)
+        && pcbcraft_geom::polygon_edges(polygon)
+            .all(|(c, d)| pcbcraft_geom::segment_distance(a, b, c, d) > radius + 1e-6)
 }
 
 fn orthogonal_path(a: Point, b: Point, da: Point, db: Point) -> Vec<Point> {
@@ -1251,5 +1351,87 @@ mod drill_tests {
         });
         validate_footprint_support(&definition)?;
         Ok(())
+    }
+    #[test]
+    fn chamfered_and_custom_through_hole_pads_keep_their_drill_inside_real_copper()
+    -> Result<(), String> {
+        let mut definition = dip()?;
+        let p = &mut definition.pads[0];
+        p.shape = "chamfered".into();
+        p.size = Point::new(2.0, 2.0);
+        p.roundrect_ratio = None;
+        p.chamfer = Some(pcbcraft_library::PadChamfer {
+            ratio: 0.5,
+            corners: pcbcraft_library::ChamferCorners::ALL,
+        });
+        p.drill = Some(pcbcraft_library::Drill {
+            size: Point::new(0.8, 0.8),
+            offset: Point::default(),
+        });
+        validate_footprint_support(&definition)?;
+        // Inside the square, but beyond the bottom-right cut.
+        if let Some(d) = definition.pads[0].drill.as_mut() {
+            d.size = Point::new(0.3, 0.3);
+            d.offset = Point::new(0.6, 0.6);
+        }
+        assert!(validate_footprint_support(&definition).is_err());
+        let p = &mut definition.pads[0];
+        p.shape = "custom".into();
+        p.chamfer = None;
+        p.size = Point::new(0.4, 0.4);
+        p.polygon = vec![
+            Point::new(-1.0, -1.0),
+            Point::new(0.3, -1.0),
+            Point::new(0.3, -0.3),
+            Point::new(1.0, -0.3),
+            Point::new(1.0, 1.0),
+            Point::new(-1.0, 1.0),
+        ];
+        // A notched pad: a hole centred in its notch has no copper around it.
+        p.drill = Some(pcbcraft_library::Drill {
+            size: Point::new(0.3, 0.3),
+            offset: Point::new(0.65, -0.65),
+        });
+        assert!(validate_footprint_support(&definition).is_err());
+        if let Some(d) = definition.pads[0].drill.as_mut() {
+            d.offset = Point::new(-0.5, 0.5);
+        }
+        validate_footprint_support(&definition)?;
+        let pad = Pad {
+            number: "1".into(),
+            offset: Point::default(),
+            diameter: 0.4,
+            net: None,
+            geometry: Some(definition.pads[0].clone()),
+        };
+        assert!(!pad.outline_is_convex());
+        assert_eq!(pad.outline_points().len(), 7);
+        assert!((pad.bounding_radius() - 2.0_f64.sqrt()).abs() < 1e-12);
+        Ok(())
+    }
+    #[test]
+    fn chamfer_outline_cuts_each_selected_corner_and_merges_meeting_cuts() {
+        let all = chamfered_rect(
+            Point::new(2.0, 2.0),
+            pcbcraft_library::PadChamfer {
+                ratio: 0.5,
+                corners: pcbcraft_library::ChamferCorners::ALL,
+            },
+        );
+        assert_eq!(all.len(), 4, "a fully cut square is a diamond");
+        assert!((pcbcraft_geom::polygon_area(&all).abs() - 2.0).abs() < 1e-12);
+        let one = chamfered_rect(
+            Point::new(2.0, 1.0),
+            pcbcraft_library::PadChamfer {
+                ratio: 0.2,
+                corners: pcbcraft_library::ChamferCorners {
+                    top_left: true,
+                    ..Default::default()
+                },
+            },
+        );
+        assert_eq!(one.len(), 5);
+        assert!((pcbcraft_geom::polygon_area(&one).abs() - (2.0 - 0.02)).abs() < 1e-12);
+        assert!(pcbcraft_geom::polygon_is_simple(&one));
     }
 }

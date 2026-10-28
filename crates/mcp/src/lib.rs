@@ -33,7 +33,7 @@ pub fn tool_list() -> Value {
         json!({"name":"sample_design","description":"Load the original LED indicator example; replacement is undoable","inputSchema":object(json!({}),&[])}),
         json!({"name":"open","description":"Open and validate a .pcbcraft project from the server host; replacement is undoable","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"save","description":"Atomically save the current project on the server host","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"export","description":"Export the supported PCB subset to KiCad, or export a schematic/PCB SVG preview","inputSchema":object(json!({"path":{"type":"string"},"format":{"type":"string","enum":["kicad_pcb","svg"]},"view":{"type":"string","enum":["schematic","pcb"]}}),&["path","format"])}),
+        json!({"name":"export","description":"Export the supported PCB subset to KiCad, an initial Gerber copper layer (pads and tracks only), or a schematic/PCB SVG preview","inputSchema":object(json!({"path":{"type":"string"},"format":{"type":"string","enum":["kicad_pcb","gerber_f_cu","gerber_b_cu","svg"]},"view":{"type":"string","enum":["schematic","pcb"]}}),&["path","format"])}),
         json!({"name":"screenshot","description":"Return a PNG design preview from current session state (not a desktop UI screenshot)","inputSchema":object(json!({"view":{"type":"string","enum":["schematic","pcb"]}}),&["view"])}),
     ];
     for spec in pcbcraft_engine::commands() {
@@ -149,6 +149,8 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             let path = string(args, "path")?;
             let text = match string(args, "format")? {
                 "kicad_pcb" => pcbcraft_io::kicad_board(&s.project)?,
+                "gerber_f_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Front)?,
+                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Back)?,
                 "svg" => pcbcraft_io::svg(
                     &s.project,
                     args.get("view").and_then(Value::as_str).unwrap_or("pcb"),

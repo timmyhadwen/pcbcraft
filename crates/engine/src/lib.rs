@@ -309,7 +309,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval pads, circular/oval offset drills; two copper layers, simple tracks, rectangular outline and circular cutouts","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"schematic":"flat explicit pin nets; embedded multi-unit packages with independent unit placement and one physical pin map","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads, circular/oval offset drills; two copper layers, simple tracks, rectangular outline and circular cutouts; initial Gerber copper writer (pads and tracks only)","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies","checks":"initial pin assignment and conservative copper bounds with same-pad plated layer bridges and drilled-hole contact tests; not comprehensive ERC/DRC","kicad":"native library reading and limited PCB export; no general project import or library writer","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":pcbcraft_rules::drc(&self.project),"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment, net population, capsule tracks, rectangular edge and circular cutout clearance. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. No comprehensive pin-type, annular-ring manufacturing rules, vias, zones or hierarchy checks."})
@@ -1291,5 +1291,127 @@ mod tests {
             assert!(s.execute("component.add", params, None).is_err());
             assert_eq!(s.inspect(), before);
         }
+    }
+    #[test]
+    fn chamfered_and_custom_pads_are_validated_before_entering_the_library() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut footprint = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        footprint.name = "Shaped".into();
+        let first = footprint.pads.first_mut().ok_or_else(missing)?;
+        first.shape = "chamfered".into();
+        first.roundrect_ratio = None;
+        first.chamfer = Some(pcbcraft_library::PadChamfer {
+            ratio: 0.2,
+            corners: pcbcraft_library::ChamferCorners {
+                top_right: true,
+                ..Default::default()
+            },
+        });
+        let second = footprint.pads.get_mut(1).ok_or_else(missing)?;
+        second.shape = "custom".into();
+        second.roundrect_ratio = None;
+        second.size = Point::new(0.3, 0.3);
+        second.polygon = vec![
+            Point::new(-0.5, -0.6),
+            Point::new(0.5, -0.6),
+            Point::new(0.0, 0.7),
+        ];
+        let before = s.inspect();
+        let mut hostile = vec![];
+        for ratio in [0.0, 0.51, f64::NAN, f64::INFINITY] {
+            let mut bad = footprint.clone();
+            if let Some(c) = bad.pads.first_mut().and_then(|p| p.chamfer.as_mut()) {
+                c.ratio = ratio;
+            }
+            hostile.push(bad);
+        }
+        let mut no_corner = footprint.clone();
+        if let Some(c) = no_corner.pads.first_mut().and_then(|p| p.chamfer.as_mut()) {
+            c.corners = pcbcraft_library::ChamferCorners::default();
+        }
+        hostile.push(no_corner);
+        let mut stray_chamfer = footprint.clone();
+        if let Some(p) = stray_chamfer.pads.first_mut() {
+            p.shape = "rect".into();
+        }
+        hostile.push(stray_chamfer);
+        let mut bow_tie = footprint.clone();
+        if let Some(p) = bow_tie.pads.get_mut(1) {
+            p.polygon = vec![
+                Point::new(-0.5, -0.5),
+                Point::new(0.5, 0.5),
+                Point::new(0.5, -0.5),
+                Point::new(-0.5, 0.5),
+            ];
+        }
+        hostile.push(bow_tie);
+        let mut too_many = footprint.clone();
+        if let Some(p) = too_many.pads.get_mut(1) {
+            p.polygon = (0..=pcbcraft_library::MAX_PAD_POLYGON_VERTICES)
+                .map(|i| {
+                    let a = i as f64 * std::f64::consts::TAU
+                        / (pcbcraft_library::MAX_PAD_POLYGON_VERTICES + 1) as f64;
+                    Point::new(a.cos(), a.sin())
+                })
+                .collect();
+        }
+        hostile.push(too_many);
+        let mut anchor_outside = footprint.clone();
+        if let Some(p) = anchor_outside.pads.get_mut(1) {
+            p.size = Point::new(1.2, 1.2);
+        }
+        hostile.push(anchor_outside);
+        let mut huge = footprint.clone();
+        if let Some(v) = huge.pads.get_mut(1).and_then(|p| p.polygon.first_mut()) {
+            v.x = 1e9;
+        }
+        hostile.push(huge);
+        for bad in hostile {
+            assert!(
+                s.execute("library.footprint.upsert", json!({"definition":bad}), None)
+                    .is_err()
+            );
+            assert_eq!(
+                s.inspect(),
+                before,
+                "rejected edits leave the project untouched"
+            );
+        }
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition":footprint}),
+            None,
+        )?;
+        let symbol = library::symbol(
+            std::path::Path::new(&library_fixture("device.kicad_sym")),
+            "R",
+        )?;
+        s.execute("library.symbol.upsert", json!({"definition":symbol}), None)?;
+        s.execute(
+            "component.place_custom",
+            json!({"name":"R","position":{"x":20,"y":10}}),
+            None,
+        )?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":1,"name":"Shaped"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let f = s.project.board.footprints.first().ok_or_else(missing)?;
+        assert!(
+            f.pads
+                .iter()
+                .any(|p| p.geometry.as_ref().is_some_and(|g| g.shape == "chamfered"))
+        );
+        assert!(
+            f.pads
+                .iter()
+                .any(|p| p.geometry.as_ref().is_some_and(|g| g.polygon.len() == 3))
+        );
+        s.project.validate()?;
+        Ok(())
     }
 }
