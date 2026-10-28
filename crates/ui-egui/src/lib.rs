@@ -4209,7 +4209,44 @@ impl App {
                                 )
                                 .clicked()
                         {
-                            self.run("rules.exclude", json!({"code": code, "ids": objects}));
+                            self.run(
+                                "rules.exclude",
+                                json!({"code": code.clone(), "ids": objects}),
+                            );
+                        }
+                        if !objects.is_empty() {
+                            let spots: Vec<Point> = objects
+                                .iter()
+                                .filter_map(|o| self.project.object_position(*o))
+                                .collect();
+                            if spots.len() == objects.len()
+                                && let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) = (
+                                    spots.iter().map(|p| p.x).reduce(f64::min),
+                                    spots.iter().map(|p| p.x).reduce(f64::max),
+                                    spots.iter().map(|p| p.y).reduce(f64::min),
+                                    spots.iter().map(|p| p.y).reduce(f64::max),
+                                )
+                            {
+                                let pad = 2.0;
+                                if ui
+                                    .small_button("Quiet this area")
+                                    .on_hover_text(
+                                        "This corner of the board is the way you want it: ask the check to leave anything inside a box drawn around these items alone. You can clear the box below.",
+                                    )
+                                    .clicked()
+                                {
+                                    self.run(
+                                        "rules.exclude_region",
+                                        json!({
+                                            "code": code,
+                                            "x": min_x - pad,
+                                            "y": min_y - pad,
+                                            "width": (max_x - min_x) + pad * 2.0,
+                                            "height": (max_y - min_y) + pad * 2.0,
+                                        }),
+                                    );
+                                }
+                            }
                         }
                     });
                 }
@@ -4239,6 +4276,34 @@ impl App {
                         .clicked()
                     {
                         self.run("rules.include", json!({"code": code}));
+                    }
+                });
+            }
+            ui.add_space(12.0);
+        }
+        let zones: Vec<(String, usize)> = self
+            .project
+            .rule_regions
+            .iter()
+            .map(|(code, regions)| (code.clone(), regions.len()))
+            .collect();
+        if !zones.is_empty() {
+            ui.label(
+                egui::RichText::new("Quiet zones: checks that leave these corners alone")
+                    .small()
+                    .color(self.muted()),
+            );
+            for (code, count) in zones {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{code} · {count} zone(s)"));
+                    if ui
+                        .small_button(format!("Clear {code} zones"))
+                        .on_hover_text(
+                            "Remove every quiet box for this check, so it reports the whole board again.",
+                        )
+                        .clicked()
+                    {
+                        self.run("rules.include_region", json!({"code": code}));
                     }
                 });
             }
@@ -5897,6 +5962,72 @@ mod tests {
         assert!(
             !app.project.rule_severity.contains_key("missing_footprint"),
             "Auto hands the choice back to the built-in default: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_silences_a_check_around_a_spot() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let total = |app: &App| -> usize {
+            ["erc", "drc"]
+                .iter()
+                .map(|k| {
+                    app.checks
+                        .get(*k)
+                        .and_then(Value::as_array)
+                        .map_or(0, |v| v.len())
+                })
+                .sum()
+        };
+        let before = total(&app);
+        assert!(
+            before > 0,
+            "the practice board has findings to quiet: {}",
+            app.message
+        );
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Checks")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Quiet this area")?,
+            "every finding offers to quiet its corner of the board: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Quiet this area")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        let code = app
+            .project
+            .rule_regions
+            .keys()
+            .next()
+            .cloned()
+            .ok_or("one click should draw a quiet zone")?;
+        assert!(
+            total(&app) < before,
+            "the finding inside that zone stops nagging: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Quiet zones")?,
+            "the quiet zones are listed so they can be cleared: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, &format!("Clear {code} zones"))?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            app.project
+                .rule_regions
+                .get(&code)
+                .is_none_or(|v| v.is_empty()),
+            "clearing hands the whole board back to the check: {}",
             app.message
         );
         Ok(())
