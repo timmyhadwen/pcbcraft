@@ -116,6 +116,7 @@ impl SymbolDefinition {
             &self.description,
             &self.keywords,
             &self.footprint,
+            &self.set,
         ] {
             text(s)?;
         }
@@ -151,6 +152,18 @@ impl SymbolDefinition {
 }
 impl FootprintDefinition {
     pub fn validate(&self) -> Result<(), Error> {
+        if let Some(rules) = &self.rules {
+            for value in [rules.clearance, rules.mask_margin, rules.paste_margin]
+                .into_iter()
+                .flatten()
+            {
+                if !scalar(value) || value.abs() > 100.0 {
+                    return Err(bad(
+                        "footprint rule override must be finite, at most 100 mm",
+                    ));
+                }
+            }
+        }
         if self.name.is_empty() || self.pads.len() > 20_000 || self.graphics.len() > 20_000 {
             return Err(bad("invalid footprint name or object count"));
         }
@@ -158,6 +171,18 @@ impl FootprintDefinition {
             text(s)?;
         }
         metadata(&self.raw_source, &self.unsupported)?;
+        if let Some(m) = &self.model {
+            text(&m.path)?;
+            metadata(&m.raw_source, &[])?;
+            if m.path.is_empty()
+                || m.path.len() > 1024
+                || !m.offset.iter().all(|v| scalar(*v))
+                || !m.rotate.iter().all(|v| scalar(*v))
+                || !m.scale.iter().all(|v| scalar(*v) && *v > 0.0)
+            {
+                return Err(bad("invalid 3D model reference"));
+            }
+        }
         for p in &self.pads {
             for s in [&p.number, &p.pad_type, &p.shape] {
                 text(s)?;

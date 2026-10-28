@@ -1819,6 +1819,7 @@ dependencies = [
  "base64",
  "pcbcraft-engine",
  "pcbcraft-io",
+ "pcbcraft-library",
  "serde_json",
  "tempfile",
 ]
@@ -1844,6 +1845,7 @@ dependencies = [
  "pcbcraft-doc",
  "pcbcraft-engine",
  "pcbcraft-geom",
+ "pcbcraft-io",
  "pcbcraft-library",
  "pcbcraft-mcp",
  "pcbcraft-rules",

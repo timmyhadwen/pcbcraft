@@ -4,7 +4,7 @@ mod reader;
 mod sexpr;
 mod validation;
 use pcbcraft_geom::Point;
-pub use reader::{read_footprint, read_symbols};
+pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
 pub use sexpr::{Error, Limits};
 
@@ -17,6 +17,10 @@ pub struct SymbolDefinition {
     pub description: String,
     pub keywords: String,
     pub footprint: String,
+    /// Name of the collection this part belongs to, for example "Common
+    /// parts". Empty means the part has no set and is listed on its own.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub set: String,
     pub pins: Vec<SymbolPin>,
     pub graphics: Vec<UnitGraphic>,
     pub extends: Option<String>,
@@ -87,6 +91,13 @@ pub enum Graphic {
         layer: String,
     },
 }
+/// One net of a Specctra design session and the component pins it names,
+/// each pin given as a (reference, pin number) pair.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionNet {
+    pub name: String,
+    pub pins: Vec<(String, String)>,
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FootprintDefinition {
@@ -95,8 +106,47 @@ pub struct FootprintDefinition {
     pub keywords: String,
     pub pads: Vec<FootprintPad>,
     pub graphics: Vec<Graphic>,
+    /// A 3D model reference when the footprint carries one. The transform is
+    /// kept exactly as the source states it; this tool records and re-emits
+    /// it without rendering geometry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<Model3D>,
+    /// Design rule overrides scoped to this footprint: a local copper
+    /// clearance and solder mask/paste margin shifts in millimetres. The
+    /// clearance tightens checks; the margins are recorded and exported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<FootprintRules>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+}
+/// Per-footprint design rule overrides. Each value is a millimetre amount;
+/// a negative margin shrinks the paste or mask opening.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FootprintRules {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clearance: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask_margin: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paste_margin: Option<f64>,
+}
+/// A reference to a 3D model file attached to a footprint, with the
+/// placement transform from the source file's coordinate frame.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Model3D {
+    pub path: String,
+    #[serde(default)]
+    pub offset: [f64; 3],
+    #[serde(default = "unit_scale")]
+    pub scale: [f64; 3],
+    #[serde(default)]
+    pub rotate: [f64; 3],
+    pub raw_source: String,
+}
+fn unit_scale() -> [f64; 3] {
+    [1.0, 1.0, 1.0]
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
