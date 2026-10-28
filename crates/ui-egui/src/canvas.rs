@@ -738,6 +738,23 @@ impl App {
         }
         None
     }
+    /// The wire whose path passes nearest the click, within a fingertip's
+    /// width; curved wires are checked along their bow too.
+    fn pick_track(&self, pos: Point, zoom: f32) -> Option<Id> {
+        let mut best: Option<(f64, Id)> = None;
+        for track in &self.project.board.tracks {
+            let mut reach = segment_distance(pos, track.start, track.end);
+            if let Some(mid) = track.arc {
+                reach = reach
+                    .min(segment_distance(pos, track.start, mid))
+                    .min(segment_distance(pos, mid, track.end));
+            }
+            if reach * (zoom as f64) < 6.0 && best.is_none_or(|(known, _)| reach < known) {
+                best = Some((reach, track.id));
+            }
+        }
+        best.map(|(_, id)| id)
+    }
     pub(super) fn canvas_click(&mut self, pos: Point, zoom: f32) {
         match self.tool.clone() {
             Tool::Select => {
@@ -752,6 +769,16 @@ impl App {
                     && let Some((id, pad)) = self.pick_pad(pos, zoom)
                 {
                     self.tool = Tool::Route(Some((id, pad)));
+                } else if self.tab == Tab::Pcb
+                    && self.selected.is_none()
+                    && let Some(id) = self.pick_track(pos, zoom)
+                {
+                    self.select(Some(id));
+                    if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
+                        self.track_width = track.width;
+                    }
+                    self.message =
+                        "Wire picked: change its width or straighten it in the inspector".into();
                 }
             }
             Tool::Place(kind) => {
@@ -1711,4 +1738,17 @@ mod tests {
             "copper without a net fades while a net is lit"
         );
     }
+}
+
+/// Shortest distance from a point to a straight segment, in millimetres.
+fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+    let span = dx * dx + dy * dy;
+    if span < 1e-12 {
+        return point.distance(from);
+    }
+    let along = ((point.x - from.x) * dx + (point.y - from.y) * dy) / span;
+    let along = along.clamp(0.0, 1.0);
+    point.distance(Point::new(from.x + dx * along, from.y + dy * along))
 }

@@ -460,6 +460,7 @@ pub struct App {
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
     renumber_prefix: Option<String>,
+    track_width: f64,
     teardrop_depth: f64,
     panel_columns: usize,
     panel_rows: usize,
@@ -680,6 +681,7 @@ impl App {
             fiducial_diameter: 1.0,
             fiducial_edit: None,
             renumber_prefix: None,
+            track_width: 0.25,
             teardrop_depth: 0.5,
             panel_columns: 2,
             panel_rows: 2,
@@ -3346,6 +3348,46 @@ impl App {
                                 ui.label(value);
                             });
                         }
+                        if let Some(track) =
+                            self.project.board.tracks.iter().find(|t| t.id == id)
+                        {
+                            let curved = track.arc.is_some();
+                            ui.add_space(10.0);
+                            ui.label("Wire width");
+                            ui.add(
+                                egui::DragValue::new(&mut self.track_width)
+                                    .range(0.05..=10.0)
+                                    .speed(0.05)
+                                    .suffix(" mm"),
+                            )
+                            .on_hover_text(
+                                "How wide this stretch of copper is. Thicker wires carry more current.",
+                            );
+                            if ui
+                                .button("Set width")
+                                .on_hover_text(command_tip("track.set_width"))
+                                .clicked()
+                            {
+                                self.run(
+                                    "track.set_width",
+                                    json!({"id": id, "width": self.track_width}),
+                                );
+                            }
+                            if ui
+                                .add_enabled(
+                                    curved,
+                                    egui::Button::new("Straighten"),
+                                )
+                                .on_hover_text(if curved {
+                                "Pull this curved wire into a straight line. Undo brings the curve back."
+                            } else {
+                                "This wire is already straight; there is nothing to pull."
+                            })
+                            .clicked()
+                            {
+                                self.run("track.straighten", json!({"id": id}));
+                            }
+                        }
                     }
                     ui.add_space(10.0);
                     if ui.button("Delete  Del").on_hover_text(command_tip("object.delete")).clicked() {
@@ -5351,6 +5393,59 @@ mod tests {
         assert!(
             app.project.board.layer_records.is_empty(),
             "the stackup notes are forgotten: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_thickens_a_wire_with_one_click() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        let (id, middle) = app
+            .project
+            .board
+            .tracks
+            .first()
+            .map(|t| {
+                (
+                    t.id,
+                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
+                )
+            })
+            .ok_or("routing should have left a wire on the board")?;
+        app.change_tab(Tab::Pcb);
+        app.canvas_click(middle, 15.0);
+        assert_eq!(
+            app.selected,
+            Some(id),
+            "clicking the middle of a wire picks it up: {}",
+            app.message
+        );
+        app.track_width = 0.6;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Wire width")?,
+            "the picked wire's width is editable in the inspector: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Set width")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            app.project
+                .board
+                .tracks
+                .iter()
+                .any(|t| t.id == id && (t.width - 0.6).abs() < 1e-9),
+            "the wire is now half a millimetre across: {}",
             app.message
         );
         Ok(())
