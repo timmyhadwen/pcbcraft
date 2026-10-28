@@ -2378,6 +2378,105 @@ mod tests {
         output
     }
     #[test]
+    fn a_beginners_first_session_places_two_parts_and_walks_every_tab() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        let key = |key, modifiers| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        assert!(
+            matches!(app.tab, Tab::Schematic),
+            "the app opens on the schematic"
+        );
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+
+        // Step 1: press A, pick the first part from the palette, click the sheet.
+        frame(
+            &ctx,
+            &mut app,
+            vec![key(egui::Key::A, egui::Modifiers::NONE)],
+            egui::Modifiers::NONE,
+        );
+        assert!(app.palette, "A opens the symbol palette");
+        app.palette = false;
+        app.tool = Tool::Place(TEMPLATES[0].kind.into());
+        for pressed in [true, false] {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::Pos2::new(680.0, 360.0)),
+                    egui::Event::PointerButton {
+                        pos: egui::Pos2::new(680.0, 360.0),
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert_eq!(
+            shared
+                .lock()
+                .map_err(|_| "session unavailable")?
+                .project
+                .components
+                .len(),
+            1,
+            "the first part lands on the sheet"
+        );
+
+        // Step 2: open the command console with Ctrl+K and add a second part.
+        let ctrl = egui::Modifiers {
+            ctrl: true,
+            command: true,
+            ..Default::default()
+        };
+        frame(&ctx, &mut app, vec![key(egui::Key::K, ctrl)], ctrl);
+        assert!(app.command_open, "Ctrl+K opens the command console");
+        app.command_query = "component.add".into();
+        app.params = json!({"kind":"resistor","position":{"x":40.0,"y":30.0}}).to_string();
+        app.execute_palette_params();
+        assert_eq!(
+            shared
+                .lock()
+                .map_err(|_| "session unavailable")?
+                .project
+                .components
+                .len(),
+            2,
+            "the console adds the second part"
+        );
+        assert!(
+            app.message.contains("committed"),
+            "the console tells the user what happened"
+        );
+
+        // Step 3: every tab paints, and each one shows something useful.
+        for tab in [Tab::Pcb, Tab::Libraries, Tab::Checks, Tab::Schematic] {
+            app.change_tab(tab);
+            let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            assert_eq!(
+                output.viewport_output.len(),
+                1,
+                "the tab a beginner just clicked must paint, not throw"
+            );
+        }
+        assert!(
+            app.checks.get("erc").is_some() && app.checks.get("drc").is_some(),
+            "the checks tab has real results to show"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn copy_plot_renders_the_current_view_for_the_clipboard() -> Result<(), String> {
         let session =
             pcbcraft_mcp::shared(pcbcraft_engine::Session::sample().map_err(|e| e.to_string())?);
