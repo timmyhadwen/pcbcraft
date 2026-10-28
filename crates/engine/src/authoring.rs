@@ -27,6 +27,9 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.duplicate","Copy a project-library symbol under a new name as one undoable step, the starting point for a custom variant of a vendor symbol; the original and every placed copy stay untouched",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","description":"name for the copy, which must not exist yet"}}),&["name","new_name"])),
         ("library.symbol.pin_set","Add or replace one pin on a project-library symbol by its number, so custom symbols gain extra terminals, corrected pin names or repositioned leads without rewriting the whole definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"object","description":"a full pin: number, name, position, angle, length, electrical type, unit and body style, as library readers emit them"}}),&["name","pin"])),
         ("library.symbol.pin_remove","Remove one pin from a project-library symbol by its number; the symbol keeps at least one pin, and placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"string","description":"pin number, exactly as stored"}}),&["name","pin"])),
+        ("library.symbol.pin_move","Slide one pin of a project-library symbol by an offset, as one undoable step, so a single lead landing in the wrong place can be nudged into position without touching its name, length or electrical type and without moving the rest of the symbol; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"string","description":"pin number, exactly as stored"},"delta":point_schema()}),&["name","pin","delta"])),
+        ("library.symbol.pin_rotate","Turn one pin of a project-library symbol about the symbol origin by any angle, as one undoable step, swinging the pin's position and its facing together so a single lead can be re-aimed from the origin without rewriting the symbol; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"string","description":"pin number, exactly as stored"},"degrees":{"type":"number","description":"counter-clockwise turn in degrees about the symbol origin"}}),&["name","pin","degrees"])),
+        ("library.symbol.pin_mirror","Flip one pin of a project-library symbol about the vertical axis, as one undoable step, mirroring its position and turning its facing to match, so a single left-facing lead can become a right-facing one without rewriting the symbol; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"pin":{"type":"string","description":"pin number, exactly as stored"},"axis":{"type":"string","enum":["y"],"description":"mirror axis; only y, the vertical axis, is supported today"}}),&["name","pin","axis"])),
         ("library.footprint.graphic_add","Draw one graphic (line, rectangle, circle, arc, polyline or text) onto a project-library footprint as one undoable step, the way a package gains its silk outline, courtyard art or documentation text; it travels with every embedded copy once the package is assigned or refreshed",schema(json!({"name":{"type":"string"},"graphic":{"type":"object","description":"a graphic primitive as library readers emit it: kind with its points, width, layer and optional fill"}}),&["name","graphic"])),
         ("library.footprint.graphic_clear","Remove artwork from a project-library footprint in one undoable step: give a layer to clear just that layer's graphics, or omit it to clear every graphic, so stale silk and fab art can be wiped before redrawing",schema(json!({"name":{"type":"string"},"layer":{"type":"string","description":"layer to clear; omit to clear all graphics"}}),&["name"])),
         ("library.symbol.graphic_add","Draw one graphic (line, rectangle, circle, arc, polyline or text) onto one unit of a project-library symbol as one undoable step, the way a symbol gains body art, pin decorations or documentation text; it travels with every embedded copy until symbol.refresh spreads it",schema(json!({"name":{"type":"string"},"unit":{"type":"integer","description":"symbol unit the graphic belongs to; defaults to 1"},"body_style":{"type":"integer","description":"body style the graphic belongs to; defaults to 1"},"graphic":{"type":"object","description":"a graphic primitive as library readers emit it: kind with its points, width, layer and optional fill"}}),&["name","graphic"])),
@@ -237,6 +240,23 @@ struct PinSetParams {
 struct PinRemoveParams {
     name: String,
     pin: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PinMoveParams {
+    name: String,
+    pin: String,
+    delta: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PinTurnParams {
+    name: String,
+    pin: String,
+    #[serde(default)]
+    degrees: Option<f64>,
+    #[serde(default)]
+    axis: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1006,6 +1026,96 @@ pub(super) fn run(
             };
             p.library.validate()?;
             Ok(json!({"name": name, "pin": a.pin, "pins": pins}))
+        }
+        "library.symbol.pin_move" => {
+            let a: PinMoveParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid("symbol name must be 1 to 128 bytes".into()));
+            }
+            if a.pin.is_empty() || a.pin.len() > 32 {
+                return Err(Error::Invalid("pin number must be 1 to 32 bytes".into()));
+            }
+            if !a.delta.x.is_finite()
+                || !a.delta.y.is_finite()
+                || a.delta.x.abs() > 1000.0
+                || a.delta.y.abs() > 1000.0
+            {
+                return Err(Error::Invalid(
+                    "offset must be finite and within 1000 mm".into(),
+                ));
+            }
+            let name = a.name.clone();
+            let symbol = p
+                .library
+                .symbols
+                .iter_mut()
+                .find(|f| f.name == name)
+                .ok_or_else(missing)?;
+            let pin = symbol
+                .pins
+                .iter_mut()
+                .find(|q| q.number == a.pin)
+                .ok_or_else(|| Error::Invalid(format!("symbol {name} has no pin {}", a.pin)))?;
+            let moved = Point::new(pin.position.x + a.delta.x, pin.position.y + a.delta.y);
+            if !moved.valid() {
+                return Err(Error::Invalid(
+                    "the shifted pin left the board coordinate range".into(),
+                ));
+            }
+            pin.position = moved;
+            symbol
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            p.library.validate()?;
+            Ok(json!({"name": name, "pin": a.pin}))
+        }
+        "library.symbol.pin_rotate" | "library.symbol.pin_mirror" => {
+            let a: PinTurnParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid("symbol name must be 1 to 128 bytes".into()));
+            }
+            if a.pin.is_empty() || a.pin.len() > 32 {
+                return Err(Error::Invalid("pin number must be 1 to 32 bytes".into()));
+            }
+            let name = a.name.clone();
+            let symbol = p
+                .library
+                .symbols
+                .iter_mut()
+                .find(|f| f.name == name)
+                .ok_or_else(missing)?;
+            let pin = symbol
+                .pins
+                .iter_mut()
+                .find(|q| q.number == a.pin)
+                .ok_or_else(|| Error::Invalid(format!("symbol {name} has no pin {}", a.pin)))?;
+            if command == "library.symbol.pin_rotate" {
+                if !a.degrees.is_some_and(f64::is_finite) || a.degrees.unwrap_or(0.0).abs() > 1e5 {
+                    return Err(Error::Invalid(
+                        "rotation must be finite and within 100000 degrees".into(),
+                    ));
+                }
+                if a.axis.is_some() {
+                    return Err(Error::Invalid("rotation needs degrees, not an axis".into()));
+                }
+                let rad = a.degrees.unwrap_or(0.0).to_radians();
+                pin.position = rot(pin.position, rad.cos(), rad.sin())?;
+                pin.angle = turn(pin.angle, rad.sin())?;
+            } else {
+                if a.axis.as_deref() != Some("y") {
+                    return Err(Error::Invalid("mirror needs axis \"y\"".into()));
+                }
+                if a.degrees.is_some() {
+                    return Err(Error::Invalid("mirror needs an axis, not degrees".into()));
+                }
+                pin.position = flip_x(pin.position);
+                pin.angle = flip_angle(pin.angle)?;
+            }
+            symbol
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            p.library.validate()?;
+            Ok(json!({"name": name, "pin": a.pin}))
         }
         "library.footprint.graphic_add" => {
             let a: GraphicAddParams = parse(params)?;
