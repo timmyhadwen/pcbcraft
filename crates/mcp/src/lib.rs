@@ -2355,8 +2355,8 @@ mod tests {
         );
     }
     #[test]
-    fn protocol_negotiates_and_notifications_do_not_reply() {
-        let hub = DocumentHub::new(Session::default(), None).map_err(|e| e.to_string())?;
+    fn protocol_negotiates_and_notifications_do_not_reply() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
         let response = handle_rpc(
             &hub,
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}),
@@ -2376,10 +2376,11 @@ mod tests {
             )
             .is_none()
         );
+        Ok(())
     }
     #[test]
-    fn tool_errors_are_recoverable_and_stdout_is_json_lines() {
-        let hub = DocumentHub::new(Session::default(), None).map_err(|e| e.to_string())?;
+    fn tool_errors_are_recoverable_and_stdout_is_json_lines() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
         let mut output = vec![];
         let initialize = json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}});
         let edit = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"component.move","arguments":{"id":999,"position":{"x":0,"y":0}}}});
@@ -2408,6 +2409,7 @@ mod tests {
             values.get(3).and_then(|v| v.pointer("/result/isError")),
             Some(&json!(false))
         );
+        Ok(())
     }
     #[test]
     fn design_list_open_reports_two_slots_after_second_open() -> Result<(), String> {
