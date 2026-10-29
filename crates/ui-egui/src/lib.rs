@@ -12,6 +12,7 @@ mod icons;
 mod impedance_panel;
 mod library;
 mod layers_tree;
+mod library_dock;
 mod library_quality;
 mod motion;
 mod number_entry;
@@ -971,39 +972,9 @@ pub struct App {
     capture_select: Option<String>,
     frames: u32,
     library: library::Browser,
+    dock: library_dock::Dock,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
-}
-impl App {
-    /// One library part offered as a small card: its name to pick, and a
-    /// plain line saying what it is and what it answers to when searched.
-    fn part_card(&mut self, ui: &mut egui::Ui, definition: &pcbcraft_library::SymbolDefinition) {
-        if ui
-            .button(&definition.name)
-            .on_hover_text(t!("schematic.part_card.pick_this_saved_part_the.tip"))
-            .clicked()
-        {
-            self.change_tab(Tab::Schematic);
-            self.tool = Tool::CustomPlace(definition.name.clone(), Box::new(definition.clone()));
-            self.palette = false;
-            self.part_search.clear();
-        }
-        let tags: Vec<&str> = definition.keywords.split_whitespace().collect();
-        let words = tags.join(" · ");
-        let note = match (definition.description.trim(), words.as_str()) {
-            ("", "") => String::new(),
-            ("", tags) => t!("schematic.part_card.search_words_tags", tags = tags),
-            (what, "") => what.to_owned(),
-            (what, tags) => t!(
-                "schematic.part_card.what_search_words_tags",
-                what = what,
-                tags = tags
-            ),
-        };
-        if !note.is_empty() {
-            ui.label(egui::RichText::new(note).small().color(self.muted()));
-        }
-    }
 }
 /// Plain-language facts about a selected board or schematic object that is not
 /// a component, so the properties panel can describe tracks, vias, zones,
@@ -1424,6 +1395,7 @@ impl App {
             hidden_sets: Vec::new(),
             svg_path: String::new(),
             part_search_focus: false,
+            dock: library_dock::Dock::default(),
             needs_fit: true,
             renumber_open: false,
             page_left: 0.0,
@@ -2248,6 +2220,8 @@ impl App {
             }
             if i.key_pressed(egui::Key::A) && self.tab == Tab::Schematic {
                 self.palette = true;
+                self.part_search_focus = true;
+                self.preferences.library_dock_open = true;
             }
             if i.key_pressed(egui::Key::W) && self.tab == Tab::Schematic {
                 self.tool = Tool::Wire(None);
@@ -2866,220 +2840,81 @@ impl App {
                 if self.preferences.left_tab == 0 {
                     self.layers_tree_panel(ui);
                 } else {
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ui.add_space(8.0);
-                            egui::Frame::NONE
-                                .inner_margin(egui::Margin::symmetric(12, 0))
-                                .show(ui, |ui| self.library_body(ui));
-                        });
+                    self.library_body(ui);
                 }
             });
     }
-    /// The Library tab: add a part, common and saved parts, components, renumber.
+    /// The Library tab: the searchable parts browser over built-in, project and
+    /// installed libraries (`library_dock.rs`), then the parts in this design.
     fn library_body(&mut self, ui: &mut egui::Ui) {
-        if ui
-            .button(t!("library.browser.add_part"))
-            .on_hover_text(t!("library.browser.add_part.tip"))
-            .clicked()
-        {
-            self.palette = true;
-            self.part_search_focus = true;
-        }
-        if self.palette {
-            ui.label(egui::RichText::new(t!("library.browser.add_a_part")).strong());
-            let query_box = ui
-                .add(
-                    crate::targets::text_field(&mut self.part_search)
-                        .hint_text(t!("library.browser.search_parts_by_name"))
-                        .desired_width(f32::INFINITY),
-                )
-                .named("Search parts by name")
-                .on_hover_text(t!("library.browser.search_parts_by_name.tip"));
-            if self.part_search_focus {
-                query_box.request_focus();
-                self.part_search_focus = false;
-            }
-            if ui
-                .button(t!("library.browser.browse_component_libraries"))
-                .on_hover_text(t!("library.browser.browse_component_libraries.tip"))
-                .clicked()
-            {
-                self.change_tab(Tab::Settings);
-                self.palette = false;
-            }
-            let query = self.part_search.trim().to_lowercase();
-            let built_in: Vec<(&str, &str)> = TEMPLATES
-                .iter()
-                .filter(|t| {
-                    query.is_empty()
-                        || t.label.to_lowercase().contains(&query)
-                        || t.kind.contains(query.as_str())
-                })
-                .map(|t| (t.kind, t.label))
-                .collect();
-            let saved: Vec<pcbcraft_library::SymbolDefinition> = self
-                .project
-                .library
-                .symbols
-                .iter()
-                .filter(|d| {
-                    query.is_empty()
-                        || d.name.to_lowercase().contains(&query)
-                        || d.keywords.to_lowercase().contains(query.as_str())
-                        || d.set.to_lowercase().contains(query.as_str())
-                })
-                .cloned()
-                .collect();
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    if built_in.is_empty() && saved.is_empty() {
+                egui::ScrollArea::vertical()
+                    .id_salt("library-dock-scroll")
+                    .auto_shrink([false, false])
+                    .show_viewport(ui, |ui, viewport| {
+                        self.library_dock_body(ui, viewport);
+                        ui.add_space(12.0);
                         ui.label(
-                            egui::RichText::new(t!(
-                                "library.browser.nothing_here_matches_trim_yet",
-                                trim = self.part_search.trim()
-                            ))
-                            .small()
-                            .color(self.muted()),
-                        );
-                    }
-                    if !built_in.is_empty() {
-                        ui.label(
-                            egui::RichText::new(t!("library.browser.common_parts"))
+                            egui::RichText::new(t!("library.browser.components"))
                                 .size(10.0)
                                 .color(self.muted()),
                         );
-                        for (kind, label) in built_in {
+                        for c in self.project.components.clone() {
+                            let id = if self.tab == Tab::Pcb {
+                                self.project
+                                    .board
+                                    .footprints
+                                    .iter()
+                                    .find(|f| f.component == c.id)
+                                    .map(|f| f.id)
+                                    .unwrap_or(c.id)
+                            } else {
+                                c.id
+                            };
                             if ui
-                                .button(label)
-                                .on_hover_text(t!(
-                                    "library.browser.pick_this_part_the_next.tip"
-                                ))
+                                .selectable_label(
+                                    self.selected == Some(id),
+                                    t!(
+                                        "library.browser.reference_value",
+                                        reference = c.reference,
+                                        value = c.value
+                                    ),
+                                )
+                                .on_hover_text(t!("library.browser.reference_value.tip"))
                                 .clicked()
                             {
-                                self.change_tab(Tab::Schematic);
-                                self.tool = Tool::Place(kind.into());
-                                self.palette = false;
-                                self.part_search.clear();
+                                self.select(Some(id));
+                            }
+                            let what = c
+                                .field(&t!("library.browser.description"))
+                                .map(str::to_owned)
+                                .or_else(|| {
+                                    c.library_symbol
+                                        .as_ref()
+                                        .map(|ls| ls.definition.description.clone())
+                                })
+                                .map(|d| d.trim().to_owned())
+                                .filter(|d| !d.is_empty());
+                            let origin = c.library_symbol.as_ref().map(|ls| {
+                                t!("library.browser.from_name", name = ls.definition.name)
+                            });
+                            let note = match (what, origin) {
+                                (Some(d), Some(origin)) => Some(t!(
+                                    "library.browser.item_origin",
+                                    item = d,
+                                    origin = origin
+                                )),
+                                (Some(d), None) => Some(d),
+                                (None, origin) => origin,
+                            };
+                            if let Some(note) = note {
+                                ui.label(
+                                    egui::RichText::new(format!("    {note}"))
+                                        .small()
+                                        .color(self.muted()),
+                                );
                             }
                         }
-                    }
-                    if !saved.is_empty() {
-                        ui.label(
-                            egui::RichText::new(t!(
-                                "library.browser.from_this_project_s_library"
-                            ))
-                            .size(10.0)
-                            .color(self.muted()),
-                        );
-                        let mut sets: std::collections::BTreeMap<
-                            String,
-                            Vec<pcbcraft_library::SymbolDefinition>,
-                        > = std::collections::BTreeMap::new();
-                        for definition in saved {
-                            sets.entry(definition.set.trim().to_owned())
-                                .or_default()
-                                .push(definition);
-                        }
-                        let loose = sets.remove("");
-                        for (set, definitions) in &sets {
-                            let mut shown = !self.hidden_sets.iter().any(|h| h == set);
-                            let row = ui
-                                .checkbox(
-                                    &mut shown,
-                                    egui::RichText::new(t!(
-                                        "library.browser.set_len_part_v1",
-                                        set = set,
-                                        len = definitions.len(),
-                                        v1 = if definitions.len() == 1 { "" } else { "s" }
-                                    ))
-                                    .strong(),
-                                )
-                                .on_hover_text(t!("library.browser.set_len_part_v1.tip"));
-                            if row.changed() {
-                                if shown {
-                                    self.hidden_sets.retain(|h| h != set);
-                                } else {
-                                    self.hidden_sets.push(set.clone());
-                                }
-                            }
-                            if !shown {
-                                continue;
-                            }
-                            for definition in definitions {
-                                self.part_card(ui, definition);
-                            }
-                        }
-                        for definition in loose.unwrap_or_default() {
-                            self.part_card(ui, &definition);
-                        }
-                    }
-                    self.source_section(ui);
-                });
-        }
-        ui.add_space(12.0);
-        ui.label(
-            egui::RichText::new(t!("library.browser.components"))
-                .size(10.0)
-                .color(self.muted()),
-        );
-        for c in self.project.components.clone() {
-            let id = if self.tab == Tab::Pcb {
-                self.project
-                    .board
-                    .footprints
-                    .iter()
-                    .find(|f| f.component == c.id)
-                    .map(|f| f.id)
-                    .unwrap_or(c.id)
-            } else {
-                c.id
-            };
-            if ui
-                .selectable_label(
-                    self.selected == Some(id),
-                    t!(
-                        "library.browser.reference_value",
-                        reference = c.reference,
-                        value = c.value
-                    ),
-                )
-                .on_hover_text(t!("library.browser.reference_value.tip"))
-                .clicked()
-            {
-                self.select(Some(id));
-            }
-            let what = c
-                .field(&t!("library.browser.description"))
-                .map(str::to_owned)
-                .or_else(|| {
-                    c.library_symbol
-                        .as_ref()
-                        .map(|ls| ls.definition.description.clone())
-                })
-                .map(|d| d.trim().to_owned())
-                .filter(|d| !d.is_empty());
-            let origin = c
-                .library_symbol
-                .as_ref()
-                .map(|ls| t!("library.browser.from_name", name = ls.definition.name));
-            let note = match (what, origin) {
-                (Some(d), Some(origin)) => {
-                    Some(t!("library.browser.item_origin", item = d, origin = origin))
-                }
-                (Some(d), None) => Some(d),
-                (None, origin) => origin,
-            };
-            if let Some(note) = note {
-                ui.label(
-                    egui::RichText::new(format!("    {note}"))
-                        .small()
-                        .color(self.muted()),
-                );
-            }
-        }
+                    });
     }
     /// The Renumber parts window, opened from Edit: pick a letter, preview the
     /// new numbers, then write them as one undoable step.
@@ -6641,9 +6476,10 @@ impl App {
         egui::ScrollArea::horizontal()
             .id_salt("tool-strip-scroll")
             .auto_shrink([false, true])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.add_space(8.0);
+                    ui.add_space(Self::PAGE_GUTTER);
                     let select = |app: &mut App| {
                         app.tool = Tool::Select;
                     };

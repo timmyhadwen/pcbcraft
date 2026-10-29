@@ -228,7 +228,6 @@ fn schematic_strings_are_all_catalog_keys() -> Result<(), String> {
     let listed = pcbcraft_text::scan::converted_fns();
     for (file, function) in [
         ("lib.rs", "nets_tab"),
-        ("lib.rs", "part_card"),
         ("lib.rs", "object_detail_rows"),
         ("lib.rs", "type_note"),
         ("lib.rs", "empty_state"),

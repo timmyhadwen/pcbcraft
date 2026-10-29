@@ -581,7 +581,7 @@ fn a_newcomer_renumbers_a_messy_pile_of_parts_in_one_step() -> Result<(), String
     authoring::tests::tap(&ctx, &mut app, "Preview")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "R7  →  R3")?,
+        scrolled_to_at(&ctx, &mut app, "R7  →  R3", 150.0)?,
         "the plan spells out a new number before anything changes: {}",
         app.message
     );

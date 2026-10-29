@@ -1273,7 +1273,6 @@ mod area_tests {
     fn every_key_used_by_schematic_exists() -> Result<(), String> {
         keys_exist(&[
             ("lib.rs", "nets_tab"),
-            ("lib.rs", "part_card"),
             ("lib.rs", "object_detail_rows"),
             ("lib.rs", "type_note"),
             ("lib.rs", "empty_state"),

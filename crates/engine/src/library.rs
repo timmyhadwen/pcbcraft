@@ -720,7 +720,15 @@ pub fn list_with_project(
     list_over(args, project, paths())
 }
 
-fn list_over(
+/// `library.list` over chosen installed folders instead of the user's own.
+///
+/// # Rules
+/// Same arguments and answer as [`list_with_project`].
+/// # Dependencies
+/// [`list_listings`] in this file.
+/// # Do not
+/// Change the project or any library.
+pub fn list_over(
     args: &Value,
     project: Option<&pcbcraft_doc::Project>,
     roots: Vec<PathBuf>,
