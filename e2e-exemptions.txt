@@ -241,3 +241,7 @@ tooltip | textinput:Search the whole board | has a tooltip but sits below the fo
 story | button:Libraries | no a_newcomer story, tracked in #520
 story | button:Line | no a_newcomer story, tracked in #520
 story | icon:canvas-fit | no a_newcomer story, tracked in #520
+story | button:Copper | no a_newcomer story, tracked in #520
+story | button:Graphics | no a_newcomer story, tracked in #520
+story | button:Measure | no a_newcomer story, tracked in #520
+story | button:Parts | no a_newcomer story, tracked in #520
