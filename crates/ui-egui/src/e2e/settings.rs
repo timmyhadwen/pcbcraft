@@ -109,6 +109,9 @@ fn a_newcomer_types_a_decimal_comma_in_german() -> Result<(), String> {
     type_into_the_width_box(&ctx, &mut app, "1,6", "2.4")?;
     assert_eq!(app.width, 2.4, "typing a point from habit also works");
     assert!(paints_text(&ctx, &mut app, "2,4")?, "the box shows 2,4");
+    Ok(())
+}
+
 /// Turn the wheel once over the board and report the zoom before and after.
 fn zoom_after_one_wheel_frame(reduced: bool) -> (f32, f32) {
     let mut app = fresh();
