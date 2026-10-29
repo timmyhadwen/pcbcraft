@@ -15,6 +15,7 @@ mod motion;
 mod number_entry;
 mod palette;
 mod plot_viewer;
+mod pour_panel;
 mod reference_panel;
 mod sources;
 #[cfg(test)]
@@ -391,6 +392,7 @@ fn tool_hint(tool: &Tool) -> String {
             common = common
         ),
         Tool::Hole => t!("board.tool_hint.lmb_drill_a_mounting_hole", common = common),
+        Tool::Keepout => t!("board.tool_hint.lmb_drag_a_keepout", common = common),
         Tool::NoConnect => {
             t!("board.tool_hint.lmb_click_a_pin_to", common = common)
         }
@@ -820,6 +822,7 @@ enum Tool {
     Move,
     Cutout,
     Hole,
+    Keepout,
     NoConnect,
     Fiducial,
     DrawLayer,
@@ -913,6 +916,7 @@ pub struct App {
     area_h: f64,
     area_gap: f64,
     area_limited: bool,
+    pours: pour_panel::PourState,
     area_height: f64,
     label_text: String,
     label_x: f64,
@@ -1392,6 +1396,7 @@ impl App {
             area_h: 12.0,
             area_gap: 0.2,
             area_limited: false,
+            pours: pour_panel::PourState::default(),
             area_height: 5.0,
             label_text: "Rev A".into(),
             label_x: 1.0,
@@ -5734,35 +5739,38 @@ impl App {
             .named("Area height")
             .on_hover_text(t!("rules.rules_tab.how_tall_the_stricter_area.tip"));
         });
-        ui.horizontal(|ui| {
-            ui.label(t!("rules.rules_tab.copper_stays_apart_by_at"));
-            ui.add(crate::number_entry::localized_active(
-                egui::DragValue::new(&mut self.area_gap)
-                    .range(0.05..=25.0)
-                    .speed(0.05)
-                    .suffix(format!(" {}", t!("unit.mm"))),
-                3,
-            ))
-            .on_hover_text(t!("unit.mm14.tip"))
-            .named("Copper stays apart by");
-        });
-        ui.horizontal(|ui| {
-            ui.checkbox(
-                &mut self.area_limited,
-                t!("rules.rules_tab.parts_here_stand_no_taller"),
-            )
-            .on_hover_text(t!("rules.rules_tab.parts_here_stand_no_taller.tip"));
-            if self.area_limited {
+        let keepout = self.keepout_checkbox(ui);
+        if !keepout {
+            ui.horizontal(|ui| {
+                ui.label(t!("rules.rules_tab.copper_stays_apart_by_at"));
                 ui.add(crate::number_entry::localized_active(
-                    egui::DragValue::new(&mut self.area_height)
-                        .range(0.1..=100.0)
-                        .speed(0.5)
+                    egui::DragValue::new(&mut self.area_gap)
+                        .range(0.05..=25.0)
+                        .speed(0.05)
                         .suffix(format!(" {}", t!("unit.mm"))),
                     3,
                 ))
-                .named("Tallest part allowed");
-            }
-        });
+                .on_hover_text(t!("unit.mm14.tip"))
+                .named("Copper stays apart by");
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(
+                    &mut self.area_limited,
+                    t!("rules.rules_tab.parts_here_stand_no_taller"),
+                )
+                .on_hover_text(t!("rules.rules_tab.parts_here_stand_no_taller.tip"));
+                if self.area_limited {
+                    ui.add(crate::number_entry::localized_active(
+                        egui::DragValue::new(&mut self.area_height)
+                            .range(0.1..=100.0)
+                            .speed(0.5)
+                            .suffix(format!(" {}", t!("unit.mm"))),
+                        3,
+                    ))
+                    .named("Tallest part allowed");
+                }
+            });
+        }
         if ui
             .button(t!("rules.rules_tab.add_area"))
             .on_hover_text(t!("rules.rules_tab.add_area.tip"))
@@ -5775,12 +5783,17 @@ impl App {
                 "width": self.area_w,
                 "height": self.area_h,
             });
-            if self.area_limited {
+            if keepout {
+                args["keepout"] = json!(true);
+                if self.pours.keepout_layer_only {
+                    args["layer"] = json!(self.route_layer);
+                }
+            } else if self.area_limited {
                 args["max_height"] = json!(self.area_height);
             }
             self.run("rules.area_add", args);
         }
-        let areas: Vec<(Id, String, f64, Option<f64>)> = self
+        let areas: Vec<(Id, String, f64, Option<f64>, bool)> = self
             .project
             .board
             .rule_areas
@@ -5797,6 +5810,7 @@ impl App {
                     }),
                     a.clearance,
                     a.max_height,
+                    a.keepout.is_some(),
                 )
             })
             .collect();
@@ -5806,8 +5820,11 @@ impl App {
                     .small()
                     .color(self.muted()),
             );
-            for (id, name, clearance, max_height) in areas {
+            for (id, name, clearance, max_height, is_keepout) in areas {
                 ui.horizontal(|ui| {
+                    if is_keepout {
+                        ui.label(t!("rules.rules_tab.keepout_label"));
+                    }
                     ui.label(t!(
                         "rules.rules_tab.name_gap_clearance_mm_v0",
                         name = name,
@@ -6620,6 +6637,7 @@ impl App {
                                 min_y = min_y.min(p.y);
                                 max_y = max_y.max(p.y);
                             }
+                            self.pour_panel(ui, id);
                             ui.add_space(10.0);
                             ui.label(t!("board.inspector.ground_stitching"));
                             ui.add(crate::number_entry::localized_active(
@@ -6704,6 +6722,7 @@ impl App {
             Tool::Move => t!("board.footer.move").to_owned(),
             Tool::Cutout => t!("board.footer.cut_hole").to_owned(),
             Tool::Hole => t!("board.footer.drill_hole").to_owned(),
+            Tool::Keepout => t!("board.footer.keepout").to_owned(),
             Tool::NoConnect => t!("board.footer.no_connection").to_owned(),
             Tool::Fiducial => t!("board.footer.fiducial_mark").to_owned(),
             Tool::DrawLayer => t!("board.footer.draw_on_a_layer").to_owned(),
@@ -8745,6 +8764,7 @@ mod tests {
             (Tool::Move, "drop"),
             (Tool::Cutout, "cutout"),
             (Tool::Hole, "mounting hole"),
+            (Tool::Keepout, "keepout"),
             (Tool::NoConnect, "unused"),
             (Tool::Fiducial, "assembly"),
         ];
