@@ -402,8 +402,8 @@ impl Keepout {
 ///   test of both.
 ///
 /// # Dependencies
-/// - `items` in this file builds the list; `Project::via_span_layers` in
-///   `lib.rs` decides which vias reach the layer.
+/// - `crates/doc/src/fill.rs` (`items`) builds the list; `crates/doc/src/lib.rs`
+///   (`Project::via_span_layers`) decides which vias reach the layer.
 ///
 /// # Do not
 /// - Use this to edit the board; it reports, it never changes the document.
@@ -525,7 +525,7 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
 ///   constant is the second layer, not the bottom.
 ///
 /// # Dependencies
-/// - `Footprint::board_side` and `Project::copper_layer_count` in `lib.rs`.
+/// - `crates/doc/src/lib.rs` for `Footprint::board_side` and `Project::copper_layer_count`.
 fn pad_reaches(project: &Project, footprint: &Footprint, pad: &Pad, layer: Layer) -> bool {
     let through = match pad.geometry.as_ref() {
         None => false,
