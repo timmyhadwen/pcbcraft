@@ -227,27 +227,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         app.message
     );
     authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
-    let mut row = false;
-    for _ in 0..18 {
-        if paints_text(&ctx, &mut app, &label)? {
-            row = true;
-            break;
-        }
-        frame(
-            &ctx,
-            &mut app,
-            vec![
-                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
-                egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Line,
-                    delta: egui::vec2(0.0, -4.0),
-                    phase: egui::TouchPhase::Move,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-    }
+    let row = scrolled_to(&ctx, &mut app, &label)?;
     assert!(
         row,
         "the top copper layer should show the drawn wire {label}: {}",
@@ -484,7 +464,7 @@ fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "1.50 mm slot 7.50 mm long")?,
+        scrolled_to(&ctx, &mut app, "1.50 mm slot 7.50 mm long")?,
         "a slot reads as its width and its overall length: {}",
         app.message
     );
