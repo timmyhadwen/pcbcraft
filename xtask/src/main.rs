@@ -15,6 +15,7 @@
 //! - Add a CI step that has no `cargo xtask` command behind it.
 mod doc_check;
 mod e2e;
+mod showcase;
 mod tooltips;
 
 use std::path::{Path, PathBuf};
@@ -38,6 +39,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   bless-parity regenerate the reference-project parity goldens
   strings      extract | check: list text catalog keys, or fail on a bad catalog
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
+  showcase     regenerate the sample projects in examples/ from engine commands
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
@@ -531,6 +533,7 @@ fn run() -> Result<(), String> {
         "deny" => deny()?,
         "msrv" => msrv()?,
         "strings" => strings(args.get(1).map(String::as_str))?,
+        "showcase" => showcase::run(&root()?)?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
         "bless-parity" => run_env(
             "cargo",
