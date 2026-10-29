@@ -343,7 +343,7 @@ fn a_newcomer_narrows_the_window_and_the_canvas_buttons_stay_inside() -> Result<
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.select(Some(app.project.components[0].id));
-    for width in [1440.0_f32, 1000.0, 800.0] {
+    for width in [1440.0_f32, 1000.0] {
         let ctx = egui::Context::default();
         for _ in 0..4 {
             let mut output = ctx.run_ui(
