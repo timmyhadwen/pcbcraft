@@ -2,6 +2,7 @@
 mod document_hub;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod http;
+mod prompts;
 mod resources;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
@@ -768,7 +769,7 @@ pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> O
             } else {
                 "2025-11-25"
             };
-            json!({"protocolVersion":version,"capabilities":{"tools":{"listChanged":false},"resources":{"subscribe":false,"listChanged":false}},"serverInfo":{"name":"pcbcraft","version":env!("CARGO_PKG_VERSION")},"instructions":"100% Rust EDA engine. Use inspect_design and list_commands before edits; batches are atomic. Check capability limits and checks.scope."})
+            json!({"protocolVersion":version,"capabilities":{"tools":{"listChanged":false},"resources":{"subscribe":false,"listChanged":false},"prompts":{"listChanged":false}},"serverInfo":{"name":"pcbcraft","version":env!("CARGO_PKG_VERSION")},"instructions":"100% Rust EDA engine. Use inspect_design and list_commands before edits; batches are atomic. Check capability limits and checks.scope."})
         }
         "ping" => json!({}),
         "tools/list" => tool_list(),
@@ -818,6 +819,18 @@ pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> O
                         reply["error"]["data"] = data;
                     }
                     return Some(reply);
+                }
+            }
+        }
+        "prompts/list" => prompts::list(),
+        "prompts/get" => {
+            let Some(name) = params.get("name").and_then(Value::as_str) else {
+                return Some(rpc_error(id, -32602, "missing prompt name"));
+            };
+            match prompts::get(name, params.get("arguments").unwrap_or(&Value::Null)) {
+                Ok(value) => value,
+                Err(prompts::PromptError(message)) => {
+                    return Some(rpc_error(id, -32602, &message));
                 }
             }
         }

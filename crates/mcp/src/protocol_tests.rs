@@ -210,7 +210,7 @@ fn a_message_over_one_mebibyte_is_refused_and_stdout_stays_json_only() -> Result
     Ok(())
 }
 
-// #643 (resources) is in; #644 (prompts) changes this test again when it lands.
+// Resources (#643) and prompts (#644) are advertised; logging and completion are not.
 #[test]
 fn capabilities_advertise_only_tools_and_resources_and_prompts_calls_are_method_not_found()
 -> Result<(), String> {
@@ -221,9 +221,9 @@ fn capabilities_advertise_only_tools_and_resources_and_prompts_calls_are_method_
         .ok_or("capabilities is an object")?;
     assert_eq!(
         capabilities.keys().collect::<Vec<_>>(),
-        ["resources", "tools"]
+        ["prompts", "resources", "tools"]
     );
-    for method in ["prompts/list", "logging/setLevel"] {
+    for method in ["logging/setLevel", "completion/complete"] {
         let reply = call(&hub, json!({"jsonrpc":"2.0","id":2,"method":method}))?;
         assert_eq!(reply["error"]["code"], -32601, "{method}");
     }

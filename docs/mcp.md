@@ -217,3 +217,17 @@ design; it goes through the active design like the tools do.
 
 An unknown URI is error -32002 "Resource not found" with the URI in `data`. A preview view
 other than `schematic` or `pcb` is -32602.
+
+## Prompts
+
+The server advertises `prompts` (no list-changed notice) and answers `prompts/list` and
+`prompts/get`. Prompts are templates the user picks; each only names tools from `tools/list`.
+
+| Prompt | Argument | What it asks the model to do |
+| --- | --- | --- |
+| `review_board` | `focus`: `placement`, `power` or `signal` (optional) | Call `inspect_design` and `checks`, review, report by object id, edit nothing |
+| `fix_unrouted_nets` | none | Call `checks`, route the unrouted nets with `execute` or `batch`, check again |
+| `prepare_fabrication` | `fab`: short text (optional) | Run `checks`, stop on errors, else write outputs with `gerber.export`, `bom.write`, `placement.write` |
+
+An unknown prompt name or a `focus` outside the list is error -32602. Argument text is
+inserted as plain text and clipped to 200 characters.

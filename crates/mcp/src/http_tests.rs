@@ -108,6 +108,27 @@ fn a_test_client_initializes_lists_tools_and_calls_inspect_design_over_http() ->
 }
 
 #[test]
+fn a_http_client_lists_tools_resources_and_prompts() -> Result<(), String> {
+    let address = start()?;
+    for (method, key) in [
+        ("tools/list", "tools"),
+        ("resources/list", "resources"),
+        ("prompts/list", "prompts"),
+    ] {
+        let reply = authed(address, &json!({"jsonrpc":"2.0","id":1,"method":method}))?;
+        assert_eq!(reply.status, 200, "{method}");
+        let reply: Value = serde_json::from_str(&reply.body).map_err(|e| e.to_string())?;
+        assert!(
+            reply["result"][key]
+                .as_array()
+                .is_some_and(|l| !l.is_empty()),
+            "{method}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_request_without_the_token_gets_401() -> Result<(), String> {
     let address = start()?;
     let body = json!({"jsonrpc":"2.0","id":1,"method":"ping"}).to_string();
