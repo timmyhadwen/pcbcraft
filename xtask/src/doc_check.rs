@@ -103,12 +103,10 @@ fn sections(block: &Block) -> Vec<Section> {
                 name: name.trim().to_string(),
                 items: Vec::new(),
             });
-        } else if let Some(item) = t.strip_prefix("- ") {
-            if let Some(section) = out.last_mut() {
-                section
-                    .items
-                    .push((block.start + offset, item.trim().to_string()));
-            }
+        } else if let (Some(item), Some(section)) = (t.strip_prefix("- "), out.last_mut()) {
+            section
+                .items
+                .push((block.start + offset, item.trim().to_string()));
         }
     }
     out
@@ -434,12 +432,10 @@ impl Ratchet {
             let t = line.trim().to_string();
             if t.starts_with('[') {
                 in_section = t == "[missing_docs]";
-            } else if in_section {
-                if let Some((key, _)) = t.split_once('=') {
-                    let key = key.trim().to_string();
-                    *line = format!("{key} = {}", counts.get(&key).copied().unwrap_or(0));
-                    last_entry = Some(i);
-                }
+            } else if let (true, Some((key, _))) = (in_section, t.split_once('=')) {
+                let key = key.trim().to_string();
+                *line = format!("{key} = {}", counts.get(&key).copied().unwrap_or(0));
+                last_entry = Some(i);
             }
         }
         let known: BTreeSet<String> = self.missing_docs.keys().cloned().collect();
