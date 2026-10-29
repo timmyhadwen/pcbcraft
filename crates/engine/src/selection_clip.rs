@@ -255,10 +255,10 @@ fn referenced_net_ids(p: &Project, id: Id, kind: &ObjectSlot) -> BTreeSet<Id> {
             }
         }
         ObjectSlot::DrawnWire => {
-            if let Some(w) = p.drawn_wires.iter().find(|w| w.id == id) {
-                if let Some(net) = w.net {
-                    nets.insert(net);
-                }
+            if let Some(w) = p.drawn_wires.iter().find(|w| w.id == id)
+                && let Some(net) = w.net
+            {
+                nets.insert(net);
             }
         }
         ObjectSlot::Label => {
@@ -272,12 +272,12 @@ fn referenced_net_ids(p: &Project, id: Id, kind: &ObjectSlot) -> BTreeSet<Id> {
 }
 
 pub fn copy_text(p: &Project, ids: &[Id], context: Option<&str>) -> Result<String, Error> {
-    if let Some(ctx) = context {
-        if ctx != "board" && ctx != "schematic" {
-            return Err(Error::Invalid(
-                "selection context must be board or schematic".into(),
-            ));
-        }
+    if let Some(ctx) = context
+        && ctx != "board" && ctx != "schematic"
+    {
+        return Err(Error::Invalid(
+            "selection context must be board or schematic".into(),
+        ));
     }
     if ids.is_empty() || ids.len() > MAX_SELECTION_IDS {
         return Err(Error::Invalid(format!(
@@ -298,10 +298,10 @@ pub fn copy_text(p: &Project, ids: &[Id], context: Option<&str>) -> Result<Strin
             ));
         }
         work.insert(*id);
-        if matches!(kind, ObjectSlot::Component) {
-            if let Some(fp) = p.board.footprints.iter().find(|f| f.component == *id) {
-                work.insert(fp.id);
-            }
+        if matches!(kind, ObjectSlot::Component)
+            && let Some(fp) = p.board.footprints.iter().find(|f| f.component == *id)
+        {
+            work.insert(fp.id);
         }
     }
     let mut net_ids = BTreeSet::new();
@@ -397,7 +397,7 @@ pub fn copy_text(p: &Project, ids: &[Id], context: Option<&str>) -> Result<Strin
     Ok(format!("{ENVELOPE}\n{body}"))
 }
 
-pub fn parse_envelope(text: &str) -> Result<SelectionFragment, Error> {
+fn parse_envelope(text: &str) -> Result<SelectionFragment, Error> {
     if text.len() > MAX_BYTES + ENVELOPE.len() + 1 {
         return Err(Error::Invalid("clipboard text is too large".into()));
     }
@@ -480,7 +480,7 @@ pub fn paste(
         resolve_net(p, next, &mut net_map, net)?;
     }
     let mut id_map = BTreeMap::new();
-    let mut allocate_id = |next: &mut Id| -> Result<Id, Error> { crate::allocate(next) };
+    let allocate_id = |next: &mut Id| -> Result<Id, Error> { crate::allocate(next) };
     for component in &fragment.components {
         let new_id = allocate_id(next)?;
         id_map.insert(component.id, new_id);

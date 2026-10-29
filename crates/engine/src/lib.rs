@@ -13859,10 +13859,10 @@ mod tests {
         )?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
-        let text =
-            s.execute("selection.copy_text", json!({"ids":[r1, track]}), None)?["result"]["text"]
-                .as_str()
-                .ok_or_else(missing)?;
+        let copy = s.execute("selection.copy_text", json!({"ids":[r1, track]}), None)?;
+        let text = copy["result"]["text"]
+            .as_str()
+            .ok_or_else(missing)?;
         assert!(
             text.contains("\"tracks\""),
             "copy text carries selected tracks"
