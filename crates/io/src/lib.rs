@@ -2219,7 +2219,7 @@ fn excellon_drill_file(
 /// as G85 spans along the rotated long axis. Back-copper coordinates are
 /// mirrored about x=0 as fabrication houses expect for bottom-side films.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
-    gerber_files_at(p, &gerber_job::now_utc())
+    gerber_files_at(p, PACKAGE_CREATION_DATE)
 }
 /// The same fabrication files as `gerber_files`, with the creation date the
 /// job file records given by the caller. A package pins that date so two runs
