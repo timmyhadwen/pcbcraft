@@ -260,7 +260,35 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     }
     app.closed_tabs.push(Tab::Rules);
     assert!(text_row(&ctx, &mut app, "Rules").is_none(), "a closed view leaves the row");
-    authoring::tests::tap(&ctx, &mut app, "+")?;
+    // Other panels carry a "+" too; the one in the tab row is the highest.
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let plus = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == "+" => {
+                Some(text.pos + text.galley.size() / 2.0)
+            }
+            _ => None,
+        })
+        .min_by(|a, b| a.y.total_cmp(&b.y))
+        .ok_or("the tab row has a + menu")?;
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(plus),
+                egui::Event::PointerButton {
+                    pos: plus,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Rules")?;
     assert!(matches!(app.tab, Tab::Rules), "the + menu reopens it");
