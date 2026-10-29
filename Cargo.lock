@@ -1844,6 +1844,7 @@ dependencies = [
 name = "pcbcraft-ui-egui"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "craft-ui",
  "eframe",
  "egui",
