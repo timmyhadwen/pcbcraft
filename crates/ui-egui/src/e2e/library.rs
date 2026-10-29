@@ -19,7 +19,7 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
         paints_text(&ctx, &mut app, "Keyword or part number")?,
         "the part search opens with a box that says what to type"
     );
-    tap_id(&ctx, &mut app, "button:#-pin connector")?;
+    tap_id(&ctx, &mut app, "button:#-pin connector, Built in")?;
     assert!(
         matches!(&app.tool, Tool::Place(kind) if kind.contains("connector")),
         "a connector can be armed straight from the list, got {:?}",
@@ -113,13 +113,7 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
     let ctx = egui::Context::default();
     app.change_tab(Tab::Schematic);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "    blinky red")?,
-        "a part row says what the part is and where it came from: {}",
-        app.message
-    );
-    authoring::tests::tap(&ctx, &mut app, "Place part")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The component list no longer shows a description or source line per row.
     assert!(
         paints_text(&ctx, &mut app, "Power bits (1 part)")?,
         "library parts are grouped under their set name: {}",
@@ -349,7 +343,7 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
         "the card shows a price"
     );
     assert!(
-        paints_text(&ctx, &mut app, "Sample data, not a real catalogue")?,
+        scrolled_to_at(&ctx, &mut app, "Sample data, not a real catalogue", 150.0)?,
         "the card shows the source's credit"
     );
     authoring::tests::tap(&ctx, &mut app, "SAMPLE-R-10K")?;

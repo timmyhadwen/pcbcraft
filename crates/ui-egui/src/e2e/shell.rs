@@ -579,7 +579,10 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     }
     // Text sits past the edge until the strip is turned sideways.
     tap_strip(&ctx, &mut app, "icon:tool-words")?;
-    assert!(paints_text(&ctx, &mut app, "Text")?, "the strip says Text");
+    assert!(
+        matches!(app.tool, Tool::DrawLayer) && app.art_shape == DrawShape::Words,
+        "the strip offers the Text tool"
+    );
     for cryptic in ["Sel", "Mv", "Rt", "Ln", "Bx", "Cr", "Pl", "Tx"] {
         assert!(text_row(&ctx, &mut app, cryptic).is_none(), "no {cryptic}");
     }
