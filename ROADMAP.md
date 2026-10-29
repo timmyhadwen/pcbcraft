@@ -69,7 +69,7 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [x] Dimensions, constraints, named parameters and expression-driven regeneration (#288)
 - [x] Unplated mounting holes, routed slots and rectangular edge notches (#289 subset on fork main; sketch-driven patterns remain in #287)
 - [x] PCB/enclosure coordination, shared mounting datums and STEP exchange (#290)
-- [ ] Component bodies in STEP and enclosure model import (#321)
+- [ ] Component bodies in STEP and enclosure model import (#321) (#321 subset on fork main; STEP part bodies are in, glTF, VRML and STEP model import remain open)
 - [ ] Real 3D board tab with component bodies and inspection (#291) (#291 subset on fork main; #542, #670 remain open)
 
 ## M4: Complete workflows and distribution
