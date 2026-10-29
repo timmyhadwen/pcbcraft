@@ -3,6 +3,7 @@ mod authoring;
 mod dry_run;
 mod images;
 pub mod library;
+mod outline;
 pub mod profiles;
 pub mod recents;
 pub use dry_run::{ChangeSummary, DryRun};
@@ -1490,9 +1491,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.set_outline",
-            "Trace a free-form closed board outline of 3 to 64 distinct vertices; the rectangular width and height follow the outline's bounding box, and fabrication layers cut the board to the traced shape",
+            "Trace a free-form closed board outline of 3 to 64 distinct vertices, optionally bending segments into arcs; the rectangular width and height follow the outline's bounding box, and fabrication layers cut the board to the traced shape",
             schema(
-                json!({"points":{"type":"array","items":point_schema(),"minItems":3,"maxItems":64}}),
+                json!({"points":{"type":"array","items":point_schema(),"minItems":3,"maxItems":64},"arcs":{"type":"array","maxItems":64,"description":"optional, one entry per segment (vertex i to i+1, the last closing to vertex 0): a point the arc passes through, or null for a straight segment","items":{"oneOf":[point_schema(),{"type":"null"}]}}}),
                 &["points"],
             ),
         ),
@@ -2120,6 +2121,7 @@ pub fn commands() -> Vec<CommandSpec> {
         })
         .chain(authoring::commands())
         .chain(images::commands())
+        .chain(outline::commands())
         .chain(tuning::commands())
         .collect()
 }
@@ -4175,6 +4177,8 @@ struct DrillOriginParams {
 #[serde(deny_unknown_fields)]
 struct OutlineParams {
     points: Vec<Point>,
+    #[serde(default)]
+    arcs: Vec<Option<Point>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -6158,6 +6162,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = images::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = outline::run(p, next, command, params) {
         return result;
     }
     match command {
@@ -8283,6 +8290,7 @@ fn run_command(
                 }
                 offset = pcbcraft_geom::Point::new(min_x, min_y);
                 p.board.outline = Some(shifted);
+                p.board.outline_arcs.clear();
                 p.board.width = max_x - min_x;
                 p.board.height = max_y - min_y;
                 outline_index = Some(index);
@@ -8557,6 +8565,7 @@ fn run_command(
                     return Err(Error::Invalid("the imported outline has no area".into()));
                 }
                 p.board.outline = Some(shifted);
+                p.board.outline_arcs.clear();
                 p.board.width = max_x - min_x;
                 p.board.height = max_y - min_y;
                 outline_index = Some(index);
@@ -11021,6 +11030,7 @@ fn run_command(
                 outline.insert(insert + offset, point);
             }
             p.board.outline = Some(outline);
+            p.board.outline_arcs.clear();
             Ok(json!({"vertices": p.board.outline.as_ref().map(Vec::len).unwrap_or(0)}))
         }
         "board.hole_set_size" => {
@@ -12409,18 +12419,28 @@ fn run_command(
             if pcbcraft_doc::outline_area(&a.points) < 0.01 {
                 return Err(Error::Invalid("the traced outline has no area".into()));
             }
-            let min_x = a.points.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
-            let min_y = a.points.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
-            let max_x = a.points.iter().map(|p| p.x).fold(0.0, f64::max);
-            let max_y = a.points.iter().map(|p| p.y).fold(0.0, f64::max);
-            let shifted: Vec<Point> = a
-                .points
-                .iter()
-                .map(|p| Point::new(p.x - min_x, p.y - min_y))
-                .collect();
-            let area = (pcbcraft_doc::outline_area(&shifted) * 100.0).round() / 100.0;
+            if !a.arcs.is_empty() && a.arcs.len() != a.points.len() {
+                return Err(Error::Invalid(
+                    "arcs needs one entry per segment, null for a straight one".into(),
+                ));
+            }
+            pcbcraft_doc::validate_outline_arcs(&a.points, &a.arcs).map_err(Error::Invalid)?;
+            let (lo, hi) = pcbcraft_doc::outline_extent(&a.points, &a.arcs)
+                .ok_or_else(|| Error::Invalid("an outline needs 3 to 64 vertices".into()))?;
+            let (min_x, min_y) = (lo.x, lo.y);
+            let (max_x, max_y) = (hi.x, hi.y);
+            let shift = |q: &Point| Point::new(q.x - min_x, q.y - min_y);
+            let shifted: Vec<Point> = a.points.iter().map(shift).collect();
+            let arcs: Vec<Option<Point>> = a.arcs.iter().map(|m| m.as_ref().map(shift)).collect();
+            let ring = pcbcraft_doc::flatten_outline(&shifted, &arcs, 0.01);
+            let area = (pcbcraft_doc::outline_area(&ring) * 100.0).round() / 100.0;
             let vertices = shifted.len();
             p.board.outline = Some(shifted);
+            p.board.outline_arcs = if arcs.iter().all(Option::is_none) {
+                Vec::new()
+            } else {
+                arcs
+            };
             p.board.width = max_x - min_x;
             p.board.height = max_y - min_y;
             Ok(json!({
@@ -12439,6 +12459,7 @@ fn run_command(
             if p.board.outline.take().is_none() {
                 return Err(missing());
             }
+            p.board.outline_arcs.clear();
             Ok(json!({"width": p.board.width, "height": p.board.height}))
         }
         "board.set_layer_record" => {
