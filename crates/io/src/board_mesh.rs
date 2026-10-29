@@ -1791,6 +1791,7 @@ mod tests {
             position: Point::new(20.0, 15.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads,
         }
     }

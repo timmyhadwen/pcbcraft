@@ -14038,8 +14038,13 @@ mod tests {
             "a front route between the pads leaves no airwires"
         );
         s.execute("footprint.flip", json!({"id":fp}), None)?;
-        let flipped = s.project.footprint(fp).ok_or_else(missing)?;
-        assert_eq!(flipped.board_side(), pcbcraft_doc::Layer::Back);
+        assert_eq!(
+            s.project
+                .footprint(fp)
+                .ok_or_else(missing)?
+                .board_side(),
+            pcbcraft_doc::Layer::Back
+        );
         assert!(
             !pcbcraft_rules::airwires(&s.project).is_empty(),
             "bottom pads no longer meet the front copper"
@@ -14072,7 +14077,12 @@ mod tests {
             "the flipped part exports on the bottom side"
         );
         let gerber = pcbcraft_io::gerber_files(&s.project).map_err(Error::Invalid)?;
-        let centre = flipped.pad_position("1").ok_or_else(missing)?;
+        let centre = s
+            .project
+            .footprint(fp)
+            .ok_or_else(missing)?
+            .pad_position("1")
+            .ok_or_else(missing)?;
         let mirrored_x = -centre.x;
         assert!(
             gerber["pcb-B.Cu.gbr"].contains(&format!("{mirrored_x:.6}")),
