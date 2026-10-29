@@ -221,49 +221,55 @@ mod tests {
     use pcbcraft_io::load;
 
     #[test]
-    fn new_writes_an_empty_native_project_file() {
-        let dir = tempfile::tempdir().map_err(|e| e.to_string()).unwrap();
+    fn new_writes_an_empty_native_project_file() -> Result<(), String> {
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
         let path = dir.path().join("blank.pcbcraft");
-        write_new_project(&path, None).unwrap();
-        let project = load(&path).unwrap();
+        write_new_project(&path, None)?;
+        let project = load(&path)?;
         assert_eq!(project.name, "Untitled circuit");
         assert!(project.components.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn new_applies_the_optional_title() {
-        let dir = tempfile::tempdir().unwrap();
+    fn new_applies_the_optional_title() -> Result<(), String> {
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
         let path = dir.path().join("named.pcbcraft");
-        write_new_project(&path, Some("Bench power")).unwrap();
-        let project = load(&path).unwrap();
+        write_new_project(&path, Some("Bench power"))?;
+        let project = load(&path)?;
         assert_eq!(project.name, "Bench power");
+        Ok(())
     }
 
     #[test]
-    fn init_scaffolds_a_directory_with_design_and_build_json() {
-        let root = tempfile::tempdir().unwrap();
+    fn init_scaffolds_a_directory_with_design_and_build_json() -> Result<(), String> {
+        let root = tempfile::tempdir().map_err(|e| e.to_string())?;
         let folder = root.path().join("my-board");
-        let design = init_project_directory(&folder, Some("My board"), false).unwrap();
+        let design = init_project_directory(&folder, Some("My board"), false)?;
         assert_eq!(design, folder.join("design.pcbcraft"));
-        let loaded = load(&design).unwrap();
+        let loaded = load(&design)?;
         assert_eq!(loaded.name, "My board");
-        let build_text = pcbcraft_io::read_text(&folder.join("build.json")).unwrap();
-        let build: Value = serde_json::from_str(&build_text).unwrap();
+        let build_text = pcbcraft_io::read_text(&folder.join("build.json"))?;
+        let build: Value = serde_json::from_str(&build_text).map_err(|e| e.to_string())?;
         let commands = build
             .get("commands")
             .and_then(Value::as_array)
             .map(|v| v.len())
             .unwrap_or(0);
         assert_eq!(commands, 1);
+        Ok(())
     }
 
     #[test]
-    fn init_refuses_a_nonempty_directory_without_force() {
-        let root = tempfile::tempdir().unwrap();
+    fn init_refuses_a_nonempty_directory_without_force() -> Result<(), String> {
+        let root = tempfile::tempdir().map_err(|e| e.to_string())?;
         let folder = root.path().join("busy");
-        std::fs::create_dir_all(&folder).unwrap();
-        std::fs::write(folder.join("notes.txt"), b"keep").unwrap();
-        let err = init_project_directory(&folder, None, false).unwrap_err();
+        std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+        std::fs::write(folder.join("notes.txt"), b"keep").map_err(|e| e.to_string())?;
+        let err = init_project_directory(&folder, None, false)
+            .err()
+            .ok_or("expected init to fail on a non-empty directory")?;
         assert!(err.contains("not empty"));
+        Ok(())
     }
 }
