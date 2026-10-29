@@ -3,6 +3,10 @@ mod authoring;
 mod canvas;
 mod library;
 mod via_span;
+mod library_quality;
+mod plot_viewer;
+mod sources;
+mod via_covering;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
@@ -435,6 +439,7 @@ enum Tab {
     Checks,
     Settings,
     Libraries,
+    PlotFiles,
 }
 /// What the board canvas draws at each pad centre.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -663,12 +668,17 @@ pub struct App {
     net_draft: Option<(pcbcraft_doc::Id, String)>,
     palette: bool,
     part_search: String,
+    part_sources: sources::PartSources,
+    pending_source: Option<pcbcraft_library::sources::PartResult>,
     hidden_sets: Vec<String>,
     svg_path: String,
     part_search_focus: bool,
     needs_fit: bool,
+    /// Left edge of the central page, so tests can check text keeps its margin.
+    page_left: f32,
     schematic: Camera,
     pcb: Camera,
+    plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
     drag_offset: Point,
     cursor: Option<Point>,
@@ -793,6 +803,10 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
         rows.extend(via_span::via_span_rows(project, v));
+        rows.push((
+            "Protection".into(),
+            via_covering::covering_name(v.effective_covering(&project.board)).into(),
+        ));
         clearance_rows(v.net, &mut rows);
         rows.push((
             "Position".into(),
@@ -912,6 +926,7 @@ impl App {
             tab: match tab {
                 Some("pcb") => Tab::Pcb,
                 Some("checks") => Tab::Checks,
+                Some("plots") => Tab::PlotFiles,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
                     Tab::Libraries
                 }
@@ -999,14 +1014,18 @@ impl App {
             net_draft: None,
             palette: false,
             part_search: String::new(),
+            part_sources: sources::PartSources::default(),
+            pending_source: None,
             hidden_sets: Vec::new(),
             svg_path: String::new(),
             part_search_focus: false,
             needs_fit: true,
+            page_left: 0.0,
             schematic: Camera {
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
+            plot_viewer: plot_viewer::State::default(),
             pcb: Camera {
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
@@ -1121,6 +1140,11 @@ impl App {
                         self.selected_unit = 1;
                     }
                     self.selected = Some(id);
+                    if command == "component.add" {
+                        self.refresh();
+                        self.attach_pending_source(id);
+                        return;
+                    }
                 }
             }
             Err(e) => self.message = e,
@@ -1248,8 +1272,13 @@ impl App {
         {
             self.selected = Some(f.component);
         }
+        // Rules, Checks and Settings are pages, not canvases: going to one or
+        // coming back from one keeps the user's zoom and pan.
+        let page = |t: Tab| matches!(t, Tab::Rules | Tab::Checks | Tab::Settings);
+        if !page(tab) && !page(self.tab) {
+            self.needs_fit = true;
+        }
         self.tab = tab;
-        self.needs_fit = true;
         self.tool = Tool::Select;
         self.drag = None;
         self.load_properties();
@@ -1515,6 +1544,7 @@ impl App {
                     "The coating on exposed copper; it goes on the factory notes and reports.",
                 );
         });
+        self.via_covering_default_controls(ui);
         ui.horizontal(|ui| {
             ui.label("Thickness");
             ui.add(
@@ -2713,6 +2743,7 @@ impl App {
                 (Tab::Board3d, "3D View"),
                 (Tab::Rules, "Rules"),
                 (Tab::Checks, "Checks"),
+                (Tab::PlotFiles, "Plot files"),
                 (Tab::Settings, "Settings"),
             ] {
                 let selected = self.tab == tab;
@@ -3242,6 +3273,7 @@ impl App {
                                     self.part_card(ui, &definition);
                                 }
                             }
+                            self.source_section(ui);
                         });
                 }
                 ui.add_space(12.0);
@@ -5624,6 +5656,7 @@ impl App {
                             });
                         }
                         self.via_span_controls(ui, id);
+                        self.via_covering_controls(ui, id);
                         if let Some(track) =
                             self.project.board.tracks.iter().find(|t| t.id == id)
                         {
@@ -6257,6 +6290,7 @@ impl App {
             }
             ui.add_space(20.0);
         }
+        self.library_checks_section(ui);
         let silenced: Vec<(String, usize)> = self
             .project
             .rule_exclusions
@@ -6716,6 +6750,7 @@ impl App {
                 .show(ui, |ui| {
                     self.workbench_tabs(ui);
                     self.tool_strip(ui);
+                    self.page_left = ui.max_rect().left();
                     match self.tab {
                         Tab::Schematic | Tab::Pcb => self.canvas(ui),
                         Tab::Files => {
@@ -6739,12 +6774,29 @@ impl App {
                         }
                         Tab::Checks => {
                             egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.checks_view(ui))
-                                .inner
+                                .show(ui, |ui| Self::margined(ui, |ui| self.checks_view(ui)));
                         }
                         Tab::Settings => {
                             egui::ScrollArea::vertical()
                                 .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
+                        }
+                        Tab::PlotFiles => {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                Self::margined(ui, |ui| {
+                                    let theme = plot_viewer::Theme {
+                                        surface: self.surface(),
+                                        muted: self.muted(),
+                                        accent: self.accent(),
+                                    };
+                                    plot_viewer::ui(
+                                        &mut self.plot_viewer,
+                                        ui,
+                                        theme,
+                                        &mut self.message,
+                                        self.make_dir.trim(),
+                                    );
+                                });
+                            });
                         }
                     }
                 });

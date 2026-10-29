@@ -52,6 +52,7 @@ fn gerber_minimal_reader_counts_flashes_per_aperture_on_sample_board() -> Result
         drill: 0.3,
         from_layer: None,
         to_layer: None,
+        covering: None,
     });
     project.validate()?;
     let files = pcbcraft_io::gerber_files(&project)?;
