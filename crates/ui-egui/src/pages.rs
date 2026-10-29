@@ -187,10 +187,4 @@ impl App {
             self.active_page = 0;
         }
     }
-
-    /// Test helper: show a page without clicking.
-    #[cfg(test)]
-    pub(crate) fn set_schematic_page(&mut self, page: Id) {
-        self.active_page = page;
-    }
 }
