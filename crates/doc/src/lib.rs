@@ -760,6 +760,15 @@ pub struct Footprint {
     pub pads: Vec<Pad>,
 }
 /// Swap `F.` and `B.` layer name prefixes; other names are unchanged.
+pub fn mirrored_pad_for_bottom(source: &pcbcraft_library::FootprintPad) -> pcbcraft_library::FootprintPad {
+    let mut pad = source.clone();
+    pad.position = Point::new(-pad.position.x, pad.position.y);
+    pad.rotation = -pad.rotation;
+    if let Some(drill) = &mut pad.drill {
+        drill.offset = Point::new(-drill.offset.x, drill.offset.y);
+    }
+    pad
+}
 pub fn swap_board_side_layer(name: &str) -> String {
     if let Some(rest) = name.strip_prefix("F.") {
         return format!("B.{rest}");
@@ -2579,12 +2588,11 @@ impl Project {
                         .component(f.component)
                         .and_then(|c| c.library_footprint.as_ref())
                         .ok_or("pad geometry requires an embedded footprint definition")?;
-                    if !definition
-                        .definition
-                        .pads
-                        .iter()
-                        .any(|source| source == geometry)
-                    {
+                    if !definition.definition.pads.iter().any(|source| {
+                        source == geometry
+                            || (f.board_side() == Layer::Back
+                                && geometry == &mirrored_pad_for_bottom(source))
+                    }) {
                         return Err("pad geometry is not present in embedded definition".into());
                     }
                 }

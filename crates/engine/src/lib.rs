@@ -12117,13 +12117,31 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     ));
                 }
             }
+            let component = p.board.footprints[index].component;
+            let sources = p
+                .component(component)
+                .and_then(|c| c.library_footprint.as_ref())
+                .map(|l| l.definition.pads.clone());
             let footprint = &mut p.board.footprints[index];
             footprint.side = if footprint.board_side() == Layer::Front {
                 Some(Layer::Back)
             } else {
                 None
             };
+            let on_bottom = footprint.board_side() == Layer::Back;
             for pad in &mut footprint.pads {
+                if let Some(sources) = &sources {
+                    if let Some(source) = sources.iter().find(|s| s.number == pad.number) {
+                        let geometry = if on_bottom {
+                            pcbcraft_doc::mirrored_pad_for_bottom(source)
+                        } else {
+                            source.clone()
+                        };
+                        pad.offset = geometry.position;
+                        pad.geometry = Some(geometry);
+                        continue;
+                    }
+                }
                 pad.offset = Point::new(-pad.offset.x, pad.offset.y);
             }
             Ok(json!({"id": a.id, "side": footprint.board_side().name()}))
