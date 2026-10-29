@@ -186,6 +186,16 @@ pub(crate) struct TreeView {
     cache: Option<(u64, Vec<Row>)>,
 }
 
+impl TreeView {
+    /// Put the keyboard cursor and focus on the row with this key, as if it
+    /// had been reached with the arrow keys.
+    pub(crate) fn focus_row(&mut self, key: &str) {
+        self.cursor = Some(key.to_owned());
+        self.focus_pending = Some(key.to_owned());
+        self.scroll_to = Some(key.to_owned());
+    }
+}
+
 impl Default for TreeView {
     fn default() -> Self {
         let expanded = [
@@ -362,15 +372,13 @@ fn copper_children(env: &Env, path: &str, side: Layer) -> Vec<Row> {
             Some(Visibility::Canvas("Copper zones")),
         ),
     ];
-    if !board.vias.is_empty() {
-        out.push(group_row(
-            path,
-            "vias",
-            t!("tree.group.vias"),
-            board.vias.len(),
-            Some(Visibility::Canvas("Vias")),
-        ));
-    }
+    out.push(group_row(
+        path,
+        "vias",
+        t!("tree.group.vias"),
+        board.vias.len(),
+        Some(Visibility::Canvas("Vias")),
+    ));
     out
 }
 
@@ -1919,6 +1927,9 @@ fn keyboard(ui: &mut Ui, env: &Env, view: &mut TreeView, all: &[Row], actions: &
 /// The controls of the layer row that contains row `index` (itself or an
 /// ancestor), so Space and F work from any row of a layer.
 fn layer_of(all: &[Row], index: usize) -> Option<LayerControls> {
+    if let Some(own) = &all[index].controls {
+        return Some(own.clone());
+    }
     all[..=index]
         .iter()
         .rev()
@@ -2026,7 +2037,7 @@ impl crate::App {
             return;
         };
         let last = key.rsplit('/').next().unwrap_or("");
-        if key.ends_with("/root") && self.tab == crate::Tab::Pcb {
+        if key.ends_with("/root") {
             ui.heading(t!("tree.board_settings"));
             ui.label(egui::RichText::new(t!("tree.board_settings.help")).small().color(self.muted()));
             ui.add_space(8.0);

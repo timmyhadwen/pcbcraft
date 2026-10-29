@@ -2,23 +2,6 @@
 use super::super::*;
 use super::support::*;
 
-fn key(ctx: &egui::Context, app: &mut App, key: egui::Key) {
-    for pressed in [true, false] {
-        frame(
-            ctx,
-            app,
-            vec![egui::Event::Key {
-                key,
-                physical_key: Some(key),
-                pressed,
-                repeat: false,
-                modifiers: egui::Modifiers::NONE,
-            }],
-            egui::Modifiers::NONE,
-        );
-    }
-}
-
 fn pcb_app() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
@@ -48,8 +31,12 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     let net = app.project.nets[0].clone();
     app.tree.query = net.name.clone();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, &net.name)?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    press_on(
+        &ctx,
+        &mut app,
+        &format!("sec:nets/net:{}", net.id),
+        egui::Key::Enter,
+    );
     assert_eq!(
         app.highlight_net,
         Some(net.id),
@@ -59,8 +46,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     app.tree.query.clear();
     // Focus a layer: the others dim.
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Top copper")?;
-    key(&ctx, &mut app, egui::Key::F);
+    press_on(&ctx, &mut app, "sec:copper/layer:copper:front", egui::Key::F);
     assert_eq!(
         app.focus_layer.as_deref(),
         Some("copper:front"),
@@ -75,7 +61,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     key(&ctx, &mut app, egui::Key::F);
     assert_eq!(app.focus_layer, None, "F again brings everything back");
     // The board outline row opens the board settings in Properties.
-    authoring::tests::tap(&ctx, &mut app, "Board outline")?;
+    press_on(&ctx, &mut app, "sec:board/root", egui::Key::Enter);
     assert!(
         paints_text(&ctx, &mut app, "Board settings")?,
         "the board row opens board settings: {}",
@@ -87,8 +73,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
 #[test]
 fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
-    authoring::tests::tap(&ctx, &mut app, "Top copper")?;
-    key(&ctx, &mut app, egui::Key::Space);
+    press_on(&ctx, &mut app, "sec:copper/layer:copper:front", egui::Key::Space);
     assert!(
         app.preferences.hidden_layers.iter().any(|h| h == "Top copper"),
         "Space hides the layer: {}",

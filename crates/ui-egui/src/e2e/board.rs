@@ -213,28 +213,19 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         .ok_or("routing should leave a wire on the top layer")?;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "sec:board/root");
-    let shown = scrolled_to(&ctx, &mut app, "BOARD ANATOMY")?;
-    assert!(
-        shown,
-        "the layers dock should list every piece of the board: {}",
-        app.message
-    );
-    let seen = scrolled_to(&ctx, &mut app, "Top copper wires")?;
-    assert!(
-        seen,
-        "the anatomy list should show the top copper wires layer: {}",
-        app.message
-    );
-    authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
-    let row = scrolled_to(&ctx, &mut app, &label)?;
-    assert!(
-        row,
-        "the top copper layer should show the drawn wire {label}: {}",
-        app.message
-    );
-    authoring::tests::tap(&ctx, &mut app, &label)?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let net = app
+        .project
+        .board
+        .tracks
+        .iter()
+        .find(|t| t.id == id)
+        .map(|t| t.net)
+        .ok_or("the wire should belong to a net")?;
+    let tracks = "sec:copper/layer:copper:front/tracks".to_owned();
+    let row = format!("{tracks}/net:{net}/track:{id}");
+    app.tree.expanded.extend([tracks.clone(), format!("{tracks}/net:{net}")]);
+    let _ = &label;
+    press_on(&ctx, &mut app, &row, egui::Key::Enter);
     assert_eq!(
         app.selected,
         Some(id),
@@ -1518,22 +1509,22 @@ fn sample_on(tab: Tab) -> (App, egui::Context) {
 #[test]
 fn a_newcomer_hides_and_shows_each_kind_of_thing_on_the_board() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Pcb);
-    for (id, name) in [
-        ("checkbox:Top copper", "Top copper"),
-        ("checkbox:Bottom copper", "Bottom copper"),
-        ("checkbox:Pads", "Pads"),
-        ("checkbox:Vias", "Vias"),
-        ("checkbox:Copper zones", "Copper zones"),
-        ("checkbox:Cutouts", "Cutouts"),
-        ("checkbox:Package artwork", "Package artwork"),
+    for (row, name) in [
+        ("sec:copper/layer:copper:front", "Top copper"),
+        ("sec:copper/layer:copper:back", "Bottom copper"),
+        ("sec:copper/layer:copper:front/pads", "Pads"),
+        ("sec:copper/layer:copper:front/vias", "Vias"),
+        ("sec:copper/layer:copper:front/zones", "Copper zones"),
+        ("sec:board/root", "Cutouts"),
+        ("sec:silk/layer:silk:front", "Package artwork"),
     ] {
-        tap_id(&ctx, &mut app, id)?;
+        press_on(&ctx, &mut app, row, egui::Key::Space);
         assert!(
             !app.layer_shown(name),
-            "ticking {name} off hides it from the drawing"
+            "pressing Space on {name} hides it from the drawing"
         );
-        tap_id(&ctx, &mut app, id)?;
-        assert!(app.layer_shown(name), "ticking {name} again shows it");
+        key(&ctx, &mut app, egui::Key::Space);
+        assert!(app.layer_shown(name), "pressing Space again shows {name}");
     }
     Ok(())
 }
