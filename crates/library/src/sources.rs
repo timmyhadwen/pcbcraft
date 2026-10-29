@@ -201,7 +201,9 @@ impl FixtureSource {
     /// Read a recorded answer set. Bounded: at most 1000 parts.
     pub fn from_json(text: &str) -> Result<Self, SourceError> {
         if text.len() > 4_000_000 {
-            return Err(SourceError::Invalid("the recorded file is too large".into()));
+            return Err(SourceError::Invalid(
+                "the recorded file is too large".into(),
+            ));
         }
         let file: FixtureFile = serde_json::from_str(text)
             .map_err(|e| SourceError::Invalid(format!("the recorded file is not valid: {e}")))?;

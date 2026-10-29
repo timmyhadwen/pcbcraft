@@ -21419,7 +21419,13 @@ mod tests {
             .is_err()
         );
         s.undo()?;
-        assert!(s.project.component(r1).ok_or_else(missing)?.fields.is_empty());
+        assert!(
+            s.project
+                .component(r1)
+                .ok_or_else(missing)?
+                .fields
+                .is_empty()
+        );
         Ok(())
     }
     #[test]

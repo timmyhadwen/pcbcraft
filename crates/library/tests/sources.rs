@@ -1,4 +1,6 @@
-use pcbcraft_library::sources::{FixtureSource, PartResult, PartSource, ResponseCache, SourceError};
+use pcbcraft_library::sources::{
+    FixtureSource, PartResult, PartSource, ResponseCache, SourceError,
+};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const SAMPLE: &str = include_str!("fixtures/sources/sample.json");
@@ -14,7 +16,10 @@ fn fixture_search_returns_stock_and_price() -> Result<(), SourceError> {
     let part = &found[0];
     assert_eq!(part.mpn, "SAMPLE-R-10K");
     assert!(part.stock > 0, "the card can say the part is in stock");
-    assert!(!part.price_breaks.is_empty(), "the card shows a price break");
+    assert!(
+        !part.price_breaks.is_empty(),
+        "the card shows a price break"
+    );
     Ok(())
 }
 
@@ -62,7 +67,11 @@ fn cache_expires_after_its_window() -> Result<(), SourceError> {
     cache.search(&s, "ABC ", 1099)?;
     assert_eq!(s.0.load(Ordering::SeqCst), 1, "a fresh answer is reused");
     cache.search(&s, "abc", 1100)?;
-    assert_eq!(s.0.load(Ordering::SeqCst), 2, "an old answer is asked again");
+    assert_eq!(
+        s.0.load(Ordering::SeqCst),
+        2,
+        "an old answer is asked again"
+    );
     cache.purge();
     assert!(cache.is_empty());
     Ok(())

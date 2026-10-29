@@ -66,9 +66,11 @@ impl App {
         {
             if self.part_sources.source.is_none() {
                 ui.label(
-                    egui::RichText::new("Part sources are off. Only parts on this computer are listed.")
-                        .small()
-                        .color(self.muted()),
+                    egui::RichText::new(
+                        "Part sources are off. Only parts on this computer are listed.",
+                    )
+                    .small()
+                    .color(self.muted()),
                 );
                 if ui
                     .button("Try sample source")
@@ -129,7 +131,9 @@ impl App {
             }
             if ui
                 .small_button("Forget saved answers")
-                .on_hover_text("Clear the answers kept for a day so the next search asks the source again.")
+                .on_hover_text(
+                    "Clear the answers kept for a day so the next search asks the source again.",
+                )
                 .clicked()
             {
                 self.part_sources.cache.purge();
@@ -219,9 +223,9 @@ mod tests {
                 |ui| app.show(ui),
             );
             out.textures_delta.clear();
-            if out.shapes.iter().any(|s| {
-                matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains(needle))
-            }) {
+            if out.shapes.iter().any(
+                |s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains(needle)),
+            ) {
                 return true;
             }
         }
@@ -256,8 +260,14 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Try sample source")?;
         app.part_search = "SAMPLE-R-10K".into();
         frame(&ctx, &mut app, vec![]);
-        assert!(painted(&ctx, &mut app, "12500 in stock"), "the card shows stock");
-        assert!(painted(&ctx, &mut app, "0.10 USD each"), "the card shows a price");
+        assert!(
+            painted(&ctx, &mut app, "12500 in stock"),
+            "the card shows stock"
+        );
+        assert!(
+            painted(&ctx, &mut app, "0.10 USD each"),
+            "the card shows a price"
+        );
         assert!(
             painted(&ctx, &mut app, "Sample data, not a real catalogue"),
             "the card shows the source's credit"
