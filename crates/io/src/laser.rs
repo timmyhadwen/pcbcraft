@@ -365,7 +365,7 @@ fn collect_groups(
     side: Layer,
     profile: &LaserGalvoProfile,
     options: &LaserJobExportOptions,
-    frame: &JobFrame,
+    _frame: &JobFrame,
 ) -> Result<Vec<OperationGroup>, String> {
     let mut groups = Vec::new();
     for op_id in LASER_OPERATION_IDS {
@@ -749,10 +749,16 @@ pub mod tests {
         project.name = "laser-fixture".into();
         project.board.width = 20.0;
         project.board.height = 15.0;
+        const FP_A: Id = 101;
+        const FP_B: Id = 102;
+        const COMP_A: Id = 201;
+        const COMP_B: Id = 202;
+        const TRACK: Id = 301;
+        const NET: Id = 401;
         project.board.footprints = vec![
             Footprint {
-                id: 1,
-                component: 1,
+                id: FP_A,
+                component: COMP_A,
                 position: Point::new(5.0, 7.5),
                 rotation: 0.0,
                 locked: None,
@@ -760,14 +766,14 @@ pub mod tests {
                     number: "1".into(),
                     offset: Point::default(),
                     diameter: 1.6,
-                    net: Some(2),
+                    net: Some(NET),
                     castellated: None,
                     geometry: Some(pad_geom.clone()),
                 }],
             },
             Footprint {
-                id: 2,
-                component: 2,
+                id: FP_B,
+                component: COMP_B,
                 position: Point::new(15.0, 7.5),
                 rotation: 0.0,
                 locked: None,
@@ -775,24 +781,27 @@ pub mod tests {
                     number: "1".into(),
                     offset: Point::default(),
                     diameter: 1.6,
-                    net: Some(2),
+                    net: Some(NET),
                     castellated: None,
                     geometry: Some(pad_geom),
                 }],
             },
         ];
         project.board.tracks = vec![Track {
-            id: 3,
-            net: 2,
+            id: TRACK,
+            net: NET,
             start: Point::new(5.0, 7.5),
             end: Point::new(15.0, 7.5),
             width: 0.2,
             layer: Layer::Front,
             arc: None,
         }];
-        project.components = vec![sample_component(1, "P1"), sample_component(2, "P2")];
+        project.components = vec![
+            sample_component(COMP_A, "P1"),
+            sample_component(COMP_B, "P2"),
+        ];
         project.nets = vec![Net {
-            id: 2,
+            id: NET,
             name: "SIG".into(),
             target_length: None,
             length_tolerance: None,
