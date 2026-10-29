@@ -1372,6 +1372,243 @@ pub struct LibraryLink {
     /// Folder that holds the library files for this nickname.
     pub path: String,
 }
+/// How copies on a manufacturing panel are separated: routed tabs or V-score cuts.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PanelSeparation {
+    Tab,
+    VScore,
+}
+fn default_panel_rail() -> f64 {
+    5.0
+}
+fn default_tab_channel() -> f64 {
+    1.6
+}
+fn default_panel_separation() -> PanelSeparation {
+    PanelSeparation::Tab
+}
+/// Grid and separation settings for manufacturing panel output.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PanelSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    pub columns: usize,
+    pub rows: usize,
+    pub pitch_x: f64,
+    pub pitch_y: f64,
+    #[serde(default = "default_panel_rail")]
+    pub rail: f64,
+    #[serde(default = "default_panel_separation")]
+    pub separation: PanelSeparation,
+    /// Routed gap width between copies when [`PanelSeparation::Tab`] is chosen.
+    #[serde(default = "default_tab_channel")]
+    pub tab_channel: f64,
+}
+impl PanelSettings {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.columns < 1
+            || self.rows < 1
+            || self.columns > 32
+            || self.rows > 32
+            || self.columns * self.rows > 1024
+        {
+            return Err("panels run 1 to 32 copies per side and at most 1024 in total".into());
+        }
+        if !self.pitch_x.is_finite()
+            || !self.pitch_y.is_finite()
+            || self.pitch_x < 0.0
+            || self.pitch_y < 0.0
+        {
+            return Err("gaps between copies cannot be negative".into());
+        }
+        if !(0.0..=25.0).contains(&self.rail) {
+            return Err("rails must be 0 to 25 millimetres".into());
+        }
+        if !self.tab_channel.is_finite() || self.tab_channel < 0.5 || self.tab_channel > 10.0 {
+            return Err("tab channels are 0.5 to 10 millimetres".into());
+        }
+        Ok(())
+    }
+}
+/// One board copy on a panel, in panel millimetres from the lower-left corner.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelCopy {
+    pub row: usize,
+    pub column: usize,
+    pub x: f64,
+    pub y: f64,
+    pub center_x: f64,
+    pub center_y: f64,
+}
+/// Panel size and copy placement derived from the board and panel settings.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelLayout {
+    pub columns: usize,
+    pub rows: usize,
+    pub board_width: f64,
+    pub board_height: f64,
+    pub pitch_x: f64,
+    pub pitch_y: f64,
+    pub rail: f64,
+    pub width: f64,
+    pub height: f64,
+    pub copies: Vec<PanelCopy>,
+}
+/// Board width and height used for panel stepping, from the outline box or rectangle.
+pub fn panel_board_size(board: &Board) -> Result<(f64, f64), String> {
+    let (board_w, board_h) = match board.outline.as_deref() {
+        Some(outline) if outline.len() >= 3 => {
+            let min_x = outline.iter().map(|v| v.x).fold(f64::INFINITY, f64::min);
+            let max_x = outline
+                .iter()
+                .map(|v| v.x)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let min_y = outline.iter().map(|v| v.y).fold(f64::INFINITY, f64::min);
+            let max_y = outline
+                .iter()
+                .map(|v| v.y)
+                .fold(f64::NEG_INFINITY, f64::max);
+            (max_x - min_x, max_y - min_y)
+        }
+        _ => (board.width, board.height),
+    };
+    if !board_w.is_finite() || !board_h.is_finite() || board_w <= 0.0 || board_h <= 0.0 {
+        return Err("the board has no size to panelise".into());
+    }
+    Ok((board_w, board_h))
+}
+pub fn panel_layout_with_settings(
+    board: &Board,
+    settings: &PanelSettings,
+) -> Result<PanelLayout, String> {
+    settings.validate()?;
+    let (board_w, board_h) = panel_board_size(board)?;
+    let panel_w = settings.columns as f64 * board_w
+        + (settings.columns - 1) as f64 * settings.pitch_x
+        + 2.0 * settings.rail;
+    let panel_h = settings.rows as f64 * board_h
+        + (settings.rows - 1) as f64 * settings.pitch_y
+        + 2.0 * settings.rail;
+    let copies = (0..settings.rows)
+        .flat_map(|row| (0..settings.columns).map(move |column| (row, column)))
+        .map(|(row, column)| {
+            let x = settings.rail + column as f64 * (board_w + settings.pitch_x);
+            let y = settings.rail + row as f64 * (board_h + settings.pitch_y);
+            PanelCopy {
+                row,
+                column,
+                x,
+                y,
+                center_x: x + board_w / 2.0,
+                center_y: y + board_h / 2.0,
+            }
+        })
+        .collect();
+    Ok(PanelLayout {
+        columns: settings.columns,
+        rows: settings.rows,
+        board_width: board_w,
+        board_height: board_h,
+        pitch_x: settings.pitch_x,
+        pitch_y: settings.pitch_y,
+        rail: settings.rail,
+        width: panel_w,
+        height: panel_h,
+        copies,
+    })
+}
+/// Shared panel layout for the saved panel settings on a project.
+pub fn panel_layout(project: &Project) -> Result<PanelLayout, String> {
+    let settings = project
+        .panel
+        .as_ref()
+        .ok_or_else(|| "panel settings are not stored on this design".to_string())?;
+    panel_layout_with_settings(&project.board, settings)
+}
+/// V-score cut lines across the panel when separation is V-score; empty for tab routing.
+pub fn panel_score_lines(project: &Project) -> Result<Vec<(Point, Point)>, String> {
+    let settings = project
+        .panel
+        .as_ref()
+        .filter(|p| p.enabled)
+        .ok_or_else(|| "panel checks need enabled panel settings".to_string())?;
+    if settings.separation != PanelSeparation::VScore {
+        return Ok(Vec::new());
+    }
+    let layout = panel_layout(project)?;
+    let mut lines = Vec::new();
+    for column in 0..layout.columns.saturating_sub(1) {
+        let x = layout.rail
+            + (column + 1) as f64 * layout.board_width
+            + column as f64 * layout.pitch_x
+            + layout.pitch_x / 2.0;
+        lines.push((Point::new(x, 0.0), Point::new(x, layout.height)));
+    }
+    for row in 0..layout.rows.saturating_sub(1) {
+        let y = layout.rail
+            + (row + 1) as f64 * layout.board_height
+            + row as f64 * layout.pitch_y
+            + layout.pitch_y / 2.0;
+        lines.push((Point::new(0.0, y), Point::new(layout.width, y)));
+    }
+    Ok(lines)
+}
+/// Tab-routing cut paths between copies when tab separation is active.
+pub fn panel_tab_segments(project: &Project) -> Result<Vec<(Point, Point)>, String> {
+    let settings = project
+        .panel
+        .as_ref()
+        .filter(|p| p.enabled)
+        .ok_or_else(|| "panel checks need enabled panel settings".to_string())?;
+    if settings.separation != PanelSeparation::Tab {
+        return Ok(Vec::new());
+    }
+    let layout = panel_layout(project)?;
+    let mut segments = Vec::new();
+    for column in 0..layout.columns.saturating_sub(1) {
+        let x = layout.rail
+            + (column + 1) as f64 * layout.board_width
+            + column as f64 * layout.pitch_x
+            + layout.pitch_x / 2.0;
+        segments.push((
+            Point::new(x, layout.rail),
+            Point::new(x, layout.height - layout.rail),
+        ));
+    }
+    for row in 0..layout.rows.saturating_sub(1) {
+        let y = layout.rail
+            + (row + 1) as f64 * layout.board_height
+            + row as f64 * layout.pitch_y
+            + layout.pitch_y / 2.0;
+        segments.push((
+            Point::new(layout.rail, y),
+            Point::new(layout.width - layout.rail, y),
+        ));
+    }
+    Ok(segments)
+}
+/// Tab-routing channel width in millimetres when tab separation is active.
+pub fn panel_tab_channel_width(project: &Project) -> Option<f64> {
+    project.panel.as_ref().and_then(|settings| {
+        if settings.enabled && settings.separation == PanelSeparation::Tab {
+            Some(settings.tab_channel)
+        } else {
+            None
+        }
+    })
+}
+/// Default assembler panel limit until a fabrication profile supplies shop values.
+pub const PANEL_ASSEMBLER_MAX_MM: f64 = 250.0;
+/// Minimum copper clearance from a V-score line (standards default).
+pub const PANEL_SCORE_COPPER_MIN_MM: f64 = 0.40;
+/// Minimum component body clearance from a V-score line (standards default).
+pub const PANEL_SCORE_COMPONENT_MIN_MM: f64 = 1.0;
+/// Minimum routed tab channel width (standards default).
+pub const PANEL_TAB_CHANNEL_MIN_MM: f64 = 1.6;
+/// Panel fiducial count expected in the rails.
+pub const PANEL_FIDUCIAL_COUNT: usize = 3;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -1451,6 +1688,10 @@ pub struct Project {
     #[serde(default)]
     pub no_connects: Vec<NoConnectFlag>,
     pub board: Board,
+    /// Manufacturing panel grid and separation settings; absent means panel
+    /// checks stay off until the designer enables them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel: Option<PanelSettings>,
     #[serde(default)]
     pub library: ProjectLibrary,
 }
@@ -1552,6 +1793,7 @@ impl Default for Project {
             graphics: vec![],
             labels: vec![],
             no_connects: vec![],
+            panel: None,
             board: Board {
                 width: 60.0,
                 height: 40.0,
@@ -2622,6 +2864,9 @@ impl Project {
             {
                 return Err("board text is bound to an unknown component".into());
             }
+        }
+        if let Some(panel) = &self.panel {
+            panel.validate()?;
         }
         Ok(())
     }
