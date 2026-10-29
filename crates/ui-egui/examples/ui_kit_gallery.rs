@@ -4,7 +4,7 @@
 //! Local rules: no app state; the page code lives in `src/ui_kit/gallery.rs`.
 use eframe::egui;
 use pcbcraft_ui_egui::theme;
-use pcbcraft_ui_egui::ui_kit::gallery::{self, GalleryState};
+use pcbcraft_ui_egui::ui_kit::gallery::{self, GalleryState, Page};
 
 struct Gallery {
     state: GalleryState,
@@ -67,6 +67,7 @@ fn main() -> eframe::Result {
     };
     let dark = !args.iter().any(|a| a == "--light");
     let capture = option("--capture");
+    let page = option("--page").and_then(|name| Page::from_name(&name));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 900.0]),
         ..Default::default()
@@ -74,9 +75,14 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "PCBCraft component gallery",
         options,
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
+            pcbcraft_ui_egui::fonts::install(&cc.egui_ctx);
+            let mut state = GalleryState::new(dark);
+            if let Some(page) = page {
+                state.page = page;
+            }
             Ok(Box::new(Gallery {
-                state: GalleryState::new(dark),
+                state,
                 capture,
                 frames: 0,
             }))

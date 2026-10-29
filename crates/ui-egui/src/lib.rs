@@ -8,6 +8,7 @@ mod contrast;
 mod datums;
 mod editing;
 mod footprint_wizard;
+pub mod fonts;
 mod impedance_panel;
 mod library;
 mod library_quality;
