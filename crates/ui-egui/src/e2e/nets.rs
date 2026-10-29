@@ -12,7 +12,8 @@ fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), S
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "nets");
+    app.change_tab(Tab::Pcb);
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     assert!(
         scrolled_to(&ctx, &mut app, "New net")?,
         "the layers tree offers a way to add a connection"
@@ -577,6 +578,10 @@ fn a_newcomer_renumbers_a_messy_pile_of_parts_in_one_step() -> Result<(), String
         json!({"kind":"resistor","reference":"R9","value":"10 k","position":{"x":10.0,"y":40.0}}),
     );
     let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Edit")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Renumber parts")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Preview")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);

@@ -199,7 +199,7 @@ impl View3d {
             .find(|p| p.kind == PartKind::Body && p.component == Some(id))
             .map(|p| p.family.clone().unwrap_or_else(|| "box".into()))
     }
-    fn fit(&mut self) {
+    pub(crate) fn fit(&mut self) {
         if let Some((lo, hi)) = self.mesh.as_ref().and_then(|(_, m)| m.bounds()) {
             self.target = [
                 (lo[0] + hi[0]) / 2.0,
@@ -453,21 +453,6 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
         ui.add_space(12.0);
-        if ui
-            .button(t!("board.board3d.reset_view"))
-            .on_hover_text(t!("board.board3d.reset_view.tip"))
-            .clicked()
-        {
-            view.fit();
-        }
-        if ui
-            .button(t!("board.board3d.top_view"))
-            .on_hover_text(t!("board.board3d.top_view.tip"))
-            .clicked()
-        {
-            view.yaw = -std::f64::consts::FRAC_PI_2;
-            view.pitch = 1.5;
-        }
         ui.label(
             egui::RichText::new(t!("board.board3d.drag_to_turn_the_board"))
                 .font(crate::fonts::Role::Caption.font())

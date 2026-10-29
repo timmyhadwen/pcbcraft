@@ -9,10 +9,10 @@ fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), Stri
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "root");
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        scrolled_to(&ctx, &mut app, "HASL")?,
+        scrolled_to_at(&ctx, &mut app, "HASL", 700.0)?,
         "the board shows the finish it ships with"
     );
     authoring::tests::tap(&ctx, &mut app, "HASL")?;
@@ -61,10 +61,10 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "root");
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        scrolled_to(&ctx, &mut app, "Nothing recorded yet")?,
+        scrolled_to_at(&ctx, &mut app, "Nothing recorded yet", 700.0)?,
         "a plain board says what it is: {}",
         app.message
     );
@@ -132,7 +132,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "root");
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     let mut shown = false;
     for _ in 0..8 {
         if paints_text(&ctx, &mut app, "START FROM A SHAPE")? {
@@ -143,7 +143,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(700.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -213,21 +213,29 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         .ok_or("routing should leave a wire on the top layer")?;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let net = app
-        .project
-        .board
-        .tracks
-        .iter()
-        .find(|t| t.id == id)
-        .map(|t| t.net)
-        .ok_or("the wire should belong to a net")?;
-    let tracks = "side:top/copper".to_owned();
-    let row = format!("{tracks}/net:{net}/track:{id}");
-    app.tree
-        .expanded
-        .extend([tracks.clone(), format!("{tracks}/net:{net}")]);
-    let _ = &label;
-    press_on(&ctx, &mut app, &row, egui::Key::Enter);
+    app.change_tab(Tab::Pcb);
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    let shown = scrolled_to(&ctx, &mut app, "BOARD ANATOMY")?;
+    assert!(
+        shown,
+        "the layers dock should list every piece of the board: {}",
+        app.message
+    );
+    let seen = scrolled_to(&ctx, &mut app, "Top copper wires")?;
+    assert!(
+        seen,
+        "the anatomy list should show the top copper wires layer: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
+    let row = scrolled_to(&ctx, &mut app, &label)?;
+    assert!(
+        row,
+        "the top copper layer should show the drawn wire {label}: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, &label)?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.selected,
         Some(id),
@@ -450,7 +458,8 @@ fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
     app.change_tab(Tab::Pcb);
     app.refresh();
     let ctx = egui::Context::default();
-    open_tree_row(&ctx, &mut app, "root");
+    app.change_tab(Tab::Pcb);
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     assert!(
         scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?,
         "the hole list is the place a slot is read: {}",
@@ -509,7 +518,8 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     app.tool = Tool::Select;
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "root");
+    app.change_tab(Tab::Pcb);
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "3.20 mm")?,
@@ -678,13 +688,21 @@ fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::open_page(&ctx, &mut app, "Checks")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let message = ["erc", "drc"]
+        .iter()
+        .filter_map(|k| app.checks.get(*k).and_then(Value::as_array))
+        .flatten()
+        .find(|r| r.get("code").and_then(Value::as_str) == Some("cut_hits_via"))
+        .and_then(|r| r.get("message").and_then(Value::as_str))
+        .map(str::to_owned)
+        .ok_or("the cut conflict should carry a message")?;
     assert!(
-        paints_text(&ctx, &mut app, "Cut hits via")?,
+        paints_text(&ctx, &mut app, &message)?,
         "the review names the conflict in plain words: {}",
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "1 to fix")?,
+        paints_text(&ctx, &mut app, "1 error")?,
         "a cut through a via lands in the footer count: {}",
         app.message
     );
@@ -1243,7 +1261,8 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
         .first()
         .map(|h| h.id)
         .ok_or("the mounting hole should exist")?;
-    open_tree_row(&ctx, &mut app, "root");
+    app.change_tab(Tab::Pcb);
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     assert!(
         scrolled_to(&ctx, &mut app, "DATUMS")?,
         "the tree offers a DATUMS group"
@@ -1313,7 +1332,8 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
 #[test]
 fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
     let (ctx, mut app) = fresh_board_app();
-    open_tree_row(&ctx, &mut app, "root");
+    app.change_tab(Tab::Pcb);
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     assert!(scrolled_to(&ctx, &mut app, "DATUMS")?);
     app.datum_ui.add_name = "bad name!".into();
     scrolled_to(&ctx, &mut app, "Add datum")?;

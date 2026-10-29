@@ -4,6 +4,7 @@ mod assistant;
 mod authoring;
 mod board3d;
 mod board_side;
+mod bottom_sheet;
 mod canvas;
 mod contrast;
 mod datums;
@@ -35,6 +36,7 @@ mod tool_modifiers;
 pub mod ui_kit;
 mod via_covering;
 mod via_span;
+mod workspace;
 use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
@@ -235,6 +237,13 @@ type StackShape = (
     &'static [(&'static str, &'static str, f64)],
 );
 type CheckGroup = (String, Vec<(String, Vec<Id>)>);
+type AnatGroup = (
+    &'static str,
+    String,
+    String,
+    Vec<(Option<Id>, String)>,
+    String,
+);
 /// One line, in plain words, describing a figure drawn on a machine layer.
 fn art_shape_text(shape: &pcbcraft_doc::ArtShape) -> String {
     match shape {
@@ -649,6 +658,9 @@ struct Preferences {
     /// Library cards the person starred, by card key.
     #[serde(default)]
     library_favourites: Vec<String>,
+    /// Region layout per workspace id; missing means the workspace default.
+    #[serde(default)]
+    layouts: std::collections::BTreeMap<String, workspace::RegionLayout>,
     /// Language tag of the text catalog, or `system` to follow the computer.
     #[serde(default = "default_language")]
     language: String,
@@ -720,6 +732,7 @@ impl Default for Preferences {
             library_dock_open: true,
             left_tab: 0,
             library_favourites: Vec::new(),
+            layouts: std::collections::BTreeMap::new(),
             language: default_language(),
             reduced_motion: motion::os_prefers_reduced_motion(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
@@ -972,6 +985,8 @@ pub struct App {
     hidden_sets: Vec<String>,
     svg_path: String,
     part_search_focus: bool,
+    /// The bottom sheet under the canvas.
+    sheet: bottom_sheet::SheetState,
     needs_fit: bool,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
@@ -1453,6 +1468,7 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             dock: library_dock::Dock::default(),
+            sheet: bottom_sheet::SheetState::default(),
             needs_fit: true,
             renumber_open: false,
             active_page: 0,
@@ -1695,6 +1711,11 @@ impl App {
         }
     }
     fn change_tab(&mut self, tab: Tab) {
+        if tab == Tab::Checks {
+            // Checks live in the bottom sheet, not on a page of their own.
+            self.open_sheet(bottom_sheet::SheetTab::Findings);
+            return;
+        }
         if tab == Tab::Pcb
             && let Some(c) = self.selected.and_then(|id| self.project.component(id))
         {
@@ -2291,8 +2312,7 @@ impl App {
             }
             if i.key_pressed(egui::Key::A) && self.tab == Tab::Schematic {
                 self.palette = true;
-                self.part_search_focus = true;
-                self.preferences.library_dock_open = true;
+                self.region().left_tab = "library".to_owned();
             }
             let workspace = if self.tab == Tab::Pcb {
                 tool_modifiers::Workspace::Board
@@ -2387,12 +2407,9 @@ impl App {
     /// Left edge shared by the tab row, the tool strip and the page content.
     const PAGE_GUTTER: f32 = 28.0;
     /// The type scale: page title, section title, body, caption.
-    const TITLE: f32 = 24.0;
     const SECTION: f32 = 18.0;
     const BODY: f32 = 14.0;
     const CAPTION: f32 = 12.0;
-    /// Width of the Hide this and Quiet this area buttons.
-    const ACTION_WIDTH: f32 = 130.0;
     /// The slim top bar: the brand and the menus, nothing else. Save, Undo
     /// and Redo, settings, bug reports and the version live in the menus.
     fn header(&mut self, ui: &mut egui::Ui) {
@@ -2429,18 +2446,17 @@ impl App {
     /// with the active tab underlined. Rules, Checks and Settings are reached
     /// from the File, Edit and View menus and the status bar.
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
-        let shown: [(Tab, String); 5] = [
+        let shown: [(Tab, String); 4] = [
             (Tab::Files, t!("docks.workbench_tabs.files")),
             (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
             (Tab::Pcb, t!("docks.workbench_tabs.layout")),
-            (Tab::Board3d, t!("docks.workbench_tabs.3d_view")),
             (Tab::PlotFiles, t!("docks.workbench_tabs.manufacture")),
         ];
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 20.0;
             ui.add_space(Self::PAGE_GUTTER);
             for (tab, label) in shown {
-                let selected = self.tab == tab;
+                let selected = self.tab == tab || (tab == Tab::Pcb && self.tab == Tab::Board3d);
                 let text = egui::RichText::new(label.clone());
                 let text = if selected {
                     text.strong().color(self.ink())
@@ -2468,7 +2484,14 @@ impl App {
                     );
                 }
                 if response.clicked() {
-                    self.change_tab(tab);
+                    // The Layout workspace remembers whether it was in 3D.
+                    let remembered_3d = tab == Tab::Pcb
+                        && self
+                            .preferences
+                            .layouts
+                            .get("layout")
+                            .is_some_and(|l| l.view_3d);
+                    self.change_tab(if remembered_3d { Tab::Board3d } else { tab });
                 }
             }
         });
@@ -2844,6 +2867,14 @@ impl App {
                     ui.close();
                 }
             }
+            if ui
+                .button(t!("menu.view.reset_layout"))
+                .on_hover_text(t!("menu.view.reset_layout.tip"))
+                .clicked()
+            {
+                self.reset_layout();
+                ui.close();
+            }
         });
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
@@ -2930,39 +2961,74 @@ impl App {
             .min_size(240.0)
             .frame(egui::Frame::NONE.fill(ui.style().visuals.panel_fill))
             .show(ui, |ui| {
-                let colours = self.colours();
-                if let Some(tab) = layers_tree::aside_tabs(
-                    ui,
-                    &colours,
-                    self.preferences.left_tab,
-                    &[
-                        (
-                            layers_tree::Glyph::Layer,
-                            t!("tree.tab.layers"),
-                            t!("tree.tab.layers.tip"),
-                        ),
-                        (
-                            layers_tree::Glyph::Part,
-                            t!("tree.tab.library"),
-                            t!("tree.tab.library.tip"),
-                        ),
-                    ],
-                ) {
-                    self.preferences.left_tab = tab;
-                }
-                if self.preferences.left_tab == 0 {
-                    layers_tree::layers_tab(ui, self);
+                self.left_aside_tabs(ui);
+                ui.add_space(8.0);
+                let tab = self.region().left_tab.clone();
+                self.workspace().left_body(self, &tab, ui);
+            });
+    }
+    /// Opens the Library tab with the part search focused.
+    fn open_part_search(&mut self) {
+        self.preferences.library_dock_open = true;
+        self.region().left_tab = "library".to_owned();
+        self.palette = true;
+        self.part_search_focus = true;
+    }
+    /// The tab header of the left aside, from the workspace's `left_tabs`.
+    ///
+    /// # Rules
+    /// A saved tab id the workspace no longer lists falls back to its first tab.
+    ///
+    /// # Do not
+    /// Add a Hide button or an Add part button here; Place part lives in
+    /// the Schematic tool bar.
+    fn left_aside_tabs(&mut self, ui: &mut egui::Ui) {
+        let tabs = self.workspace().left_tabs();
+        if !tabs.iter().any(|t| t.id == self.region().left_tab) {
+            self.region().left_tab = tabs[0].id.to_owned();
+        }
+        let colours = self.colours();
+        let entries: Vec<(layers_tree::Glyph, String, String)> = tabs
+            .iter()
+            .map(|t| {
+                let glyph = if t.id == "library" {
+                    layers_tree::Glyph::Part
                 } else {
-                    egui::ScrollArea::vertical()
-                        .id_salt("library-dock-scroll")
-                        .auto_shrink([false, false])
-                        .show_viewport(ui, |ui, viewport| {
-                            ui.add_space(8.0);
-                            egui::Frame::NONE
-                                .inner_margin(egui::Margin::symmetric(12, 0))
-                                .show(ui, |ui| self.library_body(ui, viewport));
-                        });
-                }
+                    layers_tree::Glyph::Layer
+                };
+                (glyph, (t.label)(), (t.tip)())
+            })
+            .collect();
+        let current = tabs
+            .iter()
+            .position(|t| t.id == self.region().left_tab)
+            .unwrap_or(0);
+        if let Some(next) = layers_tree::aside_tabs(ui, &colours, current as u8, &entries)
+            && let Some(tab) = tabs.get(next as usize)
+        {
+            self.region().left_tab = tab.id.to_owned();
+        }
+    }
+    /// Body of the Layers tab: the parts list and the layer tree.
+    ///
+    /// # Rules
+    /// The tree itself lives in `layers_tree.rs`.
+    fn left_layers_tab(&mut self, ui: &mut egui::Ui) {
+        layers_tree::layers_tab(ui, self);
+    }
+    /// Body of the Library tab: part search and the project's parts.
+    ///
+    /// # Rules
+    /// The browser itself lives in `library_dock.rs`.
+    fn left_library_tab(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical()
+            .id_salt("library-dock-scroll")
+            .auto_shrink([false, false])
+            .show_viewport(ui, |ui, viewport| {
+                ui.add_space(8.0);
+                egui::Frame::NONE
+                    .inner_margin(egui::Margin::symmetric(12, 0))
+                    .show(ui, |ui| self.library_body(ui, viewport));
             });
     }
     /// The Renumber parts window, opened from Edit: pick a letter, preview the
@@ -6175,133 +6241,13 @@ impl App {
         .header_response
         .on_hover_text(t!("library.browser.show_or_hide_the_starter.tip"));
     }
+    /// The library check results and the lists of hidden findings and quiet
+    /// zones, shown under the findings rows in the bottom sheet.
+    ///
+    /// # Rules
+    /// Each hidden finding and quiet zone can be brought back from here until
+    /// Project settings takes these lists over.
     fn checks_view(&mut self, ui: &mut egui::Ui) {
-        ui.label(egui::RichText::new(t!("checks.checks_view.design_checks")).size(Self::TITLE));
-        ui.add_space(4.0);
-        if self
-            .checks
-            .get("erc")
-            .and_then(Value::as_array)
-            .is_none_or(|v| v.is_empty())
-            && self
-                .checks
-                .get("drc")
-                .and_then(Value::as_array)
-                .is_none_or(|v| v.is_empty())
-        {
-            empty_state(ui, EMPTY_CHECKS, self.muted());
-        }
-        ui.add_space(20.0);
-        let checks = self.checks.clone();
-        for (key, label, blurb) in [
-            (
-                "erc",
-                t!("checks.checks_view.electrical"),
-                t!("checks.checks_view.whether_the_wiring_makes_electrical"),
-            ),
-            (
-                "drc",
-                t!("checks.checks_view.board"),
-                t!("checks.checks_view.whether_the_copper_can_actually"),
-            ),
-        ] {
-            ui.label(egui::RichText::new(label).size(Self::SECTION).strong());
-            ui.add_space(2.0);
-            ui.label(
-                egui::RichText::new(blurb)
-                    .size(Self::CAPTION)
-                    .color(self.muted()),
-            );
-            ui.add_space(8.0);
-            if let Some(findings) = checks.get(key).and_then(Value::as_array) {
-                if findings.is_empty() {
-                    ui.label(
-                        egui::RichText::new(t!("checks.checks_view.no_problems"))
-                            .size(Self::BODY)
-                            .color(self.accent()),
-                    );
-                }
-                let mut groups: Vec<CheckGroup> = Vec::new();
-                for f in findings {
-                    let code = f
-                        .get("code")
-                        .and_then(Value::as_str)
-                        .unwrap_or("finding")
-                        .to_owned();
-                    let objects: Vec<Id> = f
-                        .get("objects")
-                        .and_then(Value::as_array)
-                        .map(|v| v.iter().filter_map(|x| x.as_u64()).collect())
-                        .unwrap_or_default();
-                    let message = f
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_owned();
-                    if let Some(group) = groups.iter_mut().find(|(c, _)| *c == code) {
-                        group.1.push((message, objects));
-                    } else {
-                        groups.push((code, vec![(message, objects)]));
-                    }
-                }
-                groups.sort_by(|a, b| {
-                    let rank =
-                        |code: &str| match self.project.rule_severity(code, "warning").as_str() {
-                            "error" => 0,
-                            "info" => 2,
-                            _ => 1,
-                        };
-                    rank(&a.0)
-                        .cmp(&rank(&b.0))
-                        .then(b.1.len().cmp(&a.1.len()))
-                        .then(a.0.cmp(&b.0))
-                });
-                let louds: Vec<bool> = groups
-                    .iter()
-                    .map(|(code, _)| self.project.rule_severity(code, "warning") == "error")
-                    .collect();
-                for ((code, rows), loud) in groups.into_iter().zip(louds) {
-                    let title = format!(
-                        "{} · {}",
-                        custom_heading(&self.project, &code),
-                        self.catalog
-                            .plural("checks.checks_view.places", rows.len() as u64)
-                    );
-                    let title_text = egui::RichText::new(title).size(Self::BODY).strong();
-                    let title_text = if loud {
-                        title_text.color(self.accent())
-                    } else {
-                        title_text
-                    };
-                    ui.add_space(8.0);
-                    let whose = if code.starts_with("custom_") {
-                        format!("{} ", t!("checks.checks_view.a_check_you_wrote"))
-                    } else {
-                        format!("{} ", t!("checks.checks_view.the_board_is_checked_against"))
-                    };
-                    ui.label(title_text).on_hover_text(t!(
-                        "checks.checks_view.whose_who_the_list_below.tip",
-                        whose = whose,
-                        who = if loud {
-                            "It must be fixed before the board is built. "
-                        } else {
-                            "It is worth a look, but does not block the build. "
-                        }
-                    ));
-                    egui::Grid::new(format!("checks-{key}-{code}"))
-                        .num_columns(3)
-                        .spacing([12.0, 6.0])
-                        .show(ui, |ui| {
-                            for (message, objects) in rows {
-                                self.finding_row(ui, key, &code, message, objects);
-                                ui.end_row();
-                            }
-                        });
-                }
-            }
-            ui.add_space(20.0);
-        }
-        self.library_checks_section(ui);
         let silenced: Vec<(String, usize)> = self
             .project
             .rule_exclusions
@@ -6361,94 +6307,6 @@ impl App {
                 });
             }
             ui.add_space(12.0);
-        }
-    }
-    /// One finding as three aligned cells: the finding itself, Hide this and
-    /// Quiet this area. Hide and Quiet only appear when the finding names objects.
-    ///
-    /// # Rules
-    /// Hide and Quiet always occupy their own columns so rows line up.
-    ///
-    /// # Dependencies
-    /// `crates/engine/src/lib.rs` for `rules.exclude` and `rules.exclude_region`.
-    ///
-    /// # Do not
-    /// Put text literals here; all words come from the catalog.
-    fn finding_row(
-        &mut self,
-        ui: &mut egui::Ui,
-        key: &str,
-        code: &str,
-        message: String,
-        objects: Vec<Id>,
-    ) {
-        let fill = self.colours().icon_fill;
-        let edge = Stroke::new(1.0, self.ink().gamma_multiply(0.35));
-        let button = |text: String| {
-            egui::Button::new(egui::RichText::new(text).size(Self::BODY))
-                .fill(fill)
-                .stroke(edge)
-                .min_size(egui::vec2(Self::ACTION_WIDTH, Self::MIN_TARGET))
-        };
-        if ui
-            .add(egui::Button::new(egui::RichText::new(message).size(Self::BODY)).frame(false))
-            .on_hover_text(t!("checks.checks_view.select_this_on_the_drawing.tip"))
-            .clicked()
-            && let Some(id) = objects.first().copied()
-        {
-            self.change_tab(if key == "erc" {
-                Tab::Schematic
-            } else {
-                Tab::Pcb
-            });
-            self.select(Some(id));
-        }
-        if objects.is_empty() {
-            return;
-        }
-        if ui
-            .add(button(t!("checks.checks_view.hide_this")))
-            .on_hover_text(t!("checks.checks_view.hide_this.tip"))
-            .clicked()
-        {
-            self.run(
-                "rules.exclude",
-                json!({"code": code, "ids": objects.clone()}),
-            );
-        }
-        let spots: Vec<Point> = objects
-            .iter()
-            .filter_map(|o| self.project.object_position(*o))
-            .collect();
-        let bounds = (spots.len() == objects.len())
-            .then(|| {
-                Some((
-                    spots.iter().map(|p| p.x).reduce(f64::min)?,
-                    spots.iter().map(|p| p.x).reduce(f64::max)?,
-                    spots.iter().map(|p| p.y).reduce(f64::min)?,
-                    spots.iter().map(|p| p.y).reduce(f64::max)?,
-                ))
-            })
-            .flatten();
-        let Some((min_x, max_x, min_y, max_y)) = bounds else {
-            return;
-        };
-        if ui
-            .add(button(t!("checks.checks_view.quiet_this_area")))
-            .on_hover_text(t!("checks.checks_view.quiet_this_area.tip"))
-            .clicked()
-        {
-            let pad = 2.0;
-            self.run(
-                "rules.exclude_region",
-                json!({
-                    "code": code,
-                    "x": min_x - pad,
-                    "y": min_y - pad,
-                    "width": (max_x - min_x) + pad * 2.0,
-                    "height": (max_y - min_y) + pad * 2.0,
-                }),
-            );
         }
     }
     fn capture(&mut self, ctx: &egui::Context) {
@@ -6757,6 +6615,18 @@ impl App {
                         if self
                             .tool_strip_button(
                                 ui,
+                                "tool-place-part",
+                                t!("library.browser.place_part"),
+                                t!("library.browser.place_part.tip"),
+                                self.palette,
+                            )
+                            .clicked()
+                        {
+                            self.open_part_search();
+                        }
+                        if self
+                            .tool_strip_button(
+                                ui,
                                 "tool-wire",
                                 "wire",
                                 t!("board.tool_strip.wire"),
@@ -7005,50 +6875,28 @@ impl App {
                 .frame(egui::Frame::NONE.fill(self.surface()))
                 .show(ui, |ui| {
                     self.workbench_tabs(ui);
-                    self.tool_strip(ui);
+                    self.workspace().toolbar(self, ui);
+                    self.bottom_sheet(ui);
                     self.page_left = ui.max_rect().left();
-                    match self.tab {
-                        Tab::Schematic | Tab::Pcb => self.canvas(ui),
-                        Tab::Files => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| Self::padded(ui, |ui| self.files_tab(ui)))
-                                .inner
-                        }
-                        Tab::Board3d => self.board3d_tab(ui),
-                        Tab::Libraries => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| Self::padded(ui, |ui| self.library(ui)))
-                                .inner
-                        }
-                        Tab::Rules => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
-                        }
-                        Tab::Checks => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| Self::margined(ui, |ui| self.checks_view(ui)));
-                        }
-                        Tab::Settings => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
-                        }
-                        Tab::PlotFiles => {
-                            egui::ScrollArea::vertical().show(ui, |ui| {
-                                Self::margined(ui, |ui| {
-                                    let theme = plot_viewer::Theme {
-                                        surface: self.surface(),
-                                        muted: self.muted(),
-                                        accent: self.accent(),
-                                    };
-                                    plot_viewer::ui(
-                                        &mut self.plot_viewer,
-                                        ui,
-                                        theme,
-                                        &mut self.message,
-                                        self.make_dir.trim(),
-                                    );
-                                });
-                            });
+                    if let Some(workspace) = workspace::workspace_for(self.tab) {
+                        workspace.center(self, ui);
+                    } else {
+                        match self.tab {
+                            Tab::Libraries => {
+                                egui::ScrollArea::vertical()
+                                    .show(ui, |ui| Self::padded(ui, |ui| self.library(ui)))
+                                    .inner
+                            }
+                            Tab::Rules => {
+                                egui::ScrollArea::vertical()
+                                    .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
+                            }
+                            Tab::Checks => {}
+                            Tab::Settings => {
+                                egui::ScrollArea::vertical()
+                                    .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
+                            }
+                            _ => {}
                         }
                     }
                 });
@@ -7451,7 +7299,14 @@ mod tests {
         let ctx = egui::Context::default();
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
-        crate::e2e::support::press_on(&ctx, &mut app, "nets", egui::Key::Space);
+        app.change_tab(Tab::Schematic);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        assert!(
+            scrolled_to(&ctx, &mut app, "Wires")?,
+            "the layers page lists wires as its own row"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Wires")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.preferences.hidden_layers.iter().any(|h| h == "Wires"),
             "unticking the row hides the wires layer"
@@ -7534,7 +7389,8 @@ mod tests {
         let before = app.project.nets.len();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        crate::e2e::support::open_tree_row(&ctx, &mut app, "nets");
+        app.change_tab(Tab::Pcb);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
         assert!(
             scrolled_to(&ctx, &mut app, "New net")?,
             "the layers tree offers a way to add a connection"
@@ -8119,7 +7975,8 @@ mod tests {
         );
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        crate::e2e::support::open_tree_row(&ctx, &mut app, "nets");
+        app.change_tab(Tab::Pcb);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
         assert!(
             scrolled_to(&ctx, &mut app, "of 3 nets routed")?,
             "the dock totals the routing at a glance: {}",

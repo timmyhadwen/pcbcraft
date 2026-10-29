@@ -12,6 +12,8 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Schematic);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Keyword or part number")?,
@@ -95,12 +97,14 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
         }}),
     );
     let ctx = egui::Context::default();
+    app.change_tab(Tab::Schematic);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        scrolled_to_at(&ctx, &mut app, "    blinky red · built in", 150.0)?,
+        paints_text(&ctx, &mut app, "    blinky red")?,
         "a part row says what the part is and where it came from: {}",
         app.message
     );
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Power bits (1 part)")?,
@@ -304,6 +308,8 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
     let ctx = egui::Context::default();
     let none = egui::Modifiers::NONE;
     frame(&ctx, &mut app, vec![], none);
+    app.change_tab(Tab::Schematic);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], none);
     authoring::tests::tap(&ctx, &mut app, "Keyword or part number")?;
     for letter in "resistor".chars() {
@@ -383,34 +389,20 @@ fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
 #[test]
 fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<(), String> {
     let (mut app, ctx) = app_with_overlapping_pads()?;
-    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
+    app.home_open = false;
+    app.change_tab(Tab::Pcb);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Checks);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     for needle in [
         "Lib pad overlap · 1 place",
         "SquashedPair: Two pads share the same copper area",
         "Fix: Move or resize the pads so their outlines no longer overlap",
     ] {
-        let mut shown = paints_text(&ctx, &mut app, needle)?;
-        for _ in 0..10 {
-            if shown {
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-            shown = paints_text(&ctx, &mut app, needle)?;
-        }
-        assert!(shown, "the Checks tab should show \"{needle}\"");
+        assert!(
+            scrolled_to_at(&ctx, &mut app, needle, 720.0)?,
+            "the findings sheet should show \"{needle}\""
+        );
     }
     Ok(())
 }
@@ -841,8 +833,7 @@ fn a_newcomer_switches_between_the_library_and_the_editor() -> Result<(), String
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Libraries);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap_id(&ctx, &mut app, "button:Libraries")?;
-    assert_eq!(app.tab, Tab::Libraries, "the Libraries tab stays selected");
+    assert_eq!(app.tab, Tab::Libraries, "the Libraries page stays open");
     tap_id(&ctx, &mut app, "button:Editor")?;
     assert_eq!(app.library.editor.mode, 2, "Editor opens the editor");
     tap_id(&ctx, &mut app, "button:Library")?;
