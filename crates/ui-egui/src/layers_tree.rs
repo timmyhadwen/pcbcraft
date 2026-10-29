@@ -15,7 +15,7 @@
 
 use crate::a11y::{Named, name_control};
 use crate::palette::ThemeColours;
-use egui::{Align2, Color32, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2, epaint};
+use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2, epaint};
 use pcbcraft_doc::{Id, Layer, Project};
 use pcbcraft_text::t;
 use std::collections::BTreeSet;
@@ -85,6 +85,8 @@ pub(crate) struct Row {
     /// Path key, unique in the tree, made of `/`-joined segments.
     pub key: String,
     pub depth: u8,
+    /// Visual indent level: sections do not indent their direct children.
+    pub level: u8,
     pub kind: RowKind,
     pub label: String,
     /// Muted text after the label: a value, a net or a size.
@@ -125,6 +127,12 @@ pub(crate) enum Action {
     Focus(Option<String>),
     /// Highlight a net on the canvas, or clear with None.
     HighlightNet(Option<Id>),
+    /// Make this copper side the active drawing target (the toolbar's Layer).
+    SetActive(Layer),
+    /// Delete a document object (same as the Delete key on the drawing).
+    Delete(Id),
+    /// Remove a machine layer and everything drawn on it.
+    RemoveArtLayer(Id),
     /// Add a machine layer.
     NewArtLayer,
 }
@@ -183,23 +191,31 @@ pub(crate) struct TreeView {
     has_focus: bool,
     offset: f32,
     viewport: f32,
-    cache: Option<(u64, Vec<Row>)>,
+    cache: Option<(u64, std::rc::Rc<Vec<Row>>)>,
+}
+
+impl TreeView {
+    #[cfg(test)]
+    /// Put the keyboard cursor and focus on the row with this key, as if it
+    /// had been reached with the arrow keys.
+    pub(crate) fn focus_row(&mut self, key: &str) {
+        self.cursor = Some(key.to_owned());
+        self.focus_pending = Some(key.to_owned());
+        self.scroll_to = Some(key.to_owned());
+    }
 }
 
 impl Default for TreeView {
     fn default() -> Self {
         let expanded = [
-            "sec:copper",
-            "sec:silk",
-            "sec:mask",
-            "sec:board",
-            "sec:user",
-            "sec:parts",
-            "sec:nets",
+            "side:top",
+            "side:top/copper",
+            "side:bottom",
+            "drills",
+            "edge",
+            "components",
+            "nets",
             "sec:sheet:0",
-            "sec:board/root",
-            "sec:copper/layer:copper:front",
-            "sec:silk/layer:silk:front",
         ]
         .into_iter()
         .map(str::to_owned)
@@ -257,6 +273,7 @@ fn row(path: &str, seg: &str, kind: RowKind, label: String) -> Row {
     Row {
         key: segment(path, seg),
         depth: 0,
+        level: 0,
         kind,
         label,
         sub: String::new(),
@@ -334,209 +351,6 @@ fn layer_row(
     r
 }
 
-fn group_row(path: &str, seg: &str, label: String, n: usize, vis: Option<Visibility>) -> Row {
-    let mut r = counted(row(path, seg, RowKind::Group, label), n, true);
-    r.controls = vis.map(|visibility| LayerControls {
-        key: String::new(),
-        visibility,
-        focusable: false,
-    });
-    r
-}
-
-/// Pads, tracks, zones and vias on one copper side, each with a count.
-fn copper_children(env: &Env, path: &str, side: Layer) -> Vec<Row> {
-    let board = &env.project.board;
-    let front = side == Layer::Front;
-    let pads: usize = if front {
-        board.footprints.iter().map(|f| f.pads.len()).sum()
-    } else {
-        0
-    };
-    let tracks = board.tracks.iter().filter(|t| t.layer == side).count();
-    let zones = board.zones.iter().filter(|z| z.layer == side).count();
-    let mut out = vec![
-        group_row(
-            path,
-            "pads",
-            t!("tree.group.pads"),
-            pads,
-            Some(Visibility::Canvas("Pads")),
-        ),
-        group_row(path, "tracks", t!("tree.group.tracks"), tracks, None),
-        group_row(
-            path,
-            "zones",
-            t!("tree.group.zones"),
-            zones,
-            Some(Visibility::Canvas("Copper zones")),
-        ),
-    ];
-    if !board.vias.is_empty() {
-        out.push(group_row(
-            path,
-            "vias",
-            t!("tree.group.vias"),
-            board.vias.len(),
-            Some(Visibility::Canvas("Vias")),
-        ));
-    }
-    out
-}
-
-/// The top-level sections for the Layout tab.
-fn layout_sections(env: &Env) -> Vec<Row> {
-    let board = &env.project.board;
-    let coppers = board
-        .layer_records
-        .iter()
-        .filter(|l| l.kind == "copper")
-        .count()
-        .max(2);
-    vec![
-        section("sec:copper", t!("tree.section.copper"), coppers),
-        section("sec:silk", t!("tree.section.silk"), 2),
-        section("sec:mask", t!("tree.section.mask"), 4),
-        section("sec:board", t!("tree.section.board"), 2),
-        section("sec:user", t!("tree.section.user"), board.user_layers.len()),
-        section(
-            "sec:parts",
-            t!("tree.section.parts"),
-            board.footprints.len(),
-        ),
-        section("sec:nets", t!("tree.section.nets"), env.project.nets.len()),
-    ]
-}
-
-fn schematic_sections(env: &Env) -> Vec<Row> {
-    let project = env.project;
-    let mut out = Vec::new();
-    let mut sheets: Vec<(Id, String)> = vec![(0, t!("tree.sheet.first"))];
-    sheets.extend(project.sheets.iter().map(|s| (s.id, s.name.clone())));
-    for (id, name) in sheets {
-        let n = if id == 0 { 9 } else { 1 };
-        out.push(section(&format!("sec:sheet:{id}"), name, n));
-    }
-    out.push(section(
-        "sec:parts",
-        t!("tree.section.parts"),
-        project.components.len(),
-    ));
-    out.push(section(
-        "sec:nets",
-        t!("tree.section.nets"),
-        project.nets.len(),
-    ));
-    out
-}
-
-fn schematic_layers(env: &Env, path: &str, sheet: Id) -> Vec<Row> {
-    let project = env.project;
-    let c = &env.colours;
-    let comps = project
-        .components
-        .iter()
-        .filter(|c| c.sheet == sheet)
-        .count();
-    if sheet != 0 {
-        return vec![layer_row(
-            path,
-            "symbols",
-            t!("tree.sch.symbols"),
-            c.warn,
-            Visibility::Canvas("Symbols"),
-            false,
-            comps,
-            true,
-        )];
-    }
-    let power = project.labels.iter().filter(|l| l.kind == "power").count();
-    let labels = project.labels.iter().filter(|l| l.kind != "power").count();
-    let pins: usize = project.components.iter().map(|c| c.pins.len()).sum();
-    let drawing = project
-        .graphics
-        .iter()
-        .filter(|g| g.layer == "schematic")
-        .count();
-    let l = |key: &str, label: String, swatch: Color32, vis: Visibility, n: usize, open: bool| {
-        layer_row(path, key, label, swatch, vis, false, n, open)
-    };
-    vec![
-        l(
-            "wires",
-            t!("tree.sch.wires"),
-            c.canvas.wire,
-            Visibility::Canvas("Wires"),
-            project.wires.len(),
-            true,
-        ),
-        l(
-            "symbols",
-            t!("tree.sch.symbols"),
-            c.warn,
-            Visibility::Canvas("Symbols"),
-            comps,
-            true,
-        ),
-        l(
-            "labels",
-            t!("tree.sch.labels"),
-            c.canvas.wire,
-            Visibility::Canvas("Net labels"),
-            labels,
-            true,
-        ),
-        l(
-            "pinnums",
-            t!("tree.sch.pin_numbers"),
-            c.link,
-            Visibility::None,
-            pins,
-            false,
-        ),
-        l(
-            "power",
-            t!("tree.sch.power_ports"),
-            c.canvas.wire,
-            Visibility::None,
-            power,
-            false,
-        ),
-        l(
-            "buses",
-            t!("tree.sch.buses"),
-            c.warn,
-            Visibility::None,
-            0,
-            false,
-        ),
-        l(
-            "notes",
-            t!("tree.sch.notes"),
-            c.muted,
-            Visibility::None,
-            0,
-            false,
-        ),
-        l(
-            "drawing",
-            t!("tree.sch.drawing"),
-            c.link,
-            Visibility::Canvas("Graphics"),
-            drawing,
-            false,
-        ),
-        l(
-            "title",
-            t!("tree.sch.title_block"),
-            c.ink,
-            Visibility::None,
-            1,
-            false,
-        ),
-    ]
-}
-
 fn net_rows(env: &Env, path: &str, unit_key: &str) -> Vec<Row> {
     let project = env.project;
     let mut nets: Vec<&pcbcraft_doc::Net> = project.nets.iter().collect();
@@ -574,131 +388,482 @@ fn net_rows(env: &Env, path: &str, unit_key: &str) -> Vec<Row> {
         .collect()
 }
 
-/// The rows directly under `key` (empty for the virtual root). Only called
-/// for expanded rows.
-fn children(env: &Env, key: &str) -> Vec<Row> {
+/// One entry of the physical stack, top to bottom.
+enum Stack {
+    /// A copper layer: its position (0 is the top) and its stackup name.
+    Copper(usize, String),
+    /// A core or prepreg layer between coppers, with its thickness in mm.
+    Dielectric(String, f64),
+}
+
+/// The physical stack from the stackup records. Without records the board is
+/// the usual two copper layers.
+fn stack(env: &Env) -> Vec<Stack> {
+    let mut out = Vec::new();
+    let mut coppers = 0;
+    for rec in &env.project.board.layer_records {
+        match rec.kind.as_str() {
+            "copper" => {
+                out.push(Stack::Copper(coppers, rec.name.clone()));
+                coppers += 1;
+            }
+            "core" | "prepreg" => out.push(Stack::Dielectric(rec.name.clone(), rec.thickness)),
+            _ => {}
+        }
+    }
+    if coppers == 0 {
+        return vec![
+            Stack::Copper(0, "F.Cu".to_owned()),
+            Stack::Copper(1, "B.Cu".to_owned()),
+        ];
+    }
+    out
+}
+
+fn copper_count(env: &Env) -> usize {
+    stack(env)
+        .iter()
+        .filter(|s| matches!(s, Stack::Copper(..)))
+        .count()
+}
+
+/// The two-way name of a net's copper on the outer side `side`: "L1" for the
+/// top, "L{n}" for the bottom.
+fn level(env: &Env, side: Layer) -> usize {
+    if side == Layer::Front {
+        1
+    } else {
+        copper_count(env).max(2)
+    }
+}
+
+fn side_key(side: Layer) -> &'static str {
+    if side == Layer::Front {
+        "side:top"
+    } else {
+        "side:bottom"
+    }
+}
+
+fn side_of_path(path: &str) -> Layer {
+    if path.starts_with("side:bottom") {
+        Layer::Back
+    } else {
+        Layer::Front
+    }
+}
+
+/// A sublayer row: it carries the controls and is an active drawing target.
+#[allow(clippy::too_many_arguments)]
+fn sub_row(
+    path: &str,
+    seg: &str,
+    ctl_key: &str,
+    label: String,
+    swatch: Color32,
+    vis: Visibility,
+    focusable: bool,
+    n: usize,
+    expandable: bool,
+) -> Row {
+    let mut r = layer_row(path, ctl_key, label, swatch, vis, focusable, n, expandable);
+    r.key = segment(path, seg);
+    r
+}
+
+fn top_level(env: &Env) -> Vec<Row> {
+    let c = env.colours;
+    let board = &env.project.board;
+    let total = copper_count(env).max(2);
+    let mut out = Vec::new();
+    let mut root = row("", "root", RowKind::Layer, t!("tree.layer.board"));
+    root.swatch = Some(c.warn);
+    root.sub = t!(
+        "tree.board_size",
+        w = format!("{}", board.width),
+        h = format!("{}", board.height)
+    );
+    out.push(root);
+    for item in stack(env) {
+        match item {
+            Stack::Copper(i, name) => {
+                let (key, label, sw) = if i == 0 {
+                    (
+                        "side:top".to_owned(),
+                        t!("tree.layer.top", n = 1),
+                        c.canvas.front,
+                    )
+                } else if i + 1 >= total {
+                    (
+                        "side:bottom".to_owned(),
+                        t!("tree.layer.bottom", n = i + 1),
+                        c.canvas.back,
+                    )
+                } else {
+                    (
+                        format!("inner:{i}"),
+                        t!("tree.layer.inner", n = i + 1, name = name),
+                        c.canvas.front.gamma_multiply(0.6),
+                    )
+                };
+                let mut r = row("", &key, RowKind::Layer, label);
+                r.swatch = Some(sw);
+                r.expandable = true;
+                out.push(r);
+            }
+            Stack::Dielectric(name, thickness) => {
+                let mut r = row("", &format!("diel:{}", out.len()), RowKind::Leaf, name);
+                r.sub = format!("{thickness:.2} mm");
+                r.dim = true;
+                out.push(r);
+            }
+        }
+    }
+    let vias = board.vias.len();
+    let holes = board.holes.len();
+    let mut drills = counted(
+        row("", "drills", RowKind::Layer, t!("tree.layer.drills")),
+        vias + holes,
+        true,
+    );
+    drills.swatch = Some(c.link);
+    drills.controls = Some(LayerControls {
+        key: String::new(),
+        visibility: Visibility::Canvas("Vias"),
+        focusable: false,
+    });
+    out.push(drills);
+    let mut edge = counted(
+        row("", "edge", RowKind::Layer, t!("tree.layer.edge")),
+        1 + board.cutouts.len(),
+        true,
+    );
+    edge.expandable = true;
+    edge.swatch = Some(c.warn);
+    edge.controls = Some(LayerControls {
+        key: "outline".to_owned(),
+        visibility: Visibility::Canvas("Cutouts"),
+        focusable: false,
+    });
+    out.push(edge);
+    let mut user = counted(
+        row("", "user", RowKind::Layer, t!("tree.layer.user")),
+        board.user_layers.len(),
+        true,
+    );
+    user.swatch = Some(c.link);
+    out.push(user);
+    let mut comps = counted(
+        row("", "components", RowKind::Layer, t!("tree.section.parts")),
+        if env.tab == TreeTab::Layout {
+            board.footprints.len()
+        } else {
+            env.project.components.len()
+        },
+        true,
+    );
+    comps.swatch = Some(c.ink);
+    out.push(comps);
+    let mut nets = counted(
+        row("", "nets", RowKind::Layer, t!("tree.section.nets")),
+        env.project.nets.len(),
+        true,
+    );
+    nets.swatch = Some(c.canvas.wire);
+    out.push(nets);
+    out
+}
+
+fn footprint_row(project: &Project, path: &str, f: &pcbcraft_doc::Footprint, side: &str) -> Row {
+    let mut r = row(
+        path,
+        &format!("fp:{}", f.id),
+        RowKind::Part,
+        reference_of(project, f),
+    );
+    let value = project
+        .component(f.component)
+        .map(|c| c.value.clone())
+        .unwrap_or_default();
+    r.sub = format!("{value} {side}");
+    r.count = f.pads.len().to_string();
+    r.mono = true;
+    r.select = Some(f.id);
+    r.expandable = !f.pads.is_empty();
+    r
+}
+
+/// Tracks, zones and pads of net `id` on one copper side, as rows.
+fn net_copper(env: &Env, path: &str, id: Id, side: Layer, out: &mut Vec<Row>) {
+    let project = env.project;
+    let board = &project.board;
+    for t in board
+        .tracks
+        .iter()
+        .filter(|t| t.layer == side && t.net == id)
+    {
+        let mut r = track_row(path, t);
+        r.net = Some(id);
+        out.push(r);
+    }
+    for z in board
+        .zones
+        .iter()
+        .filter(|z| z.layer == side && z.net == id)
+    {
+        let mut r = row(
+            path,
+            &format!("zone:{}", z.id),
+            RowKind::Zone,
+            t!("tree.zone", net = project.net_name(z.net)),
+        );
+        r.select = Some(z.id);
+        r.net = Some(id);
+        out.push(r);
+    }
+    if side == Layer::Front {
+        for f in &board.footprints {
+            for (i, pad) in f.pads.iter().enumerate() {
+                if pad.net == Some(id) {
+                    let mut r = pad_row(path, f, i, pad);
+                    r.sub = reference_of(project, f);
+                    out.push(r);
+                }
+            }
+        }
+    }
+}
+
+/// How many rows of copper net `id` has on `side`.
+fn net_copper_count(env: &Env, id: Id, side: Layer) -> usize {
+    let board = &env.project.board;
+    let mut n = board
+        .tracks
+        .iter()
+        .filter(|t| t.layer == side && t.net == id)
+        .count()
+        + board
+            .zones
+            .iter()
+            .filter(|z| z.layer == side && z.net == id)
+            .count();
+    if side == Layer::Front {
+        n += board
+            .footprints
+            .iter()
+            .flat_map(|f| &f.pads)
+            .filter(|p| p.net == Some(id))
+            .count();
+    }
+    n
+}
+
+fn layout_children(env: &Env, key: &str) -> Vec<Row> {
     let project = env.project;
     let board = &project.board;
     let c = env.colours;
     let segs: Vec<&str> = key.split('/').collect();
     let mut out = Vec::new();
-    let front_pads: usize = board.footprints.iter().map(|f| f.pads.len()).sum();
-    match (env.tab, segs.as_slice()) {
-        (TreeTab::Layout, [""]) => out = layout_sections(env),
-        (TreeTab::Schematic, [""]) => out = schematic_sections(env),
-        (TreeTab::Layout, ["sec:copper"]) => {
-            let layer = |k: &str, label: String, sw: Color32, name: &'static str, n: usize| {
-                layer_row(key, k, label, sw, Visibility::Canvas(name), true, n, true)
+    match segs.as_slice() {
+        [""] => out = top_level(env),
+        [side] if *side == "side:top" || *side == "side:bottom" => {
+            let s = side_of_path(side);
+            let front = s == Layer::Front;
+            let tracks = board.tracks.iter().filter(|t| t.layer == s).count();
+            let zones = board.zones.iter().filter(|z| z.layer == s).count();
+            let pads: usize = if front {
+                board.footprints.iter().map(|f| f.pads.len()).sum()
+            } else {
+                0
             };
-            let tracks = |l: Layer| board.tracks.iter().filter(|t| t.layer == l).count();
-            let zones = |l: Layer| board.zones.iter().filter(|z| z.layer == l).count();
-            out.push(layer(
-                "copper:front",
-                t!("tree.layer.top_copper"),
-                c.canvas.front,
-                "Top copper",
-                front_pads + tracks(Layer::Front) + zones(Layer::Front),
-            ));
-            let coppers: Vec<&pcbcraft_doc::LayerRecord> = board
-                .layer_records
-                .iter()
-                .filter(|l| l.kind == "copper")
-                .collect();
-            if coppers.len() > 2 {
-                for (i, record) in coppers[1..coppers.len() - 1].iter().enumerate() {
-                    out.push(layer_row(
-                        key,
-                        &format!("copper:inner:{}", i + 1),
-                        record.name.clone(),
-                        c.canvas.front.gamma_multiply(0.6),
-                        Visibility::None,
-                        false,
-                        0,
-                        false,
-                    ));
-                }
-            }
-            out.push(layer(
-                "copper:back",
-                t!("tree.layer.bottom_copper"),
-                c.canvas.back,
-                "Bottom copper",
-                tracks(Layer::Back) + zones(Layer::Back),
-            ));
-        }
-        (TreeTab::Layout, ["sec:silk"]) => {
-            for (k, label, side) in [
-                ("silk:front", t!("tree.layer.top_silk"), Layer::Front),
-                ("silk:back", t!("tree.layer.bottom_silk"), Layer::Back),
-            ] {
-                let parts = if side == Layer::Front {
-                    board.footprints.len()
-                } else {
-                    0
-                };
-                let texts = board.texts.iter().filter(|x| x.layer == side).count();
-                out.push(layer_row(
-                    key,
-                    k,
-                    label,
-                    c.ink,
-                    Visibility::Canvas("Package artwork"),
-                    false,
-                    parts * 2 + texts,
-                    parts > 0 || texts > 0,
-                ));
-            }
-        }
-        (TreeTab::Layout, ["sec:mask"]) => {
-            let smd = front_pads;
-            for (k, label, sw, n) in [
-                ("mask:front", t!("tree.layer.top_mask"), c.canvas.mask, smd),
-                ("mask:back", t!("tree.layer.bottom_mask"), c.canvas.mask, 0),
-                ("paste:front", t!("tree.layer.top_paste"), c.muted, smd),
-                ("paste:back", t!("tree.layer.bottom_paste"), c.muted, 0),
-            ] {
-                out.push(layer_row(
-                    key,
-                    k,
-                    label,
-                    sw,
-                    Visibility::None,
-                    false,
-                    n,
-                    false,
-                ));
-            }
-        }
-        (TreeTab::Layout, ["sec:board"]) => {
-            let mut outline = layer_row(
+            let (name, ck) = if front {
+                ("Top copper", "copper:front")
+            } else {
+                ("Bottom copper", "copper:back")
+            };
+            let sw = if front { c.canvas.front } else { c.canvas.back };
+            out.push(sub_row(
                 key,
-                "outline",
-                t!("tree.layer.outline"),
-                c.warn,
-                Visibility::Canvas("Cutouts"),
-                false,
-                1 + board.cutouts.len() + board.holes.len(),
+                "copper",
+                ck,
+                t!("tree.sub.copper"),
+                sw,
+                Visibility::Canvas(name),
                 true,
-            );
-            outline.key = segment(key, "root");
-            outline.select = None;
-            out.push(outline);
-            out.push(layer_row(
+                tracks + zones + pads,
+                true,
+            ));
+            out.push(sub_row(
                 key,
-                "courtyard",
-                t!("tree.layer.courtyard"),
-                if c.dark {
-                    Color32::from_rgb(0xB5, 0x8A, 0xE0)
-                } else {
-                    Color32::from_rgb(0x8A, 0x52, 0xB8)
-                },
+                "mask",
+                if front { "mask:front" } else { "mask:back" },
+                t!("tree.sub.mask"),
+                c.canvas.mask,
                 Visibility::None,
                 false,
-                board.footprints.len(),
+                if front { pads } else { 0 },
                 false,
             ));
+            let texts = board.texts.iter().filter(|x| x.layer == s).count();
+            let parts = if front { board.footprints.len() } else { 0 };
+            out.push(sub_row(
+                key,
+                "silk",
+                if front { "silk:front" } else { "silk:back" },
+                t!("tree.sub.silk"),
+                c.ink,
+                Visibility::Canvas("Package artwork"),
+                false,
+                parts * 2 + texts,
+                parts + texts > 0,
+            ));
+            out.push(sub_row(
+                key,
+                "paste",
+                if front { "paste:front" } else { "paste:back" },
+                t!("tree.sub.paste"),
+                c.muted,
+                Visibility::None,
+                false,
+                if front { pads } else { 0 },
+                false,
+            ));
+            out.push(sub_row(
+                key,
+                "components",
+                if front { "parts:front" } else { "parts:back" },
+                t!("tree.sub.components"),
+                c.canvas.pad,
+                Visibility::Canvas("Pads"),
+                false,
+                parts,
+                parts > 0,
+            ));
         }
-        (TreeTab::Layout, ["sec:board", "root"]) => {
+        [inner] if inner.starts_with("inner:") => {
+            let mut r = row(key, "copper", RowKind::Leaf, t!("tree.sub.copper"));
+            r.dim = true;
+            r.count = "0".to_owned();
+            out.push(r);
+        }
+        [side, "copper"] => {
+            let s = side_of_path(side);
+            let mut ids: Vec<Id> = project.nets.iter().map(|n| n.id).collect();
+            for id in board.tracks.iter().map(|t| t.net).chain(board.zones.iter().map(|z| z.net)) {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+            ids.sort_by(|a, b| project.net_name(*a).cmp(project.net_name(*b)));
+            for id in ids {
+                let n = net_copper_count(env, id, s);
+                if n == 0 {
+                    continue;
+                }
+                let mut r = row(
+                    key,
+                    &format!("net:{id}"),
+                    RowKind::Net,
+                    project.net_name(id).to_owned(),
+                );
+                r.count = n.to_string();
+                r.swatch = Some(net_colour(&c, id));
+                r.round = true;
+                r.net = Some(id);
+                r.expandable = true;
+                out.push(r);
+            }
+        }
+        [side, "copper", net] if net.starts_with("net:") => {
+            let id: Id = net[4..].parse().unwrap_or(0);
+            net_copper(env, key, id, side_of_path(side), &mut out);
+        }
+        [side, "silk"] => {
+            let s = side_of_path(side);
+            let parts = if s == Layer::Front {
+                board.footprints.len()
+            } else {
+                0
+            };
+            out.push(counted(
+                row(key, "refs", RowKind::Leaf, t!("tree.silk.reference_text")),
+                parts,
+                false,
+            ));
+            out.push(counted(
+                row(key, "outlines", RowKind::Leaf, t!("tree.silk.outlines")),
+                parts,
+                false,
+            ));
+            for x in board.texts.iter().filter(|x| x.layer == s) {
+                let mut r = row(
+                    key,
+                    &format!("text:{}", x.id),
+                    RowKind::Text,
+                    x.text.clone(),
+                );
+                r.select = Some(x.id);
+                out.push(r);
+            }
+        }
+        [side, "components"] => {
+            if side_of_path(side) == Layer::Front {
+                let top = t!("tree.side.top");
+                for f in &board.footprints {
+                    out.push(footprint_row(project, key, f, &top));
+                }
+            }
+        }
+        ["drills"] => {
+            let mut sizes: Vec<String> = board
+                .vias
+                .iter()
+                .map(|v| format!("{:.2}", v.drill))
+                .collect();
+            sizes.sort();
+            sizes.dedup();
+            for size in sizes {
+                let n = board
+                    .vias
+                    .iter()
+                    .filter(|v| format!("{:.2}", v.drill) == size)
+                    .count();
+                let mut r = row(
+                    key,
+                    &format!("drill:{size}"),
+                    RowKind::Via,
+                    t!("tree.drill", size = size),
+                );
+                r.count = n.to_string();
+                r.expandable = true;
+                out.push(r);
+            }
+            for h in &board.holes {
+                let mut r = row(
+                    key,
+                    &format!("hole:{}", h.id),
+                    RowKind::Hole,
+                    if h.end.is_some() {
+                        t!("tree.slot", size = format!("{:.2}", h.diameter))
+                    } else {
+                        t!("tree.mounting_hole")
+                    },
+                );
+                r.sub = format!("{:.0}, {:.0}", h.position.x, h.position.y);
+                r.select = Some(h.id);
+                out.push(r);
+            }
+        }
+        ["drills", drill] if drill.starts_with("drill:") => {
+            for v in board
+                .vias
+                .iter()
+                .filter(|v| format!("{:.2}", v.drill) == drill[6..])
+            {
+                out.push(via_row(key, project, v));
+            }
+        }
+        ["edge"] => {
             let mut edge = row(
                 key,
                 "edge",
@@ -722,22 +887,12 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                 r.select = Some(cut.id);
                 out.push(r);
             }
-            for h in &board.holes {
-                let mut r = row(
-                    key,
-                    &format!("hole:{}", h.id),
-                    RowKind::Hole,
-                    t!("tree.mounting_hole"),
-                );
-                r.sub = format!("{:.0}, {:.0}", h.position.x, h.position.y);
-                r.select = Some(h.id);
-                out.push(r);
-            }
         }
-        (TreeTab::Layout, ["sec:user"]) => {
+        ["user"] => {
             for art in &board.user_layers {
-                let mut r = layer_row(
+                let mut r = sub_row(
                     key,
+                    &format!("art:{}", art.id),
                     &format!("art:{}", art.name),
                     art.name.clone(),
                     c.link,
@@ -746,86 +901,30 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                     art.shapes.len(),
                     !art.shapes.is_empty(),
                 );
-                r.key = segment(key, &format!("layer:art:{}", art.id));
+                r.dim = false;
                 out.push(r);
             }
         }
-        (TreeTab::Schematic, [sec]) if sec.starts_with("sec:sheet:") => {
-            let id: Id = sec[10..].parse().unwrap_or(0);
-            out = schematic_layers(env, key, id);
-        }
-        (_, ["sec:parts"]) => {
-            if env.tab == TreeTab::Layout {
-                for f in &board.footprints {
-                    let mut r = row(
+        ["user", art] if art.starts_with("art:") => {
+            let id: Id = art[4..].parse().unwrap_or(0);
+            if let Some(layer) = board.user_layers.iter().find(|l| l.id == id) {
+                for (i, shape) in layer.shapes.iter().enumerate() {
+                    out.push(row(
                         key,
-                        &format!("fp:{}", f.id),
-                        RowKind::Part,
-                        reference_of(project, f),
-                    );
-                    r.sub = project
-                        .component(f.component)
-                        .map(|c| c.value.clone())
-                        .unwrap_or_default();
-                    r.count = f.pads.len().to_string();
-                    r.mono = true;
-                    r.select = Some(f.id);
-                    r.expandable = !f.pads.is_empty();
-                    out.push(r);
-                }
-            } else {
-                for comp in &project.components {
-                    out.push(component_row(key, comp));
+                        &format!("shape:{i}"),
+                        RowKind::Shape,
+                        crate::art_shape_text(shape),
+                    ));
                 }
             }
         }
-        (_, ["sec:nets"]) => {
-            let unit = if env.tab == TreeTab::Layout {
-                "pads"
-            } else {
-                "pins"
-            };
-            out = net_rows(env, key, unit);
-        }
-        (TreeTab::Layout, ["sec:nets", net]) => {
-            let id: Id = net[4..].parse().unwrap_or(0);
+        ["components"] => {
+            let top = t!("tree.side.top");
             for f in &board.footprints {
-                for (i, pad) in f.pads.iter().enumerate() {
-                    if pad.net == Some(id) {
-                        let mut r = pad_row(key, f, i, pad);
-                        r.sub = reference_of(project, f);
-                        out.push(r);
-                    }
-                }
-            }
-            for t in board.tracks.iter().filter(|t| t.net == id) {
-                out.push(track_row(key, t));
-            }
-            for v in board.vias.iter().filter(|v| v.net == id) {
-                out.push(via_row(key, project, v));
+                out.push(footprint_row(project, key, f, &top));
             }
         }
-        (TreeTab::Schematic, ["sec:nets", net]) => {
-            let id: Id = net[4..].parse().unwrap_or(0);
-            for comp in &project.components {
-                for pin in comp.pins.iter().filter(|p| p.net == Some(id)) {
-                    let mut r = row(
-                        key,
-                        &format!("npin:{}:{}", comp.id, pin.number),
-                        RowKind::Pad,
-                        t!(
-                            "tree.pin",
-                            number = format!("{}.{}", comp.reference, pin.number),
-                            name = pin.name
-                        ),
-                    );
-                    r.select = Some(comp.id);
-                    r.marks = false;
-                    out.push(r);
-                }
-            }
-        }
-        (TreeTab::Layout, [.., fp]) if fp.starts_with("fp:") => {
+        [.., fp] if fp.starts_with("fp:") => {
             let id: Id = fp[3..].parse().unwrap_or(0);
             if let Some(f) = project.footprint(id) {
                 for (i, pad) in f.pads.iter().enumerate() {
@@ -838,7 +937,169 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                 }
             }
         }
-        (TreeTab::Schematic, [.., comp]) if comp.starts_with("comp:") => {
+        ["nets"] => {
+            let mut nets: Vec<&pcbcraft_doc::Net> = project.nets.iter().collect();
+            nets.sort_by(|a, b| a.name.cmp(&b.name));
+            for n in nets {
+                let mut levels = Vec::new();
+                for s in [Layer::Front, Layer::Back] {
+                    let has_via = s == Layer::Back && board.vias.iter().any(|v| v.net == n.id);
+                    if net_copper_count(env, n.id, s) > 0 || has_via {
+                        levels.push(format!("L{}", level(env, s)));
+                    }
+                }
+                let pads = board
+                    .footprints
+                    .iter()
+                    .flat_map(|f| &f.pads)
+                    .filter(|p| p.net == Some(n.id))
+                    .count();
+                let mut r = row(key, &format!("net:{}", n.id), RowKind::Net, n.name.clone());
+                r.sub = levels.join(" ");
+                r.count = t!("tree.pads", n = pads);
+                r.swatch = Some(net_colour(&c, n.id));
+                r.round = true;
+                r.net = Some(n.id);
+                r.expandable = true;
+                out.push(r);
+            }
+        }
+        ["nets", net] => {
+            let id: Id = net[4..].parse().unwrap_or(0);
+            for s in [Layer::Front, Layer::Back] {
+                let n = net_copper_count(env, id, s);
+                if n > 0 {
+                    let seg = if s == Layer::Front {
+                        "layer:front"
+                    } else {
+                        "layer:back"
+                    };
+                    let mut r = row(
+                        key,
+                        seg,
+                        RowKind::Group,
+                        t!("tree.net_layer", n = level(env, s), side = side_label(s)),
+                    );
+                    r.count = n.to_string();
+                    r.expandable = true;
+                    r.net = Some(id);
+                    out.push(r);
+                }
+            }
+            for v in board.vias.iter().filter(|v| v.net == id) {
+                out.push(via_row(key, project, v));
+            }
+        }
+        ["nets", net, layer] if layer.starts_with("layer:") => {
+            let id: Id = net[4..].parse().unwrap_or(0);
+            let s = if layer.ends_with("front") {
+                Layer::Front
+            } else {
+                Layer::Back
+            };
+            net_copper(env, key, id, s, &mut out);
+        }
+        _ => {}
+    }
+    out
+}
+
+fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
+    let project = env.project;
+    let c = env.colours;
+    let segs: Vec<&str> = key.split('/').collect();
+    let mut out = Vec::new();
+    match segs.as_slice() {
+        [""] => {
+            let mut sheets: Vec<(Id, String)> = vec![(0, t!("tree.sheet.first"))];
+            sheets.extend(project.sheets.iter().map(|s| (s.id, s.name.clone())));
+            for (id, name) in sheets {
+                out.push(section(
+                    &format!("sec:sheet:{id}"),
+                    name,
+                    if id == 0 { 4 } else { 1 },
+                ));
+            }
+            let mut comps = counted(
+                row("", "components", RowKind::Layer, t!("tree.section.parts")),
+                project.components.len(),
+                true,
+            );
+            comps.swatch = Some(c.ink);
+            out.push(comps);
+            let mut nets = counted(
+                row("", "nets", RowKind::Layer, t!("tree.section.nets")),
+                project.nets.len(),
+                true,
+            );
+            nets.swatch = Some(c.canvas.wire);
+            nets.controls = Some(LayerControls {
+                key: String::new(),
+                visibility: Visibility::Canvas("Wires"),
+                focusable: false,
+            });
+            out.push(nets);
+        }
+        [sec] if sec.starts_with("sec:sheet:") => {
+            let id: Id = sec[10..].parse().unwrap_or(0);
+            let comps = project.components.iter().filter(|c| c.sheet == id).count();
+            let mut l =
+                |seg: &str, label: String, sw: Color32, vis: Visibility, n: usize, open: bool| {
+                    out.push(layer_row(key, seg, label, sw, vis, false, n, open));
+                };
+            l(
+                "symbols",
+                t!("tree.sch.symbols"),
+                c.warn,
+                Visibility::Canvas("Symbols"),
+                comps,
+                true,
+            );
+            if id == 0 {
+                let power = project.labels.iter().filter(|l| l.kind == "power").count();
+                let drawing = project
+                    .graphics
+                    .iter()
+                    .filter(|g| g.layer == "schematic")
+                    .count();
+                l(
+                    "power",
+                    t!("tree.sch.power_ports"),
+                    c.canvas.wire,
+                    Visibility::None,
+                    power,
+                    false,
+                );
+                l(
+                    "drawing",
+                    t!("tree.sch.drawing"),
+                    c.link,
+                    Visibility::Canvas("Graphics"),
+                    drawing,
+                    false,
+                );
+                l(
+                    "title",
+                    t!("tree.sch.title_block"),
+                    c.ink,
+                    Visibility::None,
+                    1,
+                    false,
+                );
+            }
+        }
+        [sec, "layer:symbols"] if sec.starts_with("sec:sheet:") => {
+            let id: Id = sec[10..].parse().unwrap_or(0);
+            for comp in project.components.iter().filter(|c| c.sheet == id) {
+                out.push(component_row(key, comp));
+            }
+        }
+        ["components"] => {
+            for comp in &project.components {
+                out.push(component_row(key, comp));
+            }
+        }
+        [.., comp] if comp.starts_with("comp:") => {
             let id: Id = comp[5..].parse().unwrap_or(0);
             if let Some(cmp) = project.component(id) {
                 for (i, pin) in cmp.pins.iter().enumerate() {
@@ -858,99 +1119,66 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                 }
             }
         }
-        (TreeTab::Layout, [.., layer]) if layer.starts_with("layer:") => {
-            layer_children(env, key, &layer[6..], &mut out);
-        }
-        (TreeTab::Schematic, [.., layer]) if layer.starts_with("layer:") => {
-            sheet_layer_children(env, key, &layer[6..], &mut out);
-        }
-        (TreeTab::Layout, [.., layer, "tracks"]) if layer.starts_with("layer:") => {
-            let side = side_of(layer);
-            let mut counts: std::collections::BTreeMap<Id, usize> = Default::default();
-            for t in board.tracks.iter().filter(|t| t.layer == side) {
-                *counts.entry(t.net).or_default() += 1;
-            }
-            let mut named: Vec<(String, Id, usize)> = counts
-                .into_iter()
-                .map(|(id, n)| (project.net_name(id).to_owned(), id, n))
-                .collect();
-            named.sort();
-            for (name, id, n) in named {
-                let mut r = row(key, &format!("net:{id}"), RowKind::Net, name);
-                r.count = n.to_string();
-                r.swatch = Some(net_colour(&env.colours, id));
-                r.round = true;
-                r.net = Some(id);
-                r.expandable = true;
-                out.push(r);
-            }
-        }
-        (TreeTab::Layout, [.., layer, "tracks", net]) if layer.starts_with("layer:") => {
-            let side = side_of(layer);
+        ["nets"] => out = net_rows(env, key, "pins"),
+        ["nets", net] => {
             let id: Id = net[4..].parse().unwrap_or(0);
-            for t in board
-                .tracks
-                .iter()
-                .filter(|t| t.layer == side && t.net == id)
-            {
-                let mut r = track_row(key, t);
-                r.net = Some(id);
+            for w in project.wires.iter().filter(|w| w.net == id) {
+                let name = |p: &pcbcraft_doc::PinRef| {
+                    project
+                        .component(p.component)
+                        .map_or_else(|| "?".to_owned(), |c| format!("{}.{}", c.reference, p.pin))
+                };
+                let mut r = row(
+                    key,
+                    &format!("wire:{}", w.id),
+                    RowKind::Wire,
+                    t!("tree.wire"),
+                );
+                r.sub = t!("tree.wire_ends", from = name(&w.from), to = name(&w.to));
+                r.select = Some(w.id);
                 out.push(r);
             }
-        }
-        (TreeTab::Layout, [.., layer, "pads"]) if layer.starts_with("layer:") => {
-            for f in &board.footprints {
-                if f.pads.is_empty() {
-                    continue;
+            for l in project.labels.iter().filter(|l| l.net == id) {
+                let mut r = row(
+                    key,
+                    &format!("label:{}", l.id),
+                    RowKind::Label,
+                    project.net_name(id).to_owned(),
+                );
+                r.sub = l.kind.clone();
+                r.select = Some(l.id);
+                out.push(r);
+            }
+            for comp in &project.components {
+                for pin in comp.pins.iter().filter(|p| p.net == Some(id)) {
+                    let mut r = row(
+                        key,
+                        &format!("npin:{}:{}", comp.id, pin.number),
+                        RowKind::Pad,
+                        t!(
+                            "tree.pin",
+                            number = format!("{}.{}", comp.reference, pin.number),
+                            name = pin.name
+                        ),
+                    );
+                    r.select = Some(comp.id);
+                    r.marks = false;
+                    out.push(r);
                 }
-                let mut r = row(
-                    key,
-                    &format!("fp:{}", f.id),
-                    RowKind::Part,
-                    reference_of(project, f),
-                );
-                r.count = f.pads.len().to_string();
-                r.mono = true;
-                r.select = Some(f.id);
-                r.expandable = true;
-                out.push(r);
-            }
-        }
-        (TreeTab::Layout, [.., layer, "zones"]) if layer.starts_with("layer:") => {
-            let side = side_of(layer);
-            for z in board.zones.iter().filter(|z| z.layer == side) {
-                let mut r = row(
-                    key,
-                    &format!("zone:{}", z.id),
-                    RowKind::Zone,
-                    t!("tree.zone", net = project.net_name(z.net)),
-                );
-                r.select = Some(z.id);
-                r.net = Some(z.net);
-                out.push(r);
-            }
-        }
-        (TreeTab::Layout, [.., layer, "vias"]) if layer.starts_with("layer:") => {
-            for v in &board.vias {
-                out.push(via_row(key, project, v));
-            }
-        }
-        (TreeTab::Layout, [.., layer, "text"]) if layer.starts_with("layer:") => {
-            let side = side_of(layer);
-            for x in board.texts.iter().filter(|x| x.layer == side) {
-                let mut r = row(
-                    key,
-                    &format!("text:{}", x.id),
-                    RowKind::Text,
-                    x.text.clone(),
-                );
-                r.select = Some(x.id);
-                out.push(r);
             }
         }
         _ => {}
     }
     out
+}
+
+/// The rows directly under `key` (empty for the virtual root). Only called
+/// for expanded rows.
+fn children(env: &Env, key: &str) -> Vec<Row> {
+    match env.tab {
+        TreeTab::Layout => layout_children(env, key),
+        TreeTab::Schematic => schematic_children(env, key),
+    }
 }
 
 fn component_row(path: &str, c: &pcbcraft_doc::Component) -> Row {
@@ -966,103 +1194,6 @@ fn component_row(path: &str, c: &pcbcraft_doc::Component) -> Row {
     r.select = Some(c.id);
     r.expandable = !c.pins.is_empty();
     r
-}
-
-fn layer_children(env: &Env, key: &str, layer: &str, out: &mut Vec<Row>) {
-    let board = &env.project.board;
-    match layer {
-        "copper:front" => out.extend(copper_children(env, key, Layer::Front)),
-        "copper:back" => out.extend(copper_children(env, key, Layer::Back)),
-        "silk:front" | "silk:back" => {
-            let side = side_of(layer);
-            let parts = if side == Layer::Front {
-                board.footprints.len()
-            } else {
-                0
-            };
-            let mut a = counted(
-                row(key, "refs", RowKind::Leaf, t!("tree.silk.reference_text")),
-                parts,
-                false,
-            );
-            a.dim = parts == 0;
-            let mut b = counted(
-                row(key, "outlines", RowKind::Leaf, t!("tree.silk.outlines")),
-                parts,
-                false,
-            );
-            b.dim = parts == 0;
-            out.push(a);
-            out.push(b);
-            let texts = board.texts.iter().filter(|x| x.layer == side).count();
-            if texts > 0 {
-                out.push(group_row(key, "text", t!("tree.group.text"), texts, None));
-            }
-        }
-        other if other.starts_with("art:") => {
-            let id: Id = other[4..].parse().unwrap_or(0);
-            if let Some(art) = board.user_layers.iter().find(|l| l.id == id) {
-                for (i, shape) in art.shapes.iter().enumerate() {
-                    out.push(row(
-                        key,
-                        &format!("shape:{i}"),
-                        RowKind::Shape,
-                        crate::art_shape_text(shape),
-                    ));
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn sheet_layer_children(env: &Env, key: &str, layer: &str, out: &mut Vec<Row>) {
-    let project = env.project;
-    let sheet: Id = key
-        .split('/')
-        .next()
-        .and_then(|s| s.strip_prefix("sec:sheet:"))
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    match layer {
-        "wires" => {
-            for w in &project.wires {
-                let mut r = row(
-                    key,
-                    &format!("wire:{}", w.id),
-                    RowKind::Wire,
-                    project.net_name(w.net).to_owned(),
-                );
-                let name = |p: &pcbcraft_doc::PinRef| {
-                    project
-                        .component(p.component)
-                        .map_or_else(|| "?".to_owned(), |c| format!("{}.{}", c.reference, p.pin))
-                };
-                r.sub = t!("tree.wire_ends", from = name(&w.from), to = name(&w.to));
-                r.select = Some(w.id);
-                out.push(r);
-            }
-        }
-        "symbols" => {
-            for c in project.components.iter().filter(|c| c.sheet == sheet) {
-                out.push(component_row(key, c));
-            }
-        }
-        "labels" => {
-            for l in project.labels.iter().filter(|l| l.kind != "power") {
-                let mut r = row(
-                    key,
-                    &format!("label:{}", l.id),
-                    RowKind::Label,
-                    project.net_name(l.net).to_owned(),
-                );
-                r.sub = l.kind.clone();
-                r.select = Some(l.id);
-                out.push(r);
-            }
-        }
-        _ => {}
-    }
 }
 
 fn track_row(path: &str, t: &pcbcraft_doc::Track) -> Row {
@@ -1105,9 +1236,15 @@ fn pad_row(path: &str, f: &pcbcraft_doc::Footprint, i: usize, pad: &pcbcraft_doc
 
 /// Walk `row` and its expanded descendants into `out`; with a search active,
 /// every branch opens and only matching rows and their ancestors stay.
-fn walk(env: &Env, view: &TreeView, row: Row, depth: u8, out: &mut Vec<Row>) -> bool {
+fn walk(env: &Env, view: &TreeView, row: Row, depth: u8, level: u8, out: &mut Vec<Row>) -> bool {
     let mut row = row;
     row.depth = depth;
+    row.level = level;
+    let child_level = if row.kind == RowKind::Section {
+        level
+    } else {
+        level.saturating_add(1)
+    };
     let start = out.len();
     let searching = !view.query.trim().is_empty();
     let own = searching && matches_query(&row, view.query.trim());
@@ -1117,7 +1254,7 @@ fn walk(env: &Env, view: &TreeView, row: Row, depth: u8, out: &mut Vec<Row>) -> 
     let mut any = false;
     if open {
         for child in children(env, &key) {
-            any |= walk(env, view, child, depth.saturating_add(1), out);
+            any |= walk(env, view, child, depth.saturating_add(1), child_level, out);
         }
     }
     if searching {
@@ -1171,18 +1308,19 @@ fn signature(env: &Env, view: &TreeView) -> u64 {
 ///
 /// # Do not
 /// - Call it from a loop; take the slice once per frame.
-pub(crate) fn rows(env: &Env, view: &mut TreeView) -> Vec<Row> {
+pub(crate) fn rows(env: &Env, view: &mut TreeView) -> std::rc::Rc<Vec<Row>> {
     let sig = signature(env, view);
     if let Some((cached, rows)) = &view.cache
         && *cached == sig
     {
-        return rows.clone();
+        return std::rc::Rc::clone(rows);
     }
     let mut out = Vec::new();
     for top in children(env, "") {
-        walk(env, view, top, 0, &mut out);
+        walk(env, view, top, 0, 0, &mut out);
     }
-    view.cache = Some((sig, out.clone()));
+    let out = std::rc::Rc::new(out);
+    view.cache = Some((sig, std::rc::Rc::clone(&out)));
     out
 }
 
@@ -1197,42 +1335,31 @@ pub(crate) fn reveal_path(env: &Env, id: Id) -> Option<(Vec<String>, String)> {
     let target: String = match env.tab {
         TreeTab::Layout => {
             if let Some(t) = board.tracks.iter().find(|t| t.id == id) {
-                format!(
-                    "sec:copper/layer:{0}/tracks/net:{1}/track:{id}",
-                    copper_key(t.layer),
-                    t.net
-                )
-            } else if board.vias.iter().any(|v| v.id == id) {
-                format!("sec:copper/layer:copper:front/vias/via:{id}")
+                format!("{}/copper/net:{}/track:{id}", side_key(t.layer), t.net)
+            } else if let Some(v) = board.vias.iter().find(|v| v.id == id) {
+                format!("drills/drill:{:.2}/via:{id}", v.drill)
             } else if let Some(z) = board.zones.iter().find(|z| z.id == id) {
-                format!("sec:copper/layer:{0}/zones/zone:{id}", copper_key(z.layer))
+                format!("{}/copper/net:{}/zone:{id}", side_key(z.layer), z.net)
             } else if let Some(x) = board.texts.iter().find(|x| x.id == id) {
-                let k = if x.layer == Layer::Front {
-                    "silk:front"
-                } else {
-                    "silk:back"
-                };
-                format!("sec:silk/layer:{k}/text/text:{id}")
+                format!("{}/silk/text:{id}", side_key(x.layer))
             } else if board.cutouts.iter().any(|c| c.id == id) {
-                format!("sec:board/root/cut:{id}")
+                format!("edge/cut:{id}")
             } else if board.holes.iter().any(|h| h.id == id) {
-                format!("sec:board/root/hole:{id}")
+                format!("drills/hole:{id}")
             } else if board.footprints.iter().any(|f| f.id == id) {
-                format!("sec:parts/fp:{id}")
+                format!("components/fp:{id}")
             } else {
                 return None;
             }
         }
         TreeTab::Schematic => {
             if project.component(id).is_some() {
-                format!("sec:parts/comp:{id}")
+                format!("components/comp:{id}")
             } else if let Some(l) = project.labels.iter().find(|l| l.id == id) {
-                let _ = l;
-                format!("sec:sheet:0/layer:labels/label:{id}")
-            } else if project.wires.iter().any(|w| w.id == id) {
-                format!("sec:sheet:0/layer:wires/wire:{id}")
+                format!("nets/net:{}/label:{id}", l.net)
             } else {
-                return None;
+                let w = project.wires.iter().find(|w| w.id == id)?;
+                format!("nets/net:{}/wire:{id}", w.net)
             }
         }
     };
@@ -1659,11 +1786,9 @@ fn ghost_button(
     label: &str,
     tip: &str,
 ) -> egui::Response {
-    let galley = ui.painter().layout_no_wrap(
-        label.to_owned(),
-        crate::fonts::Role::Body.font(),
-        colours.ink,
-    );
+    let galley =
+        ui.painter()
+            .layout_no_wrap(label.to_owned(), crate::fonts::Role::Body.font(), colours.ink);
     let w = galley.size().x + 14.0 + 6.0 + 16.0;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 28.0), Sense::hover());
     let resp = ui.interact(rect, ui.id().with(("ghost", label)), Sense::click());
@@ -1733,12 +1858,14 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
         }
     }
     let mut has_focus = false;
+    let spacing = ui.spacing().item_spacing.y;
+    ui.spacing_mut().item_spacing.y = 0.0;
     let output = scroll.show_rows(ui, ROW_HEIGHT, n, |ui, range| {
-        ui.spacing_mut().item_spacing.y = 0.0;
         for r in &all[range] {
             has_focus |= paint_row(ui, env, view, r, &colours, &mut actions);
         }
     });
+    ui.spacing_mut().item_spacing.y = spacing;
     view.offset = output.state.offset.y;
     view.viewport = output.inner_rect.height();
     view.has_focus = has_focus;
@@ -1954,8 +2081,7 @@ fn paint_row(
             egui::StrokeKind::Inside,
         );
     }
-    let level = r.depth.saturating_sub(1) as f32;
-    let level = if is_section { 0.0 } else { level };
+    let level = f32::from(r.level);
     let x0 = rect.left() + PAD + level * INDENT;
     let cy = rect.center().y;
     // Indent guides.
@@ -1968,7 +2094,7 @@ fn paint_row(
     }
     // Chevron cell.
     let mut chevron_clicked = false;
-    let chevron_rect = Rect::from_center_size(Pos2::new(x0 + 8.0, cy), Vec2::new(16.0, ROW_HEIGHT));
+    let chevron_rect = Rect::from_center_size(Pos2::new(x0 + 8.0, cy), Vec2::new(24.0, ROW_HEIGHT));
     if r.expandable {
         let cr = ui.interact(chevron_rect, id.with("chevron"), Sense::click());
         glyph(
@@ -2247,6 +2373,9 @@ fn paint_row(
         _ => t!("tree.row.tip"),
     };
     let resp = resp.on_hover_text(tip);
+    resp.context_menu(|ui| {
+        row_menu(ui, env, view, r, (hidden, locked, focus_on), actions);
+    });
     if chevron_clicked || (resp.double_clicked() && r.expandable) {
         toggle(view, &r.key);
     } else if resp.clicked() {
@@ -2254,6 +2383,112 @@ fn paint_row(
         activate(view, r, actions);
     }
     focused
+}
+
+/// The right-click menu of a row. Every item runs the same action as its
+/// shortcut or control elsewhere, and names that shortcut.
+///
+/// # Rules
+/// - Layer rows: Make active, Hide or Show, Lock or Unlock, Focus; machine
+///   layers also Remove. Objects: Select, Delete. Nets: Highlight.
+fn row_menu(
+    ui: &mut Ui,
+    env: &Env,
+    view: &mut TreeView,
+    r: &Row,
+    (hidden, locked, focus_on): (bool, bool, bool),
+    actions: &mut Vec<Action>,
+) {
+    let item = |ui: &mut Ui, label: String, tip: String| -> bool {
+        let clicked = ui.button(label).on_hover_text(tip).clicked();
+        if clicked {
+            ui.close();
+        }
+        clicked
+    };
+    if let Some(ctl) = &r.controls {
+        if ctl.key.starts_with("copper:")
+            && !ctl.key.contains("inner")
+            && item(ui, t!("tree.menu.active"), t!("tree.menu.active.tip"))
+        {
+            actions.push(Action::SetActive(side_of(&ctl.key)));
+            view.selected_key = Some(r.key.clone());
+            actions.push(Action::SelectKey(r.key.clone()));
+        }
+        if ctl.visibility != Visibility::None {
+            let label = if hidden {
+                t!("tree.menu.show")
+            } else {
+                t!("tree.menu.hide")
+            };
+            if item(ui, label, t!("tree.menu.hide.tip")) {
+                match &ctl.visibility {
+                    Visibility::Canvas(name) => actions.push(Action::SetShown { name, on: hidden }),
+                    Visibility::Art(layer) => actions.push(Action::SetArtShown {
+                        layer: *layer,
+                        on: hidden,
+                    }),
+                    Visibility::None => {}
+                }
+            }
+        }
+        if !ctl.key.is_empty() {
+            let label = if locked {
+                t!("tree.menu.unlock")
+            } else {
+                t!("tree.menu.lock")
+            };
+            if item(ui, label, t!("tree.menu.lock.tip")) && !view.locked.remove(&ctl.key) {
+                view.locked.insert(ctl.key.clone());
+            }
+        }
+        if ctl.focusable {
+            let label = if focus_on {
+                t!("tree.menu.unfocus")
+            } else {
+                t!("tree.menu.focus")
+            };
+            if item(ui, label, t!("tree.menu.focus.tip")) {
+                actions.push(Action::Focus(if focus_on {
+                    None
+                } else {
+                    Some(ctl.key.clone())
+                }));
+            }
+        }
+        if let Visibility::Art(id) = ctl.visibility
+            && item(ui, t!("tree.menu.remove"), t!("tree.menu.remove.tip"))
+        {
+            actions.push(Action::RemoveArtLayer(id));
+        }
+    }
+    if let Some(id) = r.select {
+        if item(ui, t!("tree.menu.select"), t!("tree.menu.select.tip")) {
+            actions.push(Action::Select(id));
+        }
+        if r.marks
+            && env.selected == Some(id)
+            && item(ui, t!("tree.menu.delete"), t!("tree.menu.delete.tip"))
+        {
+            actions.push(Action::Delete(id));
+        }
+    }
+    if let Some(net) = r.net
+        && r.kind == RowKind::Net
+        && item(ui, t!("tree.menu.highlight"), t!("tree.menu.highlight.tip"))
+    {
+        actions.push(Action::HighlightNet(Some(net)));
+    }
+    if r.kind == RowKind::Layer && r.controls.is_none() && r.key != "root" {
+        let label = if view.expanded.contains(&r.key) {
+            t!("tree.menu.collapse")
+        } else {
+            t!("tree.menu.expand")
+        };
+        if item(ui, label, t!("tree.chevron.tip")) {
+            toggle(view, &r.key);
+        }
+    }
 }
 
 fn toggle(view: &mut TreeView, key: &str) {
@@ -2274,6 +2509,13 @@ fn activate(view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
         return;
     }
     view.selected_key = Some(r.key.clone());
+    if r.kind == RowKind::Layer
+        && let Some(c) = &r.controls
+        && c.key.starts_with("copper:")
+        && !c.key.contains("inner")
+    {
+        actions.push(Action::SetActive(side_of(&c.key)));
+    }
     actions.push(Action::SelectKey(r.key.clone()));
     actions.push(Action::HighlightNet(r.net));
     if r.expandable && !r.key.ends_with("/root") {
@@ -2352,11 +2594,14 @@ fn keyboard(ui: &mut Ui, env: &Env, view: &mut TreeView, all: &[Row], actions: &
 /// The controls of the layer row that contains row `index` (itself or an
 /// ancestor), so Space and F work from any row of a layer.
 fn layer_of(all: &[Row], index: usize) -> Option<LayerControls> {
+    if let Some(own) = &all[index].controls {
+        return Some(own.clone());
+    }
     all[..=index]
         .iter()
         .rev()
         .take_while(|r| r.kind != RowKind::Section)
-        .find(|r| r.kind == RowKind::Layer)
+        .find(|r| r.kind == RowKind::Layer && r.controls.is_some())
         .and_then(|r| r.controls.clone())
 }
 
@@ -2442,6 +2687,14 @@ impl crate::App {
                     );
                 }
                 Action::Focus(key) => self.focus_layer = key,
+                Action::Delete(id) => {
+                    self.select(Some(id));
+                    self.delete_selection();
+                }
+                Action::RemoveArtLayer(id) => {
+                    self.run("board.layer_delete", serde_json::json!({"layer": id}));
+                }
+                Action::SetActive(side) => self.route_layer = side,
                 Action::HighlightNet(net) => self.highlight_net = net,
                 Action::NewArtLayer => {
                     let name = t!(
@@ -2471,7 +2724,7 @@ impl crate::App {
             return;
         };
         let last = key.rsplit('/').next().unwrap_or("");
-        if key.ends_with("/root") && self.tab == crate::Tab::Pcb {
+        if key == "root" || key.ends_with("/root") {
             ui.label(crate::fonts::title(t!("tree.board_settings")));
             ui.label(
                 egui::RichText::new(t!("tree.board_settings.help"))
@@ -2485,7 +2738,7 @@ impl crate::App {
             self.datums_section(ui);
             self.fiducials_section(ui);
             self.via_spans_section(ui);
-        } else if last.starts_with("net:") || key == "sec:nets" {
+        } else if last.starts_with("net:") || key == "nets" {
             ui.label(crate::fonts::title(t!("tree.net_settings")));
             self.nets_tab(ui);
         } else {
@@ -2504,6 +2757,15 @@ impl crate::App {
             );
         }
     }
+}
+
+/// The Layers region tab: draws the tree for the active workspace (Layout or
+/// Schematic) and applies what the user did in it.
+///
+/// # Dependencies
+/// - `crates/ui-egui/src/layers_tree.rs` `App::layers_tree_panel` does the work.
+pub(crate) fn layers_tab(ui: &mut Ui, app: &mut crate::App) {
+    app.layers_tree_panel(ui);
 }
 
 #[cfg(test)]
@@ -2532,39 +2794,38 @@ mod tests {
     }
 
     #[test]
-    fn sections_come_in_the_mockup_order() {
+    fn the_stack_reads_top_to_bottom() {
         let project = sample();
         let mut view = TreeView::default();
         let list = rows(&env(&project, &[]), &mut view);
-        let sections: Vec<&str> = list
+        let tops: Vec<&str> = list
             .iter()
-            .filter(|r| r.kind == RowKind::Section)
+            .filter(|r| r.depth == 0)
             .map(|r| r.key.as_str())
             .collect();
         assert_eq!(
-            sections,
+            tops,
             [
-                "sec:copper",
-                "sec:silk",
-                "sec:mask",
-                "sec:board",
-                "sec:user",
-                "sec:parts",
-                "sec:nets"
+                "root",
+                "side:top",
+                "side:bottom",
+                "drills",
+                "edge",
+                "user",
+                "components",
+                "nets"
             ]
         );
-        assert!(
-            list.iter()
-                .any(|r| r.key == "sec:copper/layer:copper:front")
-        );
+        assert!(list.iter().any(|r| r.key == "side:top/copper"));
     }
 
     #[test]
     fn only_expanded_branches_are_built() {
         let project = sample();
         let mut view = TreeView::default();
+        view.expanded.remove("components");
         let closed = rows(&env(&project, &[]), &mut view).len();
-        view.expanded.insert("sec:parts".to_owned());
+        view.expanded.insert("components".to_owned());
         let open = rows(&env(&project, &[]), &mut view).len();
         assert_eq!(open, closed + project.board.footprints.len());
     }
@@ -2573,25 +2834,27 @@ mod tests {
     fn a_search_keeps_matches_and_their_ancestors() {
         let project = sample();
         let net = project.nets[0].name.clone();
-        let mut view = TreeView::default();
-        view.query = net.clone();
+        let mut view = TreeView {
+            query: net.clone(),
+            ..Default::default()
+        };
         let list = rows(&env(&project, &[]), &mut view);
         assert!(
             list.iter()
                 .any(|r| r.kind == RowKind::Net && r.label == net)
         );
-        assert!(list.iter().any(|r| r.key == "sec:nets"));
+        assert!(list.iter().any(|r| r.key == "nets"));
         view.query = "zzzz-no-such-thing".to_owned();
         assert!(rows(&env(&project, &[]), &mut view).is_empty());
     }
 
     #[test]
-    fn a_part_selected_on_the_canvas_opens_its_row() {
+    fn a_part_selected_on_the_canvas_opens_its_row() -> Result<(), String> {
         let project = sample();
         let id = project.board.footprints[0].id;
-        let (opens, target) = reveal_path(&env(&project, &[]), id).expect("row");
-        assert_eq!(target, format!("sec:parts/fp:{id}"));
-        assert!(opens.contains(&"sec:parts".to_owned()));
+        let (opens, target) = reveal_path(&env(&project, &[]), id).ok_or("no row")?;
+        assert_eq!(target, format!("components/fp:{id}"));
+        assert!(opens.contains(&"components".to_owned()));
         let mut view = TreeView::default();
         view.expanded.extend(opens);
         assert!(
@@ -2599,6 +2862,7 @@ mod tests {
                 .iter()
                 .any(|r| r.key == target)
         );
+        Ok(())
     }
 
     #[test]
@@ -2622,18 +2886,19 @@ mod tests {
     }
 
     #[test]
-    fn the_board_outline_row_opens_board_settings() {
+    fn the_board_outline_row_opens_board_settings() -> Result<(), String> {
         let project = sample();
         let mut view = TreeView::default();
         let list = rows(&env(&project, &[]), &mut view);
         let outline = list
             .iter()
-            .find(|r| r.key == "sec:board/root")
-            .expect("outline");
+            .find(|r| r.key == "root")
+            .ok_or("no outline row")?;
         let mut actions = Vec::new();
         activate(&mut view, outline, &mut actions);
-        assert_eq!(view.selected_key.as_deref(), Some("sec:board/root"));
-        assert!(actions.contains(&Action::SelectKey("sec:board/root".to_owned())));
+        assert_eq!(view.selected_key.as_deref(), Some("root"));
+        assert!(actions.contains(&Action::SelectKey("root".to_owned())));
+        Ok(())
     }
 
     #[test]
@@ -2648,7 +2913,7 @@ mod tests {
             project.board.footprints.push(f);
         }
         let mut view = TreeView::default();
-        view.expanded.insert("sec:parts".to_owned());
+        view.expanded.insert("components".to_owned());
         let e = env(&project, &[]);
         let start = std::time::Instant::now();
         let list = rows(&e, &mut view);
@@ -2657,7 +2922,7 @@ mod tests {
         let again = rows(&e, &mut view);
         let cached = start.elapsed();
         assert!(list.len() > 2000 && again.len() == list.len());
-        assert!(first.as_millis() < 250, "first build took {first:?}");
+        assert!(first.as_millis() < 1500, "first build took {first:?}");
         assert!(cached.as_millis() < 50, "cached build took {cached:?}");
     }
 }

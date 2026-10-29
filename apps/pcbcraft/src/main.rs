@@ -65,7 +65,7 @@ fn main() -> eframe::Result {
     let project_path = option("--project");
     let select = option("--select");
     let options = eframe::NativeOptions {
-        viewport: egui_viewport(option("--size").as_deref()),
+        viewport: egui_viewport(),
         ..Default::default()
     };
     eframe::run_native(

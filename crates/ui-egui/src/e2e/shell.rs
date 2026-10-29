@@ -92,7 +92,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     app.tool = Tool::Select;
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "sec:board/root");
+    open_tree_row(&ctx, &mut app, "root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "1.00 mm on Top")?,
@@ -114,6 +114,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
         "the mark is resized and moved to the bottom: {}",
         app.message
     );
+    scrolled_to(&ctx, &mut app, "\u{d7}")?;
     authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
@@ -200,8 +201,6 @@ fn no_user_visible_literal_outside_the_catalog() -> Result<(), String> {
 fn board_layout_strings_are_all_catalog_keys() -> Result<(), String> {
     let listed = pcbcraft_text::scan::converted_fns();
     for (file, function) in [
-        ("lib.rs", "layers_tab"),
-        ("lib.rs", "board_anatomy_section"),
         ("lib.rs", "stackup_section"),
         ("lib.rs", "holes_section"),
         ("lib.rs", "fiducials_section"),

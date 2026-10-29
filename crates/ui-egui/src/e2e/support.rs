@@ -285,11 +285,37 @@ pub(crate) fn type_into(
 }
 
 /// Select a row of the left aside's Layers tree that is not one object, so
-/// Properties shows it: `sec:board/root` for the board settings, `sec:nets`
+/// Properties shows it: `root` for the board settings, `nets`
 /// for the connections editor.
 pub(crate) fn open_tree_row(ctx: &egui::Context, app: &mut App, key: &str) {
     app.preferences.left_tab = 0;
     app.select(None);
     app.tree.selected_key = Some(key.to_owned());
     frame(ctx, app, vec![], egui::Modifiers::NONE);
+}
+
+pub(crate) fn key(ctx: &egui::Context, app: &mut App, key: egui::Key) {
+    for pressed in [true, false] {
+        frame(
+            ctx,
+            app,
+            vec![egui::Event::Key {
+                key,
+                physical_key: Some(key),
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            egui::Modifiers::NONE,
+        );
+    }
+}
+
+/// Reach a tree row with the keyboard cursor, then press one key on it.
+pub(crate) fn press_on(ctx: &egui::Context, app: &mut App, row: &str, k: egui::Key) {
+    app.tree.focus_row(row);
+    for _ in 0..4 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
+    key(ctx, app, k);
 }

@@ -1878,7 +1878,7 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             ui.add(
                 crate::targets::text_field(&mut self.stack_name)
-                    .desired_width(70.0)
+                    .desired_width(150.0)
                     .hint_text(t!("board.stackup_section.layer_name")),
             )
             .named(&t!("board.stackup_section.layer_name"))
@@ -2386,6 +2386,7 @@ impl App {
             (Tab::PlotFiles, t!("docks.workbench_tabs.manufacture")),
         ];
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 20.0;
             ui.add_space(Self::PAGE_GUTTER);
             for (tab, label) in shown {
                 let selected = self.tab == tab;
@@ -2899,7 +2900,7 @@ impl App {
                     self.preferences.left_tab = tab;
                 }
                 if self.preferences.left_tab == 0 {
-                    self.layers_tree_panel(ui);
+                    layers_tree::layers_tab(ui, self);
                 } else {
                     self.library_body(ui);
                 }
@@ -2915,8 +2916,8 @@ impl App {
                 self.library_dock_body(ui, viewport);
                 ui.add_space(12.0);
                 ui.label(
-                    egui::RichText::new(t!("library.browser.components"))
-                        .size(10.0)
+                    egui::RichText::new(format!("    {note}"))
+                        .small()
                         .color(self.muted()),
                 );
                 for c in self.project.components.clone() {
@@ -5322,7 +5323,7 @@ impl App {
     /// narrow window, in the strip under the drawing. `top_h` is the height
     /// the layers tree gets.
     fn inspector_body(&mut self, ui: &mut egui::Ui, _top_h: f32) {
-        if self.preferences.aside_lower_tab == 2 {
+        if self.preferences.aside_lower_tab > 1 {
             self.preferences.aside_lower_tab = 0;
         }
         ui.horizontal(|ui| {
@@ -6247,8 +6248,12 @@ impl App {
         message: String,
         objects: Vec<Id>,
     ) {
+        let fill = self.colours().icon_fill;
+        let edge = Stroke::new(1.0, self.ink().gamma_multiply(0.35));
         let button = |text: String| {
             egui::Button::new(egui::RichText::new(text).size(Self::BODY))
+                .fill(fill)
+                .stroke(edge)
                 .min_size(egui::vec2(Self::ACTION_WIDTH, Self::MIN_TARGET))
         };
         if ui
@@ -7251,13 +7256,7 @@ mod tests {
         let ctx = egui::Context::default();
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        assert!(
-            scrolled_to(&ctx, &mut app, "Wires")?,
-            "the layers page lists wires as its own row"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Wires")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        crate::e2e::support::press_on(&ctx, &mut app, "nets", egui::Key::Space);
         assert!(
             app.preferences.hidden_layers.iter().any(|h| h == "Wires"),
             "unticking the row hides the wires layer"
@@ -7340,7 +7339,7 @@ mod tests {
         let before = app.project.nets.len();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        crate::e2e::support::open_tree_row(&ctx, &mut app, "nets");
         assert!(
             scrolled_to(&ctx, &mut app, "New net")?,
             "the layers tree offers a way to add a connection"
@@ -7925,7 +7924,7 @@ mod tests {
         );
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        crate::e2e::support::open_tree_row(&ctx, &mut app, "nets");
         assert!(
             scrolled_to(&ctx, &mut app, "of 3 nets routed")?,
             "the dock totals the routing at a glance: {}",

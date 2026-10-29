@@ -1,23 +1,7 @@
 //! Stories for the unified Layers tree in the left aside (#756).
 use super::super::*;
+use super::board::right_click;
 use super::support::*;
-
-fn key(ctx: &egui::Context, app: &mut App, key: egui::Key) {
-    for pressed in [true, false] {
-        frame(
-            ctx,
-            app,
-            vec![egui::Event::Key {
-                key,
-                physical_key: Some(key),
-                pressed,
-                repeat: false,
-                modifiers: egui::Modifiers::NONE,
-            }],
-            egui::Modifiers::NONE,
-        );
-    }
-}
 
 fn pcb_app() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -35,21 +19,25 @@ fn pcb_app() -> (egui::Context, App) {
 fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
     assert!(
-        paints_text(&ctx, &mut app, "COPPER")?,
-        "the tree opens on the copper group: {}",
+        paints_text(&ctx, &mut app, "Layer 1 · Top")?,
+        "the tree opens on the top layer: {}",
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "Top copper")?,
-        "the copper layers are rows of the tree: {}",
+        paints_text(&ctx, &mut app, "Copper")?,
+        "the copper sublayer is a row of the tree: {}",
         app.message
     );
     // Search a net, select it, see it highlighted.
     let net = app.project.nets[0].clone();
     app.tree.query = net.name.clone();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, &net.name)?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    press_on(
+        &ctx,
+        &mut app,
+        &format!("nets/net:{}", net.id),
+        egui::Key::Enter,
+    );
     assert_eq!(
         app.highlight_net,
         Some(net.id),
@@ -59,8 +47,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     app.tree.query.clear();
     // Focus a layer: the others dim.
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Top copper")?;
-    key(&ctx, &mut app, egui::Key::F);
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::F);
     assert_eq!(
         app.focus_layer.as_deref(),
         Some("copper:front"),
@@ -75,7 +62,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     key(&ctx, &mut app, egui::Key::F);
     assert_eq!(app.focus_layer, None, "F again brings everything back");
     // The board outline row opens the board settings in Properties.
-    authoring::tests::tap(&ctx, &mut app, "Board outline")?;
+    press_on(&ctx, &mut app, "root", egui::Key::Enter);
     assert!(
         paints_text(&ctx, &mut app, "Board settings")?,
         "the board row opens board settings: {}",
@@ -87,8 +74,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
 #[test]
 fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
-    authoring::tests::tap(&ctx, &mut app, "Top copper")?;
-    key(&ctx, &mut app, egui::Key::Space);
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
     assert!(
         app.preferences
             .hidden_layers
@@ -131,18 +117,18 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
 #[test]
 fn selecting_on_the_canvas_reveals_the_row_in_the_tree() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
-    app.tree.expanded.remove("sec:parts");
+    app.tree.expanded.remove("components");
     let id = app.project.board.footprints[0].id;
     app.select(Some(id));
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        app.tree.expanded.contains("sec:parts"),
+        app.tree.expanded.contains("components"),
         "the Parts group opens for a part picked on the drawing"
     );
     assert_eq!(
         app.tree.cursor.as_deref(),
-        Some(format!("sec:parts/fp:{id}").as_str())
+        Some(format!("components/fp:{id}").as_str())
     );
     let reference = app
         .project
@@ -167,7 +153,7 @@ fn a_board_of_two_thousand_parts_keeps_the_tree_interactive() -> Result<(), Stri
         app.project.board.footprints.push(f);
     }
     app.revision = app.revision.wrapping_add(1);
-    app.tree.expanded.insert("sec:parts".to_owned());
+    app.tree.expanded.insert("components".to_owned());
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let start = std::time::Instant::now();
     for _ in 0..5 {
@@ -177,6 +163,36 @@ fn a_board_of_two_thousand_parts_keeps_the_tree_interactive() -> Result<(), Stri
     assert!(
         each.as_millis() < 400,
         "a frame with 2,000 parts took {each:?}"
+    );
+    Ok(())
+}
+
+/// Where the painted text `label` sits on the current frame, if anywhere.
+fn text_at(ctx: &egui::Context, app: &mut App, label: &str) -> Option<egui::Pos2> {
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let mut found = None;
+    for shape in &output.shapes {
+        if let egui::Shape::Text(text) = &shape.shape
+            && text.galley.text() == label
+        {
+            found.get_or_insert(text.pos + text.galley.size() / 2.0);
+        }
+    }
+    found
+}
+
+#[test]
+fn a_newcomer_hides_a_layer_from_its_right_click_menu() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let row = text_at(&ctx, &mut app, "Copper").ok_or("the Copper row is not on screen")?;
+    right_click(&ctx, &mut app, row);
+    authoring::tests::tap(&ctx, &mut app, "Hide  Space")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.preferences.hidden_layers.iter().any(|h| h == "Top copper"),
+        "the menu hides the layer on the drawing: {}",
+        app.message
     );
     Ok(())
 }
