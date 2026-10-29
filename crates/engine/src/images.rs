@@ -349,6 +349,7 @@ fn trace(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error>
                     cutouts: vec![],
                     filled: true,
                     kind: None,
+                    pour: None,
                 });
                 ids.push(id);
             }
