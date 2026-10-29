@@ -46,13 +46,20 @@ fn a_newcomer_picks_each_row_of_the_schematic_tree() -> Result<(), String> {
             "button:D#, Green LED",
             "button:J#, #V input",
             "button:R#, # \u{3a9}",
-            "button:Sheet #",
         ],
     );
     assert!(missing.is_empty(), "rows not in the tree: {missing:?}");
     assert!(
         app.selected.is_some(),
         "the last part row selects its part on the drawing: {}",
+        app.message
+    );
+    let missing = press_each(&ctx, &mut app, &["button:Sheet #"]);
+    assert!(missing.is_empty(), "rows not in the tree: {missing:?}");
+    assert_eq!(
+        app.tree.selected_key.as_deref(),
+        Some("sec:sheet:0"),
+        "the sheet row selects its page so Properties shows it: {}",
         app.message
     );
     Ok(())

@@ -388,6 +388,9 @@ fn a_newcomer_adds_an_inner_copper_pair_from_the_tree() -> Result<(), String> {
         crate::layers_tree::RenameFor::Layer("In1.Cu".into()),
         "GND".into(),
     ));
+    // The row turns into a field first; Enter then keeps the new name.
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     key(&ctx, &mut app, egui::Key::Enter);
     assert!(
         app.project
@@ -459,5 +462,69 @@ fn a_silkscreen_line_drawn_on_the_layout_is_kept_for_the_capture() -> Result<(),
         app.message
     );
     keep_sample(&mut app, "silk-line");
+    Ok(())
+}
+
+/// Type `text` over what the focused field holds.
+fn type_over(ctx: &egui::Context, app: &mut App, text: &str) {
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::Key {
+            key: egui::Key::A,
+            physical_key: Some(egui::Key::A),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }],
+        egui::Modifiers::COMMAND,
+    );
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::Text(text.to_owned())],
+        egui::Modifiers::NONE,
+    );
+}
+
+#[test]
+fn a_newcomer_presses_f2_to_rename_a_net_and_a_layer() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    // A net: F2 on its row, type, Enter.
+    let net = app.project.nets[0].id;
+    app.tree.expanded.insert("nets".to_owned());
+    press_on(&ctx, &mut app, &format!("nets/net:{net}"), egui::Key::F2);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(app.tree.rename.is_some(), "F2 starts a rename on a net row");
+    type_over(&ctx, &mut app, "SIGNAL_A");
+    key(&ctx, &mut app, egui::Key::Enter);
+    assert_eq!(
+        app.project.net_name(net),
+        "SIGNAL_A",
+        "Enter renames the net: {}",
+        app.message
+    );
+    // Escape on the same row keeps the name.
+    press_on(&ctx, &mut app, &format!("nets/net:{net}"), egui::Key::F2);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    type_over(&ctx, &mut app, "OTHER");
+    key(&ctx, &mut app, egui::Key::Escape);
+    assert_eq!(app.project.net_name(net), "SIGNAL_A", "Escape cancels");
+    // A stackup layer.
+    app.tool_call("board.stackup_add_pair", json!({"after": "F.Cu"}));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    press_on(&ctx, &mut app, "inner:1", egui::Key::F2);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    type_over(&ctx, &mut app, "PWR");
+    key(&ctx, &mut app, egui::Key::Enter);
+    assert!(
+        app.project
+            .board
+            .layer_records
+            .iter()
+            .any(|r| r.name == "PWR"),
+        "F2 renames a PCB layer: {}",
+        app.message
+    );
     Ok(())
 }
