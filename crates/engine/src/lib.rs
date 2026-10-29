@@ -2462,8 +2462,12 @@ fn assign_to(
     definition: &pcbcraft_library::FootprintDefinition,
 ) -> Option<()> {
     let pins: std::collections::BTreeSet<_> = c.pins.iter().map(|p| p.number.as_str()).collect();
-    let pads: std::collections::BTreeSet<_> =
-        definition.pads.iter().map(|p| p.number.as_str()).collect();
+    let pads: std::collections::BTreeSet<_> = definition
+        .pads
+        .iter()
+        .filter(|p| !p.number.is_empty())
+        .map(|p| p.number.as_str())
+        .collect();
     if pins != pads {
         return None;
     }
@@ -22616,6 +22620,64 @@ mod tests {
     }
 
     #[test]
+    fn assign_to_ignores_unplated_pads_when_matching_pins() -> Result<(), Error> {
+        let footprint = pcbcraft_library::read_footprint(
+            "(footprint PegConn (pad 1 thru_hole circle (at -2.54 0) (size 1.6 1.6) (drill 0.8) (layers *.Cu *.Mask)) \
+             (pad 2 thru_hole circle (at 2.54 0) (size 1.6 1.6) (drill 0.8) (layers *.Cu *.Mask)) \
+             (pad \"\" np_thru_hole circle (at -5 5) (size 0 0) (drill 3) (layers)) \
+             (pad \"\" np_thru_hole circle (at 5 5) (size 0 0) (drill 3) (layers)))",
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(
+            footprint
+                .pads
+                .iter()
+                .filter(|p| p.pad_type == "unplated")
+                .count(),
+            2
+        );
+        let mut s = Session::default();
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": footprint}),
+            None,
+        )?;
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id": id, "name":"PegConn"}),
+            None,
+        )?;
+        assert!(
+            s.project
+                .component(id)
+                .and_then(|c| c.library_footprint.as_ref())
+                .is_some(),
+            "numbered pads match the two-pin symbol even with mechanical pegs"
+        );
+        s.execute("board.sync", json!({}), None)?;
+        assert_eq!(s.project.board.footprints.len(), 1);
+        assert_eq!(s.project.board.footprints[0].pads.len(), 4);
+        assert!(
+            s.project.board.footprints[0]
+                .pads
+                .iter()
+                .filter(|p| p
+                    .geometry
+                    .as_ref()
+                    .is_some_and(|g| g.pad_type == "unplated"))
+                .all(|p| p.net.is_none())
+        );
+        Ok(())
+    }
+
+    #[test]
     fn net_ties_can_be_re_aimed_at_another_pair_and_resized() -> Result<(), Error> {
         let mut s = Session::default();
         let mut net = |name: &str| -> Result<u64, Error> {
@@ -23476,6 +23538,8 @@ mod tests {
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cu.gbr",
+                "pcb-NPTH.drl",
+                "pcb-Plated.drl",
                 "pcb.dxf"
             ])
         );
@@ -23485,6 +23549,8 @@ mod tests {
             "pcb-Drill.drl",
             "pcb-DrillMap.gbr",
             "pcb-Edge.gbr",
+            "pcb-NPTH.drl",
+            "pcb-Plated.drl",
             "pcb.dxf",
         ] {
             assert!(
@@ -23537,6 +23603,8 @@ mod tests {
             "pcb-B.Cu.gbr",
             "pcb-Drill.drl",
             "pcb-Edge.gbr",
+            "pcb-NPTH.drl",
+            "pcb-Plated.drl",
             "pcb.dxf",
             "bom.csv",
             "pcb-netlist.net",

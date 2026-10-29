@@ -56,6 +56,41 @@ fn copper(project: &Project) -> Vec<Copper> {
             .and_then(|l| l.definition.rules.as_ref())
             .and_then(|r| r.clearance);
         for pad in &f.pads {
+            let Some(geometry) = pad.geometry.as_ref() else {
+                continue;
+            };
+            if geometry.pad_type == "unplated" {
+                let Some(drill) = geometry.drill.as_ref() else {
+                    continue;
+                };
+                let position = f.pad_world_position(pad);
+                let radius = drill.size.x.min(drill.size.y) / 2.0;
+                if radius <= 0.0 {
+                    continue;
+                }
+                let item = Copper {
+                    id: f.id,
+                    net: 0,
+                    start: position,
+                    end: position,
+                    radius,
+                    contact_radius: radius,
+                    conservative: false,
+                    outline: None,
+                    outline_error: 0.0,
+                    layer: Layer::Front,
+                    pad: false,
+                    clearance: None,
+                    bridge: None,
+                    hole: None,
+                    cutouts: vec![],
+                };
+                let mut back = item.clone();
+                back.layer = Layer::Back;
+                result.push(back);
+                result.push(item);
+                continue;
+            }
             if let Some(position) = f.pad_position(&pad.number) {
                 let plated = pad
                     .geometry
@@ -1594,5 +1629,120 @@ mod tests {
             pad.geometry = Some(l);
             assert!((pad.contact_radius() - 0.2).abs() < 1e-12);
         }
+    }
+
+    #[test]
+    fn drc_clearance_when_track_crosses_footprint_unplated_drill() -> Result<(), String> {
+        let thru = |number: &str, x: f64| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let peg = pcbcraft_library::FootprintPad {
+            number: String::new(),
+            pad_type: "unplated".into(),
+            shape: "circle".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            size: Point::default(),
+            layers: vec![],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(3.0, 3.0),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "PegOnly".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![thru("1", -2.54), thru("2", 2.54), peg.clone()],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut component =
+            component_template("resistor", 2, "R1".into(), Point::default()).ok_or("template")?;
+        component.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+            library: "test".into(),
+            definition: definition.clone(),
+        });
+        p.components.push(component);
+        p.board.footprints.push(Footprint {
+            id: 4,
+            component: 2,
+            position: Point::new(30.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![
+                Pad {
+                    number: "1".into(),
+                    offset: Point::new(-2.54, 0.0),
+                    diameter: 1.6,
+                    net: None,
+                    castellated: None,
+                    geometry: Some(definition.pads[0].clone()),
+                },
+                Pad {
+                    number: "2".into(),
+                    offset: Point::new(2.54, 0.0),
+                    diameter: 1.6,
+                    net: None,
+                    castellated: None,
+                    geometry: Some(definition.pads[1].clone()),
+                },
+                Pad {
+                    number: String::new(),
+                    offset: peg.position,
+                    diameter: 0.0,
+                    net: None,
+                    castellated: None,
+                    geometry: Some(peg),
+                },
+            ],
+        });
+        p.board.tracks.push(Track {
+            id: 5,
+            net: 1,
+            start: Point::new(20.0, 20.0),
+            end: Point::new(40.0, 20.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.validate()?;
+        let findings = drc(&p);
+        assert!(
+            findings.iter().any(|f| {
+                (f.code == "clearance" || f.code == "copper_short")
+                    && f.objects.contains(&4)
+                    && f.objects.contains(&5)
+            }),
+            "a track through a peg drill is a clearance finding: {findings:?}"
+        );
+        Ok(())
     }
 }

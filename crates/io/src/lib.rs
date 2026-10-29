@@ -1901,6 +1901,158 @@ fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct ProjectDrillHit {
+    d: u64,
+    span: u64,
+    x: f64,
+    y: f64,
+    ux: f64,
+    uy: f64,
+    plated: bool,
+}
+
+fn project_drill_hits(p: &Project) -> Result<Vec<ProjectDrillHit>, String> {
+    const MAX_HITS: usize = 50_000;
+    let mut hits = Vec::new();
+    let push = |hit: ProjectDrillHit, hits: &mut Vec<ProjectDrillHit>| {
+        hits.push(hit);
+    };
+    for v in &p.board.vias {
+        if v.drill > 0.0 {
+            push(
+                ProjectDrillHit {
+                    d: (v.drill * 1_000.0).round() as u64,
+                    span: 0,
+                    x: v.position.x,
+                    y: v.position.y,
+                    ux: 0.0,
+                    uy: 0.0,
+                    plated: true,
+                },
+                &mut hits,
+            );
+        }
+    }
+    for h in &p.board.holes {
+        push(
+            ProjectDrillHit {
+                d: (h.diameter * 1_000.0).round() as u64,
+                span: 0,
+                x: h.position.x,
+                y: h.position.y,
+                ux: 0.0,
+                uy: 0.0,
+                plated: false,
+            },
+            &mut hits,
+        );
+    }
+    for f in &p.board.footprints {
+        for pad in &f.pads {
+            let Some(g) = pad.geometry.as_ref() else {
+                continue;
+            };
+            let Some(drill) = g.drill.as_ref() else {
+                continue;
+            };
+            let (wide, narrow) = (
+                drill.size.x.max(drill.size.y),
+                drill.size.x.min(drill.size.y),
+            );
+            let d = (narrow * 1_000.0).round() as u64;
+            if d == 0 {
+                continue;
+            }
+            let span = ((wide - narrow) * 1_000.0).round() as u64;
+            let local = pad.offset.offset(drill.offset.rotate(-g.rotation));
+            let world = f.position.offset(local.rotate(-f.rotation));
+            let (ux, uy) = if span == 0 {
+                (0.0, 0.0)
+            } else {
+                let axis = if drill.size.x >= drill.size.y {
+                    Point::new((wide - narrow) / 2.0, 0.0)
+                } else {
+                    Point::new(0.0, (wide - narrow) / 2.0)
+                };
+                let dir = axis.rotate(-(g.rotation + f.rotation));
+                (dir.x, dir.y)
+            };
+            push(
+                ProjectDrillHit {
+                    d,
+                    span,
+                    x: world.x,
+                    y: world.y,
+                    ux,
+                    uy,
+                    plated: g.pad_type == "thru_hole",
+                },
+                &mut hits,
+            );
+        }
+    }
+    if hits.len() > MAX_HITS {
+        return Err("gerber export exceeds the drill hit limit".into());
+    }
+    Ok(hits)
+}
+
+fn excellon_drill_file(
+    hits: &[ProjectDrillHit],
+    origin: Point,
+    inch: bool,
+    scale: f64,
+    plated_filter: Option<bool>,
+) -> String {
+    type DrillHit = (f64, f64, f64, f64);
+    let mut drills: BTreeMap<(u64, u64), Vec<DrillHit>> = BTreeMap::new();
+    for hit in hits {
+        if plated_filter.is_some_and(|plated| hit.plated != plated) {
+            continue;
+        }
+        drills
+            .entry((hit.d, hit.span))
+            .or_default()
+            .push((hit.x, hit.y, hit.ux, hit.uy));
+    }
+    let (drill_header, drill_prec) = if inch {
+        ("INCH,TZ", 4)
+    } else {
+        ("METRIC,TZ", 3)
+    };
+    let mut drill = format!("M48\nFMAT,2\n{drill_header}\n");
+    for (n, (d, _)) in drills.keys().enumerate() {
+        drill.push_str(&format!(
+            "T{}C{:.drill_prec$}\n",
+            n + 1,
+            *d as f64 / 1000.0 * scale
+        ));
+    }
+    drill.push_str("%\nG90\nG05\n");
+    for (n, holes) in drills.values().enumerate() {
+        drill.push_str(&format!("T{}\n", n + 1));
+        for (x, y, ux, uy) in holes {
+            let (x, y) = (x - origin.x, y - origin.y);
+            let (x, y) = (x * scale, y * scale);
+            let (ux, uy) = (ux * scale, uy * scale);
+            if ux == 0.0 && uy == 0.0 {
+                drill.push_str(&format!("X{x:.drill_prec$}Y{y:.drill_prec$}\n"));
+            } else {
+                drill.push_str(&format!(
+                    "X{a:.drill_prec$}Y{b:.drill_prec$}G85X{c:.drill_prec$}Y{d:.drill_prec$}\n",
+                    a = x - ux,
+                    b = y - uy,
+                    c = x + ux,
+                    d = y + uy
+                ));
+            }
+        }
+    }
+    drill.push_str("M30\n");
+    drill
+}
+
 /// RS-274X copper/outline layers plus an Excellon drill file, as filename to
 /// text. Copper layers carry zones, tracks, via and pad copper; the outline
 /// layer carries the board edge and circular cutouts; the drill file carries
@@ -1911,7 +2063,6 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     const MAX_OPS: usize = 100_000;
     const MAX_APERTURES: usize = 64;
-    const MAX_HITS: usize = 50_000;
     // An inch project gets imperial fabrication files; coordinates are still
     // stored in millimetres, so every written value is rescaled here.
     let inch = p.unit == "inch";
@@ -2104,33 +2255,42 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     }
     for f in &p.board.footprints {
         for pad in &f.pads {
-            let world = f.position.offset(pad.offset.rotate(-f.rotation));
-            let through = pad
-                .geometry
-                .as_ref()
-                .is_some_and(|g| g.drill.is_some() || g.pad_type.starts_with("thru_hole"));
-            let is_back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
-            });
-            let ap = match &pad.geometry {
-                Some(g) => {
+            let Some(g) = pad.geometry.as_ref() else {
+                continue;
+            };
+            if g.pad_type == "unplated" {
+                continue;
+            }
+            let world = f.pad_world_position(pad);
+            let through = g.pad_type == "thru_hole" || g.drill.is_some();
+            let is_back = !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."));
+            let ap = match g.shape.as_str() {
+                "circle" => {
+                    let w = (g.size.x * 1_000.0).round() as u64;
+                    Ap::Circle(w.max(1))
+                }
+                "rect" => {
                     let w = (g.size.x * 1_000.0).round() as u64;
                     let h = (g.size.y * 1_000.0).round() as u64;
-                    match g.shape.as_str() {
-                        "circle" => Ap::Circle(w.max(1)),
-                        "rect" => Ap::Rect(w.max(1), h.max(1)),
-                        "oval" => Ap::Obround(w.max(1), h.max(1)),
-                        "roundrect" => Ap::Round(
-                            w.max(1),
-                            h.max(1),
-                            ((w.min(h) as f64 * g.roundrect_ratio.unwrap_or(0.0))
-                                .round()
-                                .max(1.0)) as u64,
-                        ),
-                        _ => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
-                    }
+                    Ap::Rect(w.max(1), h.max(1))
                 }
-                None => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
+                "oval" => {
+                    let w = (g.size.x * 1_000.0).round() as u64;
+                    let h = (g.size.y * 1_000.0).round() as u64;
+                    Ap::Obround(w.max(1), h.max(1))
+                }
+                "roundrect" => {
+                    let w = (g.size.x * 1_000.0).round() as u64;
+                    let h = (g.size.y * 1_000.0).round() as u64;
+                    Ap::Round(
+                        w.max(1),
+                        h.max(1),
+                        ((w.min(h) as f64 * g.roundrect_ratio.unwrap_or(0.0))
+                            .round()
+                            .max(1.0)) as u64,
+                    )
+                }
+                _ => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
             };
             let (front_code, back_code) = if through {
                 (front.code(ap.clone())?, back.code(ap.clone())?)
@@ -2173,115 +2333,23 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             0.0
         ));
     }
-    type DrillHit = (f64, f64, f64, f64);
-    let mut drills: BTreeMap<(u64, u64), Vec<DrillHit>> = BTreeMap::new();
-    let mut add_hole = |d: u64, span: u64, x: f64, y: f64, ux: f64, uy: f64| {
-        drills.entry((d, span)).or_default().push((x, y, ux, uy));
-    };
-    for v in &p.board.vias {
-        if v.drill > 0.0 {
-            add_hole(
-                (v.drill * 1_000.0).round() as u64,
-                0,
-                v.position.x,
-                v.position.y,
-                0.0,
-                0.0,
-            );
-        }
-    }
-    for h in &p.board.holes {
-        add_hole(
-            (h.diameter * 1_000.0).round() as u64,
-            0,
-            h.position.x,
-            h.position.y,
-            0.0,
-            0.0,
-        );
-    }
-    for f in &p.board.footprints {
-        for pad in &f.pads {
-            let Some(g) = pad.geometry.as_ref() else {
-                continue;
-            };
-            let Some(drill) = g.drill.as_ref() else {
-                continue;
-            };
-            let (wide, narrow) = (
-                drill.size.x.max(drill.size.y),
-                drill.size.x.min(drill.size.y),
-            );
-            let d = (narrow * 1_000.0).round() as u64;
-            if d == 0 {
-                continue;
-            }
-            let span = ((wide - narrow) * 1_000.0).round() as u64;
-            let local = pad.offset.offset(drill.offset.rotate(-g.rotation));
-            let world = f.position.offset(local.rotate(-f.rotation));
-            let (ux, uy) = if span == 0 {
-                (0.0, 0.0)
-            } else {
-                let axis = if drill.size.x >= drill.size.y {
-                    Point::new((wide - narrow) / 2.0, 0.0)
-                } else {
-                    Point::new(0.0, (wide - narrow) / 2.0)
-                };
-                let dir = axis.rotate(-(g.rotation + f.rotation));
-                (dir.x, dir.y)
-            };
-            add_hole(d, span, world.x, world.y, ux, uy);
-        }
-    }
-    let total: usize = drills.values().map(|v| v.len()).sum();
-    if total > MAX_HITS {
-        return Err("gerber export exceeds the drill hit limit".into());
-    }
-    let (drill_header, drill_prec) = if inch {
-        ("INCH,TZ", 4)
-    } else {
-        ("METRIC,TZ", 3)
-    };
-    let mut drill = format!("M48\nFMAT,2\n{drill_header}\n");
-    for (n, (d, _)) in drills.keys().enumerate() {
-        drill.push_str(&format!(
-            "T{}C{:.drill_prec$}\n",
-            n + 1,
-            *d as f64 / 1000.0 * scale
-        ));
-    }
-    drill.push_str("%\nG90\nG05\n");
+    let hits = project_drill_hits(p)?;
     let origin = p.board.drill_origin;
-    for (n, holes) in drills.values().enumerate() {
-        drill.push_str(&format!("T{}\n", n + 1));
-        for (x, y, ux, uy) in holes {
-            let (x, y) = (x - origin.x, y - origin.y);
-            let (x, y) = (x * scale, y * scale);
-            let (ux, uy) = (ux * scale, uy * scale);
-            if ux == 0.0 && uy == 0.0 {
-                drill.push_str(&format!("X{x:.drill_prec$}Y{y:.drill_prec$}\n"));
-            } else {
-                drill.push_str(&format!(
-                    "X{a:.drill_prec$}Y{b:.drill_prec$}G85X{c:.drill_prec$}Y{d:.drill_prec$}\n",
-                    a = x - ux,
-                    b = y - uy,
-                    c = x + ux,
-                    d = y + uy
-                ));
-            }
-        }
-    }
-    drill.push_str("M30\n");
+    let drill = excellon_drill_file(&hits, origin, inch, scale, None);
+    let plated_drill = excellon_drill_file(&hits, origin, inch, scale, Some(true));
+    let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false));
     let mut map = outline.clone();
     let marker = map.code(Ap::Circle(100))?;
-    for holes in drills.values() {
-        for &(x, y, ux, uy) in holes {
-            let (x, y) = (x - origin.x, y - origin.y);
-            if ux == 0.0 && uy == 0.0 {
-                map.flash(marker, x, y)?;
-            } else {
-                map.stroke(marker, &[(x - ux, y - uy), (x + ux, y + uy)], false)?;
-            }
+    for hit in &hits {
+        let (x, y) = (hit.x - origin.x, hit.y - origin.y);
+        if hit.ux == 0.0 && hit.uy == 0.0 {
+            map.flash(marker, x, y)?;
+        } else {
+            map.stroke(
+                marker,
+                &[(x - hit.ux, y - hit.uy), (x + hit.ux, y + hit.uy)],
+                false,
+            )?;
         }
     }
     let mut files = BTreeMap::new();
@@ -2302,6 +2370,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         map.finish(false, "drill hole map"),
     );
     files.insert("pcb-Drill.drl".into(), drill);
+    files.insert("pcb-Plated.drl".into(), plated_drill);
+    files.insert("pcb-NPTH.drl".into(), npth_drill);
     Ok(files)
 }
 /// Bill of materials as CSV: identical parts collapsed into one row with a
@@ -2766,46 +2836,15 @@ pub fn report_text(p: &Project) -> Result<String, String> {
 pub fn drill_chart_csv(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_TOOLS: usize = 64;
-    const MAX_HITS: usize = 50_000;
+    let hits = project_drill_hits(p)?;
     let mut tools: BTreeMap<(u64, u64, bool), usize> = BTreeMap::new();
-    let add = |d: u64, span: u64, plated: bool, tools: &mut BTreeMap<(u64, u64, bool), usize>| {
-        *tools.entry((d, span, plated)).or_default() += 1;
-    };
-    for v in &p.board.vias {
-        if v.drill > 0.0 {
-            add((v.drill * 1_000.0).round() as u64, 0, true, &mut tools);
-        }
-    }
-    for h in &p.board.holes {
-        add((h.diameter * 1_000.0).round() as u64, 0, false, &mut tools);
-    }
-    for f in &p.board.footprints {
-        for pad in &f.pads {
-            let Some(g) = pad.geometry.as_ref() else {
-                continue;
-            };
-            let Some(drill) = g.drill.as_ref() else {
-                continue;
-            };
-            let (wide, narrow) = (
-                drill.size.x.max(drill.size.y),
-                drill.size.x.min(drill.size.y),
-            );
-            let d = (narrow * 1_000.0).round() as u64;
-            if d == 0 {
-                continue;
-            }
-            let span = ((wide - narrow) * 1_000.0).round() as u64;
-            add(d, span, g.pad_type == "thru_hole", &mut tools);
-        }
+    for hit in hits {
+        *tools.entry((hit.d, hit.span, hit.plated)).or_default() += 1;
     }
     if tools.len() > MAX_TOOLS {
         return Err("drill chart needs 64 or fewer distinct drill tools".into());
     }
     let total: usize = tools.values().sum();
-    if total > MAX_HITS {
-        return Err("drill chart exceeds the drill hit limit".into());
-    }
     let title = if p.name.trim().is_empty() {
         "untitled board"
     } else {
@@ -7643,7 +7682,9 @@ mod tests {
                 "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
-                "pcb-F.Cu.gbr"
+                "pcb-F.Cu.gbr",
+                "pcb-NPTH.drl",
+                "pcb-Plated.drl",
             ]
         );
         let map = &files["pcb-DrillMap.gbr"];
@@ -10726,6 +10767,147 @@ mod tests {
         let back = gerber_copper(&project, pcbcraft_doc::Layer::Back)?;
         assert!(!back.contains("D03*") && !back.contains("%AM"));
         assert!(back.contains("%TF.FileFunction,Copper,L2,Bot*%"));
+        Ok(())
+    }
+
+    fn peg_footprint_project() -> Result<Project, String> {
+        let peg = |x: f64, y: f64| pcbcraft_library::FootprintPad {
+            number: String::new(),
+            pad_type: "unplated".into(),
+            shape: "circle".into(),
+            position: Point::new(x, y),
+            rotation: 0.0,
+            size: Point::default(),
+            layers: vec![],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(3.0, 3.0),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let thru = |number: &str, x: f64| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "PegConn".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![
+                thru("1", -2.54),
+                thru("2", 2.54),
+                peg(-5.0, 5.0),
+                peg(5.0, 5.0),
+            ],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        pcbcraft_doc::validate_footprint_support(&definition)?;
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut component =
+            pcbcraft_doc::component_template("resistor", 2, "R1".into(), Point::default())
+                .ok_or("template")?;
+        component.pins[0].net = Some(1);
+        component.pins[1].net = Some(1);
+        component.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+            library: "test".into(),
+            definition: definition.clone(),
+        });
+        project.components.push(component);
+        let placed: Vec<pcbcraft_doc::Pad> = definition
+            .pads
+            .iter()
+            .map(|g| pcbcraft_doc::Pad {
+                number: g.number.clone(),
+                offset: g.position,
+                diameter: g.size.x.min(g.size.y),
+                net: project.components[0]
+                    .pins
+                    .iter()
+                    .find(|p| p.number == g.number)
+                    .and_then(|p| p.net),
+                castellated: None,
+                geometry: Some(g.clone()),
+            })
+            .collect();
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 3,
+            component: 2,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            pads: placed,
+        });
+        project.validate()?;
+        Ok(project)
+    }
+
+    #[test]
+    fn gerber_files_footprint_unplated_pegs_export_only_to_npth_drill() -> Result<(), String> {
+        let project = peg_footprint_project()?;
+        let files = gerber_files(&project)?;
+        let plated = &files["pcb-Plated.drl"];
+        let npth = &files["pcb-NPTH.drl"];
+        assert!(
+            plated.contains("T1C0.800\n"),
+            "numbered through-hole pads stay on the plated drill file"
+        );
+        assert!(
+            !plated.contains("X5.000Y15.000\n") && !plated.contains("X15.000Y15.000\n"),
+            "peg coordinates must not appear in the plated drill file: {plated}"
+        );
+        assert!(
+            npth.contains("T1C3.000\n"),
+            "both pegs share one unplated tool"
+        );
+        assert!(
+            npth.contains("X5.000Y15.000\n") && npth.contains("X15.000Y15.000\n"),
+            "peg hits land in the NPTH drill file: {npth}"
+        );
+        let front = &files["pcb-F.Cu.gbr"];
+        assert!(
+            !front.contains("X5.000000Y15.000000D03"),
+            "unplated pegs must not flash copper"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn drill_chart_csv_lists_footprint_pegs_as_unplated() -> Result<(), String> {
+        let project = peg_footprint_project()?;
+        let text = drill_chart_csv(&project)?;
+        assert!(
+            text.contains("T1,0.800,0.000,yes,2"),
+            "numbered pads are plated hits"
+        );
+        assert!(
+            text.contains("T2,3.000,0.000,no,2"),
+            "locating pegs are unplated hits"
+        );
         Ok(())
     }
 }
