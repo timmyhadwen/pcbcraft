@@ -156,10 +156,10 @@ type StackShape = (
 type CheckGroup = (String, Vec<(String, Vec<Id>)>);
 type AnatGroup = (
     &'static str,
-    &'static str,
-    &'static str,
+    String,
+    String,
     Vec<(Option<Id>, String)>,
-    &'static str,
+    String,
 );
 /// One line, in plain words, describing a figure drawn on a machine layer.
 fn art_shape_text(shape: &pcbcraft_doc::ArtShape) -> String {
@@ -263,37 +263,69 @@ fn role_token(label: &str) -> Option<&'static str> {
         .map(|(token, _)| *token)
 }
 
+/// The words shown beside a layer checkbox. The English name is the stored
+/// id in the preferences, so only the label is translated.
+fn layer_row_label(name: &str) -> String {
+    match name {
+        "Grid" => t!("board.layers_tab.grid"),
+        "Symbols" => t!("board.layers_tab.symbols"),
+        "Wires" => t!("board.layers_tab.wires"),
+        "Net labels" => t!("board.layers_tab.net_labels"),
+        "Graphics" => t!("board.layers_tab.graphics"),
+        "Top copper" => t!("board.layers_tab.top_copper"),
+        "Bottom copper" => t!("board.layers_tab.bottom_copper"),
+        "Pads" => t!("board.layers_tab.pads"),
+        "Vias" => t!("board.layers_tab.vias"),
+        "Copper zones" => t!("board.layers_tab.copper_zones"),
+        "Cutouts" => t!("board.layers_tab.cutouts"),
+        "Package artwork" => t!("board.layers_tab.package_artwork"),
+        other => other.to_owned(),
+    }
+}
+
 /// What the mouse and keys will do next for the active tool. The strip is
 /// rendered under the toolbar so the next action is always visible instead
 /// of being something the user has to remember.
 fn tool_hint(tool: &Tool) -> String {
-    let common = " · middle-drag: pan · scroll: zoom · Esc: back to select";
+    let common = format!(" {}", t!("board.tool_hint.middle_drag_pan_scroll_zoom"));
     match tool {
-        Tool::Select => format!("LMB: select an object · drag: move the selected object{common}"),
-        Tool::Place(_) => format!("LMB: place the symbol at the cursor{common}"),
+        Tool::Select => t!("board.tool_hint.lmb_select_an_object_drag", common = common),
+        Tool::Place(_) => t!("board.tool_hint.lmb_place_the_symbol_at", common = common),
         Tool::LibraryPlace(..) | Tool::CustomPlace(..) => {
-            format!("LMB: place the symbol package at the cursor{common}")
+            t!(
+                "board.tool_hint.lmb_place_the_symbol_package",
+                common = common
+            )
         }
-        Tool::Wire(None) => format!("LMB: pick the first pin of the new wire{common}"),
+        Tool::Wire(None) => t!("board.tool_hint.lmb_pick_the_first_pin", common = common),
         Tool::Wire(Some(_)) => {
-            format!("LMB: pick the second pin to complete the wire{common}")
+            t!("board.tool_hint.lmb_pick_the_second_pin", common = common)
         }
-        Tool::Route(None) => format!("LMB: pick the first pad to start the track{common}"),
+        Tool::Route(None) => t!("board.tool_hint.lmb_pick_the_first_pad", common = common),
         Tool::Route(Some(_)) => {
-            format!("LMB: pick the second pad to complete the track{common}")
+            t!("board.tool_hint.lmb_pick_the_second_pad", common = common)
         }
-        Tool::Move => format!("LMB: drop the selected object at the cursor{common}"),
-        Tool::Cutout => format!("LMB: place a circular cutout at the cursor{common}"),
-        Tool::Hole => format!("LMB: drill a mounting hole at the cursor{common}"),
+        Tool::Move => t!(
+            "board.tool_hint.lmb_drop_the_selected_object",
+            common = common
+        ),
+        Tool::Cutout => t!(
+            "board.tool_hint.lmb_place_a_circular_cutout",
+            common = common
+        ),
+        Tool::Hole => t!("board.tool_hint.lmb_drill_a_mounting_hole", common = common),
         Tool::NoConnect => {
-            format!("LMB: click a pin to mark it unused, or again to undo{common}")
+            t!("board.tool_hint.lmb_click_a_pin_to", common = common)
         }
-        Tool::Fiducial => format!("LMB: place an assembly mark at the cursor{common}"),
+        Tool::Fiducial => t!(
+            "board.tool_hint.lmb_place_an_assembly_mark",
+            common = common
+        ),
         Tool::DrawLayer => {
-            format!("LMB: place the shape on the active layer{common}")
+            t!("board.tool_hint.lmb_place_the_shape_on", common = common)
         }
         Tool::Measure => {
-            format!("LMB: click two points to read the distance between them{common}")
+            t!("board.tool_hint.lmb_click_two_points_to", common = common)
         }
     }
 }
@@ -1352,27 +1384,25 @@ impl App {
     }
     fn stackup_section(&mut self, ui: &mut egui::Ui) {
         ui.label(
-            egui::RichText::new("BOARD STACKUP")
+            egui::RichText::new(t!("board.stackup_section.board_stackup"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "The physical board: copper, core and covering layers, recorded for the factory.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("board.stackup_section.the_physical_board_copper_core"))
+                .small()
+                .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new("START FROM A SHAPE")
+            egui::RichText::new(t!("board.stackup_section.start_from_a_shape"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.horizontal_wrapped(|ui| {
             const PRESETS: [StackShape; 3] = [
                 (
-                    "Two layers · 1.6 mm",
-                    "The usual starter board: copper on each side of a plain 1.6 mm core. Choose this unless the shop told you otherwise.",
+                    "board.stackup_section.two_layers_1_6_mm",
+                    "board.stackup_section.the_usual_starter_board_copper",
                     &[
                         ("Top copper", "copper", 0.035),
                         ("Core", "core", 1.53),
@@ -1380,8 +1410,8 @@ impl App {
                     ],
                 ),
                 (
-                    "Two layers · thin 1.0 mm",
-                    "A slimmer board for tight cases. Same two copper sides, thinner core.",
+                    "board.stackup_section.two_layers_thin_1_0",
+                    "board.stackup_section.a_slimmer_board_for_tight",
                     &[
                         ("Top copper", "copper", 0.035),
                         ("Core", "core", 0.93),
@@ -1389,8 +1419,8 @@ impl App {
                     ],
                 ),
                 (
-                    "Four layers",
-                    "Two extra inner copper layers for a solid ground plane and cleaner signals. Worth it once a board has more than a handful of parts.",
+                    "board.stackup_section.four_layers",
+                    "board.stackup_section.two_extra_inner_copper_layers",
                     &[
                         ("Top copper", "copper", 0.035),
                         ("Prepreg", "prepreg", 0.2),
@@ -1404,9 +1434,10 @@ impl App {
             ];
             for (title, help, layers) in PRESETS {
                 if ui
-                    .small_button(title)
-                    .on_hover_text(format!(
-                        "{help} Choosing it replaces whatever stackup is recorded now."
+                    .small_button(pcbcraft_text::lookup(title, &[]))
+                    .on_hover_text(t!(
+                        "board.stackup_section.help_choosing_it_replaces_whatever.tip",
+                        help = pcbcraft_text::lookup(help, &[])
                     ))
                     .clicked()
                 {
@@ -1422,11 +1453,9 @@ impl App {
         });
         if self.project.board.layer_records.is_empty() {
             ui.label(
-                egui::RichText::new(
-                    "Nothing recorded yet: this board leaves the shop as two copper layers, 1.6 mm.",
-                )
-                .small()
-                .color(self.muted()),
+                egui::RichText::new(t!("board.stackup_section.nothing_recorded_yet_this_board"))
+                    .small()
+                    .color(self.muted()),
             );
         }
         for record in self.project.board.layer_records.clone() {
@@ -1437,16 +1466,16 @@ impl App {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&record.name).strong());
-                    ui.label(format!(
-                        "{} · {:.3} mm",
-                        role_label(&record.kind),
-                        record.thickness
+                    ui.label(t!(
+                        "board.stackup_section.v0_thickness_mm",
+                        v0 = role_label(&record.kind),
+                        thickness = format!("{:.3}", record.thickness)
                     ))
-                    .on_hover_text("What this layer is and how thick it is, as recorded.");
+                    .on_hover_text(t!("board.stackup_section.v0_thickness_mm.tip"));
                     if !editing
                         && ui
-                            .small_button("Tune")
-                            .on_hover_text("Change this layer's role or thickness.")
+                            .small_button(t!("board.stackup_section.tune"))
+                            .on_hover_text(t!("board.stackup_section.tune.tip"))
                             .clicked()
                     {
                         self.stack_edit = Some((
@@ -1467,7 +1496,9 @@ impl App {
                                 for (_, words) in STACK_ROLES {
                                     if ui
                                         .selectable_label(label == words, words)
-                                        .on_hover_text("What this layer does in the board.")
+                                        .on_hover_text(t!(
+                                            "board.stackup_section.what_this_layer_does_in.tip"
+                                        ))
                                         .clicked()
                                     {
                                         *label = (*words).to_owned();
@@ -1476,22 +1507,22 @@ impl App {
                                 }
                             })
                             .response
-                            .on_hover_text("Pick what this layer is made of and does.");
+                            .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"));
                         ui.add(
                             egui::DragValue::new(thickness)
                                 .speed(0.01)
                                 .range(0.0..=100.0)
-                                .suffix(" mm"),
+                                .suffix(format!(" {}", t!("unit.mm"))),
                         )
-                        .on_hover_text("How thick this layer is, in millimetres.");
+                        .on_hover_text(t!("unit.mm.tip"));
                     });
                     let apply = ui
-                        .button("Apply")
-                        .on_hover_text("Keep these changes for this layer.")
+                        .button(t!("board.stackup_section.apply"))
+                        .on_hover_text(t!("board.stackup_section.apply.tip"))
                         .clicked();
                     let cancel = ui
-                        .small_button("Cancel")
-                        .on_hover_text("Leave this layer as it was.")
+                        .small_button(t!("board.stackup_section.cancel"))
+                        .on_hover_text(t!("board.stackup_section.cancel.tip"))
                         .clicked();
                     if apply {
                         if let Some((name, label, thickness)) = self.stack_edit.take()
@@ -1517,25 +1548,28 @@ impl App {
                 .map(|r| r.thickness)
                 .sum();
             ui.label(
-                egui::RichText::new(format!("Recorded layers add up to {:.3} mm.", total))
-                    .small()
-                    .color(self.muted()),
+                egui::RichText::new(t!(
+                    "board.stackup_section.recorded_layers_add_up_to",
+                    total = format!("{:.3}", total)
+                ))
+                .small()
+                .color(self.muted()),
             );
         }
         ui.horizontal_wrapped(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.stack_name)
                     .desired_width(70.0)
-                    .hint_text("layer name"),
+                    .hint_text(t!("board.stackup_section.layer_name")),
             )
-            .on_hover_text("Name this layer, for example Core, Prepreg or L2.");
+            .on_hover_text(t!("board.stackup_section.layer_name.tip"));
             egui::ComboBox::from_id_salt("stack-add-kind")
                 .selected_text(self.stack_kind.clone())
                 .show_ui(ui, |ui| {
                     for (_, words) in STACK_ROLES {
                         if ui
                             .selectable_label(self.stack_kind == words, words)
-                            .on_hover_text("What this layer does in the board.")
+                            .on_hover_text(t!("board.stackup_section.what_this_layer_does_in.tip"))
                             .clicked()
                         {
                             self.stack_kind = (*words).to_owned();
@@ -1544,22 +1578,20 @@ impl App {
                     }
                 })
                 .response
-                .on_hover_text("Pick what this layer is made of and does.");
+                .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"));
             ui.add(
                 egui::DragValue::new(&mut self.stack_thickness)
                     .speed(0.01)
                     .range(0.0..=100.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .on_hover_text("How thick this layer is, in millimetres.");
+            .on_hover_text(t!("unit.mm.tip"));
             if ui
                 .add_enabled(
                     !self.stack_name.trim().is_empty(),
-                    egui::Button::new("Add layer"),
+                    egui::Button::new(t!("board.stackup_section.add_layer")),
                 )
-                .on_hover_text(
-                    "Record this layer in the board stackup; the factory sheets list it.",
-                )
+                .on_hover_text(t!("board.stackup_section.add_layer.tip"))
                 .clicked()
                 && let Some(token) = role_token(&self.stack_kind.clone())
             {
@@ -1573,10 +1605,8 @@ impl App {
         });
         if !self.project.board.layer_records.is_empty()
             && ui
-                .button("Back to a plain two-layer board")
-                .on_hover_text(
-                    "Forget every recorded layer; the board itself and its wiring stay as they are.",
-                )
+                .button(t!("board.stackup_section.back_to_a_plain_two"))
+                .on_hover_text(t!("board.stackup_section.back_to_a_plain_two.tip"))
                 .clicked()
         {
             self.stack_edit = None;
@@ -1584,14 +1614,16 @@ impl App {
         }
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label("Finish");
+            ui.label(t!("board.stackup_section.finish"));
             egui::ComboBox::from_id_salt("board-finish")
                 .selected_text(self.project.board.finish.clone())
                 .show_ui(ui, |ui| {
                     for finish in ["HASL", "Lead-free HASL", "ENIG", "OSP", "Immersion silver"] {
                         if ui
                             .selectable_label(self.project.board.finish == finish, finish)
-                            .on_hover_text("A common coating for exposed copper.")
+                            .on_hover_text(t!(
+                                "board.stackup_section.a_common_coating_for_exposed.tip"
+                            ))
                             .clicked()
                         {
                             self.run("board.set_finish", json!({"finish": finish}));
@@ -1600,23 +1632,23 @@ impl App {
                     }
                 })
                 .response
-                .on_hover_text(
-                    "The coating on exposed copper; it goes on the factory notes and reports.",
-                );
+                .on_hover_text(t!(
+                    "board.stackup_section.the_coating_on_exposed_copper.tip"
+                ));
         });
         self.via_covering_default_controls(ui);
         ui.horizontal(|ui| {
-            ui.label("Thickness");
+            ui.label(t!("board.stackup_section.thickness"));
             ui.add(
                 egui::DragValue::new(&mut self.notes_thick)
                     .speed(0.01)
                     .range(0.2..=100.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .on_hover_text("How thick the whole board is; the factory uses this to pick bits.");
+            .on_hover_text(t!("unit.mm2.tip"));
             if ui
-                .button("Set thickness")
-                .on_hover_text("Record this board thickness.")
+                .button(t!("board.stackup_section.set_thickness"))
+                .on_hover_text(t!("board.stackup_section.set_thickness.tip"))
                 .clicked()
             {
                 let thickness = self.notes_thick;
@@ -1624,18 +1656,18 @@ impl App {
             }
         });
         ui.horizontal(|ui| {
-            ui.label("Substrate");
+            ui.label(t!("board.stackup_section.substrate"));
             ui.add(
                 egui::DragValue::new(&mut self.notes_er)
                     .speed(0.05)
                     .range(1.0..=20.0),
             )
-            .on_hover_text(
-                "How the material between layers slows signals; it tunes impedance estimates.",
-            );
+            .on_hover_text(t!(
+                "board.stackup_section.how_the_material_between_layers.tip"
+            ));
             if ui
-                .button("Set substrate")
-                .on_hover_text("Record this substrate number.")
+                .button(t!("board.stackup_section.set_substrate"))
+                .on_hover_text(t!("board.stackup_section.set_substrate.tip"))
                 .clicked()
             {
                 let er = self.notes_er;
@@ -1650,10 +1682,8 @@ impl App {
             .and_then(|m| m.edge_plating)
             .unwrap_or(false);
         if ui
-            .checkbox(&mut plated, "Plated board edge")
-            .on_hover_text(
-                "Copper plating around the board's rim, for shielding and soldering to a frame.",
-            )
+            .checkbox(&mut plated, t!("board.stackup_section.plated_board_edge"))
+            .on_hover_text(t!("board.stackup_section.plated_board_edge.tip"))
             .clicked()
         {
             self.run("board.set_machining", json!({"edge_plating": plated}));
@@ -1661,35 +1691,33 @@ impl App {
     }
     fn holes_section(&mut self, ui: &mut egui::Ui) {
         ui.label(
-            egui::RichText::new("MOUNTING HOLES")
+            egui::RichText::new(t!("board.holes_section.mounting_holes"))
                 .size(10.0)
                 .color(self.muted()),
         );
         if self.project.board.holes.is_empty() {
             ui.label(
-                egui::RichText::new(
-                    "No drilled holes yet. Press Mounting hole at the top of the board, then click where a screw goes.",
-                )
-                .small()
-                .color(self.muted()),
+                egui::RichText::new(t!("board.holes_section.no_drilled_holes_yet_press"))
+                    .small()
+                    .color(self.muted()),
             );
             return;
         }
         for hole in self.project.board.holes.clone() {
             let edit = self.hole_edit.filter(|(id, _)| *id == hole.id);
             ui.horizontal(|ui| {
-                ui.label("· ");
+                ui.label(format!("{} ", t!("board.holes_section.text")));
                 if let Some((_, mut diameter)) = edit {
                     ui.add(
                         egui::DragValue::new(&mut diameter)
                             .speed(0.05)
                             .range(0.05..=25.0)
-                            .suffix(" mm"),
+                            .suffix(format!(" {}", t!("unit.mm"))),
                     )
-                    .on_hover_text("How wide this hole is drilled.");
+                    .on_hover_text(t!("unit.mm3.tip"));
                     if ui
-                        .button("Apply")
-                        .on_hover_text("Resize this hole to that drill size.")
+                        .button(t!("board.holes_section.apply"))
+                        .on_hover_text(t!("board.holes_section.apply.tip"))
                         .clicked()
                     {
                         self.hole_edit = None;
@@ -1699,8 +1727,8 @@ impl App {
                         );
                     }
                     if ui
-                        .button("Cancel")
-                        .on_hover_text("Leave this hole the size it is.")
+                        .button(t!("board.holes_section.cancel"))
+                        .on_hover_text(t!("board.holes_section.cancel.tip"))
                         .clicked()
                     {
                         self.hole_edit = None;
@@ -1712,33 +1740,33 @@ impl App {
                     }
                 } else {
                     if hole.is_slot() {
-                        ui.label(format!(
-                            "{:.2} mm slot {:.2} mm long at {:.1}, {:.1}",
-                            hole.diameter,
-                            hole.length(),
-                            hole.position.x,
-                            hole.position.y
+                        ui.label(t!(
+                            "board.holes_section.diameter_mm_slot_length_mm",
+                            diameter = format!("{:.2}", hole.diameter),
+                            length = format!("{:.2}", hole.length()),
+                            x = format!("{:.1}", hole.position.x),
+                            y = format!("{:.1}", hole.position.y)
                         ))
-                        .on_hover_text(
-                            "A routed slot: its width, its overall length end to end, and where it starts.",
-                        );
+                        .on_hover_text(t!("board.holes_section.diameter_mm_slot_length_mm.tip"));
                     } else {
-                        ui.label(format!(
-                            "{:.2} mm at {:.1}, {:.1}",
-                            hole.diameter, hole.position.x, hole.position.y
+                        ui.label(t!(
+                            "board.holes_section.diameter_mm_at_x_y",
+                            diameter = format!("{:.2}", hole.diameter),
+                            x = format!("{:.1}", hole.position.x),
+                            y = format!("{:.1}", hole.position.y)
                         ));
                     }
                     if ui
-                        .small_button("Tune")
-                        .on_hover_text("Change this hole's drill size.")
+                        .small_button(t!("board.holes_section.tune"))
+                        .on_hover_text(t!("board.holes_section.tune.tip"))
                         .clicked()
                     {
                         self.hole_edit = Some((hole.id, hole.diameter));
                     }
                 }
                 if ui
-                    .small_button("\u{d7}")
-                    .on_hover_text("Take this hole out of the board.")
+                    .small_button(t!("board.holes_section.text2"))
+                    .on_hover_text(t!("board.holes_section.text2.tip"))
                     .clicked()
                 {
                     self.hole_edit = None;
@@ -1750,49 +1778,47 @@ impl App {
 
     fn fiducials_section(&mut self, ui: &mut egui::Ui) {
         ui.label(
-            egui::RichText::new("ASSEMBLY MARKS")
+            egui::RichText::new(t!("board.fiducials_section.assembly_marks"))
                 .size(10.0)
                 .color(self.muted()),
         );
         if self.project.board.fiducials.is_empty() {
             ui.label(
-                egui::RichText::new(
-                    "No assembly marks yet. Press Assembly mark at the top of the board, then click a clear corner the build camera can find.",
-                )
-                .small()
-                .color(self.muted()),
+                egui::RichText::new(t!("board.fiducials_section.no_assembly_marks_yet_press"))
+                    .small()
+                    .color(self.muted()),
             );
             return;
         }
         for fid in self.project.board.fiducials.clone() {
             let edit = self.fiducial_edit.filter(|(id, _, _)| *id == fid.id);
             ui.horizontal(|ui| {
-                ui.label("· ");
+                ui.label(format!("{} ", t!("board.fiducials_section.text")));
                 if let Some((_, mut diameter, mut front)) = edit {
                     ui.add(
                         egui::DragValue::new(&mut diameter)
                             .speed(0.05)
                             .range(0.2..=10.0)
-                            .suffix(" mm"),
+                            .suffix(format!(" {}", t!("unit.mm"))),
                     )
-                    .on_hover_text("How wide the bare copper disc is.");
+                    .on_hover_text(t!("unit.mm4.tip"));
                     if ui
-                        .selectable_label(front, "Top")
-                        .on_hover_text("Put the mark on the top side of the board.")
+                        .selectable_label(front, t!("board.fiducials_section.top"))
+                        .on_hover_text(t!("board.fiducials_section.top.tip"))
                         .clicked()
                     {
                         front = true;
                     }
                     if ui
-                        .selectable_label(!front, "Bottom")
-                        .on_hover_text("Put the mark on the bottom side of the board.")
+                        .selectable_label(!front, t!("board.fiducials_section.bottom"))
+                        .on_hover_text(t!("board.fiducials_section.bottom.tip"))
                         .clicked()
                     {
                         front = false;
                     }
                     if ui
-                        .button("Apply")
-                        .on_hover_text("Resize this mark and move it to the chosen side.")
+                        .button(t!("board.fiducials_section.apply"))
+                        .on_hover_text(t!("board.fiducials_section.apply.tip"))
                         .clicked()
                     {
                         self.fiducial_edit = None;
@@ -1806,8 +1832,8 @@ impl App {
                         );
                     }
                     if ui
-                        .button("Cancel")
-                        .on_hover_text("Leave this mark as it is.")
+                        .button(t!("board.fiducials_section.cancel"))
+                        .on_hover_text(t!("board.fiducials_section.cancel.tip"))
                         .clicked()
                     {
                         self.fiducial_edit = None;
@@ -1819,20 +1845,20 @@ impl App {
                         *held_front = front;
                     }
                 } else {
-                    ui.label(format!(
-                        "{:.2} mm on {} at {:.1}, {:.1}",
-                        fid.diameter,
-                        if fid.layer == pcbcraft_doc::Layer::Front {
+                    ui.label(t!(
+                        "board.fiducials_section.diameter_mm_on_v1_at",
+                        diameter = format!("{:.2}", fid.diameter),
+                        v1 = if fid.layer == pcbcraft_doc::Layer::Front {
                             "Top"
                         } else {
                             "Bottom"
                         },
-                        fid.position.x,
-                        fid.position.y
+                        x = format!("{:.1}", fid.position.x),
+                        y = format!("{:.1}", fid.position.y)
                     ));
                     if ui
-                        .small_button("Tune")
-                        .on_hover_text("Change this mark's size or side.")
+                        .small_button(t!("board.fiducials_section.tune"))
+                        .on_hover_text(t!("board.fiducials_section.tune.tip"))
                         .clicked()
                     {
                         self.fiducial_edit = Some((
@@ -1843,8 +1869,8 @@ impl App {
                     }
                 }
                 if ui
-                    .small_button("\u{d7}")
-                    .on_hover_text("Take this mark off the board.")
+                    .small_button(t!("board.fiducials_section.text2"))
+                    .on_hover_text(t!("board.fiducials_section.text2.tip"))
                     .clicked()
                 {
                     self.fiducial_edit = None;
@@ -1870,16 +1896,14 @@ impl App {
         ui.horizontal(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.tree_query)
-                    .hint_text("Search the whole board")
+                    .hint_text(t!("board.layers_tab.search_the_whole_board"))
                     .desired_width(150.0),
             )
-            .on_hover_text(
-                "Type a part reference, a net name or a layer name; the tree keeps only matching rows.",
-            );
+            .on_hover_text(t!("board.layers_tab.search_the_whole_board.tip"));
             if !self.tree_query.is_empty()
                 && ui
-                    .small_button("Clear")
-                    .on_hover_text("Show every row again.")
+                    .small_button(t!("board.layers_tab.clear"))
+                    .on_hover_text(t!("board.layers_tab.clear.tip"))
                     .clicked()
             {
                 self.tree_query.clear();
@@ -1888,28 +1912,69 @@ impl App {
         self.board_anatomy_section(ui);
         ui.separator();
         ui.label(
-            egui::RichText::new("SHOW IN THE TREE")
+            egui::RichText::new(t!("board.layers_tab.show_in_the_tree"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.horizontal_wrapped(|ui| {
             for (kind, label, tip) in [
-                ("wires", "Show wires", "Copper wires on each face of the board."),
-                ("vias", "Show vias", "Plated holes that carry a connection between the two faces."),
-                ("zones", "Show pours", "Solid copper poured over an area."),
-                ("holes", "Show holes", "Drilled holes and cut-outs."),
-                ("words", "Show words", "Silk text printed on the board."),
-                ("parts", "Show parts", "Every part on the board, with its pads."),
-                ("areas", "Show rule areas", "Stricter areas and watched pairs."),
-                ("art", "Show machine layers", "Your own layers for a laser, mill or printer."),
-                ("connections", "Show connections", "Every net by name: add, rename or spotlight one."),
-                ("notes", "Show notes", "Free-form notes stored with the project."),
+                (
+                    "wires",
+                    t!("board.layers_tab.show_wires"),
+                    t!("board.layers_tab.copper_wires_on_each_face"),
+                ),
+                (
+                    "vias",
+                    t!("board.layers_tab.show_vias"),
+                    t!("board.layers_tab.plated_holes_that_carry_a"),
+                ),
+                (
+                    "zones",
+                    t!("board.layers_tab.show_pours"),
+                    t!("board.layers_tab.solid_copper_poured_over_an"),
+                ),
+                (
+                    "holes",
+                    t!("board.layers_tab.show_holes"),
+                    t!("board.layers_tab.drilled_holes_and_cut_outs"),
+                ),
+                (
+                    "words",
+                    t!("board.layers_tab.show_words"),
+                    t!("board.layers_tab.silk_text_printed_on_the"),
+                ),
+                (
+                    "parts",
+                    t!("board.layers_tab.show_parts"),
+                    t!("board.layers_tab.every_part_on_the_board"),
+                ),
+                (
+                    "areas",
+                    t!("board.layers_tab.show_rule_areas"),
+                    t!("board.layers_tab.stricter_areas_and_watched_pairs"),
+                ),
+                (
+                    "art",
+                    t!("board.layers_tab.show_machine_layers"),
+                    t!("board.layers_tab.your_own_layers_for_a"),
+                ),
+                (
+                    "connections",
+                    t!("board.layers_tab.show_connections"),
+                    t!("board.layers_tab.every_net_by_name_add"),
+                ),
+                (
+                    "notes",
+                    t!("board.layers_tab.show_notes"),
+                    t!("board.layers_tab.free_form_notes_stored_with"),
+                ),
             ] {
                 let shown = !self.kind_hidden(kind);
                 if ui
                     .selectable_label(shown, egui::RichText::new(label).small())
-                    .on_hover_text(format!(
-                        "{tip} Untick to fold this group away; unticking changes the tree, never the design."
+                    .on_hover_text(t!(
+                        "board.layers_tab.tip_untick_to_fold_this.tip",
+                        tip = tip
                     ))
                     .clicked()
                 {
@@ -1922,80 +1987,79 @@ impl App {
             }
         });
         ui.add_space(8.0);
-        let board_header = egui::CollapsingHeader::new("This board")
+        let board_header = egui::CollapsingHeader::new(t!("board.layers_tab.this_board"))
             .id_salt("anat-board-root")
             .default_open(true)
             .show(ui, |ui| {
-            self.holes_section(ui);
-            self.datums_section(ui);
-            self.fiducials_section(ui);
-            if self.tab == Tab::Pcb {
-                self.via_spans_section(ui);
-            }
-            ui.add_space(16.0);
-            let rows: &[&str] = match self.tab {
-                Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
-                Tab::Pcb => &[
-                    "Grid",
-                    "Top copper",
-                    "Bottom copper",
-                    "Pads",
-                    "Vias",
-                    "Copper zones",
-                    "Cutouts",
-                    "Package artwork",
-                ],
-                _ => &[],
-            };
-            if rows.is_empty() {
-                ui.label(
-                    egui::RichText::new(
-                        "Switch to the schematic or the board to show or hide parts of the drawing.",
-                    )
-                    .small()
-                    .color(self.muted()),
-                );
-            } else {
-                ui.label(
-                    egui::RichText::new("WHAT THE DRAWING SHOWS")
-                        .size(10.0)
-                        .color(self.muted()),
-                );
-                for name in rows {
-                    let mut shown = self.layer_shown(name);
-                    if ui
-                        .checkbox(&mut shown, *name)
-                        .on_hover_text(format!(
-                            "Show or hide {name} on the drawing. Hiding changes only the view, never the design."
-                        ))
-                        .clicked()
-                    {
-                        if shown {
-                            self.preferences.hidden_layers.retain(|hidden| hidden != name);
-                        } else {
-                            self.preferences.hidden_layers.push((*name).to_string());
+                self.holes_section(ui);
+                self.datums_section(ui);
+                self.fiducials_section(ui);
+                if self.tab == Tab::Pcb {
+                    self.via_spans_section(ui);
+                }
+                ui.add_space(16.0);
+                let rows: &[&str] = match self.tab {
+                    Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
+                    Tab::Pcb => &[
+                        "Grid",
+                        "Top copper",
+                        "Bottom copper",
+                        "Pads",
+                        "Vias",
+                        "Copper zones",
+                        "Cutouts",
+                        "Package artwork",
+                    ],
+                    _ => &[],
+                };
+                if rows.is_empty() {
+                    ui.label(
+                        egui::RichText::new(t!("board.layers_tab.switch_to_the_schematic_or"))
+                            .small()
+                            .color(self.muted()),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new(t!("board.layers_tab.what_the_drawing_shows"))
+                            .size(10.0)
+                            .color(self.muted()),
+                    );
+                    for name in rows {
+                        let mut shown = self.layer_shown(name);
+                        if ui
+                            .checkbox(&mut shown, layer_row_label(name))
+                            .on_hover_text(t!(
+                                "board.layers_tab.show_or_hide_name_on.tip",
+                                name = name
+                            ))
+                            .clicked()
+                        {
+                            if shown {
+                                self.preferences
+                                    .hidden_layers
+                                    .retain(|hidden| hidden != name);
+                            } else {
+                                self.preferences.hidden_layers.push((*name).to_string());
+                            }
                         }
                     }
                 }
-            }
             });
-        board_header.header_response.on_hover_text(
-            "The board itself: shape, size, surface finish, holes and what the drawing shows.",
-        );
+        board_header
+            .header_response
+            .on_hover_text(t!("board.layers_tab.the_board_itself_shape_size.tip"));
     }
     fn board_anatomy_section(&mut self, ui: &mut egui::Ui) {
         ui.add_space(16.0);
         ui.label(
-            egui::RichText::new("BOARD ANATOMY")
+            egui::RichText::new(t!("board.board_anatomy_section.board_anatomy"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Every piece on the board, sorted into its layer. Open a layer to see its pieces; pick one to select it on the drawing.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("board.board_anatomy_section.every_piece_on_the_board"))
+                .small()
+                .color(self.muted()),
         );
         let front: Vec<(Id, String)> = self
             .project
@@ -2006,12 +2070,12 @@ impl App {
             .map(|t| {
                 (
                     t.id,
-                    format!(
-                        "Wire · {:.2} mm · {} · at {}, {}",
-                        t.width,
-                        self.project.net_name(t.net),
-                        t.start.x.round(),
-                        t.start.y.round()
+                    t!(
+                        "board.board_anatomy_section.wire_width_mm_v1_at",
+                        width = format!("{:.2}", t.width),
+                        v1 = self.project.net_name(t.net),
+                        round = t.start.x.round(),
+                        round2 = t.start.y.round()
                     ),
                 )
             })
@@ -2025,12 +2089,12 @@ impl App {
             .map(|t| {
                 (
                     t.id,
-                    format!(
-                        "Wire · {:.2} mm · {} · at {}, {}",
-                        t.width,
-                        self.project.net_name(t.net),
-                        t.start.x.round(),
-                        t.start.y.round()
+                    t!(
+                        "board.board_anatomy_section.wire_width_mm_v1_at",
+                        width = format!("{:.2}", t.width),
+                        v1 = self.project.net_name(t.net),
+                        round = t.start.x.round(),
+                        round2 = t.start.y.round()
                     ),
                 )
             })
@@ -2043,13 +2107,13 @@ impl App {
             .map(|v| {
                 (
                     v.id,
-                    format!(
-                        "Via at {}, {} · {} mm hole · {} · {}",
-                        v.position.x.round(),
-                        v.position.y.round(),
-                        v.drill,
-                        via_span::via_tree_span(&self.project, v),
-                        self.project.net_name(v.net)
+                    t!(
+                        "board.board_anatomy_section.via_at_round_round2_drill",
+                        round = v.position.x.round(),
+                        round2 = v.position.y.round(),
+                        drill = v.drill,
+                        v3 = via_span::via_tree_span(&self.project, v),
+                        v4 = self.project.net_name(v.net)
                     ),
                 )
             })
@@ -2062,10 +2126,10 @@ impl App {
             .map(|z| {
                 (
                     z.id,
-                    format!(
-                        "Copper zone · {} · {}",
-                        self.project.net_name(z.net),
-                        if z.layer == pcbcraft_doc::Layer::Front {
+                    t!(
+                        "board.board_anatomy_section.copper_zone_v0_v1",
+                        v0 = self.project.net_name(z.net),
+                        v1 = if z.layer == pcbcraft_doc::Layer::Front {
                             "top"
                         } else {
                             "bottom"
@@ -2082,11 +2146,11 @@ impl App {
             .map(|c| {
                 (
                     c.id,
-                    format!(
-                        "Hole at {}, {} · {} mm across",
-                        c.center.x.round(),
-                        c.center.y.round(),
-                        c.radius * 2.0
+                    t!(
+                        "board.board_anatomy_section.hole_at_round_round2_v2",
+                        round = c.center.x.round(),
+                        round2 = c.center.y.round(),
+                        v2 = c.radius * 2.0
                     ),
                 )
             })
@@ -2120,24 +2184,35 @@ impl App {
                 let name = self
                     .project
                     .component(f.component)
-                    .map_or("a part", |c| c.reference.as_str())
+                    .map_or_else(
+                        || t!("board.board_anatomy_section.a_part"),
+                        |c| c.reference.clone(),
+                    )
                     .to_owned();
                 let pads = f
                     .pads
                     .iter()
                     .map(|pad| {
-                        format!(
-                            "Pad {} · {} mm · {}",
-                            pad.number,
-                            pad.diameter,
-                            pad.net.map_or("no net".to_owned(), |n| self
+                        t!(
+                            "board.board_anatomy_section.pad_number_diameter_mm_v2",
+                            number = pad.number,
+                            diameter = pad.diameter,
+                            v2 = pad.net.map_or("no net".to_owned(), |n| self
                                 .project
                                 .net_name(n)
                                 .to_owned())
                         )
                     })
                     .collect();
-                (f.id, format!("{name} · {} pads", f.pads.len()), pads)
+                (
+                    f.id,
+                    t!(
+                        "board.board_anatomy_section.name_len_pads",
+                        name = name,
+                        len = f.pads.len()
+                    ),
+                    pads,
+                )
             })
             .filter(|(_, title, _)| self.tree_matches(title))
             .collect();
@@ -2147,12 +2222,13 @@ impl App {
             .rule_areas
             .iter()
             .map(|a| {
-                format!(
-                    "Stricter area at {}, {} · gap {} mm{}",
-                    a.region.x.round(),
-                    a.region.y.round(),
-                    a.clearance,
-                    a.max_height
+                t!(
+                    "board.board_anatomy_section.stricter_area_at_round_round2",
+                    round = a.region.x.round(),
+                    round2 = a.region.y.round(),
+                    clearance = a.clearance,
+                    v3 = a
+                        .max_height
                         .map_or(String::new(), |h| format!(" · up to {h} mm tall"))
                 )
             })
@@ -2163,12 +2239,12 @@ impl App {
             .diff_pairs
             .iter()
             .map(|d| {
-                format!(
-                    "{} · {} + {} · gap {} mm",
-                    d.name,
-                    self.project.net_name(d.net_p),
-                    self.project.net_name(d.net_n),
-                    d.gap
+                t!(
+                    "board.board_anatomy_section.name_v1_v2_gap_gap",
+                    name = d.name,
+                    v1 = self.project.net_name(d.net_p),
+                    v2 = self.project.net_name(d.net_n),
+                    gap = d.gap
                 )
             })
             .collect();
@@ -2177,89 +2253,89 @@ impl App {
         let groups: [AnatGroup; 8] = [
             (
                 "front",
-                "Top copper wires",
-                "Copper wires drawn on the top face of the board. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.top_copper_wires"),
+                t!("board.board_anatomy_section.copper_wires_drawn_on_the"),
                 front
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "Nothing drawn here yet.",
+                t!("board.board_anatomy_section.nothing_drawn_here_yet"),
             ),
             (
                 "back",
-                "Bottom copper wires",
-                "Copper wires drawn on the bottom face of the board. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.bottom_copper_wires"),
+                t!("board.board_anatomy_section.copper_wires_drawn_on_the2"),
                 back.into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "Nothing drawn here yet.",
+                t!("board.board_anatomy_section.nothing_drawn_here_yet"),
             ),
             (
                 "vias",
-                "Via holes",
-                "Small plated holes that carry a connection between the two copper faces. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.via_holes"),
+                t!("board.board_anatomy_section.small_plated_holes_that_carry"),
                 vias.into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "No vias yet.",
+                t!("board.board_anatomy_section.no_vias_yet"),
             ),
             (
                 "zones",
-                "Poured copper",
-                "Solid copper poured over an area, usually ground or power. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.poured_copper"),
+                t!("board.board_anatomy_section.solid_copper_poured_over_an"),
                 zones
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "No copper zones yet.",
+                t!("board.board_anatomy_section.no_copper_zones_yet"),
             ),
             (
                 "holes",
-                "Holes and cut-outs",
-                "Holes drilled through the board, such as mounting holes. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.holes_and_cut_outs"),
+                t!("board.board_anatomy_section.holes_drilled_through_the_board"),
                 holes
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "No holes yet.",
+                t!("board.board_anatomy_section.no_holes_yet"),
             ),
             (
                 "words",
-                "Words on the board",
-                "Silk text printed on the board, such as names and labels. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.words_on_the_board"),
+                t!("board.board_anatomy_section.silk_text_printed_on_the"),
                 words
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "No words printed yet.",
+                t!("board.board_anatomy_section.no_words_printed_yet"),
             ),
             (
                 "areas",
-                "Stricter areas",
-                "Patches of the board where the rules are stricter than everywhere else.",
+                t!("board.board_anatomy_section.stricter_areas"),
+                t!("board.board_anatomy_section.patches_of_the_board_where"),
                 areas
                     .into_iter()
                     .map(|text| (None, text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "The whole board follows one set of rules.",
+                t!("board.board_anatomy_section.the_whole_board_follows_one"),
             ),
             (
                 "pairs",
-                "Watched pairs",
-                "Pairs of nets that must run side by side with a fixed gap between them.",
+                t!("board.board_anatomy_section.watched_pairs"),
+                t!("board.board_anatomy_section.pairs_of_nets_that_must"),
                 pairs
                     .into_iter()
                     .map(|text| (None, text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "No pairs are being watched.",
+                t!("board.board_anatomy_section.no_pairs_are_being_watched"),
             ),
         ];
         for (key, title, tip, rows, empty) in groups {
@@ -2289,13 +2365,13 @@ impl App {
                         let focused = self.focus_layer.as_deref() == Some(focus_key);
                         if ui
                             .small_button(if focused {
-                                "Stop fading"
+                                t!("board.board_anatomy_section.stop_fading")
                             } else {
-                                "Fade others"
+                                t!("board.board_anatomy_section.fade_others")
                             })
-                            .on_hover_text(
-                                "Everything not on this layer turns translucent on the drawing; click again to bring it back.",
-                            )
+                            .on_hover_text(t!(
+                                "board.board_anatomy_section.everything_not_on_this_layer.tip"
+                            ))
                             .clicked()
                         {
                             self.focus_layer = if focused {
@@ -2317,7 +2393,9 @@ impl App {
                         let clicked = match id {
                             Some(id) => ui
                                 .selectable_label(picked == Some(id), row)
-                                .on_hover_text("Select this on the drawing.")
+                                .on_hover_text(t!(
+                                    "board.board_anatomy_section.select_this_on_the_drawing.tip"
+                                ))
                                 .clicked(),
                             None => {
                                 ui.label(row);
@@ -2340,15 +2418,17 @@ impl App {
             }
         }
         let open = self.anat_open.iter().any(|k| k == "parts");
-        let header = egui::CollapsingHeader::new("Parts and pads")
+        let header = egui::CollapsingHeader::new(t!("board.board_anatomy_section.parts_and_pads"))
             .id_salt("anat-parts")
             .open(Some(open))
             .show(ui, |ui| {
                 if parts.is_empty() {
                     ui.label(
-                        egui::RichText::new("No parts on the board yet.")
-                            .small()
-                            .color(self.muted()),
+                        egui::RichText::new(t!(
+                            "board.board_anatomy_section.no_parts_on_the_board"
+                        ))
+                        .small()
+                        .color(self.muted()),
                     );
                 }
                 for (id, title, pads) in parts {
@@ -2357,10 +2437,10 @@ impl App {
                         .default_open(false)
                         .show(ui, |ui| {
                             if ui
-                                .button("Pick up this part")
-                                .on_hover_text(
-                                    "Select this part so its properties open on the right.",
-                                )
+                                .button(t!("board.board_anatomy_section.pick_up_this_part"))
+                                .on_hover_text(t!(
+                                    "board.board_anatomy_section.pick_up_this_part.tip"
+                                ))
                                 .clicked()
                             {
                                 chosen = Some(id);
@@ -2372,9 +2452,9 @@ impl App {
                 }
             });
         let clicked = header.header_response.clicked();
-        header
-            .header_response
-            .on_hover_text("Every part on the board. Open one to see its pads.");
+        header.header_response.on_hover_text(t!(
+            "board.board_anatomy_section.every_part_on_the_board.tip"
+        ));
         if clicked {
             if open {
                 self.anat_open.retain(|k| k != "parts");
@@ -2408,93 +2488,98 @@ impl App {
                 })
                 .collect();
             let open = self.anat_open.iter().any(|k| k == "art");
-            let header = egui::CollapsingHeader::new("Machine layers you draw")
-                .id_salt("anat-art")
-                .open(Some(open))
-                .show(ui, |ui| {
-                    if layers.is_empty() {
+            let header = egui::CollapsingHeader::new(t!(
+                "board.board_anatomy_section.machine_layers_you_draw"
+            ))
+            .id_salt("anat-art")
+            .open(Some(open))
+            .show(ui, |ui| {
+                if layers.is_empty() {
+                    ui.label(
+                        egui::RichText::new(t!(
+                            "board.board_anatomy_section.no_machine_layers_yet_add"
+                        ))
+                        .small()
+                        .color(self.muted()),
+                    );
+                }
+                for (id, name, kind, visible, shapes) in layers {
+                    let mut shown = visible;
+                    ui.horizontal(|ui| {
+                        if ui
+                            .checkbox(&mut shown, egui::RichText::new(&name).strong())
+                            .on_hover_text(t!(
+                                "board.board_anatomy_section.tick_to_show_this_layer.tip"
+                            ))
+                            .clicked()
+                        {
+                            self.run("board.layer_visible_set", json!({"layer": id, "on": shown}));
+                        }
+                        let focus_key = format!("art:{name}");
+                        let focused = self.focus_layer.as_deref() == Some(focus_key.as_str());
+                        if ui
+                            .small_button(if focused {
+                                t!("board.board_anatomy_section.stop_fading")
+                            } else {
+                                t!("board.board_anatomy_section.fade_others")
+                            })
+                            .on_hover_text(t!(
+                                "board.board_anatomy_section.everything_not_on_this_layer.tip"
+                            ))
+                            .clicked()
+                        {
+                            self.focus_layer = if focused { None } else { Some(focus_key) };
+                        }
                         ui.label(
-                            egui::RichText::new(
-                                "No machine layers yet. Add one for your laser cutter, mill or printer, then draw on it with Draw shape.",
-                            )
+                            egui::RichText::new(t!(
+                                "board.board_anatomy_section.kind_layer_len_shapes",
+                                kind = kind,
+                                len = shapes.len()
+                            ))
                             .small()
                             .color(self.muted()),
                         );
-                    }
-                    for (id, name, kind, visible, shapes) in layers {
-                        let mut shown = visible;
-                        ui.horizontal(|ui| {
-                            if ui
-                                .checkbox(&mut shown, egui::RichText::new(&name).strong())
-                                .on_hover_text(
-                                    "Tick to show this layer on the drawing. Hiding changes only the view, never the design.",
-                                )
-                                .clicked()
-                            {
-                                self.run(
-                                    "board.layer_visible_set",
-                                    json!({"layer": id, "on": shown}),
-                                );
-                            }
-                            let focus_key = format!("art:{name}");
-                            let focused =
-                                self.focus_layer.as_deref() == Some(focus_key.as_str());
-                            if ui
-                                .small_button(if focused {
-                                    "Stop fading"
-                                } else {
-                                    "Fade others"
-                                })
-                                .on_hover_text(
-                                    "Everything not on this layer turns translucent on the drawing; click again to bring it back.",
-                                )
-                                .clicked()
-                            {
-                                self.focus_layer = if focused { None } else { Some(focus_key) };
-                            }
+                    });
+                    egui::CollapsingHeader::new(t!(
+                        "board.board_anatomy_section.name_shapes",
+                        name = name
+                    ))
+                    .id_salt(format!("anat-art-{id}"))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        if shapes.is_empty() {
                             ui.label(
-                                egui::RichText::new(format!(
-                                    "{kind} layer · {} shapes",
-                                    shapes.len()
+                                egui::RichText::new(t!(
+                                    "board.board_anatomy_section.nothing_drawn_on_this_layer"
                                 ))
                                 .small()
                                 .color(self.muted()),
                             );
-                        });
-                        egui::CollapsingHeader::new(format!("{name} shapes"))
-                            .id_salt(format!("anat-art-{id}"))
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                if shapes.is_empty() {
-                                    ui.label(
-                                        egui::RichText::new("Nothing drawn on this layer yet.")
-                                            .small()
-                                            .color(self.muted()),
-                                    );
-                                }
-                                for text in shapes {
-                                    ui.label(egui::RichText::new(text).small());
-                                }
-                            });
-                    }
-                    if ui
-                        .button("New layer")
-                        .on_hover_text(
-                            "Add a layer for a laser, mill or printer to follow; give it a real name any time.",
-                        )
-                        .clicked()
-                    {
-                        let name = format!("Art {}", self.project.board.user_layers.len() + 1);
-                        self.run("board.layer_add", json!({"name": name, "kind": "other"}));
-                        if self.message.starts_with("board.layer_add") {
-                            self.art_layer = self.selected;
                         }
+                        for text in shapes {
+                            ui.label(egui::RichText::new(text).small());
+                        }
+                    });
+                }
+                if ui
+                    .button(t!("board.board_anatomy_section.new_layer"))
+                    .on_hover_text(t!("board.board_anatomy_section.new_layer.tip"))
+                    .clicked()
+                {
+                    let name = t!(
+                        "board.board_anatomy_section.art_v0",
+                        v0 = self.project.board.user_layers.len() + 1
+                    );
+                    self.run("board.layer_add", json!({"name": name, "kind": "other"}));
+                    if self.message.starts_with("board.layer_add") {
+                        self.art_layer = self.selected;
                     }
-                });
+                }
+            });
             let clicked = header.header_response.clicked();
-            header.header_response.on_hover_text(
-                "Layers you draw yourself: cut lines, dotted perforations and printed marks for your own machines.",
-            );
+            header.header_response.on_hover_text(t!(
+                "board.board_anatomy_section.layers_you_draw_yourself_cut.tip"
+            ));
             if clicked {
                 if open {
                     self.anat_open.retain(|k| k != "art");
@@ -2506,7 +2591,7 @@ impl App {
         // Every connection by name, with room to add, rename and spotlight one.
         if !self.kind_hidden("connections") {
             let open = self.anat_open.iter().any(|k| k == "connections");
-            let header = egui::CollapsingHeader::new("Connections")
+            let header = egui::CollapsingHeader::new(t!("board.board_anatomy_section.connections"))
                 .id_salt("anat-connections")
                 .default_open(true)
                 .open(Some(open))
@@ -2514,9 +2599,9 @@ impl App {
                     self.nets_tab(ui);
                 });
             let clicked = header.header_response.clicked();
-            header.header_response.on_hover_text(
-                "Every wire connection by name: add one, rename one, or light one up on the drawing.",
-            );
+            header.header_response.on_hover_text(t!(
+                "board.board_anatomy_section.every_wire_connection_by_name.tip"
+            ));
             if clicked {
                 if open {
                     self.anat_open.retain(|k| k != "connections");
@@ -2535,25 +2620,28 @@ impl App {
                 .filter(|text| self.tree_matches(text))
                 .collect();
             let open = self.anat_open.iter().any(|k| k == "notes");
-            let header = egui::CollapsingHeader::new("Project notes")
-                .id_salt("anat-notes")
-                .open(Some(open))
-                .show(ui, |ui| {
-                    if notes.is_empty() {
-                        ui.label(
-                            egui::RichText::new("No notes are stored with this project yet.")
+            let header =
+                egui::CollapsingHeader::new(t!("board.board_anatomy_section.project_notes"))
+                    .id_salt("anat-notes")
+                    .open(Some(open))
+                    .show(ui, |ui| {
+                        if notes.is_empty() {
+                            ui.label(
+                                egui::RichText::new(t!(
+                                    "board.board_anatomy_section.no_notes_are_stored_with"
+                                ))
                                 .small()
                                 .color(self.muted()),
-                        );
-                    }
-                    for text in notes {
-                        ui.label(egui::RichText::new(text).small());
-                    }
-                });
+                            );
+                        }
+                        for text in notes {
+                            ui.label(egui::RichText::new(text).small());
+                        }
+                    });
             let clicked = header.header_response.clicked();
-            header.header_response.on_hover_text(
-                "Free-form notes kept inside the design file: title, revision, or anything a maker should know.",
-            );
+            header.header_response.on_hover_text(t!(
+                "board.board_anatomy_section.free_form_notes_kept_inside.tip"
+            ));
             if clicked {
                 if open {
                     self.anat_open.retain(|k| k != "notes");
@@ -5603,7 +5691,7 @@ impl App {
                     egui::vec2(ui.available_width(), top_h),
                     egui::Layout::top_down(egui::Align::LEFT),
                     |ui| {
-                        self.section_heading(ui, "Layers");
+                        self.section_heading(ui, &t!("board.inspector.layers"));
                         egui::ScrollArea::vertical()
                             .auto_shrink([false, false])
                             .show(ui, |ui| self.layers_tab(ui));
@@ -5612,393 +5700,441 @@ impl App {
                 ui.add(
                     egui::Slider::new(&mut self.preferences.aside_split, 0.25..=0.75)
                         .show_value(false)
-                        .text("Resize"),
+                        .text(t!("board.inspector.resize")),
                 )
-                .on_hover_text("Drag to give the Layers tree more or less room.");
+                .on_hover_text(t!("board.inspector.resize.tip"));
                 ui.horizontal(|ui| {
                     ui.selectable_value(
                         &mut self.preferences.aside_lower_tab,
                         0,
-                        "Properties",
+                        t!("board.inspector.properties"),
                     )
-                    .on_hover_text("Details for whatever is selected on the drawing.");
+                    .on_hover_text(t!("board.inspector.properties.tip"));
                     ui.selectable_value(
                         &mut self.preferences.aside_lower_tab,
                         1,
-                        "Assistant",
+                        t!("board.inspector.assistant"),
                     )
-                    .on_hover_text("How to connect an external agent through MCP.");
+                    .on_hover_text(t!("board.inspector.assistant.tip"));
                 });
                 if self.preferences.aside_lower_tab == 1 {
                     ui.add_space(12.0);
-                    ui.label(
-                        "Connect an agent through the live MCP bridge described in docs/mcp.md. \
-                         The desktop session exposes the same typed commands the UI uses.",
-                    );
+                    ui.label(t!("board.inspector.connect_an_agent_through_the"));
                     return;
                 }
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                self.draw_tool_options(ui);
-                self.section_heading(ui, "Details");
-                if let Some(id) = self.selected.filter(|id| datums::is_datum(&self.project, *id)) {
-                    self.datum_inspector(ui, id);
-                } else if let Some(id) = self.selected {
-                    let c = self.project.component(id).cloned().or_else(|| {
-                        self.project
-                            .footprint(id)
-                            .and_then(|f| self.project.component(f.component))
-                            .cloned()
-                    });
-                    if let Some(c) = c {
-                        ui.heading(&c.reference);
-                        if !c.units.is_empty() && self.project.component(id).is_some() {
-                            let before = self.selected_unit;
-                            egui::ComboBox::from_id_salt("selected-symbol-unit")
-                                .selected_text(format!("Unit {}", self.selected_unit))
-                                .show_ui(ui, |ui| {
-                                    for unit in
-                                        std::iter::once(1).chain(c.units.iter().map(|u| u.unit))
-                                    {
-                                        ui.selectable_value(
-                                            &mut self.selected_unit,
-                                            unit,
-                                            format!("Unit {unit}"),
-                                        )
-                                        .on_hover_text("Edit or move this half of the part on its own.");
+                        self.draw_tool_options(ui);
+                        self.section_heading(ui, &t!("board.inspector.details"));
+                        if let Some(id) = self
+                            .selected
+                            .filter(|id| datums::is_datum(&self.project, *id))
+                        {
+                            self.datum_inspector(ui, id);
+                        } else if let Some(id) = self.selected {
+                            let c = self.project.component(id).cloned().or_else(|| {
+                                self.project
+                                    .footprint(id)
+                                    .and_then(|f| self.project.component(f.component))
+                                    .cloned()
+                            });
+                            if let Some(c) = c {
+                                ui.heading(&c.reference);
+                                if !c.units.is_empty() && self.project.component(id).is_some() {
+                                    let before = self.selected_unit;
+                                    egui::ComboBox::from_id_salt("selected-symbol-unit")
+                                        .selected_text(t!(
+                                            "board.inspector.unit_selected_unit",
+                                            selected_unit = self.selected_unit
+                                        ))
+                                        .show_ui(ui, |ui| {
+                                            for unit in std::iter::once(1)
+                                                .chain(c.units.iter().map(|u| u.unit))
+                                            {
+                                                ui.selectable_value(
+                                                    &mut self.selected_unit,
+                                                    unit,
+                                                    t!("board.inspector.unit_unit", unit = unit),
+                                                )
+                                                .on_hover_text(t!("board.inspector.unit_unit.tip"));
+                                            }
+                                        });
+                                    if before != self.selected_unit {
+                                        self.load_properties();
                                     }
+                                }
+                                ui.label(&c.kind);
+                                ui.label(
+                                    egui::RichText::new(t!(
+                                        "board.inspector.stable_id_id",
+                                        id = id
+                                    ))
+                                    .small()
+                                    .color(self.muted()),
+                                );
+                                ui.add_space(10.0);
+                                ui.label(t!("board.inspector.value"));
+                                ui.text_edit_singleline(&mut self.value);
+                                field_help(ui, FIELD_HELP_VALUE, self.muted());
+                                if ui
+                                    .button(t!("board.inspector.apply_value"))
+                                    .on_hover_text(command_tip("component.value"))
+                                    .clicked()
+                                {
+                                    self.run(
+                                        "component.value",
+                                        json!({"id":c.id,"value":self.value}),
+                                    );
+                                }
+                                ui.add_space(12.0);
+                                ui.label(t!("board.inspector.position_mm"));
+                                field_help(ui, FIELD_HELP_POSITION, self.muted());
+                                ui.horizontal(|ui| {
+                                    ui.label(t!("board.inspector.x"));
+                                    ui.add(egui::DragValue::new(&mut self.x).speed(0.1));
+                                    ui.label(t!("board.inspector.y"));
+                                    ui.add(egui::DragValue::new(&mut self.y).speed(0.1));
                                 });
-                            if before != self.selected_unit {
-                                self.load_properties();
-                            }
-                        }
-                        ui.label(&c.kind);
-                        ui.label(
-                            egui::RichText::new(format!("Stable ID {id}"))
-                                .small()
-                                .color(self.muted()),
-                        );
-                        ui.add_space(10.0);
-                        ui.label("Value");
-                        ui.text_edit_singleline(&mut self.value);
-                        field_help(ui, FIELD_HELP_VALUE, self.muted());
-                        if ui.button("Apply value").on_hover_text(command_tip("component.value")).clicked() {
-                            self.run("component.value", json!({"id":c.id,"value":self.value}));
-                        }
-                        ui.add_space(12.0);
-                        ui.label("Position · mm");
-                        field_help(ui, FIELD_HELP_POSITION, self.muted());
-                        ui.horizontal(|ui| {
-                            ui.label("X");
-                            ui.add(egui::DragValue::new(&mut self.x).speed(0.1));
-                            ui.label("Y");
-                            ui.add(egui::DragValue::new(&mut self.y).speed(0.1));
-                        });
-                        if ui.button("Apply position").on_hover_text("Move the selected symbol or footprint to the position typed above.").clicked() {
-                            let mut params = json!({"id":id,"position":{"x":self.x,"y":self.y}});
-                            if self.project.component(id).is_some() {
-                                params["unit"] = json!(self.selected_unit);
-                            }
-                            self.run(
+                                if ui
+                                    .button(t!("board.inspector.apply_position"))
+                                    .on_hover_text(t!("board.inspector.apply_position.tip"))
+                                    .clicked()
+                                {
+                                    let mut params =
+                                        json!({"id":id,"position":{"x":self.x,"y":self.y}});
+                                    if self.project.component(id).is_some() {
+                                        params["unit"] = json!(self.selected_unit);
+                                    }
+                                    self.run(
+                                        if self.project.footprint(id).is_some() {
+                                            "footprint.move"
+                                        } else {
+                                            "component.move"
+                                        },
+                                        params,
+                                    );
+                                }
+                                if ui
+                                    .button(t!("board.inspector.rotate_90_r"))
+                                    .on_hover_text(command_tip("component.rotate"))
+                                    .clicked()
+                                {
+                                    self.rotate();
+                                }
+                                if ui
+                                    .button(t!("board.inspector.duplicate"))
+                                    .on_hover_text(t!("board.inspector.duplicate.tip"))
+                                    .clicked()
+                                {
+                                    self.duplicate_selection();
+                                }
+                                let sheet =
+                                    Self::datasheet_url(c.field(&t!("board.inspector.datasheet")));
+                                if ui
+                                    .add_enabled(
+                                        sheet.is_some(),
+                                        egui::Button::new(t!("board.inspector.view_datasheet")),
+                                    )
+                                    .on_hover_text(if sheet.is_some() {
+                                        t!("board.inspector.open_this_part_s_datasheet")
+                                    } else {
+                                        t!("board.inspector.this_part_has_no_web")
+                                    })
+                                    .clicked()
+                                    && let Some(url) = sheet
+                                {
+                                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                                }
                                 if self.project.footprint(id).is_some() {
-                                    "footprint.move"
-                                } else {
-                                    "component.move"
-                                },
-                                params,
-                            );
-                        }
-                        if ui.button("Rotate 90°  R").on_hover_text(command_tip("component.rotate")).clicked() {
-                            self.rotate();
-                        }
-                        if ui
-                            .button("Duplicate")
-                            .on_hover_text(
-                                "Places a copy of this part nearby, with its own new reference number. Undo removes the copy.",
-                            )
-                            .clicked()
-                        {
-                            self.duplicate_selection();
-                        }
-                        let sheet = Self::datasheet_url(c.field("Datasheet"));
-                        if ui
-                            .add_enabled(sheet.is_some(), egui::Button::new("View datasheet"))
-                            .on_hover_text(if sheet.is_some() {
-                                "Open this part's datasheet in your browser."
-                            } else {
-                                "This part has no web address in its Datasheet field yet."
-                            })
-                            .clicked()
-                            && let Some(url) = sheet
-                        {
-                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
-                        }
-                        if self.project.footprint(id).is_some() {
-                            ui.label("Dock to board edge");
-                            field_help(
-                                ui,
-                                "For an edge connector: the part slides until its copper just touches that edge, and keeps facing the way it faces.",
-                                self.muted(),
-                            );
-                            ui.horizontal(|ui| {
-                                for edge in ["left", "right", "top", "bottom"] {
+                                    ui.label(t!("board.inspector.dock_to_board_edge"));
+                                    field_help(
+                                        ui,
+                                        &t!("board.inspector.for_an_edge_connector_the"),
+                                        self.muted(),
+                                    );
+                                    ui.horizontal(|ui| {
+                                        for edge in ["left", "right", "top", "bottom"] {
+                                            if ui
+                                                .button(t!(
+                                                    "board.inspector.dock_edge",
+                                                    edge = edge
+                                                ))
+                                                .on_hover_text(t!(
+                                                    "board.inspector.dock_edge.tip",
+                                                    edge = edge
+                                                ))
+                                                .clicked()
+                                            {
+                                                self.run(
+                                                    "footprint.dock_edge",
+                                                    json!({"id": id, "edge": edge}),
+                                                );
+                                            }
+                                        }
+                                    });
+                                    let locked = self
+                                        .project
+                                        .footprint(id)
+                                        .is_some_and(|fp| fp.locked == Some(true));
                                     if ui
-                                        .button(format!("Dock {}", edge))
-                                        .on_hover_text(format!(
-                                            "Slide this part until its copper sits flush against the {edge} board edge. Undo slides it back."
+                                        .button(if locked {
+                                            t!("board.inspector.unlock")
+                                        } else {
+                                            t!("board.inspector.lock_in_place")
+                                        })
+                                        .on_hover_text(if locked {
+                                            t!("board.inspector.let_this_part_move_rotate")
+                                        } else {
+                                            t!("board.inspector.freeze_this_part_so_no")
+                                        })
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "footprint.set_locked",
+                                            json!({"id": id, "locked": !locked}),
+                                        );
+                                    }
+                                }
+                                ui.label(
+                                    c.library_footprint
+                                        .as_ref()
+                                        .map(|f| {
+                                            t!(
+                                                "board.inspector.footprint_name",
+                                                name = f.definition.name
+                                            )
+                                        })
+                                        .unwrap_or_else(|| {
+                                            if c.library_symbol.is_some() {
+                                                t!("board.inspector.footprint_unassigned")
+                                            } else {
+                                                t!("board.inspector.footprint_starter_package")
+                                            }
+                                        }),
+                                );
+                                if ui
+                                    .button(t!("board.inspector.assign_footprint_in_libraries"))
+                                    .on_hover_text(t!(
+                                        "board.inspector.assign_footprint_in_libraries.tip"
+                                    ))
+                                    .clicked()
+                                {
+                                    self.change_tab(Tab::Libraries);
+                                    self.library.kind = true;
+                                    self.library.pending = None;
+                                    self.library.path.clear();
+                                    self.library.results = None;
+                                    self.library.preview = None;
+                                    self.library.query.clear();
+                                }
+                                ui.add_space(12.0);
+                                ui.label(t!("board.inspector.pin_net"));
+                                for pin in &c.pins {
+                                    ui.label(t!(
+                                        "board.inspector.number_v1",
+                                        number = pin.number,
+                                        v1 = pin
+                                            .net
+                                            .map(|n| self.project.net_name(n))
+                                            .unwrap_or("unassigned")
+                                    ));
+                                }
+                            } else {
+                                ui.heading(t!("board.inspector.selected_object"));
+                                ui.label(t!("board.inspector.stable_id_id", id = id));
+                                for (name, value) in object_detail_rows(&self.project, id) {
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            egui::RichText::new(name).small().color(self.muted()),
+                                        );
+                                        ui.label(value);
+                                    });
+                                }
+                                self.via_span_controls(ui, id);
+                                self.via_covering_controls(ui, id);
+                                if let Some(track) =
+                                    self.project.board.tracks.iter().find(|t| t.id == id)
+                                {
+                                    let curved = track.arc.is_some();
+                                    let net = track.net;
+                                    let mid = (
+                                        (track.start.x + track.end.x) / 2.0,
+                                        (track.start.y + track.end.y) / 2.0,
+                                    );
+                                    let near = |a: Point, b: Point| {
+                                        (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
+                                    };
+                                    let span = |a: Point, b: Point| {
+                                        ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
+                                    };
+                                    let own_len = span(track.start, track.end);
+                                    let mate = self
+                                        .project
+                                        .board
+                                        .tracks
+                                        .iter()
+                                        .filter(|o| o.id != id && o.net == track.net)
+                                        .filter_map(|o| {
+                                            let joined = near(o.start, track.start)
+                                                || near(o.start, track.end)
+                                                || near(o.end, track.start)
+                                                || near(o.end, track.end);
+                                            joined.then(|| (o.id, span(o.start, o.end)))
+                                        })
+                                        .min_by(|a, b| a.1.total_cmp(&b.1));
+                                    let max_cut =
+                                        mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
+                                    ui.add_space(10.0);
+                                    ui.label(t!("board.inspector.wire_width"));
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.track_width)
+                                            .range(0.05..=10.0)
+                                            .speed(0.05)
+                                            .suffix(format!(" {}", t!("unit.mm"))),
+                                    )
+                                    .on_hover_text(t!("unit.mm7.tip"));
+                                    if ui
+                                        .button(t!("board.inspector.set_width"))
+                                        .on_hover_text(command_tip("track.set_width"))
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "track.set_width",
+                                            json!({"id": id, "width": self.track_width}),
+                                        );
+                                    }
+                                    if ui
+                                        .button(t!("board.inspector.thicken_whole_connection"))
+                                        .on_hover_text(t!(
+                                            "board.inspector.thicken_whole_connection.tip"
                                         ))
                                         .clicked()
                                     {
                                         self.run(
-                                            "footprint.dock_edge",
-                                            json!({"id": id, "edge": edge}),
+                                            "track.set_width_net",
+                                            json!({"net": net, "width": self.track_width}),
+                                        );
+                                    }
+                                    if ui
+                                        .add_enabled(
+                                            curved,
+                                            egui::Button::new(t!("board.inspector.straighten")),
+                                        )
+                                        .on_hover_text(if curved {
+                                            t!("board.inspector.pull_this_curved_wire_into")
+                                        } else {
+                                            t!("board.inspector.this_wire_is_already_straight")
+                                        })
+                                        .clicked()
+                                    {
+                                        self.run("track.straighten", json!({"id": id}));
+                                    }
+                                    let corner_ready = mate.is_some();
+                                    ui.horizontal(|ui| {
+                                        ui.add_enabled(
+                                            corner_ready,
+                                            egui::DragValue::new(&mut self.chamfer_size)
+                                                .range(0.05..=1.5)
+                                                .speed(0.05)
+                                                .suffix(format!(" {}", t!("unit.mm"))),
+                                        )
+                                        .on_hover_text(t!("unit.mm8.tip"));
+                                        if ui
+                                            .add_enabled(
+                                                corner_ready,
+                                                egui::Button::new(t!("board.inspector.cut_corner")),
+                                            )
+                                            .on_hover_text(if corner_ready {
+                                                t!("board.inspector.trade_the_sharp_angle_where")
+                                            } else {
+                                                t!("board.inspector.this_wire_does_not_meet")
+                                            })
+                                            .clicked()
+                                            && let Some((other, _)) = mate
+                                        {
+                                            let size = self.chamfer_size.min(max_cut);
+                                            self.run(
+                                                "track.chamfer",
+                                                json!({"a": id, "b": other, "size": size}),
+                                            );
+                                        }
+                                    });
+                                    if ui
+                                        .button(t!("board.inspector.cut_in_half"))
+                                        .on_hover_text(t!("board.inspector.cut_in_half.tip"))
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "track.split",
+                                            json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
+                                        );
+                                    }
+                                    self.impedance_section(ui, id, net);
+                                }
+                                if let Some(zone) = self
+                                    .project
+                                    .board
+                                    .zones
+                                    .iter()
+                                    .find(|z| z.id == id)
+                                    .filter(|z| z.kind.as_deref() != Some("teardrop"))
+                                {
+                                    let net = zone.net;
+                                    let (mut min_x, mut max_x, mut min_y, mut max_y) =
+                                        (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+                                    for p in &zone.outline {
+                                        min_x = min_x.min(p.x);
+                                        max_x = max_x.max(p.x);
+                                        min_y = min_y.min(p.y);
+                                        max_y = max_y.max(p.y);
+                                    }
+                                    ui.add_space(10.0);
+                                    ui.label(t!("board.inspector.ground_stitching"));
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.stitch_spacing)
+                                            .range(0.5..=50.0)
+                                            .speed(0.5)
+                                            .suffix(format!(" {}", t!("unit.mm"))),
+                                    )
+                                    .on_hover_text(t!("unit.mm9.tip"));
+                                    if ui
+                                        .button(t!("board.inspector.fill_with_vias"))
+                                        .on_hover_text(t!("board.inspector.fill_with_vias.tip"))
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "via.stitch",
+                                            json!({
+                                                "net": net,
+                                                "bounds": {
+                                                    "x": min_x,
+                                                    "y": min_y,
+                                                    "width": max_x - min_x,
+                                                    "height": max_y - min_y,
+                                                },
+                                                "spacing": self.stitch_spacing,
+                                                "diameter": 0.6,
+                                                "drill": 0.3,
+                                            }),
                                         );
                                     }
                                 }
-                            });
-                            let locked =
-                                self.project.footprint(id).is_some_and(|fp| fp.locked == Some(true));
-                            if ui
-                                .button(if locked { "Unlock" } else { "Lock in place" })
-                                .on_hover_text(if locked {
-                                    "Let this part move, rotate and dock again."
-                                } else {
-                                    "Freeze this part so no accidental click, key or dock can nudge it off where you placed it."
-                                })
-                                .clicked()
-                            {
-                                self.run(
-                                    "footprint.set_locked",
-                                    json!({"id": id, "locked": !locked}),
-                                );
-                            }
-                        }
-                        ui.label(
-                            c.library_footprint
-                                .as_ref()
-                                .map(|f| format!("Footprint: {}", f.definition.name))
-                                .unwrap_or_else(|| {
-                                    if c.library_symbol.is_some() {
-                                        "Footprint: unassigned".into()
-                                    } else {
-                                        "Footprint: starter package".into()
-                                    }
-                                }),
-                        );
-                        if ui.button("Assign footprint in Libraries →").on_hover_text("Jump to the library panel to bind a footprint package to this component.").clicked() {
-                            self.change_tab(Tab::Libraries);
-                            self.library.kind = true;
-                            self.library.pending = None;
-                            self.library.path.clear();
-                            self.library.results = None;
-                            self.library.preview = None;
-                            self.library.query.clear();
-                        }
-                        ui.add_space(12.0);
-                        ui.label("Pin / net");
-                        for pin in &c.pins {
-                            ui.label(format!(
-                                "{} · {}",
-                                pin.number,
-                                pin.net
-                                    .map(|n| self.project.net_name(n))
-                                    .unwrap_or("unassigned")
-                            ));
-                        }
-                    } else {
-                        ui.heading("Selected object");
-                        ui.label(format!("Stable ID {id}"));
-                        for (name, value) in object_detail_rows(&self.project, id) {
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(name).small().color(self.muted()));
-                                ui.label(value);
-                            });
-                        }
-                        self.via_span_controls(ui, id);
-                        self.via_covering_controls(ui, id);
-                        if let Some(track) =
-                            self.project.board.tracks.iter().find(|t| t.id == id)
-                        {
-                            let curved = track.arc.is_some();
-                            let net = track.net;
-                            let mid = (
-                                (track.start.x + track.end.x) / 2.0,
-                                (track.start.y + track.end.y) / 2.0,
-                            );
-                            let near = |a: Point, b: Point| {
-                                (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
-                            };
-                            let span = |a: Point, b: Point| {
-                                ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
-                            };
-                            let own_len = span(track.start, track.end);
-                            let mate = self
-                                .project
-                                .board
-                                .tracks
-                                .iter()
-                                .filter(|o| o.id != id && o.net == track.net)
-                                .filter_map(|o| {
-                                    let joined = near(o.start, track.start)
-                                        || near(o.start, track.end)
-                                        || near(o.end, track.start)
-                                        || near(o.end, track.end);
-                                    joined.then(|| (o.id, span(o.start, o.end)))
-                                })
-                                .min_by(|a, b| a.1.total_cmp(&b.1));
-                            let max_cut = mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
-                            ui.add_space(10.0);
-                            ui.label("Wire width");
-                            ui.add(
-                                egui::DragValue::new(&mut self.track_width)
-                                    .range(0.05..=10.0)
-                                    .speed(0.05)
-                                    .suffix(" mm"),
-                            )
-                            .on_hover_text(
-                                "How wide this stretch of copper is. Thicker wires carry more current.",
-                            );
-                            if ui
-                                .button("Set width")
-                                .on_hover_text(command_tip("track.set_width"))
-                                .clicked()
-                            {
-                                self.run(
-                                    "track.set_width",
-                                    json!({"id": id, "width": self.track_width}),
-                                );
-                            }
-                            if ui
-                                .button("Thicken whole connection")
-                                .on_hover_text(
-                                    "Make every stretch of this connection the width above, in one step, for a run that has to carry real current.",
-                                )
-                                .clicked()
-                            {
-                                self.run(
-                                    "track.set_width_net",
-                                    json!({"net": net, "width": self.track_width}),
-                                );
-                            }
-                            if ui
-                                .add_enabled(
-                                    curved,
-                                    egui::Button::new("Straighten"),
-                                )
-                                .on_hover_text(if curved {
-                                "Pull this curved wire into a straight line. Undo brings the curve back."
-                            } else {
-                                "This wire is already straight; there is nothing to pull."
-                            })
-                            .clicked()
-                            {
-                                self.run("track.straighten", json!({"id": id}));
-                            }
-                            let corner_ready = mate.is_some();
-                            ui.horizontal(|ui| {
-                                ui.add_enabled(
-                                    corner_ready,
-                                    egui::DragValue::new(&mut self.chamfer_size)
-                                        .range(0.05..=1.5)
-                                        .speed(0.05)
-                                        .suffix(" mm"),
-                                )
-                                .on_hover_text(
-                                    "How far back from the sharp corner the diagonal cut starts.",
-                                );
-                                if ui
-                                    .add_enabled(corner_ready, egui::Button::new("Cut corner"))
-                                    .on_hover_text(if corner_ready {
-                                        "Trade the sharp angle where two wires meet for a diagonal, so the etch comes out cleaner. Undo brings the corner back."
-                                    } else {
-                                        "This wire does not meet another wire of the same connection end to end, so there is no corner to cut."
-                                    })
-                                    .clicked()
-                                    && let Some((other, _)) = mate
-                                {
-                                    let size = self.chamfer_size.min(max_cut);
-                                    self.run(
-                                        "track.chamfer",
-                                        json!({"a": id, "b": other, "size": size}),
-                                    );
-                                }
-                            });
-                            if ui
-                                .button("Cut in half")
-                                .on_hover_text(
-                                    "Break this stretch of wire into two equal halves so you can bend, branch or re-route part of it. Undo joins it back into one.",
-                                )
-                                .clicked()
-                            {
-                                self.run(
-                                    "track.split",
-                                    json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
-                                );
-                            }
-                            self.impedance_section(ui, id, net);
-                        }
-                        if let Some(zone) =
-                            self.project.board.zones.iter().find(|z| z.id == id)
-                                .filter(|z| z.kind.as_deref() != Some("teardrop"))
-                        {
-                            let net = zone.net;
-                            let (mut min_x, mut max_x, mut min_y, mut max_y) =
-                                (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-                            for p in &zone.outline {
-                                min_x = min_x.min(p.x);
-                                max_x = max_x.max(p.x);
-                                min_y = min_y.min(p.y);
-                                max_y = max_y.max(p.y);
                             }
                             ui.add_space(10.0);
-                            ui.label("Ground stitching");
-                            ui.add(
-                                egui::DragValue::new(&mut self.stitch_spacing)
-                                    .range(0.5..=50.0)
-                                    .speed(0.5)
-                                    .suffix(" mm"),
-                            )
-                            .on_hover_text(
-                                "How far apart the little connecting holes sit. Smaller numbers pack more in.",
-                            );
                             if ui
-                                .button("Fill with vias")
-                                .on_hover_text(
-                                    "Drops a grid of small plated holes across this copper so it stays at one potential from every corner. Undo sweeps them up.",
-                                )
+                                .button(t!("board.inspector.delete_del"))
+                                .on_hover_text(command_tip("object.delete"))
                                 .clicked()
                             {
-                                self.run(
-                                    "via.stitch",
-                                    json!({
-                                        "net": net,
-                                        "bounds": {
-                                            "x": min_x,
-                                            "y": min_y,
-                                            "width": max_x - min_x,
-                                            "height": max_y - min_y,
-                                        },
-                                        "spacing": self.stitch_spacing,
-                                        "diameter": 0.6,
-                                        "drill": 0.3,
-                                    }),
-                                );
+                                self.delete_selection();
                             }
+                            ui.separator();
+                        } else {
+                            ui.heading(t!("board.inspector.nothing_selected"));
+                            ui.label(t!("board.inspector.select_an_item_on_the"));
+                            ui.add_space(12.0);
                         }
-                    }
-                    ui.add_space(10.0);
-                    if ui.button("Delete  Del").on_hover_text(command_tip("object.delete")).clicked() {
-                        self.delete_selection();
-                    }
-                    ui.separator();
-                } else {
-                    ui.heading("Nothing selected");
-                    ui.label(
-                        "Select an item on the drawing to inspect and edit it. Everything for the whole project lives in the Settings tab up top.",
-                    );
-                    ui.add_space(12.0);
-                }
                     });
             });
     }
@@ -6027,19 +6163,19 @@ impl App {
         };
         let zoom_pct = (zoom / base * 100.0).round() as i32;
         let tool_words: String = match &self.tool {
-            Tool::Select => "Pick".to_owned(),
+            Tool::Select => t!("board.footer.pick").to_owned(),
             Tool::Place(kind) | Tool::LibraryPlace(_, kind, _) | Tool::CustomPlace(kind, _) => {
-                format!("Place {kind}")
+                t!("board.footer.place_kind", kind = kind)
             }
-            Tool::Wire(_) => "Draw wire".to_owned(),
-            Tool::Route(_) => "Route".to_owned(),
-            Tool::Move => "Move".to_owned(),
-            Tool::Cutout => "Cut hole".to_owned(),
-            Tool::Hole => "Drill hole".to_owned(),
-            Tool::NoConnect => "No connection".to_owned(),
-            Tool::Fiducial => "Fiducial mark".to_owned(),
-            Tool::DrawLayer => "Draw on a layer".to_owned(),
-            Tool::Measure => "Measure".to_owned(),
+            Tool::Wire(_) => t!("board.footer.draw_wire").to_owned(),
+            Tool::Route(_) => t!("board.footer.route").to_owned(),
+            Tool::Move => t!("board.footer.move").to_owned(),
+            Tool::Cutout => t!("board.footer.cut_hole").to_owned(),
+            Tool::Hole => t!("board.footer.drill_hole").to_owned(),
+            Tool::NoConnect => t!("board.footer.no_connection").to_owned(),
+            Tool::Fiducial => t!("board.footer.fiducial_mark").to_owned(),
+            Tool::DrawLayer => t!("board.footer.draw_on_a_layer").to_owned(),
+            Tool::Measure => t!("board.footer.measure").to_owned(),
         };
         egui::Panel::bottom("status")
             .frame(
@@ -6047,61 +6183,67 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(16, 4)),
             )
             .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(&self.message)
-                        .small()
-                        .color(self.muted()),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new(format!("rev {}", self.revision))
+                        egui::RichText::new(&self.message)
                             .small()
                             .color(self.muted()),
-                    )
-                    .on_hover_text(
-                        "Every edit raises this number; undo and redo step it back and forth.",
                     );
-                    if let Some(reading) = self.measure_readout() {
-                        ui.label(egui::RichText::new(reading).small().strong())
-                            .on_hover_text("The last measurement. Press Esc to clear it.");
-                    }
-                    if let Some(p) = self.cursor {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
-                            egui::RichText::new(format!("{:.2}, {:.2} mm", p.x, p.y))
+                            egui::RichText::new(t!(
+                                "board.footer.rev_revision",
+                                revision = self.revision
+                            ))
+                            .small()
+                            .color(self.muted()),
+                        )
+                        .on_hover_text(t!("board.footer.rev_revision.tip"));
+                        if let Some(reading) = self.measure_readout() {
+                            ui.label(egui::RichText::new(reading).small().strong())
+                                .on_hover_text(t!(
+                                    "board.footer.the_last_measurement_press_esc.tip"
+                                ));
+                        }
+                        if let Some(p) = self.cursor {
+                            ui.label(
+                                egui::RichText::new(t!(
+                                    "board.footer.x_y_mm",
+                                    x = format!("{:.2}", p.x),
+                                    y = format!("{:.2}", p.y)
+                                ))
+                                .small()
+                                .color(self.muted()),
+                            )
+                            .on_hover_text(t!("board.footer.x_y_mm.tip"));
+                        }
+                        ui.label(
+                            egui::RichText::new(t!("board.footer.zoom_pct", zoom_pct = zoom_pct))
                                 .small()
                                 .color(self.muted()),
                         )
-                        .on_hover_text("Where the mouse points on the board, in millimetres.");
-                    }
-                    ui.label(
-                        egui::RichText::new(format!("{zoom_pct}%"))
-                            .small()
-                            .color(self.muted()),
-                    )
-                    .on_hover_text("How close the drawing is zoomed in. Scroll to change it.");
-                    let tool_btn = ui
-                        .small_button(format!("Tool: {tool_words}"))
-                        .on_hover_text(
-                            "What a click on the drawing does right now. Click here to go back to picking things, or press Esc.",
-                        );
-                    if tool_btn.clicked() {
-                        self.tool = Tool::Select;
-                    }
-                    let fix_btn = ui
-                        .small_button(format!("{fix} to fix"))
-                        .on_hover_text("Mistakes the checks say you must fix. Click to see the list.");
-                    let mind_btn = ui
-                        .small_button(format!("{mind} to mind"))
-                        .on_hover_text(
-                            "Warnings worth a look, but not blockers. Click to see the list.",
-                        );
-                    if fix_btn.clicked() || mind_btn.clicked() {
-                        self.change_tab(Tab::Checks);
-                    }
+                        .on_hover_text(t!("board.footer.zoom_pct.tip"));
+                        let tool_btn = ui
+                            .small_button(t!(
+                                "board.footer.tool_tool_words",
+                                tool_words = tool_words
+                            ))
+                            .on_hover_text(t!("board.footer.tool_tool_words.tip"));
+                        if tool_btn.clicked() {
+                            self.tool = Tool::Select;
+                        }
+                        let fix_btn = ui
+                            .small_button(t!("board.footer.fix_to_fix", fix = fix))
+                            .on_hover_text(t!("board.footer.fix_to_fix.tip"));
+                        let mind_btn = ui
+                            .small_button(t!("board.footer.mind_to_mind", mind = mind))
+                            .on_hover_text(t!("board.footer.mind_to_mind.tip"));
+                        if fix_btn.clicked() || mind_btn.clicked() {
+                            self.change_tab(Tab::Checks);
+                        }
+                    });
                 });
             });
-        });
         if self.command_open {
             egui::Panel::bottom("commands")
                 .frame(Self::dock_frame(ui.style()))
@@ -6119,13 +6261,13 @@ impl App {
                         .collect();
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new("SEARCH")
+                            egui::RichText::new(t!("board.footer.search"))
                                 .small()
                                 .color(self.accent()),
                         );
                         let search = ui.add(
                             egui::TextEdit::singleline(&mut self.command_query)
-                                .hint_text("filter command names and descriptions")
+                                .hint_text(t!("board.footer.filter_command_names_and_descriptions"))
                                 .desired_width(300.0),
                         );
                         if self.command_focus {
@@ -6133,25 +6275,22 @@ impl App {
                             self.command_focus = false;
                         }
                         ui.label(
-                            egui::RichText::new("PARAMETERS")
+                            egui::RichText::new(t!("board.footer.parameters"))
                                 .small()
                                 .color(self.accent()),
                         );
-                        let fields = ui.add(
-                            egui::TextEdit::multiline(&mut self.params)
-                                .hint_text("parameters as JSON, one line per value reads easiest")
-                                .desired_width(380.0)
-                                .desired_rows(3)
-                                .interactive(true),
-                        )
-                        .on_hover_text(
-                            "Edit the parameters here; Enter adds a new line so long lists stay readable, and Ctrl+Enter or Execute runs the command.",
-                        );
-                        if ui
-                            .button("Execute")
-                            .on_hover_text(
-                                "Run the command with the parameters you typed; selecting a command fills a starter parameter set.",
+                        let fields = ui
+                            .add(
+                                egui::TextEdit::multiline(&mut self.params)
+                                    .hint_text(t!("board.footer.parameters_as_json_one_line"))
+                                    .desired_width(380.0)
+                                    .desired_rows(3)
+                                    .interactive(true),
                             )
+                            .on_hover_text(t!("board.footer.parameters_as_json_one_line.tip"));
+                        if ui
+                            .button(t!("board.footer.execute"))
+                            .on_hover_text(t!("board.footer.execute.tip"))
                             .clicked()
                         {
                             self.execute_palette_params();
@@ -6189,10 +6328,10 @@ impl App {
                         }
                     });
                     ui.label(
-                        egui::RichText::new(format!(
-                            "{} of {} commands match; click one to load it with a starter parameter set, or step the highlight with Up and Down and press Enter in the search box to load it. In the parameter box, Enter writes a new line and Ctrl+Enter runs the command.",
-                            matches.len(),
-                            pcbcraft_engine::commands().len()
+                        egui::RichText::new(t!(
+                            "board.footer.len_of_len2_commands_match",
+                            len = matches.len(),
+                            len2 = pcbcraft_engine::commands().len()
                         ))
                         .small()
                         .color(self.muted()),
@@ -6205,25 +6344,20 @@ impl App {
                                 .find(|spec| spec.id == self.command)
                             {
                                 for line in param_help(&spec) {
-                                    ui.label(
-                                        egui::RichText::new(line)
-                                            .small()
-                                            .color(self.muted()),
-                                    );
+                                    ui.label(egui::RichText::new(line).small().color(self.muted()));
                                 }
                             }
                             for (row, spec) in matches.iter().enumerate() {
+                                let row_text = t!(
+                                    "board.footer.id_description",
+                                    id = spec.id,
+                                    description = spec.description
+                                );
+                                let on_row = self.command == spec.id
+                                    || row == step_index(self.command_index, matches.len(), 0);
                                 let response = ui
-                                    .selectable_label(
-                                        self.command == spec.id
-                                            || row == step_index(
-                                                self.command_index,
-                                                matches.len(),
-                                                0,
-                                            ),
-                                        format!("{}   {}", spec.id, spec.description),
-                                    )
-                                    .on_hover_text("Load this command with a starter parameter set.");
+                                    .selectable_label(on_row, row_text)
+                                    .on_hover_text(t!("board.footer.id_description.tip"));
                                 if row == self.command_index && self.command_scroll {
                                     response.scroll_to_me(Some(egui::Align::Center));
                                 }
@@ -6239,7 +6373,7 @@ impl App {
         }
         if self.shortcuts_open {
             let muted = self.muted();
-            egui::Window::new("Keyboard shortcuts")
+            egui::Window::new(t!("board.footer.keyboard_shortcuts"))
                 .open(&mut self.shortcuts_open)
                 .show(ui, |ui| {
                     egui::Grid::new("shortcut-list")
@@ -6606,8 +6740,8 @@ impl App {
         &mut self,
         ui: &mut egui::Ui,
         id: &str,
-        label: &str,
-        tip: &str,
+        label: String,
+        tip: String,
         selected: bool,
     ) -> egui::Response {
         let response = ui.selectable_label(selected, label).on_hover_text(tip);
@@ -6621,7 +6755,7 @@ impl App {
         }
         if matches!(self.tool, Tool::DrawLayer) {
             ui.label(
-                egui::RichText::new("DRAW ON LAYER")
+                egui::RichText::new(t!("board.draw_tool_options.draw_on_layer"))
                     .size(10.0)
                     .color(self.muted()),
             );
@@ -6635,24 +6769,24 @@ impl App {
             let current = self
                 .art_layer
                 .and_then(|id| names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone()))
-                .unwrap_or_else(|| "no layer yet".into());
+                .unwrap_or_else(|| t!("board.draw_tool_options.no_layer_yet"));
             egui::ComboBox::from_id_salt("art-layer-pick")
                 .selected_text(current)
                 .width(150.0)
                 .show_ui(ui, |ui| {
                     for (id, name) in &names {
                         ui.radio_value(&mut self.art_layer, Some(*id), name.as_str())
-                            .on_hover_text("New figures land on this layer.");
+                            .on_hover_text(t!(
+                                "board.draw_tool_options.new_figures_land_on_this.tip"
+                            ));
                     }
                 });
             if ui
-                .button("New layer")
-                .on_hover_text(
-                    "Make a new drawn layer and switch to it; give it a real name in the layers list.",
-                )
+                .button(t!("board.draw_tool_options.new_layer"))
+                .on_hover_text(t!("board.draw_tool_options.new_layer.tip"))
                 .clicked()
             {
-                let name = format!("Art {}", names.len() + 1);
+                let name = t!("board.draw_tool_options.art_v0", v0 = names.len() + 1);
                 self.run("board.layer_add", json!({"name": name, "kind": "other"}));
                 if self.message.starts_with("board.layer_add") {
                     self.art_layer = self.selected;
@@ -6660,11 +6794,31 @@ impl App {
             }
             ui.horizontal(|ui| {
                 for (shape, label, tip) in [
-                    (DrawShape::Line, "Line", "Two clicks: start and end."),
-                    (DrawShape::Rect, "Box", "Two clicks on opposite corners."),
-                    (DrawShape::Circle, "Circle", "Centre, then edge."),
-                    (DrawShape::Poly, "Outline", "Corners; Enter to close."),
-                    (DrawShape::Words, "Words", "Type below, then click once."),
+                    (
+                        DrawShape::Line,
+                        t!("board.draw_tool_options.line"),
+                        t!("board.draw_tool_options.two_clicks_start_and_end"),
+                    ),
+                    (
+                        DrawShape::Rect,
+                        t!("board.draw_tool_options.box"),
+                        t!("board.draw_tool_options.two_clicks_on_opposite_corners"),
+                    ),
+                    (
+                        DrawShape::Circle,
+                        t!("board.draw_tool_options.circle"),
+                        t!("board.draw_tool_options.centre_then_edge"),
+                    ),
+                    (
+                        DrawShape::Poly,
+                        t!("board.draw_tool_options.outline"),
+                        t!("board.draw_tool_options.corners_enter_to_close"),
+                    ),
+                    (
+                        DrawShape::Words,
+                        t!("board.draw_tool_options.words"),
+                        t!("board.draw_tool_options.type_below_then_click_once"),
+                    ),
                 ] {
                     if ui
                         .selectable_label(self.art_shape == shape, label)
@@ -6680,33 +6834,33 @@ impl App {
             if self.art_shape == DrawShape::Words {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.art_text)
-                        .hint_text("words to print")
+                        .hint_text(t!("board.draw_tool_options.words_to_print"))
                         .desired_width(f32::INFINITY),
                 )
-                .on_hover_text("The words a click will print on the active layer.");
+                .on_hover_text(t!("board.draw_tool_options.words_to_print.tip"));
             }
             ui.separator();
         }
         if matches!(self.tool, Tool::Hole) {
-            ui.label("Mounting hole size");
+            ui.label(t!("board.draw_tool_options.mounting_hole_size"));
             ui.add(
                 egui::DragValue::new(&mut self.hole_diameter)
                     .speed(0.05)
                     .range(0.05..=25.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .on_hover_text("Drill size for new holes; an M3 spacer usually wants 3.2 mm.");
+            .on_hover_text(t!("unit.mm5.tip"));
             ui.separator();
         }
         if matches!(self.tool, Tool::Fiducial) {
-            ui.label("Assembly mark size");
+            ui.label(t!("board.draw_tool_options.assembly_mark_size"));
             ui.add(
                 egui::DragValue::new(&mut self.fiducial_diameter)
                     .speed(0.05)
                     .range(0.2..=10.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .on_hover_text("Disc size for new marks; 1 mm is the usual size.");
+            .on_hover_text(t!("unit.mm6.tip"));
             ui.separator();
         }
     }
@@ -6721,13 +6875,25 @@ impl App {
                 app.tool = Tool::Select;
             };
             if self
-                .tool_strip_button(ui, "tool-select", "Select", "Select objects on the drawing.", matches!(self.tool, Tool::Select))
+                .tool_strip_button(
+                    ui,
+                    "tool-select",
+                    t!("board.tool_strip.select"),
+                    t!("board.tool_strip.select_objects_on_the_drawing"),
+                    matches!(self.tool, Tool::Select),
+                )
                 .clicked()
             {
                 select(self);
             }
             if self
-                .tool_strip_button(ui, "tool-move", "Move", "Move tool: drop the selection at the cursor.", matches!(self.tool, Tool::Move))
+                .tool_strip_button(
+                    ui,
+                    "tool-move",
+                    t!("board.tool_strip.move"),
+                    t!("board.tool_strip.move_tool_drop_the_selection"),
+                    matches!(self.tool, Tool::Move),
+                )
                 .clicked()
             {
                 self.tool = Tool::Move;
@@ -6737,8 +6903,8 @@ impl App {
                     .tool_strip_button(
                         ui,
                         "tool-wire",
-                        "Wire",
-                        "Wire tool: click two pins to connect them.",
+                        t!("board.tool_strip.wire"),
+                        t!("board.tool_strip.wire_tool_click_two_pins"),
                         matches!(self.tool, Tool::Wire(_)),
                     )
                     .clicked()
@@ -6749,8 +6915,8 @@ impl App {
                     .tool_strip_button(
                         ui,
                         "tool-noconnect",
-                        "No connect",
-                        "Mark a pin deliberately unconnected.",
+                        t!("board.tool_strip.no_connect"),
+                        t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
                         matches!(self.tool, Tool::NoConnect),
                     )
                     .clicked()
@@ -6763,8 +6929,8 @@ impl App {
                     .tool_strip_button(
                         ui,
                         "tool-route",
-                        "Route",
-                        "Route tool: click two pads to start a track.",
+                        t!("board.tool_strip.route"),
+                        t!("board.tool_strip.route_tool_click_two_pads"),
                         matches!(self.tool, Tool::Route(_)),
                     )
                     .clicked()
@@ -6772,14 +6938,38 @@ impl App {
                     self.tool = Tool::Route(None);
                 }
                 for (shape, id, glyph, tip) in [
-                    (DrawShape::Line, "tool-line", "Line", "Draw a straight line on a user layer."),
-                    (DrawShape::Rect, "tool-box", "Box", "Draw a box on a user layer."),
-                    (DrawShape::Circle, "tool-circle", "Circle", "Draw a circle on a user layer."),
-                    (DrawShape::Poly, "tool-outline", "Outline", "Draw an outline on a user layer."),
-                    (DrawShape::Words, "tool-words", "Text", "Print words on a user layer."),
+                    (
+                        DrawShape::Line,
+                        "tool-line",
+                        t!("board.tool_strip.line"),
+                        t!("board.tool_strip.draw_a_straight_line_on"),
+                    ),
+                    (
+                        DrawShape::Rect,
+                        "tool-box",
+                        t!("board.tool_strip.box"),
+                        t!("board.tool_strip.draw_a_box_on_a"),
+                    ),
+                    (
+                        DrawShape::Circle,
+                        "tool-circle",
+                        t!("board.tool_strip.circle"),
+                        t!("board.tool_strip.draw_a_circle_on_a"),
+                    ),
+                    (
+                        DrawShape::Poly,
+                        "tool-outline",
+                        t!("board.tool_strip.outline"),
+                        t!("board.tool_strip.draw_an_outline_on_a"),
+                    ),
+                    (
+                        DrawShape::Words,
+                        "tool-words",
+                        t!("board.tool_strip.text"),
+                        t!("board.tool_strip.print_words_on_a_user"),
+                    ),
                 ] {
-                    let armed =
-                        matches!(self.tool, Tool::DrawLayer) && self.art_shape == shape;
+                    let armed = matches!(self.tool, Tool::DrawLayer) && self.art_shape == shape;
                     if self.tool_strip_button(ui, id, glyph, tip, armed).clicked() {
                         self.tool = Tool::DrawLayer;
                         self.art_shape = shape;
@@ -6788,10 +6978,11 @@ impl App {
                     }
                 }
                 if ui
-                    .selectable_label(matches!(self.tool, Tool::DrawLayer), "Draw shape")
-                    .on_hover_text(
-                        "Draw cut lines, perforations or printed marks on your own layer.",
+                    .selectable_label(
+                        matches!(self.tool, Tool::DrawLayer),
+                        t!("board.tool_strip.draw_shape"),
                     )
+                    .on_hover_text(t!("board.tool_strip.draw_shape.tip"))
                     .clicked()
                 {
                     self.tool = Tool::DrawLayer;
@@ -6800,26 +6991,31 @@ impl App {
                     self.art_points.clear();
                 }
                 if ui
-                    .selectable_label(matches!(self.tool, Tool::Cutout), "Cutout")
+                    .selectable_label(
+                        matches!(self.tool, Tool::Cutout),
+                        t!("board.tool_strip.cutout"),
+                    )
                     .on_hover_text(command_tip("board.cutout.add"))
                     .clicked()
                 {
                     self.tool = Tool::Cutout;
                 }
                 if ui
-                    .selectable_label(matches!(self.tool, Tool::Hole), "Mounting hole")
-                    .on_hover_text(
-                        "Drill an unplated hole for a screw or spacer; then click the board where it goes.",
+                    .selectable_label(
+                        matches!(self.tool, Tool::Hole),
+                        t!("board.tool_strip.mounting_hole"),
                     )
+                    .on_hover_text(t!("board.tool_strip.mounting_hole.tip"))
                     .clicked()
                 {
                     self.tool = Tool::Hole;
                 }
                 if ui
-                    .selectable_label(matches!(self.tool, Tool::Fiducial), "Assembly mark")
-                    .on_hover_text(
-                        "A bare copper disc the pick-and-place camera finds the board by; then click a clear corner.",
+                    .selectable_label(
+                        matches!(self.tool, Tool::Fiducial),
+                        t!("board.tool_strip.assembly_mark"),
                     )
+                    .on_hover_text(t!("board.tool_strip.assembly_mark.tip"))
                     .clicked()
                 {
                     self.tool = Tool::Fiducial;
