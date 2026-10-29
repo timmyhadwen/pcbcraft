@@ -25,7 +25,7 @@ fn four_layer_app() -> Result<(App, egui::Context), String> {
                     .push(pcbcraft_doc::LayerRecord {
                         name: format!("P{i}"),
                         kind: "prepreg".into(),
-                        thickness: 0.2,
+                        thickness: 0.4,
                         copper_role: None,
                     });
             }
@@ -135,6 +135,11 @@ fn a_newcomer_allows_and_removes_a_buried_via_span() -> Result<(), String> {
     );
     ctx.data_mut(|d| d.insert_temp(egui::Id::new("via_span_add"), (1usize, 2usize)));
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        scrolled_to(&ctx, &mut app, "Allow span")?,
+        "the board offers a way to allow a span: {}",
+        app.message
+    );
     authoring::tests::tap(&ctx, &mut app, "Allow span")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
@@ -146,6 +151,11 @@ fn a_newcomer_allows_and_removes_a_buried_via_span() -> Result<(), String> {
     assert!(
         paints_text(&ctx, &mut app, "L2 to L3")?,
         "the new span shows in the list: {}",
+        app.message
+    );
+    assert!(
+        scrolled_to(&ctx, &mut app, "Remove")?,
+        "an allowed extra span can be taken away again: {}",
         app.message
     );
     authoring::tests::tap(&ctx, &mut app, "Remove")?;
