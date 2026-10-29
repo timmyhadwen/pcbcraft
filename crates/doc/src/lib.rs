@@ -4,6 +4,8 @@ pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
     panel_layout, panel_layout_from_grid, panel_layout_with_settings,
 };
+mod fab;
+pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::{Deserialize, Serialize};
@@ -232,6 +234,18 @@ pub struct NetClass {
     /// millimetres. Defaults to zero, an exact match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Default outer via pad diameter for member nets, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_diameter: Option<f64>,
+    /// Default drilled hole for member vias, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_drill: Option<f64>,
+    /// Default track width for differential pairs on member nets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair_width: Option<f64>,
+    /// Default coupling gap for differential pairs on member nets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair_gap: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -1415,6 +1429,9 @@ pub struct Board {
     pub height: f64,
     pub thickness: f64,
     pub clearance: f64,
+    /// Recorded fabrication minimums and preset metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<FabRules>,
     /// Surface finish applied to exposed copper, for example HASL or ENIG.
     #[serde(default = "board_finish")]
     pub finish: String,
@@ -1678,6 +1695,9 @@ pub struct Project {
     /// Named net classes carrying clearance and default width rules.
     #[serde(default)]
     pub net_classes: Vec<NetClass>,
+    /// Clearance overrides between net classes, stricter than either class alone.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub class_pairs: Vec<ClassPairRule>,
     /// Named schematic pages, ordered by id; sheet 0 is the implicit root.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sheets: Vec<Sheet>,
@@ -1835,6 +1855,7 @@ impl Default for Project {
             components: vec![],
             nets: vec![],
             net_classes: vec![],
+            class_pairs: vec![],
             sheets: vec![],
             ports: vec![],
             bom_fields: vec![],
@@ -1858,6 +1879,7 @@ impl Default for Project {
                 height: 40.0,
                 thickness: 1.6,
                 clearance: 0.2,
+                rules: None,
                 finish: board_finish(),
                 er: board_er(),
                 drill_origin: board_origin(),
@@ -2002,6 +2024,10 @@ impl Project {
     pub fn net_class(&self, net: Id) -> Option<&NetClass> {
         self.net_classes.iter().find(|c| c.nets.contains(&net))
     }
+    /// The id of the net class a net belongs to, if any.
+    pub fn net_class_id(&self, net: Id) -> Option<Id> {
+        self.net_class(net).map(|c| c.id)
+    }
     /// Severity a check code should report at: the project override when it
     /// names one of the two real levels, otherwise the check's own default.
     pub fn rule_severity(&self, code: &str, default: &str) -> String {
@@ -2087,6 +2113,15 @@ impl Project {
             })
             .max_by(f64::total_cmp)
             .unwrap_or(self.board.clearance);
+        if let (Some(ca), Some(cb)) = (self.net_class_id(a), self.net_class_id(b)) {
+            for rule in &self.class_pairs {
+                if (rule.class_a == ca && rule.class_b == cb)
+                    || (rule.class_a == cb && rule.class_b == ca)
+                {
+                    best = best.max(rule.clearance);
+                }
+            }
+        }
         if let Some(rule) = self
             .board
             .pair_rules
@@ -2333,6 +2368,17 @@ impl Project {
                     .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
                 || !profile_tag_valid(&c.profile)
+                || c.via_diameter
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
+                || c.via_drill
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
+                || c.via_diameter
+                    .zip(c.via_drill)
+                    .is_some_and(|(d, drill)| drill >= d)
+                || c.pair_width
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
+                || c.pair_gap
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 10.0)
             {
                 return Err("invalid net class".into());
             }
@@ -2341,6 +2387,25 @@ impl Project {
                     return Err("net class membership is invalid".into());
                 }
             }
+        }
+        if self.class_pairs.len() > 64 {
+            return Err("a project carries at most 64 class pair clearance rules".into());
+        }
+        let class_ids: BTreeSet<Id> = self.net_classes.iter().map(|c| c.id).collect();
+        let mut class_paired: BTreeSet<(Id, Id)> = BTreeSet::new();
+        for r in &self.class_pairs {
+            if !r.valid()
+                || !class_ids.contains(&r.class_a)
+                || !class_ids.contains(&r.class_b)
+                || !class_paired.insert(r.key())
+            {
+                return Err(
+                    "class pair rules need known distinct classes, one rule per pair".into(),
+                );
+            }
+        }
+        if self.board.rules.as_ref().is_some_and(|r| !r.valid()) {
+            return Err("fabrication rules carry invalid minimums".into());
         }
         if self.board.pair_rules.len() > 64 {
             return Err("a board carries at most 64 net pair clearance rules".into());

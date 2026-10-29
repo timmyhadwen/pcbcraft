@@ -8805,6 +8805,10 @@ mod tests {
             max_width: None,
             target_length: None,
             length_tolerance: None,
+            via_diameter: None,
+            via_drill: None,
+            pair_width: None,
+            pair_gap: None,
             nets: vec![5],
             profile: None,
         });
