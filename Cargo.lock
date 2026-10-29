@@ -2629,6 +2629,7 @@ dependencies = [
  "pcbcraft-io",
  "pcbcraft-mcp",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
