@@ -61,8 +61,8 @@ impl RegionLayout {
 /// - `center` draws everything between the toolbar and the bottom sheet.
 ///
 /// # Implementations
-/// - `crates/ui-egui/src/workspace.rs`: `FilesWorkspace`, `SchematicWorkspace`,
-///   `LayoutWorkspace`, `ManufactureWorkspace`.
+/// - `crates/ui-egui/src/workspace.rs` holds `FilesWorkspace`, `SchematicWorkspace`,
+///   `LayoutWorkspace`, and `ManufactureWorkspace`.
 ///
 /// # Do not
 /// Put document logic here; call `App` methods.

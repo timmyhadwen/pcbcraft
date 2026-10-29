@@ -1611,10 +1611,44 @@ fn a_newcomer_zooms_out_and_fits_the_whole_design() -> Result<(), String> {
     let before = app.schematic.zoom;
     tap_id(&ctx, &mut app, "icon:canvas-zoom-out")?;
     assert!(app.schematic.zoom < before, "the minus button zooms out");
+    let zoomed_out = app.schematic.zoom;
+    tap_id(&ctx, &mut app, "icon:canvas-zoom-in")?;
+    assert!(app.schematic.zoom > zoomed_out, "the plus button zooms in");
     tap_id(&ctx, &mut app, "icon:canvas-fit")?;
     assert!(
         app.needs_fit || app.schematic.zoom > 0.0,
         "Fit frames the design"
     );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_touches_every_stackup_control() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Nothing recorded yet", 700.0)?,
+        "the stackup section sits on the Settings page"
+    );
+    tap_id(&ctx, &mut app, "button:Two layers \u{b7} thin #.# mm")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    scrolled_to_at(&ctx, &mut app, "Add layer", 700.0)?;
+    tap_id(&ctx, &mut app, "textinput:layer name")?;
+    tap_id(&ctx, &mut app, "spinbutton:New layer thickness")?;
+    tap_id(&ctx, &mut app, "combobox:New layer kind")?;
+    scrolled_to_at(&ctx, &mut app, "Substrate", 700.0)?;
+    tap_id(&ctx, &mut app, "spinbutton:Substrate dielectric constant")?;
+    app.stack_name = "Core".into();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Add layer")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Tune")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "spinbutton:Thickness")?;
     Ok(())
 }

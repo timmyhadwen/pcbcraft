@@ -2421,18 +2421,34 @@ impl App {
     const CAPTION: f32 = 12.0;
     /// The slim top bar: the brand and the menus, nothing else. Save, Undo
     /// and Redo, settings, bug reports and the version live in the menus.
+    /// The logo mark at the left of the menu bar.
+    ///
+    /// # Rules
+    /// A small placeholder square until `assets/brand/` (feat-brand-logo-687)
+    /// is merged; then paint the real mark here.
+    ///
+    /// # Do not
+    /// Make it larger than the 14 px name beside it.
+    fn brand_mark(&self, ui: &mut egui::Ui) {
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::hover());
+        let painter = ui.painter();
+        painter.rect_filled(rect, 4.0, self.accent());
+        painter.rect_filled(rect.shrink(6.0), 1.0, self.surface());
+    }
     fn header(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("app-bar")
             .exact_size(Self::APP_BAR_HEIGHT)
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
-                ui.horizontal_centered(|ui| {
+                // One centred row so the mark, the name and the menus share a baseline.
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    self.brand_mark(ui);
                     let brand = ui.add(
                         egui::Button::new(
                             egui::RichText::new(t!("app.name"))
-                                .size(15.0)
+                                .size(14.0)
                                 .strong()
-                                .color(self.accent()),
+                                .color(self.ink()),
                         )
                         .frame(false)
                         .min_size(Vec2::splat(Self::MIN_TARGET)),
@@ -2884,7 +2900,9 @@ impl App {
                 self.reset_layout();
                 ui.close();
             }
-        });
+        })
+        .response
+        .on_hover_text(t!("menu.view.tip"));
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.help"), |ui| {
