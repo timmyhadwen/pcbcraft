@@ -1862,7 +1862,9 @@ mod tests {
         }
         let findings = drc(&p);
         assert!(
-            !findings.iter().any(|f| f.code == "annular_ring" && f.objects.contains(&99)),
+            !findings
+                .iter()
+                .any(|f| f.code == "annular_ring" && f.objects.contains(&99)),
             "via ring passes the via limit"
         );
         assert!(

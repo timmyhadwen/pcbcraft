@@ -1,9 +1,7 @@
 //! Canonical project data. No UI or protocol dependencies.
 mod fab;
 
-pub use fab::{
-    fab_preset, fab_preset_list, ClassPairRule, FabPreset, FabRules, FAB_PRESET_NAMES,
-};
+pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::{Deserialize, Serialize};
@@ -2068,9 +2066,9 @@ impl Project {
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
                 || c.via_diameter
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
-                || c.via_drill.is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
-                || c
-                    .via_diameter
+                || c.via_drill
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
+                || c.via_diameter
                     .zip(c.via_drill)
                     .is_some_and(|(d, drill)| drill >= d)
                 || c.pair_width

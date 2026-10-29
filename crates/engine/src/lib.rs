@@ -5905,9 +5905,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 && a.pair_width.is_none()
                 && a.pair_gap.is_none()
             {
-                return Err(Error::Invalid(
-                    "give at least one field to change".into(),
-                ));
+                return Err(Error::Invalid("give at least one field to change".into()));
             }
             if let Some(name) = &a.name {
                 if name.is_empty() || name.len() > 128 {
@@ -5936,12 +5934,16 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     ));
                 }
             }
-            if a.via_drill.is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 100.0) {
+            if a.via_drill
+                .is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 100.0)
+            {
                 return Err(Error::Invalid(
                     "via drill must be between 0 and 100 millimetres".into(),
                 ));
             }
-            if a.pair_gap.is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 10.0) {
+            if a.pair_gap
+                .is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 10.0)
+            {
                 return Err(Error::Invalid(
                     "pair gap must be between 0 and 10 millimetres".into(),
                 ));
@@ -10317,11 +10319,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 return Err(Error::Invalid("unknown net class".into()));
             }
             let key = (a.class_a.min(a.class_b), a.class_a.max(a.class_b));
-            if let Some(rule) = p
-                .class_pairs
-                .iter_mut()
-                .find(|r| r.key() == key)
-            {
+            if let Some(rule) = p.class_pairs.iter_mut().find(|r| r.key() == key) {
                 rule.clearance = a.clearance;
             } else {
                 if p.class_pairs.len() >= 64 {
@@ -10360,9 +10358,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if !FAB_PRESET_NAMES.contains(&a.name.as_str()) {
                 return Err(Error::Invalid("unknown fabrication preset".into()));
             }
-            let preset = fab_preset(&a.name).ok_or_else(|| {
-                Error::Invalid("unknown fabrication preset".into())
-            })?;
+            let preset = fab_preset(&a.name)
+                .ok_or_else(|| Error::Invalid("unknown fabrication preset".into()))?;
             p.board.rules = Some(preset.rules);
             Ok(json!({"preset":a.name,"rules":p.board.rules}))
         }
@@ -11803,9 +11800,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
                 if let Some(name) = a.preset {
                     if name.is_empty() || name.len() > 64 {
-                        return Err(Error::Invalid(
-                            "preset name must be 1 to 64 bytes".into(),
-                        ));
+                        return Err(Error::Invalid("preset name must be 1 to 64 bytes".into()));
                     }
                     rules.preset = Some(name);
                 }
@@ -27885,7 +27880,10 @@ mod tests {
         s.undo()?;
         assert!(s.project.board.rules.is_none());
         s.execute("rules.preset_apply", json!({"name":"JLCPCB 1-2L"}), None)?;
-        assert_eq!(s.project.board.rules.as_ref().and_then(|r| r.min_track), before);
+        assert_eq!(
+            s.project.board.rules.as_ref().and_then(|r| r.min_track),
+            before
+        );
         let presets = s.execute("rules.preset_list", json!({}), None)?;
         let list = presets["result"]["presets"]
             .as_array()
@@ -27912,8 +27910,16 @@ mod tests {
         )?;
         let net_a = s.project.nets.first().ok_or_else(missing)?.id;
         let net_b = s.project.nets.get(1).ok_or_else(missing)?.id;
-        s.execute("netclass.assign", json!({"net":net_a,"class":class_a}), None)?;
-        s.execute("netclass.assign", json!({"net":net_b,"class":class_b}), None)?;
+        s.execute(
+            "netclass.assign",
+            json!({"net":net_a,"class":class_a}),
+            None,
+        )?;
+        s.execute(
+            "netclass.assign",
+            json!({"net":net_b,"class":class_b}),
+            None,
+        )?;
         assert!(
             (s.project.required_clearance(net_a, net_b) - 0.9).abs() < 1e-9,
             "class pair clearance beats class defaults"
@@ -27923,7 +27929,11 @@ mod tests {
             json!({"class":class_a,"via_diameter":1.0,"via_drill":0.4}),
             None,
         )?;
-        s.execute("netclass.assign", json!({"net":net_a,"class":class_a}), None)?;
+        s.execute(
+            "netclass.assign",
+            json!({"net":net_a,"class":class_a}),
+            None,
+        )?;
         let via = s.execute(
             "via.place",
             json!({"net":net_a,"position":{"x":20.0,"y":20.0}}),
@@ -27932,13 +27942,20 @@ mod tests {
             .as_u64()
             .ok_or_else(missing)?;
         assert_eq!(
-            s.project.board.vias.iter().find(|v| v.id == via).map(|v| v.diameter),
+            s.project
+                .board
+                .vias
+                .iter()
+                .find(|v| v.id == via)
+                .map(|v| v.diameter),
             Some(1.0)
         );
-        s.project.board.rules.as_mut().unwrap().min_drill = Some(0.35);
+        s.project.board.rules.as_mut().unwrap().min_drill = Some(0.45);
         let findings = pcbcraft_rules::drc(&s.project);
         assert!(
-            findings.iter().any(|f| f.code == "min_drill" && f.objects.contains(&via)),
+            findings
+                .iter()
+                .any(|f| f.code == "min_drill" && f.objects.contains(&via)),
             "a via smaller than min_drill is reported"
         );
         Ok(())
