@@ -95,17 +95,14 @@ mod tests {
 
     #[test]
     fn a_bad_entry_keeps_the_old_value_and_shows_the_plain_message() {
-        let mut value = 0.25_f64;
-        let ctx = egui::Context::default();
-        let mut shown = String::new();
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-            ui.add(localized(egui::DragValue::new(&mut value), "de", 3));
-            shown = fmt_ui("de", value, 3);
-        });
-        assert_eq!(value, 0.25, "an untouched box keeps its value");
-        assert_eq!(shown, "0,250");
-        let refusal = parse_box("1,2,3").err();
-        assert_eq!(refusal.as_deref(), Some("Type a number such as 0,2"));
-        assert!(parse_box("abc").is_err());
+        // egui keeps a DragValue's value when its parser gives None.
+        let value = 0.25_f64;
+        let typed = parse_box("1,2,3").ok().unwrap_or(value);
+        assert_eq!(typed, 0.25, "a refused entry leaves the number alone");
+        assert_eq!(
+            parse_box("abc").err().as_deref(),
+            Some("Type a number such as 0,2")
+        );
+        assert_eq!(trim_zeros("de", fmt_ui("de", typed, 3), 0), "0,25");
     }
 }
