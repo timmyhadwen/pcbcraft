@@ -7,8 +7,7 @@ use std::sync::Arc;
 /// One part of a message to the agent.
 ///
 /// # Dependencies
-/// - `crate`: `serde` (for serialization)
-/// - `crate`: `std` (for `Arc`, `AtomicBool`, etc.)
+/// - none yet
 ///
 /// # Rules
 /// - This enum represents a part of a message sent to the agent.
@@ -39,8 +38,7 @@ pub enum PromptPart {
 /// What a backend reports to the pane.
 ///
 /// # Dependencies
-/// - `crate`: `serde` (for serialization)
-/// - `crate`: `std` (for `Arc`, `AtomicBool`, etc.)
+/// - none yet
 ///
 /// # Rules
 /// - This enum represents events reported by the backend to the UI pane.

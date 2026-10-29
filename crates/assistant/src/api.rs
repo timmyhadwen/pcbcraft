@@ -44,10 +44,10 @@ const HIDDEN_TOOLS: &[&str] = &[];
 /// Which wire shape the endpoint speaks.
 ///
 /// # Dependencies
-/// - `derive`: `Clone`, `Copy`, `Debug`, `PartialEq`, `Eq`, `serde::Serialize`, `serde::Deserialize`
-/// - `crate`: `serde` (for serialization)
+/// - `crates/assistant/Cargo.toml` (serde for wire encoding)
 ///
 /// # Rules
+/// - Derives `Clone`, `Copy`, `Debug`, `PartialEq`, `Eq`, `serde::Serialize`, `serde::Deserialize`.
 /// - This enum represents the protocol used to communicate with the model.
 /// - Each variant corresponds to a specific API protocol.
 ///
@@ -62,8 +62,7 @@ pub enum Protocol {
 /// Where the model is and how to reach it.
 ///
 /// # Dependencies
-/// - `crate`: `serde` (for serialization)
-/// - `crate`: `std` (for `Arc`, `AtomicBool`, etc.)
+/// - `crates/assistant/Cargo.toml` (serde for saved connection fields)
 ///
 /// # Rules
 /// - This struct holds the configuration for connecting to the model.
