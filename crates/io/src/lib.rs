@@ -10397,7 +10397,7 @@ mod tests {
 
     #[test]
     fn symbol_library_text_round_trips_graphical_style_and_hide() -> Result<(), String> {
-        let mut symbol = pcbcraft_library::SymbolDefinition {
+        let symbol = pcbcraft_library::SymbolDefinition {
             name: "DECO".into(),
             reference: "U".into(),
             value: "DECO".into(),
