@@ -40,6 +40,8 @@ pub enum Event {
         status: Option<ToolStatus>,
         output: Option<String>,
     },
+    /// A short progress note (such as `request 2 of 24`).
+    Note(String),
     /// Its plan, replaced whole: each entry with its status.
     Plan(Vec<(String, String)>),
     /// It asks before running something of its own; answered with [`ChatBackend::answer_permission`].
