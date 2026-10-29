@@ -84,7 +84,9 @@ mod tests {
     fn work(session: &mut Session, turn: &mut Turn, n: usize) -> Result<(), String> {
         for i in 0..n {
             turn.admit(true, 24).map_err(str::to_string)?;
-            session.batch(&[add(&format!("R{i}"))], None).map_err(|e| e.to_string())?;
+            session
+                .batch(&[add(&format!("R{i}"))], None)
+                .map_err(|e| e.to_string())?;
         }
         Ok(())
     }
@@ -99,7 +101,11 @@ mod tests {
         assert_eq!(changes, 3);
         assert_eq!(s.history_len(), len);
         s.undo().map_err(|e| e.to_string())?;
-        assert_eq!(s.project.components.len(), 1, "only the earlier part is left");
+        assert_eq!(
+            s.project.components.len(),
+            1,
+            "only the earlier part is left"
+        );
         Ok(())
     }
 
@@ -119,7 +125,8 @@ mod tests {
     fn merging_finds_the_turns_start_when_the_history_was_trimmed() -> Result<(), String> {
         let mut s = Session::default();
         for i in 0..40 {
-            s.batch(&[add(&format!("P{i}"))], None).map_err(|e| e.to_string())?;
+            s.batch(&[add(&format!("P{i}"))], None)
+                .map_err(|e| e.to_string())?;
         }
         let before = s.history_len();
         let mut turn = Turn::new(s.revision, before, "more".into());
@@ -138,6 +145,9 @@ mod tests {
             assert!(turn.admit(true, 2).is_ok());
         }
         assert!(turn.admit(true, 2).is_err());
-        assert!(turn.admit(false, 2).is_ok(), "reads still run past the change limit");
+        assert!(
+            turn.admit(false, 2).is_ok(),
+            "reads still run past the change limit"
+        );
     }
 }

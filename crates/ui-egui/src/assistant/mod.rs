@@ -124,8 +124,10 @@ impl State {
             .items
             .iter()
             .rposition(|i| matches!(i, Item::UndoStep { .. }))?;
-        let fresh = matches!(self.transcript.items.get(at), Some(Item::UndoStep { undone: false, .. }))
-            && self.undo_len == Some(history_len);
+        let fresh = matches!(
+            self.transcript.items.get(at),
+            Some(Item::UndoStep { undone: false, .. })
+        ) && self.undo_len == Some(history_len);
         fresh.then_some(at)
     }
 
@@ -259,7 +261,11 @@ impl App {
     /// The gate's decision for one call from the model.
     fn assistant_receive(&mut self, request: ToolRequest) {
         let key = pcbcraft_assistant::tool_key(&request.name, &request.args);
-        let undo_left = self.assistant.turn.as_ref().map_or(0, |t| t.changes as usize);
+        let undo_left = self
+            .assistant
+            .turn
+            .as_ref()
+            .map_or(0, |t| t.changes as usize);
         let verdict = pcbcraft_assistant::request(
             &request.name,
             &request.args,
@@ -323,16 +329,27 @@ impl App {
                     .to_string(),
                 params: request.args.get("params").cloned().unwrap_or(Value::Null),
             }],
-            "batch" => serde_json::from_value(
-                request.args.get("commands").cloned().unwrap_or(Value::Null),
-            )
-            .map_err(|e| e.to_string())?,
+            "batch" => {
+                serde_json::from_value(request.args.get("commands").cloned().unwrap_or(Value::Null))
+                    .map_err(|e| e.to_string())?
+            }
             _ => return Ok(String::new()),
         };
-        let expected = request.args.get("expected_revision").and_then(Value::as_u64);
-        let session = self.session.lock().map_err(|_| "the design is busy".to_string())?;
-        let dry = session.dry_run(&commands, expected).map_err(|e| e.to_string())?;
-        Ok(pcbcraft_assistant::summary_text(&dry.summary, session.revision))
+        let expected = request
+            .args
+            .get("expected_revision")
+            .and_then(Value::as_u64);
+        let session = self
+            .session
+            .lock()
+            .map_err(|_| "the design is busy".to_string())?;
+        let dry = session
+            .dry_run(&commands, expected)
+            .map_err(|e| e.to_string())?;
+        Ok(pcbcraft_assistant::summary_text(
+            &dry.summary,
+            session.revision,
+        ))
     }
 
     /// End the message: merge what it changed into one undo step and show the Undo row.
@@ -341,7 +358,11 @@ impl App {
             return;
         };
         self.assistant.busy = false;
-        let finished = self.session.lock().ok().and_then(|mut s| turn.finish(&mut s));
+        let finished = self
+            .session
+            .lock()
+            .ok()
+            .and_then(|mut s| turn.finish(&mut s));
         if let Some((changes, len)) = finished {
             self.assistant.undo_len = Some(len);
             self.assistant.transcript.push(Item::UndoStep {

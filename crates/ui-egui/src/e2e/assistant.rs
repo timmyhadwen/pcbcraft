@@ -159,7 +159,10 @@ fn settle(ctx: &egui::Context, app: &mut App) {
 
 #[test]
 fn a_newcomer_allows_two_changes_and_takes_them_back_with_one_undo() -> Result<(), String> {
-    let mut app = with_calls(vec![add_part("R1", "10k", 20.0), add_part("R2", "4k7", 30.0)]);
+    let mut app = with_calls(vec![
+        add_part("R1", "10k", 20.0),
+        add_part("R2", "4k7", 30.0),
+    ]);
     let ctx = egui::Context::default();
     settle(&ctx, &mut app);
     app.assistant.input = "add two resistors".into();
@@ -167,7 +170,10 @@ fn a_newcomer_allows_two_changes_and_takes_them_back_with_one_undo() -> Result<(
     settle(&ctx, &mut app);
     assert!(paints_text(&ctx, &mut app, "Add resistor R1 (10k)")?);
     assert!(paints_text(&ctx, &mut app, "Add resistor R2 (4k7)")?);
-    assert!(paints_text(&ctx, &mut app, "adds R1")?, "the card previews the change");
+    assert!(
+        paints_text(&ctx, &mut app, "adds R1")?,
+        "the card previews the change"
+    );
     for _ in 0..2 {
         authoring::tests::tap(&ctx, &mut app, "Allow")?;
         settle(&ctx, &mut app);
@@ -176,7 +182,10 @@ fn a_newcomer_allows_two_changes_and_takes_them_back_with_one_undo() -> Result<(
     assert_eq!(app.project.components.len(), 2);
     authoring::tests::tap(&ctx, &mut app, "Undo")?;
     settle(&ctx, &mut app);
-    assert!(app.project.components.is_empty(), "one Undo takes back both parts");
+    assert!(
+        app.project.components.is_empty(),
+        "one Undo takes back both parts"
+    );
     Ok(())
 }
 
@@ -192,7 +201,10 @@ fn a_newcomer_sees_a_malformed_change_refused_with_the_reason() -> Result<(), St
     app.assistant.input = "add a resistor".into();
     authoring::tests::tap(&ctx, &mut app, "Send")?;
     settle(&ctx, &mut app);
-    assert!(!paints_text(&ctx, &mut app, "Allow")?, "a refused change has no Allow button");
+    assert!(
+        !paints_text(&ctx, &mut app, "Allow")?,
+        "a refused change has no Allow button"
+    );
     assert!(app.project.components.is_empty());
     assert!(
         app.assistant

@@ -60,7 +60,12 @@ impl Session {
         let mut next = self.next_id;
         let mut results = vec![];
         for command in commands {
-            results.push(run(&mut candidate, &mut next, &command.command, &command.params)?);
+            results.push(run(
+                &mut candidate,
+                &mut next,
+                &command.command,
+                &command.params,
+            )?);
             candidate.validate()?;
         }
         Ok(DryRun {
@@ -108,7 +113,11 @@ fn rows(project: &Value) -> BTreeMap<(String, u64), &Value> {
 fn label(row: &Value, id: u64) -> String {
     ["reference", "name", "text"]
         .iter()
-        .find_map(|k| row.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty()))
+        .find_map(|k| {
+            row.get(*k)
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+        })
         .map_or_else(|| id.to_string(), str::to_string)
 }
 
@@ -187,7 +196,12 @@ mod tests {
         let dry = s.dry_run(&[add("R1", 10.0)], Some(0))?;
         assert_eq!(s.revision, 0);
         assert!(s.project.components.is_empty());
-        assert!(dry.summary.added.iter().any(|(k, r)| k == "component" && r == "R1"));
+        assert!(
+            dry.summary
+                .added
+                .iter()
+                .any(|(k, r)| k == "component" && r == "R1")
+        );
         assert_eq!(s.history_len(), 0);
         Ok(())
     }
@@ -195,7 +209,10 @@ mod tests {
     #[test]
     fn dry_run_refuses_a_stale_revision_and_an_empty_batch() {
         let s = Session::default();
-        assert!(matches!(s.dry_run(&[add("R1", 1.0)], Some(5)), Err(Error::Stale { .. })));
+        assert!(matches!(
+            s.dry_run(&[add("R1", 1.0)], Some(5)),
+            Err(Error::Stale { .. })
+        ));
         assert!(s.dry_run(&[], None).is_err());
     }
 
@@ -206,12 +223,27 @@ mod tests {
         for (i, r) in ["R1", "R2", "R3"].iter().enumerate() {
             assert!(s.batch(&[add(r, 10.0 + i as f64)], None).is_ok());
         }
-        let ids = s.project.components.iter().map(|c| c.id).collect::<Vec<_>>();
+        let ids = s
+            .project
+            .components
+            .iter()
+            .map(|c| c.id)
+            .collect::<Vec<_>>();
         assert_eq!(s.squash_undo_since(start), 2);
         assert!(s.undo().is_ok());
-        assert!(s.project.components.is_empty(), "one undo takes back all three");
+        assert!(
+            s.project.components.is_empty(),
+            "one undo takes back all three"
+        );
         assert!(s.redo().is_ok());
-        assert_eq!(s.project.components.iter().map(|c| c.id).collect::<Vec<_>>(), ids);
+        assert_eq!(
+            s.project
+                .components
+                .iter()
+                .map(|c| c.id)
+                .collect::<Vec<_>>(),
+            ids
+        );
     }
 
     #[test]

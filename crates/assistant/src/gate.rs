@@ -62,14 +62,31 @@ const SESSION_ACTIONS: &[&str] = &[
 ];
 /// Parameter names that always hold a file or folder.
 pub const FILE_KEYS: &[&str] = &[
-    "path", "directory", "dir", "file", "filename", "folder", "output_path",
+    "path",
+    "directory",
+    "dir",
+    "file",
+    "filename",
+    "folder",
+    "output_path",
 ];
 /// Parameter names that sometimes hold a file name.
 pub const AMBIGUOUS_KEYS: &[&str] = &["name", "source", "target"];
 /// Endings that make an ambiguous value read like a file name.
 pub const FILE_EXTENSIONS: &[&str] = &[
-    ".pcbcraft", ".zip", ".csv", ".txt", ".svg", ".png", ".pdf", ".dxf", ".json", ".kicad_pcb",
-    ".kicad_mod", ".kicad_sym", ".pcbcraft-lib",
+    ".pcbcraft",
+    ".zip",
+    ".csv",
+    ".txt",
+    ".svg",
+    ".png",
+    ".pdf",
+    ".dxf",
+    ".json",
+    ".kicad_pcb",
+    ".kicad_mod",
+    ".kicad_sym",
+    ".pcbcraft-lib",
 ];
 
 /// The most commands one batch may carry.
@@ -98,8 +115,7 @@ fn params_touch_files(params: &Value) -> bool {
     };
     map.iter().any(|(k, v)| {
         (FILE_KEYS.contains(&k.as_str()) && v.is_string())
-            || (AMBIGUOUS_KEYS.contains(&k.as_str())
-                && v.as_str().is_some_and(reads_like_a_file))
+            || (AMBIGUOUS_KEYS.contains(&k.as_str()) && v.as_str().is_some_and(reads_like_a_file))
     })
 }
 
@@ -129,7 +145,13 @@ pub fn edits_design(tool: &str, _args: &Value) -> bool {
 /// `undo_left` is how many of this message's own changes `undo` could still take back; asking
 /// for more undoes work from before the message. `always` holds keys the user chose to always
 /// allow (see [`tool_key`]).
-pub fn request(tool: &str, args: &Value, mode: Mode, undo_left: usize, always: &[String]) -> Verdict {
+pub fn request(
+    tool: &str,
+    args: &Value,
+    mode: Mode,
+    undo_left: usize,
+    always: &[String],
+) -> Verdict {
     if let Err(reason) = pcbcraft_mcp::check_args(tool, args) {
         return Verdict::Refuse(reason);
     }
@@ -149,13 +171,17 @@ pub fn request(tool: &str, args: &Value, mode: Mode, undo_left: usize, always: &
             Verdict::Run { change: true }
         };
     }
-    let files = is_file_tool(tool) || commands_of(tool, args).iter().any(|c| {
-        let name = c.get("command").and_then(Value::as_str).unwrap_or("");
-        is_file_tool(name) || c.get("params").is_some_and(params_touch_files)
-    }) || (!matches!(tool, "execute" | "batch") && params_touch_files(args));
+    let files = is_file_tool(tool)
+        || commands_of(tool, args).iter().any(|c| {
+            let name = c.get("command").and_then(Value::as_str).unwrap_or("");
+            is_file_tool(name) || c.get("params").is_some_and(params_touch_files)
+        })
+        || (!matches!(tool, "execute" | "batch") && params_touch_files(args));
     if files {
         return if mode == Mode::All {
-            Verdict::Run { change: edits_design(tool, args) }
+            Verdict::Run {
+                change: edits_design(tool, args),
+            }
         } else {
             Verdict::Ask("works with files or replaces the design".into())
         };
@@ -193,7 +219,11 @@ pub fn describe(tool: &str, args: &Value) -> String {
         "open" | "save" => {
             let path = text(args, "path").unwrap_or_default();
             let name = path.rsplit(['/', '\\']).next().unwrap_or("");
-            let verb = if tool == "open" { "Open" } else { "Save the design to" };
+            let verb = if tool == "open" {
+                "Open"
+            } else {
+                "Save the design to"
+            };
             format!("{verb} {name}")
         }
         other => describe_command(other, args),
@@ -224,29 +254,68 @@ mod tests {
 
     #[test]
     fn the_gate_refuses_and_limits() {
-        assert!(matches!(request("no_such_tool", &json!({}), Mode::All, 0, &[]), Verdict::Refuse(_)));
+        assert!(matches!(
+            request("no_such_tool", &json!({}), Mode::All, 0, &[]),
+            Verdict::Refuse(_)
+        ));
         let many = json!({"commands": vec![add("R1"); 129]});
-        assert!(matches!(request("batch", &many, Mode::All, 0, &[]), Verdict::Refuse(_)));
+        assert!(matches!(
+            request("batch", &many, Mode::All, 0, &[]),
+            Verdict::Refuse(_)
+        ));
     }
 
     #[test]
     fn file_actions_wait_for_the_user() {
         for mode in [Mode::Ask, Mode::Edits] {
-            assert!(matches!(request("save", &json!({"path":"/tmp/a.pcbcraft"}), mode, 0, &[]), Verdict::Ask(_)));
-            assert!(matches!(request("gerber.export", &json!({"path":"/tmp/out"}), mode, 0, &[]), Verdict::Ask(_)));
+            assert!(matches!(
+                request("save", &json!({"path":"/tmp/a.pcbcraft"}), mode, 0, &[]),
+                Verdict::Ask(_)
+            ));
+            assert!(matches!(
+                request("gerber.export", &json!({"path":"/tmp/out"}), mode, 0, &[]),
+                Verdict::Ask(_)
+            ));
         }
-        assert_eq!(request("save", &json!({"path":"/tmp/a.pcbcraft"}), Mode::All, 0, &[]), Verdict::Run { change: false });
+        assert_eq!(
+            request(
+                "save",
+                &json!({"path":"/tmp/a.pcbcraft"}),
+                Mode::All,
+                0,
+                &[]
+            ),
+            Verdict::Run { change: false }
+        );
     }
 
     #[test]
     fn permission_modes_decide_what_asks() {
         let a = add("R1");
-        assert!(matches!(request("execute", &a, Mode::Ask, 0, &[]), Verdict::Ask(_)));
-        assert_eq!(request("execute", &a, Mode::Edits, 0, &[]), Verdict::Run { change: true });
-        assert_eq!(request("execute", &a, Mode::Ask, 0, &["component.add".into()]), Verdict::Run { change: true });
-        assert_eq!(request("inspect_design", &json!({}), Mode::Ask, 0, &[]), Verdict::Run { change: false });
-        assert!(matches!(request("undo", &json!({}), Mode::Edits, 0, &[]), Verdict::Ask(_)));
-        assert_eq!(request("undo", &json!({}), Mode::Edits, 2, &[]), Verdict::Run { change: true });
+        assert!(matches!(
+            request("execute", &a, Mode::Ask, 0, &[]),
+            Verdict::Ask(_)
+        ));
+        assert_eq!(
+            request("execute", &a, Mode::Edits, 0, &[]),
+            Verdict::Run { change: true }
+        );
+        assert_eq!(
+            request("execute", &a, Mode::Ask, 0, &["component.add".into()]),
+            Verdict::Run { change: true }
+        );
+        assert_eq!(
+            request("inspect_design", &json!({}), Mode::Ask, 0, &[]),
+            Verdict::Run { change: false }
+        );
+        assert!(matches!(
+            request("undo", &json!({}), Mode::Edits, 0, &[]),
+            Verdict::Ask(_)
+        ));
+        assert_eq!(
+            request("undo", &json!({}), Mode::Edits, 2, &[]),
+            Verdict::Run { change: true }
+        );
     }
 
     #[test]
@@ -265,7 +334,10 @@ mod tests {
                 // and a file tool must never run silently outside mode All.
                 let v = request(name, &json!({}), mode, 0, &[]);
                 if is_file_tool(name) && mode != Mode::All {
-                    assert!(!matches!(v, Verdict::Run { .. }), "{name} ran without asking");
+                    assert!(
+                        !matches!(v, Verdict::Run { .. }),
+                        "{name} ran without asking"
+                    );
                 }
             }
         }
@@ -276,13 +348,16 @@ mod tests {
 
     #[test]
     fn a_malformed_execute_is_refused_with_the_engines_reason_and_runs_nothing() {
-        let bad = json!({"command":"component.add","params":{"kind":"resistor","position":"nowhere"}});
+        let bad =
+            json!({"command":"component.add","params":{"kind":"resistor","position":"nowhere"}});
         match request("execute", &bad, Mode::All, 0, &[]) {
             Verdict::Refuse(reason) => assert!(!reason.is_empty()),
             other => assert_eq!(other, Verdict::Refuse(String::new()), "must refuse"),
         }
         let unknown = json!({"command":"no.such","params":{}});
-        assert!(matches!(request("execute", &unknown, Mode::All, 0, &[]), Verdict::Refuse(r) if r.contains("unknown")));
+        assert!(
+            matches!(request("execute", &unknown, Mode::All, 0, &[]), Verdict::Refuse(r) if r.contains("unknown"))
+        );
     }
 
     #[test]
@@ -290,6 +365,9 @@ mod tests {
         let a = add("R1");
         assert_eq!(describe("execute", &a), "Add resistor R1 (10k)");
         assert_eq!(tool_key("execute", &a), "component.add");
-        assert_eq!(describe("batch", &json!({"commands":[{},{}]})), "Batch of 2 commands");
+        assert_eq!(
+            describe("batch", &json!({"commands":[{},{}]})),
+            "Batch of 2 commands"
+        );
     }
 }

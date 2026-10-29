@@ -52,9 +52,16 @@ mod tests {
     fn a_summary_reads_as_one_plain_line() {
         let s = ChangeSummary {
             added: vec![("component".into(), "R1".into())],
-            moved: vec![("track".into(), "1".into()), ("track".into(), "2".into()), ("track".into(), "3".into())],
+            moved: vec![
+                ("track".into(), "1".into()),
+                ("track".into(), "2".into()),
+                ("track".into(), "3".into()),
+            ],
             ..ChangeSummary::default()
         };
-        assert_eq!(summary_text(&s, 7), "adds R1, moves 3 tracks, revision 7 to 8");
+        assert_eq!(
+            summary_text(&s, 7),
+            "adds R1, moves 3 tracks, revision 7 to 8"
+        );
     }
 }
