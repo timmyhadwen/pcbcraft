@@ -2346,7 +2346,9 @@ impl GraphicGroup {
 /// - Store the same id in two object groups.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ObjectGroup {
+    /// Stable id of the group.
     pub id: Id,
+    /// Ids of the grouped objects, in the order they were grouped.
     pub members: Vec<Id>,
 }
 impl ObjectGroup {
