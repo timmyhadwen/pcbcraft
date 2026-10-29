@@ -1,7 +1,7 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod a11y;
-mod assistant;
 mod arrange;
+mod assistant;
 mod authoring;
 mod board3d;
 mod board_side;
