@@ -104,7 +104,7 @@ fn new_pin(number: &str, unit: u32, position: Point, angle: f64) -> SymbolPin {
         visible: true,
     }
 }
-fn new_pad(number: &str, x: f64) -> FootprintPad {
+pub(crate) fn new_pad(number: &str, x: f64) -> FootprintPad {
     FootprintPad {
         number: number.into(),
         pad_type: "thru_hole".into(),

@@ -127,3 +127,18 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_turns_a_pad_into_an_unplated_locating_peg() -> Result<(), String> {
+    let mut pad = authoring::new_pad("3", 2.0);
+    pad.pad_type = "unplated".into();
+    authoring::apply_unplated_defaults(&mut pad);
+    if !pad.number.is_empty() || !pad.layers.is_empty() {
+        return Err("an unplated peg must have no number and no copper layers".into());
+    }
+    let drill = pad.drill.as_ref().ok_or("the peg lost its drill")?;
+    if drill.size.x <= 0.0 || pad.size.x < drill.size.x {
+        return Err("the drill must be positive and fit inside the pad".into());
+    }
+    Ok(())
+}
