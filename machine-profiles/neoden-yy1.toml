@@ -1,0 +1,74 @@
+id = "neoden-yy1"
+name = "NeoDen YY1"
+kind = "pick_place"
+vendor = "NeoDen"
+model = "YY1"
+notes = "SD-card CSV placement; feeder map owner-unverified."
+
+[work_area]
+x = 350.0
+y = 249.0
+origin = "lower-left"
+y_up = false
+
+[output]
+format = "csv"
+dialect = "neoden_yy1"
+units = "mm"
+line_ending = "crlf"
+mirror_bottom = true
+mirror_axis = "x"
+invert = false
+
+[pick_place.board]
+max_x_mm = 350.0
+max_y_mm = 249.0
+origin_top = "lower-left"
+origin_bottom = "lower-right"
+
+[pick_place.rotation]
+min_deg = -180.0
+max_deg = 360.0
+
+[pick_place.csv]
+native_header = "NEODEN,YY1,P&P FILE"
+import_columns = 11
+line_ending = "crlf"
+
+[[pick_place.feeders]]
+name = "tape"
+first = 1
+last = 52
+
+[[pick_place.feeders]]
+name = "flexible"
+first = 53
+last = 80
+
+[[pick_place.feeders]]
+name = "bulk"
+first = 81
+last = 99
+
+[[pick_place.nozzle]]
+id = "1"
+diameter_mm = 0.4
+
+[[pick_place.nozzle]]
+id = "2"
+diameter_mm = 0.7
+
+[[pick_place.rotation_offset]]
+comment = "default"
+footprint = "0402"
+offset_deg = 0.0
+
+[[pick_place.footprint_alias]]
+pattern = "^C_0402.*"
+replacement = "0402"
+
+[[pick_place.feeder_map]]
+comment = "placeholder"
+footprint = "0402"
+feeder_no = 1
+nozzle = "1"

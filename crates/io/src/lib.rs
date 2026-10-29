@@ -8,6 +8,11 @@ use std::io::Write;
 use std::path::Path;
 mod gerber;
 mod library_render;
+mod machine_profile;
+pub use machine_profile::{
+    builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
+    machine_profile_to_toml,
+};
 pub use gerber::gerber_copper;
 use library_render::*;
 pub use pcbcraft_doc::Layer;
