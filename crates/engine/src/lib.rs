@@ -12353,33 +12353,35 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "the two sides must be different nets".into(),
                 ));
             }
-            let Some(pair) = diff_pair_for_nets(p, net_p, net_n) else {
-                return Err(Error::Invalid(
-                    "those nets are not declared as a differential pair".into(),
-                ));
-            };
-            let width = a.width.unwrap_or_else(|| {
-                class_width(p, pair.net_p)
-                    .max(class_width(p, pair.net_n))
-            });
-            if !positive(width) {
-                return Err(Error::Invalid(
-                    "route requires a valid width".into(),
-                ));
-            }
-            for (start, end) in [(start_p, end_p), (start_n, end_n)] {
-                if start.distance(end) < 1e-6 {
+            let (width, pair_gap, segs_p, segs_n) = {
+                let Some(pair) = diff_pair_for_nets(p, net_p, net_n) else {
                     return Err(Error::Invalid(
-                        "each side needs distinct start and end pads".into(),
+                        "those nets are not declared as a differential pair".into(),
+                    ));
+                };
+                let width = a.width.unwrap_or_else(|| {
+                    class_width(p, pair.net_p).max(class_width(p, pair.net_n))
+                });
+                if !positive(width) {
+                    return Err(Error::Invalid(
+                        "route requires a valid width".into(),
                     ));
                 }
-                if !start.valid() || !end.valid() {
-                    return Err(Error::Invalid("pad position is out of range".into()));
+                for (start, end) in [(start_p, end_p), (start_n, end_n)] {
+                    if start.distance(end) < 1e-6 {
+                        return Err(Error::Invalid(
+                            "each side needs distinct start and end pads".into(),
+                        ));
+                    }
+                    if !start.valid() || !end.valid() {
+                        return Err(Error::Invalid("pad position is out of range".into()));
+                    }
                 }
-            }
-            let segs_p = orthogonal_route_segments(start_p, end_p);
-            let segs_n = orthogonal_route_segments(start_n, end_n);
-            validate_pair_coupling(p, pair, a.layer, width, width, &segs_p, &segs_n)?;
+                let segs_p = orthogonal_route_segments(start_p, end_p);
+                let segs_n = orthogonal_route_segments(start_n, end_n);
+                validate_pair_coupling(p, pair, a.layer, width, width, &segs_p, &segs_n)?;
+                (width, pair.gap, segs_p, segs_n)
+            };
             let mut ids_p = vec![];
             let mut ids_n = vec![];
             for (from, to) in segs_p {
@@ -12413,7 +12415,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 "ids_n": ids_n,
                 "net_p": net_p,
                 "net_n": net_n,
-                "gap": pair.gap,
+                "gap": pair_gap,
                 "width": width,
             }))
         }
