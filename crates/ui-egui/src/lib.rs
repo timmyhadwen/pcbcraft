@@ -4214,7 +4214,7 @@ impl App {
                     .speed(0.1)
                     .suffix(" mm"),
             )
-            .on_hover_text("How tall the letters are.");
+            .on_hover_text("Set how tall the printed letters are, so the text stays readable. Between 0.3 and 20 millimetres.");
         });
         ui.horizontal(|ui| {
             ui.label("Side");
