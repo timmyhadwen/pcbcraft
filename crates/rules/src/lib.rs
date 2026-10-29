@@ -8,6 +8,9 @@ use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_dista
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod courtyard;
+mod silk;
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
     pub code: &'static str,
@@ -1264,6 +1267,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(panel_findings(project));
     result.extend(via_findings(project));
     result.extend(fab_findings(project, board));
+    result.extend(courtyard::courtyard_findings(project));
+    result.extend(silk::silk_findings(project));
     // Drawn machine layers sit beside the copper.
     // not run through a via or a pad, a mask figure must not cover an exposed
     // pad, and no figure may leave the board. Drawn silk and reference art are
