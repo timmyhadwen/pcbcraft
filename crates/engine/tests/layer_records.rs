@@ -69,10 +69,22 @@ fn set_layer_record_accepts_material_dk_df_weight_and_tolerance() -> T {
 #[test]
 fn microstrip_impedance_uses_the_dielectric_row_under_the_layer() -> T {
     let mut s = routed()?;
-    rec(&mut s, json!({"name":"F.Cu","kind":"copper","thickness":0.035}))?;
-    rec(&mut s, json!({"name":"Prepreg","kind":"prepreg","thickness":0.1,"dk":4.2}))?;
-    rec(&mut s, json!({"name":"Core","kind":"core","thickness":1.4,"dk":4.2}))?;
-    rec(&mut s, json!({"name":"B.Cu","kind":"copper","thickness":0.035}))?;
+    rec(
+        &mut s,
+        json!({"name":"F.Cu","kind":"copper","thickness":0.035}),
+    )?;
+    rec(
+        &mut s,
+        json!({"name":"Prepreg","kind":"prepreg","thickness":0.1,"dk":4.2}),
+    )?;
+    rec(
+        &mut s,
+        json!({"name":"Core","kind":"core","thickness":1.4,"dk":4.2}),
+    )?;
+    rec(
+        &mut s,
+        json!({"name":"B.Cu","kind":"copper","thickness":0.035}),
+    )?;
     let thin = ohms(&mut s)?;
     // The old single-value result uses the whole board thickness as the height.
     let mut old = routed()?;
@@ -87,9 +99,18 @@ fn the_board_dk_is_the_fallback_when_no_row_carries_one() -> T {
     let mut plain = routed()?;
     let before = ohms(&mut plain)?;
     let mut s = routed()?;
-    rec(&mut s, json!({"name":"F.Cu","kind":"copper","thickness":0.035}))?;
-    rec(&mut s, json!({"name":"Prepreg","kind":"prepreg","thickness":0.1}))?;
-    rec(&mut s, json!({"name":"B.Cu","kind":"copper","thickness":0.035}))?;
+    rec(
+        &mut s,
+        json!({"name":"F.Cu","kind":"copper","thickness":0.035}),
+    )?;
+    rec(
+        &mut s,
+        json!({"name":"Prepreg","kind":"prepreg","thickness":0.1}),
+    )?;
+    rec(
+        &mut s,
+        json!({"name":"B.Cu","kind":"copper","thickness":0.035}),
+    )?;
     assert!((ohms(&mut s)? - before).abs() < 1e-9);
     Ok(())
 }

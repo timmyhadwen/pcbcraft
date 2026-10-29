@@ -232,6 +232,8 @@ fn net_impedance(p: &Project, params: &Value) -> Result<Value, Error> {
             "delay_ps_per_mm": r3(imp::delay_ps(1.0, m.eeff)),
             "copper_mm": copper,
             "copper_source": source,
+            "dielectric_mm": height,
+            "er": er,
         });
         if let Some(note) = imp::validity(width, height) {
             row["validity"] = json!(note);
@@ -281,8 +283,8 @@ fn net_impedance(p: &Project, params: &Value) -> Result<Value, Error> {
     Ok(json!({
         "rows": rows,
         "count": count,
-        "dielectric": height,
-        "er": er,
+        "dielectric": p.board.thickness,
+        "er": p.board.er,
         "target_ohm": a.target,
         "model": "Hammerstad and Jensen 1980 microstrip with thickness correction",
         "notes": ["Surface microstrip over the reference plane one dielectric away; finish does not change the estimate."],

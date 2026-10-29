@@ -4397,9 +4397,8 @@ impl LayerRecordParams {
     /// Check the optional physical fields against their bounds, with a plain message.
     fn check_physical(&self) -> Result<(), Error> {
         let bad = |m: &str| Err(Error::Invalid(m.into()));
-        let in_set = |v: &Option<String>, set: &[&str]| {
-            v.as_ref().is_none_or(|x| set.contains(&x.as_str()))
-        };
+        let in_set =
+            |v: &Option<String>, set: &[&str]| v.as_ref().is_none_or(|x| set.contains(&x.as_str()));
         let in_range = |v: Option<f64>, lo: f64, hi: f64| {
             v.is_none_or(|x| x.is_finite() && (lo..=hi).contains(&x))
         };
@@ -12930,7 +12929,9 @@ fn run_command(
         }
         "board.materials" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
-                return Err(Error::Invalid("board.materials takes an empty object".into()));
+                return Err(Error::Invalid(
+                    "board.materials takes an empty object".into(),
+                ));
             }
             let rows: Vec<Value> = pcbcraft_doc::MATERIALS
                 .iter()
@@ -34339,8 +34340,8 @@ mod tests {
                     kind: "copper".into(),
                     thickness: 0.035,
                     copper_role: None,
-..Default::default()
-});
+                    ..Default::default()
+                });
             if i < 6 {
                 s.project
                     .board
@@ -34350,8 +34351,8 @@ mod tests {
                         kind: "prepreg".into(),
                         thickness: 0.4,
                         copper_role: None,
-..Default::default()
-});
+                        ..Default::default()
+                    });
             }
         }
         let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]

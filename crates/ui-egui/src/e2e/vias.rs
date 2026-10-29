@@ -16,8 +16,8 @@ fn four_layer_app() -> Result<(App, egui::Context), String> {
                     kind: "copper".into(),
                     thickness: 0.035,
                     copper_role: None,
-..Default::default()
-});
+                    ..Default::default()
+                });
             if i < 4 {
                 session
                     .project
@@ -28,8 +28,8 @@ fn four_layer_app() -> Result<(App, egui::Context), String> {
                         kind: "prepreg".into(),
                         thickness: 0.4,
                         copper_role: None,
-..Default::default()
-});
+                        ..Default::default()
+                    });
             }
         }
     }

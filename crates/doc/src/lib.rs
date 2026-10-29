@@ -2032,9 +2032,8 @@ pub const LAYER_FUNCTIONS: [&str; 10] = [
 ];
 impl LayerRecord {
     fn valid(&self) -> bool {
-        let in_set = |v: &Option<String>, set: &[&str]| {
-            v.as_ref().is_none_or(|x| set.contains(&x.as_str()))
-        };
+        let in_set =
+            |v: &Option<String>, set: &[&str]| v.as_ref().is_none_or(|x| set.contains(&x.as_str()));
         let in_range = |v: Option<f64>, lo: f64, hi: f64| {
             v.is_none_or(|x| x.is_finite() && (lo..=hi).contains(&x))
         };
@@ -2048,10 +2047,7 @@ impl LayerRecord {
             && (0.0..=100.0).contains(&self.thickness)
             && in_set(&self.copper_role, &["signal", "plane", "mixed", "hatched"])
             && in_set(&self.function, &LAYER_FUNCTIONS)
-            && in_set(
-                &self.side,
-                &["top", "bottom", "internal", "both", "none"],
-            )
+            && in_set(&self.side, &["top", "bottom", "internal", "both", "none"])
             && in_set(&self.polarity, &["positive", "negative"])
             && in_set(&self.foil, &["rolled", "electrodeposited"])
             && self
@@ -5823,29 +5819,29 @@ mod drill_tests {
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: Some("signal".into()),
-..Default::default()
-},
+                ..Default::default()
+            },
             LayerRecord {
                 name: "In1.Cu".into(),
                 kind: "copper".into(),
                 thickness: 0.0175,
                 copper_role: Some("plane".into()),
-..Default::default()
-},
+                ..Default::default()
+            },
             LayerRecord {
                 name: "In2.Cu".into(),
                 kind: "copper".into(),
                 thickness: 0.0175,
                 copper_role: None,
-..Default::default()
-},
+                ..Default::default()
+            },
             LayerRecord {
                 name: "B.Cu".into(),
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: Some("signal".into()),
-..Default::default()
-},
+                ..Default::default()
+            },
         ];
         assert_eq!(p.copper_layer_count(), 4);
         p.board.tracks.push(Track {
