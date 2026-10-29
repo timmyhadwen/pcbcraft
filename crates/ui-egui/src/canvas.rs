@@ -455,7 +455,9 @@ impl App {
                 .hover_pos()
                 .or_else(|| ui.input(|i| i.pointer.hover_pos()))
                 .map(|p| camera.world(p, rect));
-            if let Some(world) = world {
+            if let Some(world) = world
+                && !self.dock_drop(ui.ctx(), &released, world)
+            {
                 self.place_dropped_library(&released, world);
             }
         }
@@ -1374,7 +1376,7 @@ impl App {
         }
         false
     }
-    fn canvas_menu_button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
+    pub(crate) fn canvas_menu_button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
         ui.button(label).on_hover_text(tip).clicked()
     }
     /// "Assign layer": a small submenu listing the copper faces a track can
@@ -2093,7 +2095,7 @@ impl App {
             );
         }
     }
-    fn symbol(
+    pub(super) fn symbol(
         &self,
         painter: &egui::Painter,
         rect: Rect,

@@ -27,7 +27,7 @@ fn now_secs() -> u64 {
 }
 
 /// One plain line about a result's stock.
-fn stock_line(part: &PartResult) -> String {
+pub(super) fn stock_line(part: &PartResult) -> String {
     let stock = if part.stock == 0 {
         "out of stock".to_string()
     } else {
@@ -47,30 +47,30 @@ fn stock_line(part: &PartResult) -> String {
 
 impl App {
     /// The remote half of the part list. Local parts are drawn by the caller.
-    pub(super) fn source_section(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(6.0);
-        ui.label(
-            egui::RichText::new("From part sources")
-                .size(10.0)
-                .color(self.muted()),
-        );
+    /// The online part source behind the Online toggle: the sample source
+    /// until a live one is wired in, asked for the typed query. Returns the
+    /// results with the source's credit line, and draws the notes a person
+    /// needs when there are none (source off, nothing typed, error).
+    ///
+    /// # Rules
+    /// - Reads go through the cached source; nothing is fetched without a query.
+    /// - In the browser build part sources are not available.
+    pub(super) fn online_parts(&mut self, ui: &mut egui::Ui) -> Vec<(PartResult, String)> {
+        let muted = self.muted();
+        let note = |ui: &mut egui::Ui, text: &str| {
+            ui.label(egui::RichText::new(text).small().color(muted));
+        };
         #[cfg(target_arch = "wasm32")]
         {
-            ui.label(
-                egui::RichText::new("Part sources are available in the desktop app.")
-                    .small()
-                    .color(self.muted()),
-            );
+            note(ui, "Part sources are available in the desktop app.");
+            Vec::new()
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
             if self.part_sources.source.is_none() {
-                ui.label(
-                    egui::RichText::new(
-                        "Part sources are off. Only parts on this computer are listed.",
-                    )
-                    .small()
-                    .color(self.muted()),
+                note(
+                    ui,
+                    "Part sources are off. Only parts on this computer are listed.",
                 );
                 if ui
                     .button("Try sample source")
@@ -87,93 +87,30 @@ impl App {
                 if !self.part_sources.notice.is_empty() {
                     ui.label(egui::RichText::new(&self.part_sources.notice).small());
                 }
-                return;
+                return Vec::new();
             }
             let query = self.part_search.trim().to_owned();
             if query.is_empty() {
-                ui.label(
-                    egui::RichText::new("Type a part number or keyword to search the sources.")
-                        .small()
-                        .color(self.muted()),
-                );
-                return;
+                note(ui, "Type a part number or keyword to search the sources.");
+                return Vec::new();
             }
             let Some(source) = self.part_sources.source.as_deref() else {
-                return;
+                return Vec::new();
             };
-            let before = self.part_sources.cache.misses;
             let found = self.part_sources.cache.search(source, &query, now_secs());
-            if self.part_sources.cache.misses != before {
-                eprintln!(
-                    "part search source={} results={}",
-                    source.id(),
-                    found.as_ref().map(Vec::len).unwrap_or(0)
-                );
-            }
             let name = source.name().to_owned();
-            let credit = source.attribution();
+            let credit = source.attribution().text;
             match found {
                 Err(e) => {
                     ui.label(egui::RichText::new(e.to_string()).small());
+                    Vec::new()
                 }
                 Ok(parts) if parts.is_empty() => {
-                    ui.label(
-                        egui::RichText::new(format!("{name} has nothing for \"{query}\"."))
-                            .small()
-                            .color(self.muted()),
-                    );
+                    note(ui, &format!("{name} has nothing for \"{query}\"."));
+                    Vec::new()
                 }
-                Ok(parts) => {
-                    for part in parts {
-                        self.source_card(ui, &part, &credit.text);
-                    }
-                }
+                Ok(parts) => parts.into_iter().map(|p| (p, credit.clone())).collect(),
             }
-            if ui
-                .tap_button("Forget saved answers")
-                .on_hover_text(
-                    "Clear the answers kept for a day so the next search asks the source again.",
-                )
-                .clicked()
-            {
-                self.part_sources.cache.purge();
-            }
-        }
-    }
-    fn source_card(&mut self, ui: &mut egui::Ui, part: &PartResult, credit: &str) {
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            if ui
-                .button(&part.mpn)
-                .on_hover_text("Pick this part; the next click on the schematic places it with its maker and part number filled in.")
-                .clicked()
-            {
-                let kind = TEMPLATES
-                    .iter()
-                    .find(|t| t.kind == part.kind)
-                    .map(|t| t.kind)
-                    .unwrap_or("resistor");
-                self.change_tab(Tab::Schematic);
-                self.tool = Tool::Place(kind.into());
-                self.pending_source = Some(part.clone());
-                self.palette = false;
-                self.part_search.clear();
-            }
-            ui.label(egui::RichText::new(&part.source).small().strong())
-                .on_hover_text(format!("This result came from {}.", part.source));
-        });
-        let facts = format!("{} · {}", part.manufacturer, part.description);
-        ui.label(egui::RichText::new(facts).small().color(self.muted()));
-        ui.label(egui::RichText::new(stock_line(part)).small());
-        if !part.lifecycle.is_empty() {
-            ui.label(
-                egui::RichText::new(format!("Status: {}", part.lifecycle))
-                    .small()
-                    .color(self.muted()),
-            );
-        }
-        if !credit.is_empty() {
-            ui.label(egui::RichText::new(credit).size(9.0).color(self.muted()));
         }
     }
     /// After a source part is placed, write its maker and numbers onto the

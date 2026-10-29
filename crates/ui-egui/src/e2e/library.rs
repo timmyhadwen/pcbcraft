@@ -835,6 +835,7 @@ fn a_newcomer_switches_between_the_library_and_the_editor() -> Result<(), String
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
+    app.preferences.left_tab = 1;
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -889,6 +890,7 @@ fn dock_app() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
+    app.preferences.left_tab = 1;
     app.tool_call("sample_design", json!({}));
     // Read only the fixture folder, never the owner's installed libraries.
     app.dock.roots = Some(vec![]);

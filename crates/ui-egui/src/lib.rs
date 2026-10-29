@@ -646,6 +646,9 @@ struct Preferences {
     left_tab: u8,
     #[serde(default = "default_true")]
     library_dock_open: bool,
+    /// Library cards the person starred, by card key.
+    #[serde(default)]
+    library_favourites: Vec<String>,
     /// Language tag of the text catalog, or `system` to follow the computer.
     #[serde(default = "default_language")]
     language: String,
@@ -716,6 +719,7 @@ impl Default for Preferences {
             aside_lower_tab: 0,
             library_dock_open: true,
             left_tab: 0,
+            library_favourites: Vec::new(),
             language: default_language(),
             reduced_motion: motion::os_prefers_reduced_motion(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
@@ -1004,8 +1008,6 @@ pub struct App {
     capture: Option<String>,
     /// Reference of the part to select for a capture image.
     capture_select: Option<String>,
-    /// Left aside tab to show in a `--capture` image: 0 Layers, 1 Library.
-    capture_left_tab: Option<u8>,
     /// Open the canvas right-click menu on the selected part in a capture.
     capture_menu: bool,
     frames: u32,
@@ -1274,16 +1276,18 @@ impl App {
         self.capture_select = reference;
         self
     }
-    /// Capture options: the left aside tab ("layers" or "library") and whether
-    /// to open the canvas right-click menu on the selected part. Ignored
-    /// outside capture mode.
-    pub fn with_capture_view(mut self, left_tab: Option<&str>, context_menu: bool) -> Self {
-        self.capture_left_tab = match left_tab {
-            Some("layers") => Some(0),
-            Some("library") => Some(1),
-            _ => None,
-        };
+    /// Capture option: open the canvas right-click menu on the selected part.
+    /// Ignored outside capture mode.
+    pub fn with_capture_view(mut self, context_menu: bool) -> Self {
         self.capture_menu = context_menu;
+    /// Open the left aside on its Library tab (`library`) or its Layers tab
+    /// (`layers`), so a `--capture` image can show either.
+    pub fn with_left_tab(mut self, tab: Option<String>) -> Self {
+        match tab.as_deref() {
+            Some("library") => self.preferences.left_tab = 1,
+            Some("layers") => self.preferences.left_tab = 0,
+            _ => {}
+        }
         self
     }
     pub fn new(
@@ -1487,7 +1491,6 @@ impl App {
             command_scroll: false,
             capture,
             capture_select: None,
-            capture_left_tab: None,
             capture_menu: false,
             frames: 0,
             library,
@@ -2948,78 +2951,15 @@ impl App {
                 if self.preferences.left_tab == 0 {
                     layers_tree::layers_tab(ui, self);
                 } else {
-                    self.library_body(ui);
-                }
-            });
-    }
-    /// The Library tab: the searchable parts browser over built-in, project and
-    /// installed libraries (`library_dock.rs`), then the parts in this design.
-    fn library_body(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical()
-            .id_salt("library-dock-scroll")
-            .auto_shrink([false, false])
-            .show_viewport(ui, |ui, viewport| {
-                self.library_dock_body(ui, viewport);
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new(t!("library.browser.components"))
-                        .font(crate::fonts::Role::Caption.font())
-                        .color(self.muted()),
-                );
-                for c in self.project.components.clone() {
-                    let id = if self.tab == Tab::Pcb {
-                        self.project
-                            .board
-                            .footprints
-                            .iter()
-                            .find(|f| f.component == c.id)
-                            .map(|f| f.id)
-                            .unwrap_or(c.id)
-                    } else {
-                        c.id
-                    };
-                    if ui
-                        .selectable_label(
-                            self.selected == Some(id),
-                            t!(
-                                "library.browser.reference_value",
-                                reference = c.reference,
-                                value = c.value
-                            ),
-                        )
-                        .on_hover_text(t!("library.browser.reference_value.tip"))
-                        .clicked()
-                    {
-                        self.select(Some(id));
-                    }
-                    let what = c
-                        .field(&t!("library.browser.description"))
-                        .map(str::to_owned)
-                        .or_else(|| {
-                            c.library_symbol
-                                .as_ref()
-                                .map(|ls| ls.definition.description.clone())
-                        })
-                        .map(|d| d.trim().to_owned())
-                        .filter(|d| !d.is_empty());
-                    let origin = c
-                        .library_symbol
-                        .as_ref()
-                        .map(|ls| t!("library.browser.from_name", name = ls.definition.name));
-                    let note = match (what, origin) {
-                        (Some(d), Some(origin)) => {
-                            Some(t!("library.browser.item_origin", item = d, origin = origin))
-                        }
-                        (Some(d), None) => Some(d),
-                        (None, origin) => origin,
-                    };
-                    if let Some(note) = note {
-                        ui.label(
-                            egui::RichText::new(format!("    {note}"))
-                                .small()
-                                .color(self.muted()),
-                        );
-                    }
+                    egui::ScrollArea::vertical()
+                        .id_salt("library-dock-scroll")
+                        .auto_shrink([false, false])
+                        .show_viewport(ui, |ui, viewport| {
+                            ui.add_space(8.0);
+                            egui::Frame::NONE
+                                .inner_margin(egui::Margin::symmetric(12, 0))
+                                .show(ui, |ui| self.library_body(ui, viewport));
+                        });
                 }
             });
     }
@@ -3159,6 +3099,175 @@ impl App {
                 }
             });
         self.renumber_open = open;
+    }
+    /// The Library tab: add a part, common and saved parts, components, renumber.
+    fn library_body(&mut self, ui: &mut egui::Ui, viewport: egui::Rect) {
+        self.library_dock_body(ui, viewport);
+        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new(t!("library.browser.components"))
+                .size(10.0)
+                .color(self.muted()),
+        );
+        for c in self.project.components.clone() {
+            let id = if self.tab == Tab::Pcb {
+                self.project
+                    .board
+                    .footprints
+                    .iter()
+                    .find(|f| f.component == c.id)
+                    .map(|f| f.id)
+                    .unwrap_or(c.id)
+            } else {
+                c.id
+            };
+            if ui
+                .selectable_label(
+                    self.selected == Some(id),
+                    t!(
+                        "library.browser.reference_value",
+                        reference = c.reference,
+                        value = c.value
+                    ),
+                )
+                .on_hover_text(t!("library.browser.reference_value.tip"))
+                .clicked()
+            {
+                self.select(Some(id));
+            }
+            let what = c
+                .field(&t!("library.browser.description"))
+                .map(str::to_owned)
+                .or_else(|| {
+                    c.library_symbol
+                        .as_ref()
+                        .map(|ls| ls.definition.description.clone())
+                })
+                .map(|d| d.trim().to_owned())
+                .filter(|d| !d.is_empty());
+            let origin = c.library_symbol.as_ref().map_or_else(
+                || t!("library.browser.built_in"),
+                |ls| t!("library.browser.from_name", name = ls.definition.name),
+            );
+            let note = what.map_or_else(
+                || origin.clone(),
+                |d| t!("library.browser.item_origin", item = d, origin = origin),
+            );
+            ui.label(
+                egui::RichText::new(format!("    {note}"))
+                    .small()
+                    .color(self.muted()),
+            );
+        }
+        if self.project.components.len() >= 2 {
+            ui.add_space(12.0);
+            ui.label(
+                egui::RichText::new(t!("library.browser.renumber_parts"))
+                    .size(10.0)
+                    .color(self.muted()),
+            );
+            let mut prefixes: Vec<String> = self
+                .project
+                .components
+                .iter()
+                .map(|c| {
+                    c.reference
+                        .chars()
+                        .take_while(char::is_ascii_alphabetic)
+                        .collect::<String>()
+                })
+                .filter(|p| !p.is_empty())
+                .collect();
+            prefixes.sort();
+            prefixes.dedup();
+            let mut pick = self
+                .renumber_plan
+                .clone()
+                .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt("renumber-prefix")
+                    .selected_text(
+                        pick.clone()
+                            .unwrap_or_else(|| t!("library.browser.all_letters")),
+                    )
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(pick.is_none(), t!("library.browser.all_letters"))
+                            .on_hover_text(t!("library.browser.all_letters.tip"))
+                            .clicked()
+                        {
+                            pick = None;
+                            ui.close();
+                        }
+                        for prefix in &prefixes {
+                            if ui
+                                .selectable_label(pick.as_deref() == Some(prefix.as_str()), prefix)
+                                .on_hover_text(t!(
+                                    "library.browser.only_renumber_the_parts_that.tip"
+                                ))
+                                .clicked()
+                            {
+                                pick = Some(prefix.clone());
+                                ui.close();
+                            }
+                        }
+                    })
+                    .response
+                    .named("Renumber prefix")
+                    .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
+                if ui
+                    .button(t!("library.browser.preview"))
+                    .on_hover_text(t!("library.browser.preview.tip"))
+                    .clicked()
+                {
+                    let out = self.run_and_keep(
+                        "components.reannotate",
+                        json!({"dry_run": true, "prefix": pick}),
+                    );
+                    self.renumber_plan = out.get("renamed").and_then(Value::as_array).map(|rows| {
+                        (
+                            pick.clone(),
+                            rows.iter()
+                                .filter_map(|row| {
+                                    let from = row.get("from")?.as_str()?.to_owned();
+                                    let to = row.get("to")?.as_str()?.to_owned();
+                                    Some((from, to))
+                                })
+                                .collect(),
+                        )
+                    });
+                }
+            });
+            if self.renumber_plan.is_none() {
+                self.renumber_prefix = pick.clone();
+            }
+            if let Some((_, plan)) = self.renumber_plan.clone() {
+                for (from, to) in plan.iter().take(12) {
+                    ui.label(
+                        egui::RichText::new(t!("library.browser.from_to", from = from, to = to))
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(t!("library.browser.renumber"))
+                        .on_hover_text(t!("library.browser.renumber.tip"))
+                        .clicked()
+                    {
+                        self.renumber_plan = None;
+                        self.run("components.reannotate", json!({"prefix": pick}));
+                    }
+                    if ui
+                        .button(t!("library.browser.cancel"))
+                        .on_hover_text(t!("library.browser.cancel.tip"))
+                        .clicked()
+                    {
+                        self.renumber_plan = None;
+                    }
+                });
+            }
+        }
     }
     /// The Nets tab of the left dock: add, spotlight and rename connections.
     fn nets_tab(&mut self, ui: &mut egui::Ui) {
@@ -6365,11 +6474,6 @@ impl App {
                 let at = egui::pos2(ctx.content_rect().center().x, ctx.content_rect().center().y);
                 self.canvas_menu = Some((at, canvas::CanvasMenuKind::Object(id)));
             }
-        }
-        if self.frames == 2
-            && let Some(tab) = self.capture_left_tab.take()
-        {
-            self.preferences.left_tab = tab;
         }
         let library_ready = self.tab != Tab::Libraries
             || self.library.editor.mode != 0

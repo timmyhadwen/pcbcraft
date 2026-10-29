@@ -24952,6 +24952,74 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn part_place_imports_and_places_as_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let symbol = library::symbol(
+            std::path::Path::new(&library_fixture("device.kicad_sym")),
+            "R",
+        )?;
+        let footprint = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "part.place",
+            json!({"target":"schematic","position":{"x":30.0,"y":20.0},"symbol":symbol,"footprint":footprint,"notice":"fixture licence"}),
+            None,
+        )?;
+        assert_eq!(s.project.components.len(), 1);
+        assert!(
+            s.project.board.footprints.is_empty(),
+            "a schematic drop adds no board part"
+        );
+        assert_eq!(s.project.library.footprints.len(), 1);
+        assert_eq!(s.project.library.notices.len(), 1);
+        s.undo()?;
+        assert!(
+            s.project.components.is_empty()
+                && s.project.library.symbols.is_empty()
+                && s.project.library.footprints.is_empty()
+                && s.project.library.notices.is_empty(),
+            "one undo takes back import and placement"
+        );
+        s.execute(
+            "part.place",
+            json!({"target":"board","position":{"x":55.0,"y":40.0},"symbol":symbol,"footprint":footprint}),
+            None,
+        )?;
+        let placed = s.project.board.footprints.first().ok_or_else(missing)?;
+        assert_eq!((placed.position.x, placed.position.y), (55.0, 40.0));
+        let part = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.id == placed.component)
+            .ok_or_else(missing)?;
+        assert_eq!(
+            part.position.x, 0.0,
+            "the schematic part is parked, not at the board point"
+        );
+        assert!(part.library_footprint.is_some());
+        let again = s.execute(
+            "part.place",
+            json!({"target":"board","position":{"x":60.0,"y":40.0},"name":"R"}),
+            None,
+        );
+        assert!(
+            again.is_ok(),
+            "a part already in the library places by name"
+        );
+        assert!(
+            s.execute(
+                "part.place",
+                json!({"target":"sideways","position":{"x":0,"y":0},"name":"R"}),
+                None
+            )
+            .is_err()
+        );
+        s.execute("library.import_part", json!({"symbol":symbol}), None)?;
+        Ok(())
+    }
+    #[test]
     fn editable_library_entries_are_atomic_and_placed_copies_are_stable() -> Result<(), Error> {
         let mut s = Session::default();
         let mut symbol = library::symbol(

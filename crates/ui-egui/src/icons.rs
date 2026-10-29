@@ -38,6 +38,14 @@ macro_rules! icon {
 
 static ICONS: &[(&str, &[u8])] = &[
     icon!("add"),
+    icon!("omega"),
+    icon!("plug"),
+    icon!("cpu"),
+    icon!("library"),
+    icon!("folder"),
+    icon!("globe"),
+    icon!("star-filled"),
+    icon!("star"),
     icon!("assistant"),
     icon!("board-outline"),
     icon!("bom"),
@@ -164,9 +172,21 @@ pub(crate) fn icon_inline(ui: &mut Ui, name: &str) -> Response {
     ui.add(image(ui, name, ICON_SIZE, false))
 }
 
+/// An icon laid at a fixed spot, not clickable: a mark inside a field or a
+/// placeholder picture on a card. `color` comes from the theme.
+///
+/// # Rules
+/// - Decorative: whatever it stands for is named by its neighbour.
+pub(crate) fn icon_at(ui: &mut Ui, rect: egui::Rect, name: &str, color: Color32) {
+    let image = Image::new(set().source(name))
+        .fit_to_exact_size(rect.size())
+        .tint(color);
+    let mut at = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+    at.add(image);
+}
+
 /// An icon-only button. The tip is required: it is the hover text and the
 /// screen-reader name.
-#[expect(dead_code, reason = "wired in the tree and rail steps that follow")]
 pub(crate) fn icon_button(ui: &mut Ui, name: &str, tip: &str, selected: bool) -> Response {
     let button = egui::Button::image(image(ui, name, ICON_SIZE, selected))
         .selected(selected)
