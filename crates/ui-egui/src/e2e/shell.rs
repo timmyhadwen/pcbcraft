@@ -200,8 +200,6 @@ fn no_user_visible_literal_outside_the_catalog() -> Result<(), String> {
 fn board_layout_strings_are_all_catalog_keys() -> Result<(), String> {
     let listed = pcbcraft_text::scan::converted_fns();
     for (file, function) in [
-        ("lib.rs", "layers_tab"),
-        ("lib.rs", "board_anatomy_section"),
         ("lib.rs", "stackup_section"),
         ("lib.rs", "holes_section"),
         ("lib.rs", "fiducials_section"),

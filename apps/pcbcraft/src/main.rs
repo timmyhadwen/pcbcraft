@@ -9,7 +9,7 @@ fn main() -> eframe::Result {
     };
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--tab schematic|pcb|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--size WIDTHxHEIGHT | --select REFERENCE"
+            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--select REFERENCE"
         );
         return Ok(());
     }
@@ -58,7 +58,7 @@ fn main() -> eframe::Result {
     let project_path = option("--project");
     let select = option("--select");
     let options = eframe::NativeOptions {
-        viewport: egui_viewport(option("--size").as_deref()),
+        viewport: egui_viewport(),
         ..Default::default()
     };
     eframe::run_native(
@@ -74,11 +74,14 @@ fn main() -> eframe::Result {
         }),
     )
 }
-fn egui_viewport(size: Option<&str>) -> eframe::egui::ViewportBuilder {
-    let size = size
-        .and_then(|s| s.split_once('x'))
-        .and_then(|(w, h)| Some([w.parse::<f32>().ok()?, h.parse::<f32>().ok()?]))
-        .filter(|[w, h]| (400.0..=4000.0).contains(w) && (300.0..=3000.0).contains(h))
+fn egui_viewport() -> eframe::egui::ViewportBuilder {
+    let size = std::env::args()
+        .skip_while(|a| a != "--size")
+        .nth(1)
+        .and_then(|s: String| {
+            let (w, h) = s.split_once('x')?;
+            Some([w.parse::<f32>().ok()?, h.parse::<f32>().ok()?])
+        })
         .unwrap_or([1440.0, 940.0]);
     eframe::egui::ViewportBuilder::default()
         .with_inner_size(size)

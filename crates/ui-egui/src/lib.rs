@@ -936,6 +936,8 @@ pub struct App {
     svg_path: String,
     part_search_focus: bool,
     needs_fit: bool,
+    /// The Renumber parts window, opened from the Edit menu.
+    renumber_open: bool,
     /// Left edge of the central page, so tests can check text keeps its margin.
     page_left: f32,
     schematic: Camera,
@@ -1316,7 +1318,10 @@ impl App {
             revision: u64::MAX,
             checks: json!({}),
             tab: match tab {
-                Some("pcb") => Tab::Pcb,
+                Some("pcb" | "layout") => Tab::Pcb,
+                Some("files") => Tab::Files,
+                Some("rules") => Tab::Rules,
+                Some("settings") => Tab::Settings,
                 Some("checks") => Tab::Checks,
                 Some("plots") => Tab::PlotFiles,
                 Some("3d") => Tab::Board3d,
@@ -1419,6 +1424,7 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             needs_fit: true,
+            renumber_open: false,
             page_left: 0.0,
             schematic: Camera {
                 center: Point::new(40.0, 24.0),
@@ -2303,6 +2309,15 @@ impl App {
     /// The smallest side of any control a pointer must hit (WCAG 2.5.8).
     const MIN_TARGET: f32 = targets::MIN_TARGET;
     const APP_BAR_HEIGHT: f32 = 34.0;
+    /// Left edge shared by the tab row, the tool strip and the page content.
+    const PAGE_GUTTER: f32 = 28.0;
+    /// The type scale: page title, section title, body, caption.
+    const TITLE: f32 = 24.0;
+    const SECTION: f32 = 18.0;
+    const BODY: f32 = 14.0;
+    const CAPTION: f32 = 12.0;
+    /// Width of the Hide this and Quiet this area buttons.
+    const ACTION_WIDTH: f32 = 130.0;
     /// The slim top bar: the brand and the menus, nothing else. Save, Undo
     /// and Redo, settings, bug reports and the version live in the menus.
     fn header(&mut self, ui: &mut egui::Ui) {
@@ -2355,10 +2370,9 @@ impl App {
                 shown.push((tab, label));
             }
         }
-        let used = shown.len() as f32 * 90.0 + 40.0;
         let mut close = None;
         ui.horizontal_wrapped(|ui| {
-            ui.add_space(((ui.available_width() - used) / 2.0).max(8.0));
+            ui.add_space(Self::PAGE_GUTTER);
             for (tab, label) in shown.iter().cloned() {
                 let selected = self.tab == tab;
                 let response = ui.selectable_label(selected, label.clone()).on_hover_text(
@@ -2416,6 +2430,21 @@ impl App {
             })
             .response
             .on_hover_text(t!("docks.workbench_tabs.open_a_view_you_closed.tip"));
+            ui.separator();
+            if ui
+                .selectable_label(
+                    self.preferences.left_tab == 1,
+                    t!("docks.workbench_tabs.library_toggle"),
+                )
+                .on_hover_text(t!("library.browser.lib.tip"))
+                .clicked()
+            {
+                if Self::narrow_window(ui.ctx()) {
+                    self.change_tab(Tab::Libraries);
+                } else {
+                    self.preferences.left_tab = u8::from(self.preferences.left_tab != 1);
+                }
+            }
         });
         if let Some(tab) = close {
             self.closed_tabs.push(tab);
@@ -2425,7 +2454,7 @@ impl App {
         }
         if !matches!(self.tool, Tool::Select) && !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
             ui.horizontal(|ui| {
-                ui.add_space(16.0);
+                ui.add_space(Self::PAGE_GUTTER);
                 ui.label(
                     egui::RichText::new(tool_hint(&self.tool))
                         .small()
@@ -2684,6 +2713,14 @@ impl App {
                 .clicked()
             {
                 self.paste_last_copy();
+            }
+            if ui
+                .button(t!("menu.edit.renumber"))
+                .on_hover_text(t!("menu.edit.renumber.tip"))
+                .clicked()
+            {
+                self.renumber_open = true;
+                ui.close();
             }
             if self.tab == Tab::Pcb
                 && ui
@@ -3057,27 +3094,51 @@ impl App {
                 })
                 .map(|d| d.trim().to_owned())
                 .filter(|d| !d.is_empty());
-            let origin = c.library_symbol.as_ref().map_or_else(
-                || t!("library.browser.built_in"),
-                |ls| t!("library.browser.from_name", name = ls.definition.name),
-            );
-            let note = what.map_or_else(
-                || origin.clone(),
-                |d| t!("library.browser.item_origin", item = d, origin = origin),
-            );
-            ui.label(
-                egui::RichText::new(format!("    {note}"))
-                    .small()
-                    .color(self.muted()),
-            );
+            let origin = c
+                .library_symbol
+                .as_ref()
+                .map(|ls| t!("library.browser.from_name", name = ls.definition.name));
+            let note = match (what, origin) {
+                (Some(d), Some(origin)) => {
+                    Some(t!("library.browser.item_origin", item = d, origin = origin))
+                }
+                (Some(d), None) => Some(d),
+                (None, origin) => origin,
+            };
+            if let Some(note) = note {
+                ui.label(
+                    egui::RichText::new(format!("    {note}"))
+                        .small()
+                        .color(self.muted()),
+                );
+            }
         }
-        if self.project.components.len() >= 2 {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new(t!("library.browser.renumber_parts"))
-                    .size(10.0)
-                    .color(self.muted()),
-            );
+    }
+    /// The Renumber parts window, opened from Edit: pick a letter, preview the
+    /// new numbers, then write them as one undoable step.
+    ///
+    /// # Rules
+    /// Nothing changes until Renumber is pressed; Preview runs a dry run.
+    ///
+    /// # Dependencies
+    /// `crates/engine/src/lib.rs` for `components.reannotate`.
+    ///
+    /// # Do not
+    /// Show it as a permanent block in a side panel.
+    fn renumber_window(&mut self, ctx: &egui::Context) {
+        if !self.renumber_open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t!("library.browser.renumber_title"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                if self.project.components.len() < 2 {
+                    ui.label(t!("library.browser.renumber_nothing"));
+                    return;
+                }
             let mut prefixes: Vec<String> = self
                 .project
                 .components
@@ -3190,7 +3251,9 @@ impl App {
                     }
                 });
             }
-        }
+
+            });
+        self.renumber_open = open;
     }
     /// The Nets tab of the left dock: add, spotlight and rename connections.
     fn nets_tab(&mut self, ui: &mut egui::Ui) {
@@ -3477,7 +3540,7 @@ impl App {
     fn padded<T>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> T) -> T {
         egui::Frame::NONE
             .inner_margin(egui::Margin {
-                left: 16,
+                left: 28,
                 right: 16,
                 top: 12,
                 bottom: 12,
@@ -3505,6 +3568,8 @@ impl App {
     /// and every setting for the project as a whole.
     fn settings_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading(t!("settings.settings_tab.settings"));
+        self.stackup_section(ui);
+        ui.separator();
         ui.label(t!("settings.settings_tab.how_the_app_looks_and"));
         ui.add_space(10.0);
         ui.label(
@@ -5370,7 +5435,7 @@ impl App {
                 .show(ui, |ui| {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
-                        .show(ui, |ui| self.inspector_body(ui, 220.0));
+                        .show(ui, |ui| self.inspector_body(ui, 0.0));
                 });
             return;
         }
@@ -5386,6 +5451,9 @@ impl App {
     /// narrow window, in the strip under the drawing. `top_h` is the height
     /// the layers tree gets.
     fn inspector_body(&mut self, ui: &mut egui::Ui, _top_h: f32) {
+        if self.preferences.aside_lower_tab > 1 {
+            self.preferences.aside_lower_tab = 0;
+        }
         ui.horizontal(|ui| {
             ui.selectable_value(
                 &mut self.preferences.aside_lower_tab,
@@ -5402,6 +5470,7 @@ impl App {
                 .on_hover_text(assistant::tab_tip());
             }
         });
+        ui.separator();
         if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
             assistant::pane::show(self, ui);
             return;
@@ -5820,24 +5889,9 @@ impl App {
             });
     }
     fn footer(&mut self, ui: &mut egui::Ui) {
-        let mut fix = 0usize;
-        let mut mind = 0usize;
-        let checks = self.checks.clone();
-        for key in ["erc", "drc"] {
-            if let Some(findings) = checks.get(key).and_then(Value::as_array) {
-                for f in findings {
-                    // Every finding carries the loudness its check resolved to,
-                    // so the footer agrees with the review list instead of
-                    // guessing a default per code.
-                    let loud = f.get("severity").and_then(Value::as_str) == Some("error");
-                    if loud {
-                        fix += 1;
-                    } else {
-                        mind += 1;
-                    }
-                }
-            }
-        }
+        // Notes count with the warnings: the bar says only "warnings" and "errors".
+        let (fix, warnings, notes) = Self::finding_counts(&self.checks);
+        let mind = warnings + notes;
         let (base, zoom) = match self.tab {
             Tab::Schematic => (15.0, self.schematic.zoom),
             _ => (11.0, self.pcb.zoom),
@@ -5912,11 +5966,11 @@ impl App {
                             self.tool = Tool::Select;
                         }
                         let fix_btn = ui
-                            .tap_button(t!("board.footer.fix_to_fix", fix = fix))
-                            .on_hover_text(t!("board.footer.fix_to_fix.tip"));
+                            .tap_button(self.catalog.plural("board.footer.errors", fix as u64))
+                            .on_hover_text(t!("board.footer.errors.tip"));
                         let mind_btn = ui
-                            .tap_button(t!("board.footer.mind_to_mind", mind = mind))
-                            .on_hover_text(t!("board.footer.mind_to_mind.tip"));
+                            .tap_button(self.catalog.plural("board.footer.warnings", mind as u64))
+                            .on_hover_text(t!("board.footer.warnings.tip"));
                         if fix_btn.clicked() || mind_btn.clicked() {
                             self.change_tab(Tab::Checks);
                         }
@@ -6112,9 +6166,8 @@ impl App {
         .on_hover_text(t!("library.browser.show_or_hide_the_starter.tip"));
     }
     fn checks_view(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(24.0);
-        ui.heading(t!("checks.checks_view.design_checks"));
-        ui.label(t!("checks.checks_view.select_a_finding_to_inspect"));
+        ui.label(egui::RichText::new(t!("checks.checks_view.design_checks")).size(Self::TITLE));
+        ui.add_space(4.0);
         if self
             .checks
             .get("erc")
@@ -6128,7 +6181,7 @@ impl App {
         {
             empty_state(ui, EMPTY_CHECKS, self.muted());
         }
-        ui.add_space(16.0);
+        ui.add_space(20.0);
         let checks = self.checks.clone();
         for (key, label, blurb) in [
             (
@@ -6142,15 +6195,20 @@ impl App {
                 t!("checks.checks_view.whether_the_copper_can_actually"),
             ),
         ] {
-            ui.label(egui::RichText::new(label).size(18.0).strong());
-            ui.label(egui::RichText::new(blurb).small().color(self.muted()));
+            ui.label(egui::RichText::new(label).size(Self::SECTION).strong());
+            ui.add_space(2.0);
+            ui.label(
+                egui::RichText::new(blurb)
+                    .size(Self::CAPTION)
+                    .color(self.muted()),
+            );
+            ui.add_space(8.0);
             if let Some(findings) = checks.get(key).and_then(Value::as_array) {
                 if findings.is_empty() {
                     ui.label(
-                        egui::RichText::new(t!(
-                            "checks.checks_view.no_findings_in_the_implemented"
-                        ))
-                        .color(self.accent()),
+                        egui::RichText::new(t!("checks.checks_view.no_problems"))
+                            .size(Self::BODY)
+                            .color(self.accent()),
                     );
                 }
                 let mut groups: Vec<CheckGroup> = Vec::new();
@@ -6194,17 +6252,18 @@ impl App {
                     .collect();
                 for ((code, rows), loud) in groups.into_iter().zip(louds) {
                     let title = format!(
-                        "{} · {} {}",
+                        "{} · {}",
                         custom_heading(&self.project, &code),
-                        rows.len(),
-                        if rows.len() == 1 { "place" } else { "places" }
+                        self.catalog
+                            .plural("checks.checks_view.places", rows.len() as u64)
                     );
+                    let title_text = egui::RichText::new(title).size(Self::BODY).strong();
                     let title_text = if loud {
-                        egui::RichText::new(title).strong()
+                        title_text.color(self.accent())
                     } else {
-                        egui::RichText::new(title)
+                        title_text
                     };
-                    ui.add_space(6.0);
+                    ui.add_space(8.0);
                     let whose = if code.starts_with("custom_") {
                         format!("{} ", t!("checks.checks_view.a_check_you_wrote"))
                     } else {
@@ -6219,69 +6278,15 @@ impl App {
                             "It is worth a look, but does not block the build. "
                         }
                     ));
-                    for (message, objects) in rows {
-                        ui.horizontal(|ui| {
-                            ui.add_space(14.0);
-                            if ui
-                                .button(message)
-                                .on_hover_text(t!(
-                                    "checks.checks_view.select_this_on_the_drawing.tip"
-                                ))
-                                .clicked()
-                                && let Some(id) = objects.first().copied()
-                            {
-                                self.change_tab(if key == "erc" {
-                                    Tab::Schematic
-                                } else {
-                                    Tab::Pcb
-                                });
-                                self.select(Some(id));
-                            }
-                            if !objects.is_empty()
-                                && ui
-                                    .tap_button(t!("checks.checks_view.hide_this"))
-                                    .on_hover_text(t!("checks.checks_view.hide_this.tip"))
-                                    .clicked()
-                            {
-                                self.run(
-                                    "rules.exclude",
-                                    json!({"code": code.clone(), "ids": objects}),
-                                );
-                            }
-                            if !objects.is_empty() {
-                                let spots: Vec<Point> = objects
-                                    .iter()
-                                    .filter_map(|o| self.project.object_position(*o))
-                                    .collect();
-                                if spots.len() == objects.len()
-                                    && let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) = (
-                                        spots.iter().map(|p| p.x).reduce(f64::min),
-                                        spots.iter().map(|p| p.x).reduce(f64::max),
-                                        spots.iter().map(|p| p.y).reduce(f64::min),
-                                        spots.iter().map(|p| p.y).reduce(f64::max),
-                                    )
-                                {
-                                    let pad = 2.0;
-                                    if ui
-                                        .tap_button(t!("checks.checks_view.quiet_this_area"))
-                                        .on_hover_text(t!("checks.checks_view.quiet_this_area.tip"))
-                                        .clicked()
-                                    {
-                                        self.run(
-                                            "rules.exclude_region",
-                                            json!({
-                                                "code": code,
-                                                "x": min_x - pad,
-                                                "y": min_y - pad,
-                                                "width": (max_x - min_x) + pad * 2.0,
-                                                "height": (max_y - min_y) + pad * 2.0,
-                                            }),
-                                        );
-                                    }
-                                }
+                    egui::Grid::new(format!("checks-{key}-{code}"))
+                        .num_columns(3)
+                        .spacing([12.0, 6.0])
+                        .show(ui, |ui| {
+                            for (message, objects) in rows {
+                                self.finding_row(ui, key, &code, message, objects);
+                                ui.end_row();
                             }
                         });
-                    }
                 }
             }
             ui.add_space(20.0);
@@ -6296,7 +6301,7 @@ impl App {
         if !silenced.is_empty() {
             ui.label(
                 egui::RichText::new(t!("checks.checks_view.things_you_asked_not_to"))
-                    .small()
+                    .size(Self::CAPTION)
                     .color(self.muted()),
             );
             for (code, count) in silenced {
@@ -6326,7 +6331,7 @@ impl App {
         if !zones.is_empty() {
             ui.label(
                 egui::RichText::new(t!("checks.checks_view.quiet_zones_checks_that_leave"))
-                    .small()
+                    .size(Self::CAPTION)
                     .color(self.muted()),
             );
             for (code, count) in zones {
@@ -6347,12 +6352,90 @@ impl App {
             }
             ui.add_space(12.0);
         }
-        ui.separator();
-        ui.label(
-            egui::RichText::new(checks.get("scope").and_then(Value::as_str).unwrap_or(""))
-                .small()
-                .color(self.muted()),
-        );
+    }
+    /// One finding as three aligned cells: the finding itself, Hide this and
+    /// Quiet this area. Hide and Quiet only appear when the finding names objects.
+    ///
+    /// # Rules
+    /// Hide and Quiet always occupy their own columns so rows line up.
+    ///
+    /// # Dependencies
+    /// `crates/engine/src/lib.rs` for `rules.exclude` and `rules.exclude_region`.
+    ///
+    /// # Do not
+    /// Put text literals here; all words come from the catalog.
+    fn finding_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        key: &str,
+        code: &str,
+        message: String,
+        objects: Vec<Id>,
+    ) {
+        let button = |text: String| {
+            egui::Button::new(egui::RichText::new(text).size(Self::BODY))
+                .min_size(egui::vec2(Self::ACTION_WIDTH, Self::MIN_TARGET))
+        };
+        if ui
+            .add(egui::Button::new(egui::RichText::new(message).size(Self::BODY)).frame(false))
+            .on_hover_text(t!("checks.checks_view.select_this_on_the_drawing.tip"))
+            .clicked()
+            && let Some(id) = objects.first().copied()
+        {
+            self.change_tab(if key == "erc" {
+                Tab::Schematic
+            } else {
+                Tab::Pcb
+            });
+            self.select(Some(id));
+        }
+        if objects.is_empty() {
+            return;
+        }
+        if ui
+            .add(button(t!("checks.checks_view.hide_this")))
+            .on_hover_text(t!("checks.checks_view.hide_this.tip"))
+            .clicked()
+        {
+            self.run(
+                "rules.exclude",
+                json!({"code": code, "ids": objects.clone()}),
+            );
+        }
+        let spots: Vec<Point> = objects
+            .iter()
+            .filter_map(|o| self.project.object_position(*o))
+            .collect();
+        let bounds = (spots.len() == objects.len())
+            .then(|| {
+                Some((
+                    spots.iter().map(|p| p.x).reduce(f64::min)?,
+                    spots.iter().map(|p| p.x).reduce(f64::max)?,
+                    spots.iter().map(|p| p.y).reduce(f64::min)?,
+                    spots.iter().map(|p| p.y).reduce(f64::max)?,
+                ))
+            })
+            .flatten();
+        let Some((min_x, max_x, min_y, max_y)) = bounds else {
+            return;
+        };
+        if ui
+            .add(button(t!("checks.checks_view.quiet_this_area")))
+            .on_hover_text(t!("checks.checks_view.quiet_this_area.tip"))
+            .clicked()
+        {
+            let pad = 2.0;
+            self.run(
+                "rules.exclude_region",
+                json!({
+                    "code": code,
+                    "x": min_x - pad,
+                    "y": min_y - pad,
+                    "width": (max_x - min_x) + pad * 2.0,
+                    "height": (max_y - min_y) + pad * 2.0,
+                }),
+            );
+        }
     }
     fn capture(&mut self, ctx: &egui::Context) {
         self.frames = self.frames.saturating_add(1);
@@ -6593,8 +6676,8 @@ impl App {
         if !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
             return;
         }
-        ui.horizontal_wrapped(|ui| {
-            ui.add_space(8.0);
+        egui::ScrollArea::horizontal().auto_shrink([false, true]).scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| { ui.horizontal(|ui| {
+            ui.add_space(Self::PAGE_GUTTER);
             let select = |app: &mut App| {
                 app.tool = Tool::Select;
             };
@@ -6755,7 +6838,7 @@ impl App {
                         .color(self.muted()),
                 );
             }
-        });
+        }); });
         ui.separator();
     }
 
@@ -6810,6 +6893,7 @@ impl App {
         self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);
+        self.renumber_window(&ctx);
         if self.home_open {
             self.start_home(ui);
         } else {

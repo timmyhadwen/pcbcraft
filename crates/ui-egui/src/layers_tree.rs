@@ -306,6 +306,7 @@ fn section(key: &str, label: String, n: usize) -> Row {
     r
 }
 
+#[allow(clippy::too_many_arguments)]
 fn layer_row(
     path: &str,
     key: &str,
@@ -1328,6 +1329,7 @@ fn visible(env: &Env, ctl: &LayerControls) -> bool {
 
 /// A square icon button drawn with [`glyph`], with a tooltip and a name for
 /// screen readers.
+#[allow(clippy::too_many_arguments)]
 fn icon_button(
     ui: &mut Ui,
     id: egui::Id,
@@ -2096,6 +2098,7 @@ mod tests {
     fn only_expanded_branches_are_built() {
         let project = sample();
         let mut view = TreeView::default();
+        view.expanded.remove("sec:parts");
         let closed = rows(&env(&project, &[]), &mut view).len();
         view.expanded.insert("sec:parts".to_owned());
         let open = rows(&env(&project, &[]), &mut view).len();
@@ -2106,8 +2109,10 @@ mod tests {
     fn a_search_keeps_matches_and_their_ancestors() {
         let project = sample();
         let net = project.nets[0].name.clone();
-        let mut view = TreeView::default();
-        view.query = net.clone();
+        let mut view = TreeView {
+            query: net.clone(),
+            ..Default::default()
+        };
         let list = rows(&env(&project, &[]), &mut view);
         assert!(list.iter().any(|r| r.kind == RowKind::Net && r.label == net));
         assert!(list.iter().any(|r| r.key == "sec:nets"));
@@ -2116,15 +2121,16 @@ mod tests {
     }
 
     #[test]
-    fn a_part_selected_on_the_canvas_opens_its_row() {
+    fn a_part_selected_on_the_canvas_opens_its_row() -> Result<(), String> {
         let project = sample();
         let id = project.board.footprints[0].id;
-        let (opens, target) = reveal_path(&env(&project, &[]), id).expect("row");
+        let (opens, target) = reveal_path(&env(&project, &[]), id).ok_or("no row")?;
         assert_eq!(target, format!("sec:parts/fp:{id}"));
         assert!(opens.contains(&"sec:parts".to_owned()));
         let mut view = TreeView::default();
         view.expanded.extend(opens);
         assert!(rows(&env(&project, &[]), &mut view).iter().any(|r| r.key == target));
+        Ok(())
     }
 
     #[test]
@@ -2139,15 +2145,19 @@ mod tests {
     }
 
     #[test]
-    fn the_board_outline_row_opens_board_settings() {
+    fn the_board_outline_row_opens_board_settings() -> Result<(), String> {
         let project = sample();
         let mut view = TreeView::default();
         let list = rows(&env(&project, &[]), &mut view);
-        let outline = list.iter().find(|r| r.key == "sec:board/root").expect("outline");
+        let outline = list
+            .iter()
+            .find(|r| r.key == "sec:board/root")
+            .ok_or("no outline row")?;
         let mut actions = Vec::new();
         activate(&mut view, outline, &mut actions);
         assert_eq!(view.selected_key.as_deref(), Some("sec:board/root"));
         assert!(actions.contains(&Action::SelectKey("sec:board/root".to_owned())));
+        Ok(())
     }
 
     #[test]
