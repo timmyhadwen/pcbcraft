@@ -8,48 +8,73 @@ const MAX_HITS: usize = 50_000;
 const LINEARIZE_STEP_MM: f64 = 0.01;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Choice of dialect.
 pub enum Dialect {
+    /// The grbl case.
     Grbl,
+    /// The linux cnc case.
     LinuxCnc,
+    /// The marlin case.
     Marlin,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Choice of tool change.
 pub enum ToolChange {
+    /// The new file case.
     NewFile,
+    /// The m6 message case.
     M6Message,
+    /// The pause m0 case.
     PauseM0,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Choice of drill order.
 pub enum DrillOrder {
+    /// The nearest case.
     Nearest,
+    /// The scan case.
     Scan,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Choice of outline compensation.
 pub enum OutlineCompensation {
+    /// The outside case.
     Outside,
+    /// The inside case.
     Inside,
+    /// The none case.
     None,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Choice of cut direction.
 pub enum CutDirection {
+    /// The climb case.
     Climb,
+    /// The conventional case.
     Conventional,
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Settings for tool.
 pub struct Tool {
+    /// Number.
     pub number: u8,
+    /// Diameter in millimetres.
     pub diameter_mm: f64,
+    /// Spindle in revolutions per minute.
     pub spindle_rpm: u32,
+    /// Cut feed in millimetres per minute.
     pub cut_feed_mm_min: f64,
+    /// Plunge feed in millimetres per minute.
     pub plunge_feed_mm_min: f64,
 }
 
 impl Tool {
+    /// Valid.
     pub fn valid(&self) -> bool {
         self.number >= 1
             && self.diameter_mm.is_finite()
@@ -64,15 +89,22 @@ impl Tool {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Settings for drill options.
 pub struct DrillOptions {
+    /// Tools.
     pub tools: Vec<Tool>,
+    /// Peck in millimetres.
     pub peck_mm: Option<f64>,
+    /// Order.
     pub order: DrillOrder,
+    /// Alignment holes.
     pub alignment_holes: Vec<Point>,
+    /// Tool change.
     pub tool_change: ToolChange,
 }
 
 impl DrillOptions {
+    /// Valid.
     pub fn valid(&self) -> bool {
         !self.tools.is_empty()
             && self.tools.len() <= MAX_TOOLS
@@ -85,13 +117,18 @@ impl DrillOptions {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+/// Settings for tabs.
 pub struct Tabs {
+    /// Count.
     pub count: u8,
+    /// Width in millimetres.
     pub width_mm: f64,
+    /// Height in millimetres.
     pub height_mm: f64,
 }
 
 impl Tabs {
+    /// Valid for thickness.
     pub fn valid_for_thickness(&self, thickness: f64) -> bool {
         (0..=16).contains(&self.count)
             && self.width_mm.is_finite()
@@ -102,15 +139,22 @@ impl Tabs {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Settings for outline options.
 pub struct OutlineOptions {
+    /// Tool.
     pub tool: Tool,
+    /// Pass depth in millimetres.
     pub pass_depth_mm: f64,
+    /// Tabs.
     pub tabs: Tabs,
+    /// Compensation.
     pub compensation: OutlineCompensation,
+    /// Cutouts.
     pub cutouts: bool,
 }
 
 impl OutlineOptions {
+    /// Valid.
     pub fn valid(&self, thickness: f64) -> bool {
         self.tool.valid()
             && self.pass_depth_mm.is_finite()
@@ -120,18 +164,28 @@ impl OutlineOptions {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Settings for cam profile.
 pub struct CamProfile {
+    /// Dialect.
     pub dialect: Dialect,
+    /// Work x in millimetres.
     pub work_x_mm: f64,
+    /// Work y in millimetres.
     pub work_y_mm: f64,
+    /// Safe z in millimetres.
     pub safe_z_mm: f64,
+    /// Retract z in millimetres.
     pub retract_z_mm: f64,
+    /// Direction.
     pub direction: CutDirection,
+    /// Plating allowance in millimetres.
     pub plating_allowance_mm: f64,
+    /// Fab plated.
     pub fab_plated: bool,
 }
 
 impl CamProfile {
+    /// Valid.
     pub fn valid(&self) -> bool {
         self.work_x_mm.is_finite()
             && self.work_y_mm.is_finite()
@@ -146,24 +200,38 @@ impl CamProfile {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Settings for drill hit.
 pub struct DrillHit {
+    /// Horizontal value in millimetres.
     pub x: f64,
+    /// Vertical value in millimetres.
     pub y: f64,
+    /// Diameter in millimetres.
     pub diameter_mm: f64,
+    /// Slot in millimetres.
     pub slot_mm: f64,
+    /// Slot ux.
     pub slot_ux: f64,
+    /// Slot uy.
     pub slot_uy: f64,
+    /// Plated.
     pub plated: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Settings for drill tool.
 pub struct DrillTool {
+    /// Diameter in millimetres.
     pub diameter_mm: f64,
+    /// Slot in millimetres.
     pub slot_mm: f64,
+    /// Plated.
     pub plated: bool,
+    /// Hits.
     pub hits: Vec<DrillHit>,
 }
 
+/// Drill tools.
 pub fn drill_tools(p: &Project) -> Result<Vec<DrillTool>, String> {
     p.validate()?;
     let hits = collect_drill_hits(p)?;
@@ -536,6 +604,7 @@ struct ToolJob {
     hits: Vec<DrillHit>,
 }
 
+/// Drill gcode.
 pub fn drill_gcode(
     p: &Project,
     options: &DrillOptions,
@@ -800,6 +869,7 @@ fn within_work_area(points: &[Point], profile: &CamProfile) -> bool {
         && max.y <= profile.work_y_mm + 1e-6
 }
 
+/// Outline gcode.
 pub fn outline_gcode(
     p: &Project,
     options: &OutlineOptions,

@@ -29,21 +29,37 @@ const MAX_LINES: usize = 2_000_000;
 /// Build one by hand for a real job; use `snapmaker_settings` so validation runs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SnapmakerSettings {
+    /// Profile id.
     pub profile_id: String,
+    /// Header type.
     pub header_type: String,
+    /// Tool head.
     pub tool_head: String,
+    /// Machine.
     pub machine: String,
+    /// Flavor.
     pub flavor: String,
+    /// Work x in millimetres.
     pub work_x_mm: f64,
+    /// Work y in millimetres.
     pub work_y_mm: f64,
+    /// Work z in millimetres.
     pub work_z_mm: f64,
+    /// Work speed in millimetres per minute.
     pub work_speed_mm_min: f64,
+    /// Jog speed in millimetres per minute.
     pub jog_speed_mm_min: f64,
+    /// Safe z in millimetres.
     pub safe_z_mm: f64,
+    /// Max in revolutions per minute.
     pub max_rpm: f64,
+    /// Min as a percentage.
     pub min_percent: u8,
+    /// Max as a percentage.
     pub max_percent: u8,
+    /// Preamble.
     pub preamble: Vec<String>,
+    /// Postamble.
     pub postamble: Vec<String>,
 }
 

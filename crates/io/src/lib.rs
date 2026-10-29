@@ -76,13 +76,13 @@ pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
     layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg, rasterize_shapes,
 };
-pub use uv_print::{
-    UvPrintArtwork, UvPrintExperiment, UvPrintOptions, UvPrintSide, UvPrintWhiteLayer,
-    eufymake_e1_profile, uv_print_artwork, write_uv_print_job_files,
-};
 pub use snapmaker::{
     SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
     snapmaker_settings, spindle_percent, spindle_percent_for_tool,
+};
+pub use uv_print::{
+    UvPrintArtwork, UvPrintExperiment, UvPrintOptions, UvPrintSide, UvPrintWhiteLayer,
+    eufymake_e1_profile, uv_print_artwork, write_uv_print_job_files,
 };
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;

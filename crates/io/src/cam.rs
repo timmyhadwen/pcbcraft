@@ -10,38 +10,59 @@ use serde::{Deserialize, Serialize};
 const LINEARISE_TOL_MM: f64 = 0.01;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Choice of dialect.
 pub enum Dialect {
+    /// The grbl case.
     Grbl,
+    /// The linux cnc case.
     LinuxCnc,
+    /// The marlin case.
     Marlin,
+    /// The snapmaker case.
     Snapmaker,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+/// Choice of spindle.
 pub enum Spindle {
+    /// The rpm case.
     Rpm(u32),
+    /// The percent case.
     Percent(u8),
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+/// Settings for tool.
 pub struct Tool {
+    /// Diameter in millimetres.
     pub diameter_mm: f64,
+    /// Feed in millimetres per minute.
     pub feed_mm_min: f64,
+    /// Plunge in millimetres per minute.
     pub plunge_mm_min: f64,
+    /// Depth in millimetres.
     pub depth_mm: f64,
+    /// Passes.
     pub passes: u8,
+    /// Spindle.
     pub spindle: Spindle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Choice of side.
 pub enum Side {
+    /// The top case.
     Top,
+    /// The bottom case.
     Bottom,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Choice of mirror axis.
 pub enum MirrorAxis {
+    /// The x case.
     X,
+    /// The y case.
     Y,
 }
 
@@ -52,11 +73,17 @@ pub struct RubRegion {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+/// Settings for cnc profile.
 pub struct CncProfile {
+    /// Dialect.
     pub dialect: Dialect,
+    /// Work min.
     pub work_min: Point,
+    /// Work max.
     pub work_max: Point,
+    /// Safe z in millimetres.
     pub safe_z_mm: f64,
+    /// Jog in millimetres per minute.
     pub jog_mm_min: f64,
 }
 
@@ -73,16 +100,24 @@ impl Default for CncProfile {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+/// Settings for isolation options.
 pub struct IsolationOptions {
+    /// Side.
     pub side: Side,
+    /// Tool.
     pub tool: Tool,
+    /// Overlap as a percentage.
     pub overlap_pct: u8,
+    /// Rubout.
     pub rubout: Option<RubRegion>,
+    /// Mirror axis.
     pub mirror_axis: MirrorAxis,
+    /// Alignment holes.
     pub alignment_holes: bool,
 }
 
 #[derive(Clone, Debug)]
+/// Settings for gcode writer.
 pub struct GcodeWriter {
     dialect: Dialect,
     lines: Vec<String>,
@@ -97,6 +132,7 @@ pub struct GcodeWriter {
 }
 
 impl GcodeWriter {
+    /// New.
     pub fn new(dialect: Dialect, safe_z: f64) -> Self {
         Self {
             dialect,
@@ -139,16 +175,19 @@ impl GcodeWriter {
         self.note(to);
     }
 
+    /// Comment.
     pub fn comment(&mut self, text: &str) {
         self.lines.push(format!("; {text}"));
     }
 
+    /// Rapid.
     pub fn rapid(&mut self, p: Point, jog: f64) {
         self.feed = jog;
         self.move_time(p, false);
         self.lines.push(format!("G0 X{:.3} Y{:.3}", p.x, p.y));
     }
 
+    /// Cut.
     pub fn cut(&mut self, p: Point, feed: f64) {
         self.feed = feed;
         self.move_time(p, true);
@@ -156,6 +195,7 @@ impl GcodeWriter {
             .push(format!("G1 X{:.3} Y{:.3} F{:.0}", p.x, p.y, feed));
     }
 
+    /// Plunge.
     pub fn plunge(&mut self, z: f64, rate: f64) {
         if let Some(at) = self.at {
             let dist = (self.z - z).abs();
@@ -169,6 +209,7 @@ impl GcodeWriter {
         }
     }
 
+    /// Retract.
     pub fn retract(&mut self, safe_z: f64, rate: f64) {
         if let Some(at) = self.at {
             let dist = (safe_z - self.z).abs();
@@ -182,6 +223,7 @@ impl GcodeWriter {
         }
     }
 
+    /// Spindle on.
     pub fn spindle_on(&mut self, spindle: Spindle) {
         let line = match (self.dialect, spindle) {
             (Dialect::Snapmaker, Spindle::Percent(p)) => format!("M3 P{p}"),
@@ -191,14 +233,17 @@ impl GcodeWriter {
         self.lines.push(line);
     }
 
+    /// Spindle off.
     pub fn spindle_off(&mut self) {
         self.lines.push("M5".into());
     }
 
+    /// Finish.
     pub fn finish(self) -> String {
         self.lines.join("\n") + "\n"
     }
 
+    /// Estimate s.
     pub fn estimate_s(&self) -> f64 {
         self.estimate_s
     }
@@ -295,6 +340,7 @@ fn linearise_ring(ring: &Ring) -> Vec<Point> {
     path
 }
 
+/// Isolation paths.
 pub fn isolation_paths(p: &Project, opts: &IsolationOptions) -> Result<Vec<Ring>, String> {
     if opts.rubout.is_some() {
         return Err("rubout isolation is not implemented yet".into());
@@ -392,12 +438,17 @@ fn write_paths(
     Ok(())
 }
 
+/// Settings for isolation gcode result.
 pub struct IsolationGcodeResult {
+    /// Files.
     pub files: Vec<(String, String)>,
+    /// Estimate in seconds.
     pub estimate_s: f64,
+    /// Alignment.
     pub alignment: Option<[Point; 2]>,
 }
 
+/// Isolation gcode.
 pub fn isolation_gcode(
     p: &Project,
     opts: &IsolationOptions,

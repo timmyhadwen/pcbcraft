@@ -11,7 +11,9 @@ use i_overlay::mesh::float::style::{LineJoin, OutlineStyle};
 pub type Ring = Vec<Point>;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+/// Choice of offset join.
 pub enum OffsetJoin {
+    /// The round case.
     Round,
 }
 
@@ -169,7 +171,7 @@ mod tests {
     #[test]
     fn polygon_offset_is_bit_identical_on_repeat() {
         let s = square(2.0);
-        let once = polygon_offset(&[s.clone()], 0.15, OffsetJoin::Round);
+        let once = polygon_offset(std::slice::from_ref(&s), 0.15, OffsetJoin::Round);
         let twice = polygon_offset(&[s], 0.15, OffsetJoin::Round);
         assert_eq!(once, twice);
     }

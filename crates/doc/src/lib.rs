@@ -1350,13 +1350,6 @@ pub struct BoardText {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<Id>,
 }
-/// Shop equipment profile for fabrication artifacts.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum MachineProfile {
-    UvPrinter(UvPrinterProfile),
-}
-
 /// Settings for a UV flatbed printer that registers artwork on a camera photo.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct UvPrinterProfile {

@@ -10,10 +10,12 @@ const BUILTIN_IDS: [&str; 5] = [
     "commarker-b6-mopa",
 ];
 
+/// Builtin machine profile ids.
 pub fn builtin_machine_profile_ids() -> &'static [&'static str] {
     &BUILTIN_IDS
 }
 
+/// Builtin machine profile.
 pub fn builtin_machine_profile(id: &str) -> Result<MachineProfile, String> {
     let text = match id {
         "neoden-yy1" => include_str!("../../../machine-profiles/neoden-yy1.toml"),
@@ -30,12 +32,14 @@ pub fn builtin_machine_profile(id: &str) -> Result<MachineProfile, String> {
     machine_profile_from_toml(text)
 }
 
+/// Machine profile from toml.
 pub fn machine_profile_from_toml(text: &str) -> Result<MachineProfile, String> {
     let parsed: toml::Value = toml::from_str(text).map_err(|e| e.to_string())?;
     let json = toml_value_to_json(parsed);
     serde_json::from_value(json).map_err(|e| e.to_string())
 }
 
+/// Machine profile to toml.
 pub fn machine_profile_to_toml(profile: &MachineProfile) -> Result<String, String> {
     profile.validate()?;
     let json = serde_json::to_value(profile).map_err(|e| e.to_string())?;

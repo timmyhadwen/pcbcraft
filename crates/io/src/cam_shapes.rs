@@ -3,9 +3,13 @@ use pcbcraft_doc::{Footprint, Id, Layer, Project};
 use pcbcraft_geom::{Point, Ring};
 
 #[derive(Clone, Debug)]
+/// Settings for layer shape.
 pub struct LayerShape {
+    /// Identifier.
     pub id: Id,
+    /// Net.
     pub net: Id,
+    /// Outline.
     pub outline: Ring,
 }
 
