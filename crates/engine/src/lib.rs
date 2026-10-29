@@ -1,6 +1,7 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
 pub mod library;
+pub mod profiles;
 pub mod recents;
 mod route;
 use pcbcraft_doc::*;
@@ -1538,6 +1539,24 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.area_remove",
             "Remove one rule area by id",
             schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "rules.profile_list",
+            "List built-in interface rule profiles with id, name, category and summary",
+            schema(json!({}), &[]),
+        ),
+        (
+            "rules.profile_apply",
+            "Apply a built-in profile by id or a profile TOML file from disk; optional dry run returns the plan without changing the design",
+            schema(
+                json!({
+                    "id":{"type":"string","minLength":1,"maxLength":64,"description":"built-in profile id"},
+                    "path":{"type":"string","minLength":1,"maxLength":4096,"description":"path to profile TOML"},
+                    "nets_override":{"type":"array","items":{"type":"string","minLength":1,"maxLength":128},"maxItems":128,"description":"only assign nets in this list"},
+                    "dry_run":{"type":"boolean","default":false}
+                }),
+                &[],
+            ),
         ),
         (
             "bom.set_fields",
@@ -5591,6 +5610,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 target_length: None,
                 length_tolerance: None,
                 nets: a.nets,
+                profile: None,
             });
             Ok(json!({"id": id}))
         }
@@ -10376,6 +10396,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     width: a.width,
                     height: a.height,
                 },
+                profile: None,
             });
             Ok(json!({"id": id}))
         }
@@ -10404,6 +10425,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             Ok(json!({"id": a.id}))
         }
+        "rules.profile_list" => Ok(profiles::profile_list()),
+        "rules.profile_apply" => profiles::profile_apply(p, next, params).map_err(Error::Invalid),
         "board.layer_add" => {
             let a: LayerAddParams = parse(params)?;
             if a.name.trim().is_empty() || a.name.len() > 64 {
@@ -10697,6 +10720,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     a: key.0,
                     b: key.1,
                     clearance,
+                    profile: None,
                 });
                 rules.sort_by_key(|r| (r.a, r.b));
             }
@@ -10772,6 +10796,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 net_n: a.net_n,
                 gap: a.gap,
                 length_tolerance: a.length_tolerance,
+                profile: None,
             });
             Ok(json!({"id": id, "name": name}))
         }
