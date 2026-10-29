@@ -1317,8 +1317,14 @@ impl App {
     /// (`layers`), so a `--capture` image can show either.
     pub fn with_left_tab(mut self, tab: Option<String>) -> Self {
         match tab.as_deref() {
-            Some("library") => self.preferences.left_tab = 1,
-            Some("layers") => self.preferences.left_tab = 0,
+            Some("library") => {
+                self.preferences.left_tab = 1;
+                self.region().left_tab = "library".to_owned();
+            }
+            Some("layers") => {
+                self.preferences.left_tab = 0;
+                self.region().left_tab = "layers".to_owned();
+            }
             _ => {}
         }
         self
