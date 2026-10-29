@@ -31,8 +31,7 @@ fn main() -> eframe::Result {
             std::process::exit(1);
         }
     }
-    let hub = match pcbcraft_mcp::DocumentHub::new(session, option("--project"))
-    {
+    let hub = match pcbcraft_mcp::DocumentHub::new(session, option("--project")) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("documents: {e}");

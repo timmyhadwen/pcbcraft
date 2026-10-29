@@ -294,10 +294,10 @@ fn slot_display_name(project_name: &str, path: &str) -> String {
     if !trimmed.is_empty() && trimmed != DEFAULT_PROJECT_NAME {
         return trimmed.to_string();
     }
-    if !path.is_empty() {
-        if let Some(name) = Path::new(path).file_name().and_then(|s| s.to_str()) {
-            return name.to_string();
-        }
+    if !path.is_empty()
+        && let Some(name) = Path::new(path).file_name().and_then(|s| s.to_str())
+    {
+        return name.to_string();
     }
     UNTITLED.to_string()
 }
