@@ -1,4 +1,5 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
+mod assistant;
 mod authoring;
 mod board3d;
 mod canvas;
@@ -612,8 +613,10 @@ impl Camera {
         )
     }
 }
+pub use assistant::Host;
 pub struct App {
     session: SharedSession,
+    assistant: assistant::State,
     project: Project,
     revision: u64,
     checks: Value,
@@ -959,6 +962,7 @@ impl App {
         };
         Self {
             session,
+            assistant: assistant::State::default(),
             project,
             revision: u64::MAX,
             checks: json!({}),
@@ -1237,6 +1241,7 @@ impl App {
             self.saved_revision = Some(self.revision);
         }
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
+            self.assistant_design_opened();
             self.needs_fit = true;
         }
         success
@@ -2590,6 +2595,9 @@ impl App {
                 }
                 if i.key_pressed(egui::Key::S) {
                     self.tool_call("save", json!({"path":self.path}));
+                }
+                if i.modifiers.shift && i.key_pressed(egui::Key::A) {
+                    self.assistant_toggle();
                 }
                 if i.key_pressed(egui::Key::K) {
                     self.command_open = !self.command_open;
@@ -5591,16 +5599,12 @@ impl App {
                     ui.selectable_value(
                         &mut self.preferences.aside_lower_tab,
                         1,
-                        "Assistant",
+                        assistant::tab_label(self.assistant.waiting()),
                     )
-                    .on_hover_text("How to connect an external agent through MCP.");
+                    .on_hover_text(assistant::TAB_TIP);
                 });
                 if self.preferences.aside_lower_tab == 1 {
-                    ui.add_space(12.0);
-                    ui.label(
-                        "Connect an agent through the live MCP bridge described in docs/mcp.md. \
-                         The desktop session exposes the same typed commands the UI uses.",
-                    );
+                    assistant::pane::show(self, ui);
                     return;
                 }
                 egui::ScrollArea::vertical()
@@ -6842,6 +6846,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
+        self.assistant_poll();
         self.style(&ctx);
         self.shortcuts(&ctx);
         self.edit_events(&ctx);
