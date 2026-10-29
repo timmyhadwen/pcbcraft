@@ -344,17 +344,12 @@ impl App {
             }
             for (label, tip, yaw, pitch) in [
                 (
-                    t!("workspace.top"),
-                    t!("workspace.top.tip"),
+                    t!("board.board3d.top_view"),
+                    t!("board.board3d.top_view.tip"),
                     -FRAC_PI_2,
                     1.5,
                 ),
-                (
-                    t!("workspace.front"),
-                    t!("workspace.front.tip"),
-                    -FRAC_PI_2,
-                    0.0,
-                ),
+                (t!("workspace.front"), t!("workspace.front.tip"), -FRAC_PI_2, 0.0),
                 (t!("workspace.side"), t!("workspace.side.tip"), 0.0, 0.0),
             ] {
                 if ui.button(label).on_hover_text(tip).clicked() {
@@ -363,15 +358,11 @@ impl App {
                 }
             }
             if ui
-                .button(t!("workspace.reset_view"))
-                .on_hover_text(t!("workspace.reset_view.tip"))
+                .button(t!("board.board3d.reset_view"))
+                .on_hover_text(t!("board.board3d.reset_view.tip"))
                 .clicked()
             {
-                let fresh = board3d::View3d::default();
-                v.yaw = fresh.yaw;
-                v.pitch = fresh.pitch;
-                v.dist = fresh.dist;
-                v.target = fresh.target;
+                v.fit();
             }
         });
     }

@@ -303,7 +303,7 @@ fn a_newcomer_opens_their_factory_zip_and_hides_a_layer() -> Result<(), String> 
     authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Plot files")?;
+    authoring::tests::tap(&ctx, &mut app, "Manufacture")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.plot_viewer.folder_path = directory.to_string_lossy().into_owned();
     authoring::tests::tap(&ctx, &mut app, "Load")?;

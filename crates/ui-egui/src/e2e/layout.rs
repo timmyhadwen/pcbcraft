@@ -219,18 +219,18 @@ fn a_newcomer_lengthens_a_wire_to_match_its_partner() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        scrolled_to(&ctx, &mut app, "Suggested width")?,
+        scrolled_to_at(&ctx, &mut app, "Suggested width", 1280.0)?,
         "the side panel suggests a width for the target impedance: {}",
         app.message
     );
     assert!(
-        scrolled_to(&ctx, &mut app, "Tune length")?,
+        scrolled_to_at(&ctx, &mut app, "Tune length", 1280.0)?,
         "the side panel offers Tune length: {}",
         app.message
     );
     let before: f64 = app.project.board.tracks.iter().map(track_length).sum();
     app.impedance_ui.tune_target = before + 6.0;
-    scrolled_to(&ctx, &mut app, "Tune length")?;
+    scrolled_to_at(&ctx, &mut app, "Tune length", 1280.0)?;
     authoring::tests::tap(&ctx, &mut app, "Tune length")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
@@ -289,11 +289,7 @@ fn spilled_text(output: &egui::FullOutput, width: f32) -> Vec<String> {
 /// Text that spills past a 320 point window today (issue #647 report). The
 /// walk fails on a new spill and on a listed one that no longer happens, so
 /// the list shrinks as the layout is fixed.
-const KNOWN_REFLOW_DEFECTS: [&str; 1] = [
-    // Drawing content, not a control: the sample symbol label sits past the
-    // right edge until the view is panned. Follow-up issue to be filed (schematic fit-to-view at narrow widths).
-    "Schematic: \"Green LED\" ends at 328",
-];
+const KNOWN_REFLOW_DEFECTS: [&str; 0] = [];
 
 #[test]
 fn a_newcomer_zooms_to_four_hundred_percent_and_every_dock_still_fits() -> Result<(), String> {
@@ -305,8 +301,8 @@ fn a_newcomer_zooms_to_four_hundred_percent_and_every_dock_still_fits() -> Resul
         Tab::Schematic,
         Tab::Pcb,
         Tab::Board3d,
+        Tab::PlotFiles,
         Tab::Rules,
-        Tab::Checks,
         Tab::Settings,
     ] {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());

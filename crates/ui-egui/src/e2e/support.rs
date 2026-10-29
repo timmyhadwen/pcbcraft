@@ -22,14 +22,14 @@ pub(crate) fn paints_text(
     }
     Ok(false)
 }
-/// Scroll the right-aside layers tree until `needle` appears, then nudge
+/// Scroll the left-aside layers tree until `needle` appears, then nudge
 /// the wheel so rows just below it are visible too.
 pub(crate) fn scrolled_to(
     ctx: &egui::Context,
     app: &mut App,
     needle: &str,
 ) -> Result<bool, String> {
-    scrolled_to_at(ctx, app, needle, 1280.0)
+    scrolled_to_at(ctx, app, needle, 150.0)
 }
 /// Same, but over a panel whose horizontal centre is at `x`: 150 is the
 /// left dock, 700 the middle page (Rules, Settings, Checks).

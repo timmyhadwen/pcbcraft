@@ -39,7 +39,11 @@ fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
         mind > 0,
         "the practice board should leave something to mind"
     );
-    let mind_label = format!("{mind} to mind");
+    let mind_label = if mind == 1 {
+        "1 warning".to_owned()
+    } else {
+        format!("{mind} warnings")
+    };
     assert!(
         paints_text(&ctx, &mut app, &mind_label)?,
         "the status strip should count the warnings ({mind_label}): {}",
@@ -47,10 +51,9 @@ fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
     );
     authoring::tests::tap(&ctx, &mut app, &mind_label)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert_eq!(
-        app.tab,
-        Tab::Checks,
-        "tapping the warning count should open the checks list: {}",
+    assert!(
+        app.region().bottom_open,
+        "tapping the warning count should open the findings sheet: {}",
         app.message
     );
     Ok(())
@@ -583,43 +586,8 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     for cryptic in ["Sel", "Mv", "Rt", "Ln", "Bx", "Cr", "Pl", "Tx"] {
         assert!(text_row(&ctx, &mut app, cryptic).is_none(), "no {cryptic}");
     }
-    app.closed_tabs.push(Tab::Rules);
-    assert!(
-        text_row(&ctx, &mut app, "Rules").is_none(),
-        "a closed view leaves the row"
-    );
-    // Other panels carry a "+" too; the one in the tab row is the highest.
-    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let plus = output
-        .shapes
-        .iter()
-        .filter_map(|shape| match &shape.shape {
-            egui::Shape::Text(text) if text.galley.text() == "+" => {
-                Some(text.pos + text.galley.size() / 2.0)
-            }
-            _ => None,
-        })
-        .min_by(|a, b| a.y.total_cmp(&b.y))
-        .ok_or("the tab row has a + menu")?;
-    for pressed in [true, false] {
-        frame(
-            &ctx,
-            &mut app,
-            vec![
-                egui::Event::PointerMoved(plus),
-                egui::Event::PointerButton {
-                    pos: plus,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-    }
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::open_page(&ctx, &mut app, "Rules")?;
-    assert!(matches!(app.tab, Tab::Rules), "the + menu reopens it");
+    assert!(matches!(app.tab, Tab::Rules), "View > Rules opens the rules page");
     authoring::tests::tap(&ctx, &mut app, "Files")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;
     assert!(

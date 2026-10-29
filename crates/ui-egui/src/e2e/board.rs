@@ -9,11 +9,10 @@ fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), Stri
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    app.change_tab(Tab::Pcb);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        scrolled_to(&ctx, &mut app, "HASL")?,
+        scrolled_to_at(&ctx, &mut app, "HASL", 700.0)?,
         "the board shows the finish it ships with"
     );
     authoring::tests::tap(&ctx, &mut app, "HASL")?;
@@ -62,11 +61,10 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    app.change_tab(Tab::Pcb);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        scrolled_to(&ctx, &mut app, "Nothing recorded yet")?,
+        scrolled_to_at(&ctx, &mut app, "Nothing recorded yet", 700.0)?,
         "a plain board says what it is: {}",
         app.message
     );
@@ -134,8 +132,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    app.change_tab(Tab::Pcb);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     let mut shown = false;
     for _ in 0..8 {
         if paints_text(&ctx, &mut app, "START FROM A SHAPE")? {
@@ -146,7 +143,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(700.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -696,7 +693,7 @@ fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "1 to fix")?,
+        paints_text(&ctx, &mut app, "1 error")?,
         "a cut through a via lands in the footer count: {}",
         app.message
     );
@@ -1601,7 +1598,7 @@ fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), Str
 fn a_newcomer_zooms_out_and_fits_the_whole_design() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Schematic);
     let before = app.schematic.zoom;
-    tap_id(&ctx, &mut app, "button:\u{2212}")?;
+    tap_id(&ctx, &mut app, "icon:canvas-zoom-out")?;
     assert!(app.schematic.zoom < before, "the minus button zooms out");
     tap_id(&ctx, &mut app, "icon:canvas-fit")?;
     assert!(

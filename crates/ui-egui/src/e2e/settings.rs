@@ -15,7 +15,7 @@ fn a_newcomer_visits_settings_and_comes_back_to_the_same_zoom() -> Result<(), St
     app.change_tab(Tab::Pcb);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.pcb.zoom = 33.0;
-    for tab in [Tab::Settings, Tab::Rules, Tab::Checks, Tab::Pcb] {
+    for tab in [Tab::Settings, Tab::Rules, Tab::Pcb] {
         app.change_tab(tab);
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
@@ -27,7 +27,7 @@ fn a_newcomer_visits_settings_and_comes_back_to_the_same_zoom() -> Result<(), St
 fn a_newcomer_reads_settings_with_room_around_the_text() -> Result<(), String> {
     let mut app = fresh();
     let ctx = egui::Context::default();
-    for tab in [Tab::Settings, Tab::Rules, Tab::Checks] {
+    for tab in [Tab::Settings, Tab::Rules] {
         app.change_tab(tab);
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);

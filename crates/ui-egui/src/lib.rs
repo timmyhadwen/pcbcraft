@@ -6969,7 +6969,6 @@ impl App {
     /// Each hidden finding and quiet zone can be brought back from here until
     /// Project settings takes these lists over.
     fn checks_view(&mut self, ui: &mut egui::Ui) {
-        self.library_checks_section(ui);
         let silenced: Vec<(String, usize)> = self
             .project
             .rule_exclusions
@@ -7287,6 +7286,18 @@ impl App {
                         if self
                             .tool_strip_button(
                                 ui,
+                                "tool-place-part",
+                                t!("library.browser.place_part"),
+                                t!("library.browser.place_part.tip"),
+                                self.palette,
+                            )
+                            .clicked()
+                        {
+                            self.open_part_search();
+                        }
+                        if self
+                            .tool_strip_button(
+                                ui,
                                 "tool-wire",
                                 t!("board.tool_strip.wire"),
                                 t!("board.tool_strip.wire_tool_click_two_pins"),
@@ -7307,18 +7318,6 @@ impl App {
                             .clicked()
                         {
                             self.tool = Tool::NoConnect;
-                        }
-                        if self
-                            .tool_strip_button(
-                                ui,
-                                "tool-place-part",
-                                t!("library.browser.place_part"),
-                                t!("library.browser.place_part.tip"),
-                                self.palette,
-                            )
-                            .clicked()
-                        {
-                            self.open_part_search();
                         }
                     }
                     if self.tab == Tab::Pcb {
@@ -7919,7 +7918,7 @@ mod tests {
         let ctx = egui::Context::default();
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
-        app.change_tab(Tab::Pcb);
+        app.change_tab(Tab::Schematic);
         authoring::tests::tap(&ctx, &mut app, "Layers")?;
         assert!(
             scrolled_to(&ctx, &mut app, "Wires")?,

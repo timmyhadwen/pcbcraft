@@ -1,7 +1,7 @@
-//! Stories for the left rail, the library dock, the datasheet action and the
+//! Stories for the left aside, the workspace layouts, the library dock, the datasheet action and the
 //! breathing room around every dock and tab body.
 use super::super::*;
-use super::support::{frame, scrolled_to};
+use super::support::{frame, paints_text, scrolled_to};
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 
@@ -82,42 +82,70 @@ fn finding_counts_split_by_loudness() {
 }
 
 #[test]
-fn a_newcomer_toggles_the_library_dock_from_the_left_rail() -> Result<(), String> {
+fn a_newcomer_switches_the_left_aside_between_layers_and_library() -> Result<(), String> {
     let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
     let ctx = egui::Context::default();
-    let out = settled(&ctx, &mut app);
-    let at = centre_of(&out, "Lib", 44.0).ok_or("the rail should offer the library toggle")?;
+    app.change_tab(Tab::Schematic);
+    settled(&ctx, &mut app);
+    for word in ["Layers", "Library"] {
+        assert!(paints_text(&ctx, &mut app, word)?, "the left aside offers {word}");
+    }
     assert!(
-        app.preferences.library_dock_open,
-        "the library dock starts open"
+        !paints_text(&ctx, &mut app, "Hide")?,
+        "the left aside has no Hide button"
     );
-    click(&ctx, &mut app, at);
-    assert!(
-        !app.preferences.library_dock_open,
-        "the rail toggle hides the dock"
+    authoring::tests::tap(&ctx, &mut app, "Library")?;
+    assert_eq!(app.region().left_tab, "library", "Library shows the parts");
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    assert_eq!(app.region().left_tab, "layers", "Layers comes back");
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
+    assert_eq!(
+        app.region().left_tab,
+        "library",
+        "Place part in the tool bar opens the Library tab"
     );
-    click(&ctx, &mut app, at);
+    app.change_tab(Tab::PlotFiles);
+    settled(&ctx, &mut app);
     assert!(
-        app.preferences.library_dock_open,
-        "the rail toggle shows it again"
+        paints_text(&ctx, &mut app, "Outputs")? && paints_text(&ctx, &mut app, "Machines")?,
+        "Manufacture has its own left tabs"
     );
     Ok(())
 }
 
 #[test]
-fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), String> {
+fn view_reset_layout_puts_every_region_back() -> Result<(), String> {
     let mut app = fresh();
-    app.checks = json!({
-        "erc": [{"severity":"error"},{"severity":"error"},{"severity":"warning"}],
-        "drc": [{"severity":"info"},{"severity":"info"},{"severity":"info"},{"severity":"info"}]
-    });
+    app.change_tab(Tab::Schematic);
+    app.region().left_tab = "library".to_owned();
+    app.region().bottom_open = true;
     let ctx = egui::Context::default();
-    let out = settled(&ctx, &mut app);
-    let errors = centre_of(&out, "2", 44.0).ok_or("an errors badge reads 2")?;
-    centre_of(&out, "1", 44.0).ok_or("a warnings badge reads 1")?;
-    centre_of(&out, "4", 44.0).ok_or("a notes badge reads 4")?;
-    click(&ctx, &mut app, errors);
-    assert_eq!(app.tab, Tab::Checks, "a badge opens the Checks tab");
+    settled(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "View")?;
+    authoring::tests::tap(&ctx, &mut app, "Reset layout")?;
+    assert_eq!(app.region().left_tab, "layers", "the default left tab returns");
+    assert!(!app.region().bottom_open, "the sheet collapses again");
+    Ok(())
+}
+
+#[test]
+fn the_layout_workspace_switches_between_2d_and_3d_and_remembers_it() -> Result<(), String> {
+    let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Pcb);
+    settled(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "3D")?;
+    assert_eq!(app.tab, Tab::Board3d, "3D swaps the center");
+    assert!(app.region().view_3d, "the Layout workspace remembers 3D");
+    authoring::tests::tap(&ctx, &mut app, "Files")?;
+    authoring::tests::tap(&ctx, &mut app, "Layout")?;
+    assert_eq!(app.tab, Tab::Board3d, "coming back to Layout restores 3D");
+    authoring::tests::tap(&ctx, &mut app, "2D")?;
+    assert_eq!(app.tab, Tab::Pcb, "2D brings the board back");
     Ok(())
 }
 
@@ -238,7 +266,8 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
     let aside = texts(&out)
         .into_iter()
         .find(|(w, l, _, _)| w == "Details" && *l > SCREEN.x / 2.0)
-        .map(|(_, l, _, _)| l - 16.0)
+        // 16 px margin plus the 1 px panel stroke.
+        .map(|(_, l, _, _)| l - 17.0)
         .ok_or("the right aside should show its Details heading")?;
     assert!(
         aside <= SCREEN.x - 280.0 && aside > SCREEN.x - 420.0,

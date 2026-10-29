@@ -239,6 +239,7 @@ impl App {
             );
         }
         let filter = self.sheet.filter;
+        self.checks_view(ui);
         for (i, row) in rows.into_iter().enumerate() {
             let keep = match filter {
                 SeverityFilter::All => true,
@@ -251,7 +252,7 @@ impl App {
             }
         }
         ui.add_space(8.0);
-        self.checks_view(ui);
+        self.library_checks_section(ui);
     }
 
     fn sheet_row(&mut self, ui: &mut egui::Ui, row: Row) {
@@ -271,7 +272,16 @@ impl App {
                 "{word} {}",
                 custom_heading(&self.project, &row.code)
             ));
-            ui.label(egui::RichText::new(&row.message).size(Self::BODY));
+            if ui
+                .add(
+                    egui::Button::new(egui::RichText::new(&row.message).size(Self::BODY))
+                        .frame(false),
+                )
+                .on_hover_text(t!("sheet.show.tip"))
+                .clicked()
+            {
+                self.show_finding(&row);
+            }
             if let Some(&first) = row.objects.first() {
                 let net = self.project.net_name(first);
                 if net != "unassigned" {
@@ -306,17 +316,24 @@ impl App {
                     .add_enabled(has, egui::Button::new(t!("sheet.show")))
                     .on_hover_text(t!("sheet.show.tip"))
                     .clicked()
-                    && let Some(id) = row.objects.first().copied()
                 {
-                    self.change_tab(if row.key == "erc" {
-                        Tab::Schematic
-                    } else {
-                        Tab::Pcb
-                    });
-                    self.select(Some(id));
+                    self.show_finding(&row);
                 }
             });
         });
+    }
+
+    /// Selects the first object a finding names, on the sheet or board that
+    /// the finding belongs to.
+    fn show_finding(&mut self, row: &Row) {
+        if let Some(id) = row.objects.first().copied() {
+            self.change_tab(if row.key == "erc" {
+                Tab::Schematic
+            } else {
+                Tab::Pcb
+            });
+            self.select(Some(id));
+        }
     }
 
     /// Asks the check to leave the box around this finding's objects alone.
