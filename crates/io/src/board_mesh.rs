@@ -777,8 +777,11 @@ pub enum ModelLookup {
 /// The load state of one part's model, for the parts list.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ModelStatus {
+    /// The file is still being read.
     Loading,
+    /// The model replaced the box.
     Loaded,
+    /// The box stayed; the sentence says why.
     Failed(String),
 }
 

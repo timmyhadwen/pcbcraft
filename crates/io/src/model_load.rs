@@ -26,7 +26,9 @@ const MAX_NODES_VISITED: usize = 20_000;
 /// One model as triangles in millimetres, Z up, in the model's own frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LoadedModel {
+    /// Vertex positions in millimetres.
     pub positions: Vec<[f64; 3]>,
+    /// Triangle corner indices into `positions`, three per face.
     pub indices: Vec<u32>,
     /// Diffuse colour 0..1 of the first material, when the file has one.
     pub color: Option<[f32; 3]>,
@@ -52,7 +54,10 @@ impl LoadedModel {
 /// Why a model file could not be used, as one plain sentence.
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 #[error("{0}")]
-pub struct ModelError(pub String);
+pub struct ModelError(
+    /// The plain sentence shown beside the part.
+    pub String,
+);
 fn err<T>(s: impl Into<String>) -> Result<T, ModelError> {
     Err(ModelError(s.into()))
 }
@@ -61,10 +66,13 @@ fn err<T>(s: impl Into<String>) -> Result<T, ModelError> {
 /// its modification time or the reader changes.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModelCacheKey {
+    /// The model path as the footprint names it.
     pub path: String,
+    /// File size in bytes.
     pub len: u64,
     /// Modification time in nanoseconds since the Unix epoch, if known.
     pub mtime_nanos: Option<u128>,
+    /// [`LOADER_VERSION`] when the key was made.
     pub loader_version: u32,
 }
 /// The cache key for a file with this size and modification time.
