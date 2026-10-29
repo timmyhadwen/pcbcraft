@@ -866,8 +866,9 @@ impl App {
         }
         if response.drag_started_by(egui::PointerButton::Primary)
             && self.library.editor.tool == LibraryTool::Select
-            && let Some(pos) = cursor
+            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
         {
+            let pos = camera.world(origin, response.rect);
             let pick = self
                 .library_pick_at(draft, pos, camera.zoom)
                 .or(self.library.editor.pick);
@@ -1964,27 +1965,23 @@ pub(crate) mod tests {
         ] {
             frame(ctx, app, vec![event]);
         }
-        frame(ctx, app, vec![]);
-        for event in [
-            egui::Event::PointerMoved(b),
-            egui::Event::PointerButton {
+        let mid = egui::pos2((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
+        for p in [mid, b] {
+            frame(ctx, app, vec![egui::Event::PointerMoved(p)]);
+            frame(ctx, app, vec![]);
+        }
+        frame(
+            ctx,
+            app,
+            vec![egui::Event::PointerButton {
                 pos: b,
                 button: egui::PointerButton::Primary,
                 pressed: false,
                 modifiers: egui::Modifiers::NONE,
-            },
-        ] {
-            frame(ctx, app, vec![event]);
-        }
+            }],
+        );
         frame(ctx, app, vec![]);
         Ok(())
-    }
-
-    fn library_test_move_pick(app: &mut App, pick: LibraryPick, to: Point) {
-        if let Some(draft) = app.library.editor.draft.as_mut() {
-            App::library_move_pick(draft, pick, to);
-            app.library.editor.pick = Some(pick);
-        }
     }
 
     fn clear_symbol_draft(app: &mut App) {
@@ -2043,6 +2040,7 @@ pub(crate) mod tests {
         let (shared, mut app, ctx) = editor("footprint-editor")?;
         tap(&ctx, &mut app, "Fit")?;
         tap(&ctx, &mut app, "Select")?;
+        tap(&ctx, &mut app, "Save footprint to project library")?;
         let before = app
             .library
             .editor
@@ -2053,24 +2051,7 @@ pub(crate) mod tests {
                 _ => None,
             })
             .ok_or("pad 2 missing from the default footprint")?;
-        library_world_drag(&ctx, &mut app, before, before.offset(Point::new(1.27, 0.0)))?;
-        let after_drag = app
-            .library
-            .editor
-            .draft
-            .as_ref()
-            .and_then(|d| match d {
-                Draft::Footprint(f) => f.pads.get(1).map(|p| p.position),
-                _ => None,
-            })
-            .ok_or("draft lost after drag")?;
-        if (after_drag.x - before.x).abs() < 1e-6 {
-            library_test_move_pick(
-                &mut app,
-                LibraryPick::Pad(1),
-                before.offset(Point::new(1.27, 0.0)),
-            );
-        }
+        library_world_drag(&ctx, &mut app, before, before.offset(Point::new(1.0, 0.0)))?;
         let after_drag = app
             .library
             .editor
@@ -2082,8 +2063,8 @@ pub(crate) mod tests {
             })
             .ok_or("draft lost after drag")?;
         assert!(
-            (after_drag.x - before.x - 1.27).abs() < 1e-6,
-            "pad 2 moves 1.27 mm on the grid"
+            (after_drag.x - before.x - 1.0).abs() < 1e-6,
+            "pad 2 moves one 1.0 mm step on the 0.5 mm grid"
         );
         tap(&ctx, &mut app, "Save footprint to project library")?;
         {
@@ -2109,11 +2090,7 @@ pub(crate) mod tests {
         let start = draft_symbol(&app)?.pins[0].position;
         let target = canvas::snap(start.offset(Point::new(1.0, 0.5)));
         library_world_drag(&ctx, &mut app, start, target)?;
-        let mut draft_pos = draft_symbol(&app)?.pins[0].position;
-        if draft_pos != target {
-            library_test_move_pick(&mut app, LibraryPick::Pin(0), target);
-            draft_pos = draft_symbol(&app)?.pins[0].position;
-        }
+        let draft_pos = draft_symbol(&app)?.pins[0].position;
         assert_eq!(draft_pos, target, "drag updates the draft pin position");
         tap(&ctx, &mut app, "Pin 1 · unit 1")?;
         frame(&ctx, &mut app, vec![]);
