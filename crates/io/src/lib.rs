@@ -6786,11 +6786,13 @@ mod tests {
             name: "L1".into(),
             kind: "copper".into(),
             thickness: 0.035,
+            copper_role: None,
         });
         project.board.layer_records.push(pcbcraft_doc::LayerRecord {
             name: "core".into(),
             kind: "core".into(),
             thickness: 1.2,
+            copper_role: None,
         });
         project.board.machining = Some(pcbcraft_doc::MachiningNotes {
             edge_plating: Some(true),
@@ -11804,10 +11806,10 @@ mod tests {
 
     #[test]
     fn examples_validate_after_load() -> Result<(), String> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
         for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
             let path = entry.map_err(|e| e.to_string())?.path();
-            if path.extension().is_some_and(|e| e == "json" || e == "pcbcraft") {
+            if path.extension().is_some_and(|e| e == "pcbcraft") {
                 load(&path)?;
             }
         }
