@@ -103,11 +103,11 @@ fn a_newcomer_types_a_decimal_comma_in_german() -> Result<(), String> {
         paints_text(&ctx, &mut app, "12,5")?,
         "a German install shows the board width with a comma"
     );
-    type_into_the_width_box(&ctx, &mut app, "12,5 mm", "1,6")?;
+    type_into_the_width_box(&ctx, &mut app, "12,5", "1,6")?;
     assert_eq!(app.width, 1.6, "typing 1,6 stores 1.6");
-    assert!(paints_text(&ctx, &mut app, "1,6 mm")?, "the box shows 1,6");
-    type_into_the_width_box(&ctx, &mut app, "1,6 mm", "2.4")?;
+    assert!(paints_text(&ctx, &mut app, "1,6")?, "the box shows 1,6");
+    type_into_the_width_box(&ctx, &mut app, "1,6", "2.4")?;
     assert_eq!(app.width, 2.4, "typing a point from habit also works");
-    assert!(paints_text(&ctx, &mut app, "2,4 mm")?, "the box shows 2,4");
+    assert!(paints_text(&ctx, &mut app, "2,4")?, "the box shows 2,4");
     Ok(())
 }
