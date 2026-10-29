@@ -9,8 +9,16 @@
 //! # Dependencies
 //! - crates/ui-egui/src/theme.rs
 //! - crates/ui-egui/src/ui_kit/gallery.rs
+//! - crates/ui-egui/src/ui_kit/button.rs
+//! - crates/ui-egui/src/ui_kit/chip.rs
+//! - crates/ui-egui/src/ui_kit/focus.rs
+//! - crates/ui-egui/src/ui_kit/icons.rs
 //!
 //! # Do not
 //! - Touch `crates/ui-egui/src/lib.rs` from here; pages call into the kit, not the reverse.
 
+pub mod button;
+pub mod chip;
+pub mod focus;
 pub mod gallery;
+pub mod icons;

@@ -371,6 +371,17 @@ pub fn apply_spacing(style: &mut egui::Style) {
     s.tooltip_width = 360.0;
 }
 
+const TOKENS_KEY: &str = "pcbcraft-ui-tokens";
+
+/// The tokens most recently passed to `apply`, or the dark or light set that
+/// matches the context's visuals when `apply` has not run.
+///
+/// Why: kit widgets read colours from here, so a page never threads tokens through.
+pub fn tokens(ctx: &egui::Context) -> Tokens {
+    ctx.data(|d| d.get_temp::<Tokens>(egui::Id::new(TOKENS_KEY)))
+        .unwrap_or_else(|| Tokens::for_dark(ctx.global_style().visuals.dark_mode))
+}
+
 /// Apply the tokens to a whole egui context, for the theme of `tokens`.
 ///
 /// Why: one call switches colours, spacing and radii together.
@@ -387,6 +398,7 @@ pub fn apply(ctx: &egui::Context, tokens: &Tokens) {
         egui::Theme::Light
     };
     let visuals = visuals(tokens);
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(TOKENS_KEY), *tokens));
     ctx.set_theme(egui::ThemePreference::from(theme));
     ctx.style_mut_of(theme, |style| {
         apply_spacing(style);
