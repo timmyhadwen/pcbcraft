@@ -1946,14 +1946,30 @@ fn project_drill_hits(p: &Project) -> Result<Vec<ProjectDrillHit>, String> {
         }
     }
     for h in &p.board.holes {
+        let d = (h.diameter * 1_000.0).round() as u64;
+        let span = if h.is_slot() {
+            (h.start().distance(h.finish()) * 1_000.0).round() as u64
+        } else {
+            0
+        };
+        let (x, y, ux, uy) = if h.is_slot() {
+            let center = h.center();
+            let half = Point::new(
+                (h.finish().x - h.start().x) / 2.0,
+                (h.finish().y - h.start().y) / 2.0,
+            );
+            (center.x, center.y, half.x, half.y)
+        } else {
+            (h.position.x, h.position.y, 0.0, 0.0)
+        };
         push(
             ProjectDrillHit {
-                d: (h.diameter * 1_000.0).round() as u64,
-                span: 0,
-                x: h.position.x,
-                y: h.position.y,
-                ux: 0.0,
-                uy: 0.0,
+                d,
+                span,
+                x,
+                y,
+                ux,
+                uy,
                 plated: false,
             },
             &mut hits,
@@ -2606,10 +2622,21 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
         count(1)?;
     }
     for hole in &p.board.holes {
-        out.push_str(&format!(
-            "<HOLE x=\"{:.3}\" y=\"{:.3}\" diameter=\"{:.3}\" plated=\"false\"/>\n",
-            hole.position.x, hole.position.y, hole.diameter
-        ));
+        match hole.end {
+            None => out.push_str(&format!(
+                "<HOLE x=\"{:.3}\" y=\"{:.3}\" diameter=\"{:.3}\" plated=\"false\"/>\n",
+                hole.position.x, hole.position.y, hole.diameter
+            )),
+            Some(_) => out.push_str(&format!(
+                "<HOLE x=\"{:.3}\" y=\"{:.3}\" diameter=\"{:.3}\" x_end=\"{:.3}\" y_end=\"{:.3}\" length=\"{:.3}\" plated=\"false\"/>\n",
+                hole.start().x,
+                hole.start().y,
+                hole.diameter,
+                hole.finish().x,
+                hole.finish().y,
+                hole.length()
+            )),
+        }
         count(1)?;
     }
     for f in &p.board.footprints {
@@ -2853,8 +2880,7 @@ pub fn drill_chart_csv(p: &Project) -> Result<String, String> {
     let hits = project_drill_hits(p)?;
     let mut tools: BTreeMap<(u64, u64, bool), usize> = BTreeMap::new();
     for hit in hits {
-        *tools.entry((hit.d, hit.span, hit.plated)).or_default() += 1;
-    }
+        *tools.entry((hit.d, hit.span, hit.plated)).or_default() += 1;    }
     if tools.len() > MAX_TOOLS {
         return Err("drill chart needs 64 or fewer distinct drill tools".into());
     }
@@ -3292,7 +3318,10 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         )?;
     }
     for hole in &p.board.holes {
-        let points = [(hole.position.x, hole.position.y)];
+        let points = [
+            (hole.start().x, hole.start().y),
+            (hole.finish().x, hole.finish().y),
+        ];
         for name in ["F.Cu", "B.Cu"] {
             touch(&mut layers, name, &mut |plot| plot.holes += 1, &points)?;
         }
@@ -6655,6 +6684,7 @@ mod tests {
             id: 503,
             position: Point::new(1.5, 1.5),
             diameter: 3.2,
+            end: None,
         });
         project.board.machining = Some(pcbcraft_doc::MachiningNotes {
             edge_plating: None,
@@ -6686,6 +6716,68 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn drill_chart_counts_slots_by_width_and_length() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 510,
+            position: Point::new(10.0, 10.0),
+            diameter: 1.0,
+            end: Some(Point::new(14.0, 10.0)),
+        });
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 511,
+            position: Point::new(10.0, 20.0),
+            diameter: 1.0,
+            end: Some(Point::new(14.0, 20.0)),
+        });
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 512,
+            position: Point::new(30.0, 10.0),
+            diameter: 1.0,
+            end: None,
+        });
+        project.validate()?;
+        let text = drill_chart_csv(&project)?;
+        assert!(
+            text.contains("T1,1.000,0.000,no,1"),
+            "a round hole of the same width is its own tool: {text}"
+        );
+        assert!(
+            text.contains("T2,1.000,4.000,no,2"),
+            "both slots share one tool keyed by width and span: {text}"
+        );
+        assert!(text.contains("TOTAL,,,,3"), "every hit is counted: {text}");
+        Ok(())
+    }
+    #[test]
+    fn a_slotted_mounting_hole_writes_one_g85_span() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 520,
+            position: Point::new(10.0, 10.0),
+            diameter: 1.0,
+            end: Some(Point::new(14.0, 10.0)),
+        });
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        let drill = &files["pcb-Drill.drl"];
+        assert!(
+            drill.contains("T1C1.000\n"),
+            "the tool is the slot width: {drill}"
+        );
+        assert!(
+            drill.contains("X10.000Y10.000G85X14.000Y10.000\n"),
+            "one hit spans the two centres: {drill}"
+        );
+        assert!(drill.ends_with("M30\n"));
+        let map = &files["pcb-DrillMap.gbr"];
+        assert!(
+            map.contains("X10.000000Y10.000000D02*\nX14.000000Y10.000000D01*\n"),
+            "the drill map draws the slot as a stroke from end to end: {map}"
+        );
+        Ok(())
+    }
     #[test]
     fn stackup_text_lists_layer_notes_and_machining_tolerances() -> Result<(), String> {
         let mut project = Project::default();
@@ -8468,6 +8560,7 @@ mod tests {
             id: 40,
             position: Point::new(2.0, 2.0),
             diameter: 3.0,
+            end: None,
         });
         project.validate()?;
         let text = ipc2581_text(&project)?;
@@ -9986,6 +10079,7 @@ mod tests {
             id: 41,
             position: Point::new(0.5, 0.5),
             diameter: 3.0,
+            end: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 51,
