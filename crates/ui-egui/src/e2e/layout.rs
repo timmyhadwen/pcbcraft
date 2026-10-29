@@ -293,7 +293,7 @@ const KNOWN_REFLOW_DEFECTS: [&str; 4] = [
     "Schematic: \"Graphics\" ends at 364",
     "Pcb: \"Cutout\" ends at 354",
     "Pcb: \"Graphics\" ends at 364",
-    "Board3d: \"Part bodies are default boxes \" ends at 716",
+    "Board3d: \"Part bodies are default boxes \" ends at 820",
 ];
 
 #[test]

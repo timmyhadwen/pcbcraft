@@ -12,7 +12,6 @@ use model_cache::ModelCache;
 
 type V = [f64; 3];
 
-
 /// Above this many triangles only the board and the part bodies are drawn,
 /// so a huge board stays responsive.
 const DRAW_BUDGET: usize = 60_000;
@@ -517,8 +516,8 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
         } else {
             t!("board.board3d.part_bodies_are_default_boxes")
         })
-            .size(11.0)
-            .color(env.muted),
+        .size(11.0)
+        .color(env.muted),
     );
     picked
 }
