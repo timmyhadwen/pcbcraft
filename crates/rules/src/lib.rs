@@ -1053,23 +1053,19 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
             continue;
         }
         for shape in &layer.shapes {
-            match shape {
-                ArtShape::Text { size, .. } => {
-                    if let Some(min) = rules.silk_text_height
-                        && *size + 1e-6 < min
-                    {
-                        result.push(Finding {
-                            code: "silk_text_height",
-                            severity: project.rule_severity("silk_text_height", "error"),
-                            message: format!(
-                                "Silk text height {:.3} mm is below the {:.3} mm minimum",
-                                size, min
-                            ),
-                            objects: vec![layer.id],
-                        });
-                    }
-                }
-                _ => {}
+            if let ArtShape::Text { size, .. } = shape
+                && let Some(min) = rules.silk_text_height
+                && *size + 1e-6 < min
+            {
+                result.push(Finding {
+                    code: "silk_text_height",
+                    severity: project.rule_severity("silk_text_height", "error"),
+                    message: format!(
+                        "Silk text height {:.3} mm is below the {:.3} mm minimum",
+                        size, min
+                    ),
+                    objects: vec![layer.id],
+                });
             }
         }
     }
