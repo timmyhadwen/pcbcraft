@@ -1,15 +1,51 @@
 //! Artifact commands, stale detection and export helpers.
+//!
+//! Shared logic behind `artifact.generate`, `artifact.export`, `artifact.stale`
+//! and `output_job.run`, so a job and a single artifact export the same way.
+//!
+//! # Rules
+//! - Read-only commands (`command_is_read_only`) never change revision or history.
+//! - Staleness is decided by output hash, so a no-op edit is not stale.
+//!
+//! # Dependencies
+//! - `../../io/src/generate.rs` for `generate`, `output_hash`, `write_generated`.
+//! - `../../doc/src/lib.rs` for `Artifact` and `Project`.
+//!
+//! # Do not
+//! - Touch the UI or add per-kind writers here; those belong in the io crate.
 use crate::Error;
 use base64::Engine as _;
 use pcbcraft_doc::{Artifact, Id, Project};
-use pcbcraft_io::{generate, output_hash, write_generated, GeneratedOutput};
-use serde_json::{json, Value};
+use pcbcraft_io::{GeneratedOutput, generate, output_hash, write_generated};
+use serde_json::{Value, json};
 use std::path::Path;
 
+/// True for the artifact commands that only read, so the session runs them
+/// without a commit.
+///
+/// # Rules
+/// - Keep in step with `commands()` in `./lib.rs`.
+///
+/// # Dependencies
+/// - `./lib.rs` `Session::execute`.
+///
+/// # Do not
+/// - List a command that mutates the project.
 pub fn command_is_read_only(id: &str) -> bool {
     matches!(id, "artifact.generate" | "artifact.stale")
 }
 
+/// An artifact is stale when it was never generated or its live output hash
+/// differs from the stored one.
+///
+/// # Rules
+/// - Regenerating at any revision clears it while the bytes are unchanged.
+///
+/// # Dependencies
+/// - `../../io/src/generate.rs` `generate`, `output_hash`.
+///
+/// # Do not
+/// - Compare revisions alone; that flags edits that change nothing.
 pub fn artifact_is_stale(p: &Project, artifact: &Artifact) -> Result<bool, Error> {
     if artifact.generated_at_revision.is_none() {
         return Ok(true);
@@ -21,6 +57,16 @@ pub fn artifact_is_stale(p: &Project, artifact: &Artifact) -> Result<bool, Error
     Ok(stored != &live)
 }
 
+/// Ids of stale artifacts in ascending order, optionally limited to `filter`.
+///
+/// # Rules
+/// - A generate failure surfaces as an error rather than a silent skip.
+///
+/// # Dependencies
+/// - `artifact_is_stale` in this file.
+///
+/// # Do not
+/// - Mutate the project.
 pub fn stale_artifact_ids(p: &Project, filter: Option<&[Id]>) -> Result<Vec<Id>, Error> {
     let mut stale = Vec::new();
     for artifact in &p.artifacts {
@@ -35,6 +81,17 @@ pub fn stale_artifact_ids(p: &Project, filter: Option<&[Id]>) -> Result<Vec<Id>,
     Ok(stale)
 }
 
+/// JSON body for `artifact.generate`: text as text, bytes as base64, and a
+/// package as a list of named files.
+///
+/// # Rules
+/// - Binary output is always base64 so the result stays valid JSON.
+///
+/// # Dependencies
+/// - `../../io/src/generate.rs` `GeneratedOutput`.
+///
+/// # Do not
+/// - Write files from here.
 pub fn format_generate_payload(output: &GeneratedOutput) -> Value {
     match output {
         GeneratedOutput::Text(text) => json!({
@@ -61,6 +118,18 @@ pub fn format_generate_payload(output: &GeneratedOutput) -> Value {
     }
 }
 
+/// Generates one artifact, writes it under `directory`, and records the
+/// revision and hash on the artifact. Returns the names written and the hash.
+///
+/// # Rules
+/// - Nothing is recorded when generation or writing fails.
+/// - The caller commits, so the record change is one undo step.
+///
+/// # Dependencies
+/// - `../../io/src/generate.rs` `write_generated`.
+///
+/// # Do not
+/// - Pass a `directory` the user did not choose.
 pub fn export_artifact_record(
     p: &mut Project,
     id: Id,
@@ -84,165 +153,4 @@ pub fn export_artifact_record(
     artifact.generated_at_revision = Some(record_revision);
     artifact.generated_hash = Some(hash.clone());
     Ok((written, hash))
-}
-
-pub fn write_legacy_output_kind(
-    p: &Project,
-    kind: &str,
-    directory: &Path,
-) -> Result<Vec<String>, Error> {
-    let mut written: Vec<String> = vec![];
-    match kind {
-        "gerbers" => {
-            let files = pcbcraft_io::gerber_files(p).map_err(Error::Invalid)?;
-            for (name, text) in &files {
-                pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
-                    .map_err(Error::Invalid)?;
-                written.push(name.clone());
-            }
-        }
-        "netlist" => {
-            let text = pcbcraft_io::netlist_text(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("pcb-netlist.net"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("pcb-netlist.net".into());
-        }
-        "bom" => {
-            let text = pcbcraft_io::bom_csv(p, &[], None).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("bom.csv"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("bom.csv".into());
-        }
-        "placement" => {
-            let text = pcbcraft_io::placement_text(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("placement.txt"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("placement.txt".into());
-        }
-        "dxf" => {
-            let text = pcbcraft_io::dxf_board(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("pcb.dxf"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("pcb.dxf".into());
-        }
-        "cmp" => {
-            let text = pcbcraft_io::cmp_text(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("pcb.cmp"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("pcb.cmp".into());
-        }
-        "idf" => {
-            let text = pcbcraft_io::idf_board(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board.idf"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("board.idf".into());
-        }
-        "vrml" => {
-            let text = pcbcraft_io::vrml_board(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board.wrl"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("board.wrl".into());
-        }
-        "step" => {
-            let text = pcbcraft_io::step_board(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board.step"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("board.step".into());
-        }
-        "pdf" => {
-            let bytes = pcbcraft_io::pdf_document(p, "pcb").map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board.pdf"), &bytes)
-                .map_err(Error::Invalid)?;
-            written.push("board.pdf".into());
-        }
-        "svg" => {
-            let text = pcbcraft_io::svg(p, "pcb").map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board.svg"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("board.svg".into());
-        }
-        "ipc2581" => {
-            let text = pcbcraft_io::ipc2581_text(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board.xml"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("board.xml".into());
-        }
-        "dsn" => {
-            let text = pcbcraft_io::specctra_dsn(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("pcb.dsn"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("pcb.dsn".into());
-        }
-        "ipc356" => {
-            let text = pcbcraft_io::ipc356_netlist(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("test.brd"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("test.brd".into());
-        }
-        "gencad" => {
-            let text = pcbcraft_io::gencad_text(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board.gencad"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("board.gencad".into());
-        }
-        "hyperlynx" => {
-            let text = pcbcraft_io::hyperlynx_csv(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("netlist.csv"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("netlist.csv".into());
-        }
-        "plot" => {
-            let text = pcbcraft_io::plot_csv(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("plot-report.csv"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("plot-report.csv".into());
-        }
-        "report" => {
-            let text = pcbcraft_io::report_text(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board-report.txt"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("board-report.txt".into());
-        }
-        "ps" => {
-            let text = pcbcraft_io::postscript(p, "pcb").map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("pcb.ps"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("pcb.ps".into());
-        }
-        "odb" => {
-            let bytes = pcbcraft_io::odb_package(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board.odb.zip"), &bytes)
-                .map_err(Error::Invalid)?;
-            written.push("board.odb.zip".into());
-        }
-        "hpgl" => {
-            let text = pcbcraft_io::hpgl_plot(p, "pcb").map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board.hpgl"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("board.hpgl".into());
-        }
-        "stackup" => {
-            let text = pcbcraft_io::stackup_text(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board-stackup.txt"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("board-stackup.txt".into());
-        }
-        "drill_chart" => {
-            let text = pcbcraft_io::drill_chart_csv(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board-drill-tools.csv"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("board-drill-tools.csv".into());
-        }
-        "stats" => {
-            let text = pcbcraft_io::stats_text(p).map_err(Error::Invalid)?;
-            pcbcraft_io::atomic_write(&directory.join("board-stats.csv"), text.as_bytes())
-                .map_err(Error::Invalid)?;
-            written.push("board-stats.csv".into());
-        }
-        other => {
-            return Err(Error::Invalid(format!("unknown export kind {other}")));
-        }
-    }
-    written.sort();
-    Ok(written)
 }

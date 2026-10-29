@@ -30,7 +30,7 @@ pub use board_mesh::{
 };
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use generate::{
-    generate, migrate_loaded_project, output_hash, write_generated, GeneratedOutput,
+    GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
 pub use gerber::{gerber_copper, gerber_silk};
 pub use gerber_job::{gerber_job, gerber_zip};

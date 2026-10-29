@@ -1,16 +1,44 @@
 //! Artifact generation dispatch and content hashing.
+//!
+//! Turns an `Artifact` record into bytes by calling the existing writers in
+//! this crate, and hashes the result so the engine can tell a stale output
+//! from a current one. Pure functions except `write_generated`, which is the
+//! only place here that touches disk.
+//!
+//! # Rules
+//! - Kinds without a writer return a plain refusal naming the tracking issue.
+//! - Artifact paths and generated file names never escape the output folder.
+//!
+//! # Dependencies
+//! - `../../doc/src/lib.rs` for `Artifact`, `Project` and the kind list.
+//! - `./lib.rs` for the writers and `atomic_write`.
+//!
+//! # Do not
+//! - Add a per-kind branch in the engine; new kinds are added to `generate`.
 use pcbcraft_doc::{Artifact, Project};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::{
-    bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hyperlynx_csv,
-    idf_board, ipc2581_text, ipc356_netlist, netlist_text, odb_package, pdf_document, placement_text,
-    hpgl_plot, plot_csv, postscript, report_text, specctra_dsn, stackup_text, stats_text,
-    step_board, svg, vrml_board,
+    bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
+    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
+    pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
+    stats_text, step_board, svg, vrml_board,
 };
 
+/// What one artifact produces: one text file, one binary file, or a named set
+/// of files (a package). A single type lets the engine hash, encode and write
+/// every kind the same way.
+///
+/// # Rules
+/// - `Files` keys are relative names; the map order is the hash order.
+///
+/// # Dependencies
+/// - `../../engine/src/artifacts.rs` encodes it for `artifact.generate`.
+///
+/// # Do not
+/// - Put absolute paths or `..` segments in `Files` keys.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GeneratedOutput {
     Text(String),
@@ -18,6 +46,18 @@ pub enum GeneratedOutput {
     Files(BTreeMap<String, String>),
 }
 
+/// Gives a project saved before artifacts existed one artifact per legacy
+/// output job entry, so old files keep exporting the same outputs.
+///
+/// # Rules
+/// - Runs only when `artifacts` is empty and `output_jobs` is not.
+/// - Ids start above the highest id in use.
+///
+/// # Dependencies
+/// - `../../doc/src/lib.rs` `Project::migrate_output_jobs_to_artifacts`.
+///
+/// # Do not
+/// - Call it after validation; `load` runs it before `validate`.
 pub fn migrate_loaded_project(project: &mut Project) -> Result<(), String> {
     if project.artifacts.is_empty() && !project.output_jobs.is_empty() {
         let mut next = project.ids().max().unwrap_or(0).saturating_add(1);
@@ -26,6 +66,17 @@ pub fn migrate_loaded_project(project: &mut Project) -> Result<(), String> {
     Ok(())
 }
 
+/// SHA-256 of the canonical bytes of an output, as 64 lowercase hex digits.
+/// The engine compares it with the stored hash to decide staleness.
+///
+/// # Rules
+/// - Identical bytes always give the same hash; `Files` hash in name order.
+///
+/// # Dependencies
+/// - `../../engine/src/artifacts.rs` `artifact_is_stale`.
+///
+/// # Do not
+/// - Hash anything that varies between runs, such as timestamps.
 pub fn output_hash(output: &GeneratedOutput) -> String {
     let mut hasher = Sha256::new();
     match output {
@@ -122,6 +173,18 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
     }
 }
 
+/// Produces the output for one artifact by dispatching on its `kind` to the
+/// existing writers. Settings pick the view where a writer needs one.
+///
+/// # Rules
+/// - Refuses an invalid artifact before any writer runs.
+/// - Kinds without a writer yet refuse with the issue that tracks them.
+///
+/// # Dependencies
+/// - `../../doc/src/lib.rs` `Artifact::valid`.
+///
+/// # Do not
+/// - Write to disk here; use `write_generated`.
 pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
     if !artifact.valid() {
         return Err("artifact record is invalid".into());
@@ -147,9 +210,7 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
                 .map(|s| s.as_str())
                 .unwrap_or("F.Cu");
             let file = copper_gerber_name(layer).ok_or_else(|| {
-                format!(
-                    "copper plot for layer {layer} is not available yet; see issue #325"
-                )
+                format!("copper plot for layer {layer} is not available yet; see issue #325")
             })?;
             let files = gerber_files(p)?;
             let text = files
@@ -158,15 +219,13 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
                 .clone();
             Ok(GeneratedOutput::Text(text))
         }
-        "mask_plot" | "silk_plot" | "paste_plot" | "profile_plot" => Err(
-            "layer plot artifacts are not available yet; see issue #325".into(),
-        ),
+        "mask_plot" | "silk_plot" | "paste_plot" | "profile_plot" => {
+            Err("layer plot artifacts are not available yet; see issue #325".into())
+        }
         "drill_plated" | "drill_unplated" => {
             Err("split drill artifacts are not available yet; see issue #276".into())
         }
-        "isolation_gcode" => {
-            Err("isolation gcode is not available yet; see issue #329".into())
-        }
+        "isolation_gcode" => Err("isolation gcode is not available yet; see issue #329".into()),
         "drill_gcode" => Err("drill gcode is not available yet; see issue #330".into()),
         "outline_gcode" => Err("outline gcode is not available yet; see issue #331".into()),
         "stencil" => Err("stencil output is not available yet; see issue #325".into()),
@@ -175,6 +234,18 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
     }
 }
 
+/// Writes a generated output under `directory`, at the artifact's relative
+/// path (or inside it for a package), and returns the relative names written.
+///
+/// # Rules
+/// - Rejects an empty directory and any file name that escapes it.
+/// - Writes each file atomically and creates parent folders.
+///
+/// # Dependencies
+/// - `./lib.rs` `atomic_write`, which refuses on WASM.
+///
+/// # Do not
+/// - Record staleness here; the engine does that in the same undo step.
 pub fn write_generated(
     directory: &Path,
     artifact: &Artifact,
@@ -206,7 +277,11 @@ pub fn write_generated(
             };
             let mut written = Vec::new();
             for (name, body) in map {
-                if name.contains("..") || Path::new(name).components().any(|c| c == Component::ParentDir) {
+                if name.contains("..")
+                    || Path::new(name)
+                        .components()
+                        .any(|c| c == Component::ParentDir)
+                {
                     return Err("generated file name escapes the output folder".into());
                 }
                 let path = base.join(name);
