@@ -8,7 +8,7 @@ use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -4616,38 +4616,29 @@ fn run_track_cleanup(
         }
         Ok(())
     };
-    let mut drop_zero_len = HashSet::new();
-    for track in &p.board.tracks {
+    p.board.tracks.retain(|track| {
         if !track_cleanup_matches(track, net, layer) || !track_is_zero_length(track) {
-            continue;
+            return true;
         }
-        if bump_removed(&mut removed).is_ok() {
-            drop_zero_len.insert(track.id);
-        } else {
-            break;
-        }
-    }
-    p.board.tracks.retain(|t| !drop_zero_len.contains(&t.id));
-
-    let mut drop_dangling = HashSet::new();
-    for track in &p.board.tracks {
-        if !track_cleanup_matches(track, net, layer) {
+        bump_removed(&mut removed).is_err()
+    });
+    let mut idx = 0usize;
+    while idx < p.board.tracks.len() {
+        let track = p.board.tracks[idx].clone();
+        if !track_cleanup_matches(&track, net, layer) {
+            idx += 1;
             continue;
         }
         let anchored_start =
             track_endpoint_anchored(p, track.start, track.net, track.layer, track.id);
         let anchored_end = track_endpoint_anchored(p, track.end, track.net, track.layer, track.id);
         if anchored_start && anchored_end {
-            continue;
-        }
-        if bump_removed(&mut removed).is_ok() {
-            drop_dangling.insert(track.id);
+            idx += 1;
         } else {
-            break;
+            bump_removed(&mut removed)?;
+            p.board.tracks.remove(idx);
         }
     }
-    p.board.tracks.retain(|t| !drop_dangling.contains(&t.id));
-
     loop {
         let mut merged_pair = false;
         let len = p.board.tracks.len();
@@ -4686,7 +4677,6 @@ fn run_track_cleanup(
     }
     Ok((removed, merged))
 }
-
 fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<Value, Error> {
     if let Some(result) = authoring::run(p, next, command, params) {
         return result;
@@ -20127,7 +20117,7 @@ mod tests {
             "the collinear pair becomes one segment"
         );
         assert_eq!(
-            report["removed"].as_u64().ok_or_else(missing)? as u64
+            report["removed"].as_u64().ok_or_else(missing)?
                 + report["merged"].as_u64().ok_or_else(missing)?,
             2,
             "two changes in total"
