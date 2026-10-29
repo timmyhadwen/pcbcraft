@@ -10,6 +10,7 @@ mod editing;
 mod footprint_wizard;
 mod impedance_panel;
 mod library;
+mod layers_tree;
 mod library_quality;
 mod motion;
 mod number_entry;
@@ -653,6 +654,9 @@ struct Preferences {
     /// Lower right-aside tab: 0 = Properties, 1 = Assistant.
     #[serde(default)]
     aside_lower_tab: u8,
+    /// Left aside tab: 0 = Layers tree, 1 = Library.
+    #[serde(default)]
+    left_tab: u8,
     #[serde(default = "default_true")]
     library_dock_open: bool,
     /// Language tag of the text catalog, or `system` to follow the computer.
@@ -715,6 +719,7 @@ impl Default for Preferences {
             aside_split: default_aside_split(),
             aside_lower_tab: 0,
             library_dock_open: true,
+            left_tab: 0,
             language: default_language(),
             reduced_motion: motion::os_prefers_reduced_motion(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
@@ -876,6 +881,8 @@ pub struct App {
     home_open: bool,
     home_path_focus: bool,
     tree_query: String,
+    /// The unified Layers tree view state (left aside).
+    tree: layers_tree::TreeView,
     tree_hidden: Vec<String>,
     focus_layer: Option<String>,
     make_dir: String,
@@ -1355,6 +1362,7 @@ impl App {
             home_open: false,
             home_path_focus: false,
             tree_query: String::new(),
+            tree: layers_tree::TreeView::default(),
             tree_hidden: Vec::new(),
             focus_layer: None,
             make_dir: String::new(),
@@ -2211,785 +2219,6 @@ impl App {
         }
     }
 
-    /// True when a tree row should appear: no search is active, or the row
-    /// text contains the search.
-    fn tree_matches(&self, text: &str) -> bool {
-        let query = self.tree_query.trim().to_lowercase();
-        query.is_empty() || text.to_lowercase().contains(&query)
-    }
-    /// True when a whole group of the tree is switched off by the filter row.
-    fn kind_hidden(&self, kind: &str) -> bool {
-        self.tree_hidden.iter().any(|hidden| hidden == kind)
-    }
-    fn layers_tab(&mut self, ui: &mut egui::Ui) {
-        self.stackup_section(ui);
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.add(
-                crate::targets::text_field(&mut self.tree_query)
-                    .hint_text(t!("board.layers_tab.search_the_whole_board"))
-                    .desired_width(150.0),
-            )
-            .named("Search the whole board")
-            .on_hover_text(t!("board.layers_tab.search_the_whole_board.tip"));
-            if !self.tree_query.is_empty()
-                && ui
-                    .tap_button(t!("board.layers_tab.clear"))
-                    .on_hover_text(t!("board.layers_tab.clear.tip"))
-                    .clicked()
-            {
-                self.tree_query.clear();
-            }
-        });
-        self.board_anatomy_section(ui);
-        ui.separator();
-        ui.label(
-            egui::RichText::new(t!("board.layers_tab.show_in_the_tree"))
-                .size(10.0)
-                .color(self.muted()),
-        );
-        ui.horizontal_wrapped(|ui| {
-            for (kind, label, tip) in [
-                (
-                    "wires",
-                    t!("board.layers_tab.show_wires"),
-                    t!("board.layers_tab.copper_wires_on_each_face"),
-                ),
-                (
-                    "vias",
-                    t!("board.layers_tab.show_vias"),
-                    t!("board.layers_tab.plated_holes_that_carry_a"),
-                ),
-                (
-                    "zones",
-                    t!("board.layers_tab.show_pours"),
-                    t!("board.layers_tab.solid_copper_poured_over_an"),
-                ),
-                (
-                    "holes",
-                    t!("board.layers_tab.show_holes"),
-                    t!("board.layers_tab.drilled_holes_and_cut_outs"),
-                ),
-                (
-                    "words",
-                    t!("board.layers_tab.show_words"),
-                    t!("board.layers_tab.silk_text_printed_on_the"),
-                ),
-                (
-                    "parts",
-                    t!("board.layers_tab.show_parts"),
-                    t!("board.layers_tab.every_part_on_the_board"),
-                ),
-                (
-                    "areas",
-                    t!("board.layers_tab.show_rule_areas"),
-                    t!("board.layers_tab.stricter_areas_and_watched_pairs"),
-                ),
-                (
-                    "art",
-                    t!("board.layers_tab.show_machine_layers"),
-                    t!("board.layers_tab.your_own_layers_for_a"),
-                ),
-                (
-                    "connections",
-                    t!("board.layers_tab.show_connections"),
-                    t!("board.layers_tab.every_net_by_name_add"),
-                ),
-                (
-                    "notes",
-                    t!("board.layers_tab.show_notes"),
-                    t!("board.layers_tab.free_form_notes_stored_with"),
-                ),
-            ] {
-                let shown = !self.kind_hidden(kind);
-                if ui
-                    .selectable_label(shown, egui::RichText::new(label).small())
-                    .on_hover_text(t!(
-                        "board.layers_tab.tip_untick_to_fold_this.tip",
-                        tip = tip
-                    ))
-                    .clicked()
-                {
-                    if shown {
-                        self.tree_hidden.push(kind.to_owned());
-                    } else {
-                        self.tree_hidden.retain(|hidden| hidden != kind);
-                    }
-                }
-            }
-        });
-        ui.add_space(8.0);
-        let board_header = egui::CollapsingHeader::new(t!("board.layers_tab.this_board"))
-            .id_salt("anat-board-root")
-            .default_open(true)
-            .show(ui, |ui| {
-                self.holes_section(ui);
-                self.datums_section(ui);
-                self.fiducials_section(ui);
-                if self.tab == Tab::Pcb {
-                    self.via_spans_section(ui);
-                }
-                ui.add_space(16.0);
-                let rows: &[&str] = match self.tab {
-                    Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
-                    Tab::Pcb => &[
-                        "Grid",
-                        "Top copper",
-                        "Bottom copper",
-                        "Pads",
-                        "Vias",
-                        "Copper zones",
-                        "Cutouts",
-                        "Package artwork",
-                    ],
-                    _ => &[],
-                };
-                if rows.is_empty() {
-                    ui.label(
-                        egui::RichText::new(t!("board.layers_tab.switch_to_the_schematic_or"))
-                            .small()
-                            .color(self.muted()),
-                    );
-                } else {
-                    ui.label(
-                        egui::RichText::new(t!("board.layers_tab.what_the_drawing_shows"))
-                            .size(10.0)
-                            .color(self.muted()),
-                    );
-                    for name in rows {
-                        let mut shown = self.layer_shown(name);
-                        if ui
-                            .checkbox(&mut shown, layer_row_label(name))
-                            .on_hover_text(t!(
-                                "board.layers_tab.show_or_hide_name_on.tip",
-                                name = name
-                            ))
-                            .clicked()
-                        {
-                            if shown {
-                                self.preferences
-                                    .hidden_layers
-                                    .retain(|hidden| hidden != name);
-                            } else {
-                                self.preferences.hidden_layers.push((*name).to_string());
-                            }
-                        }
-                    }
-                }
-            });
-        board_header
-            .header_response
-            .on_hover_text(t!("board.layers_tab.the_board_itself_shape_size.tip"));
-    }
-    fn board_anatomy_section(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(16.0);
-        ui.label(
-            egui::RichText::new(t!("board.board_anatomy_section.board_anatomy"))
-                .size(10.0)
-                .color(self.muted()),
-        );
-        ui.label(
-            egui::RichText::new(t!("board.board_anatomy_section.every_piece_on_the_board"))
-                .small()
-                .color(self.muted()),
-        );
-        let front: Vec<(Id, String)> = self
-            .project
-            .board
-            .tracks
-            .iter()
-            .filter(|t| t.layer == pcbcraft_doc::Layer::Front)
-            .map(|t| {
-                (
-                    t.id,
-                    t!(
-                        "board.board_anatomy_section.wire_width_mm_v1_at",
-                        width = format!("{:.2}", t.width),
-                        v1 = self.project.net_name(t.net),
-                        round = t.start.x.round(),
-                        round2 = t.start.y.round()
-                    ),
-                )
-            })
-            .collect();
-        let back: Vec<(Id, String)> = self
-            .project
-            .board
-            .tracks
-            .iter()
-            .filter(|t| t.layer == pcbcraft_doc::Layer::Back)
-            .map(|t| {
-                (
-                    t.id,
-                    t!(
-                        "board.board_anatomy_section.wire_width_mm_v1_at",
-                        width = format!("{:.2}", t.width),
-                        v1 = self.project.net_name(t.net),
-                        round = t.start.x.round(),
-                        round2 = t.start.y.round()
-                    ),
-                )
-            })
-            .collect();
-        let vias: Vec<(Id, String)> = self
-            .project
-            .board
-            .vias
-            .iter()
-            .map(|v| {
-                (
-                    v.id,
-                    t!(
-                        "board.board_anatomy_section.via_at_round_round2_drill",
-                        round = v.position.x.round(),
-                        round2 = v.position.y.round(),
-                        drill = v.drill,
-                        v3 = via_span::via_tree_span(&self.project, v),
-                        v4 = self.project.net_name(v.net)
-                    ),
-                )
-            })
-            .collect();
-        let zones: Vec<(Id, String)> = self
-            .project
-            .board
-            .zones
-            .iter()
-            .map(|z| {
-                (
-                    z.id,
-                    t!(
-                        "board.board_anatomy_section.copper_zone_v0_v1",
-                        v0 = self.project.net_name(z.net),
-                        v1 = if z.layer == pcbcraft_doc::Layer::Front {
-                            "top"
-                        } else {
-                            "bottom"
-                        }
-                    ),
-                )
-            })
-            .collect();
-        let holes: Vec<(Id, String)> = self
-            .project
-            .board
-            .cutouts
-            .iter()
-            .map(|c| {
-                (
-                    c.id,
-                    t!(
-                        "board.board_anatomy_section.hole_at_round_round2_v2",
-                        round = c.center.x.round(),
-                        round2 = c.center.y.round(),
-                        v2 = c.radius * 2.0
-                    ),
-                )
-            })
-            .collect();
-        let words: Vec<(Id, String)> = self
-            .project
-            .board
-            .texts
-            .iter()
-            .map(|t| {
-                (
-                    t.id,
-                    format!(
-                        "\"{}\" · {}",
-                        t.text,
-                        if t.layer == pcbcraft_doc::Layer::Front {
-                            "top"
-                        } else {
-                            "bottom"
-                        }
-                    ),
-                )
-            })
-            .collect();
-        let parts: Vec<(Id, String, Vec<String>)> = self
-            .project
-            .board
-            .footprints
-            .iter()
-            .map(|f| {
-                let name = self
-                    .project
-                    .component(f.component)
-                    .map_or_else(
-                        || t!("board.board_anatomy_section.a_part"),
-                        |c| c.reference.clone(),
-                    )
-                    .to_owned();
-                let pads = f
-                    .pads
-                    .iter()
-                    .map(|pad| {
-                        t!(
-                            "board.board_anatomy_section.pad_number_diameter_mm_v2",
-                            number = pad.number,
-                            diameter = pad.diameter,
-                            v2 = pad.net.map_or("no net".to_owned(), |n| self
-                                .project
-                                .net_name(n)
-                                .to_owned())
-                        )
-                    })
-                    .collect();
-                (
-                    f.id,
-                    t!(
-                        "board.board_anatomy_section.name_len_pads",
-                        name = name,
-                        len = f.pads.len()
-                    ),
-                    pads,
-                )
-            })
-            .filter(|(_, title, _)| self.tree_matches(title))
-            .collect();
-        let areas: Vec<String> = self
-            .project
-            .board
-            .rule_areas
-            .iter()
-            .map(|a| {
-                t!(
-                    "board.board_anatomy_section.stricter_area_at_round_round2",
-                    round = a.region.x.round(),
-                    round2 = a.region.y.round(),
-                    clearance = a.clearance,
-                    v3 = a
-                        .max_height
-                        .map_or(String::new(), |h| format!(" · up to {h} mm tall"))
-                )
-            })
-            .collect();
-        let pairs: Vec<String> = self
-            .project
-            .board
-            .diff_pairs
-            .iter()
-            .map(|d| {
-                t!(
-                    "board.board_anatomy_section.name_v1_v2_gap_gap",
-                    name = d.name,
-                    v1 = self.project.net_name(d.net_p),
-                    v2 = self.project.net_name(d.net_n),
-                    gap = d.gap
-                )
-            })
-            .collect();
-        let picked = self.selected;
-        let mut chosen: Option<Id> = None;
-        let groups: [AnatGroup; 8] = [
-            (
-                "front",
-                t!("board.board_anatomy_section.top_copper_wires"),
-                t!("board.board_anatomy_section.copper_wires_drawn_on_the"),
-                front
-                    .into_iter()
-                    .map(|(id, text)| (Some(id), text))
-                    .filter(|(_, text)| self.tree_matches(text))
-                    .collect(),
-                t!("board.board_anatomy_section.nothing_drawn_here_yet"),
-            ),
-            (
-                "back",
-                t!("board.board_anatomy_section.bottom_copper_wires"),
-                t!("board.board_anatomy_section.copper_wires_drawn_on_the2"),
-                back.into_iter()
-                    .map(|(id, text)| (Some(id), text))
-                    .filter(|(_, text)| self.tree_matches(text))
-                    .collect(),
-                t!("board.board_anatomy_section.nothing_drawn_here_yet"),
-            ),
-            (
-                "vias",
-                t!("board.board_anatomy_section.via_holes"),
-                t!("board.board_anatomy_section.small_plated_holes_that_carry"),
-                vias.into_iter()
-                    .map(|(id, text)| (Some(id), text))
-                    .filter(|(_, text)| self.tree_matches(text))
-                    .collect(),
-                t!("board.board_anatomy_section.no_vias_yet"),
-            ),
-            (
-                "zones",
-                t!("board.board_anatomy_section.poured_copper"),
-                t!("board.board_anatomy_section.solid_copper_poured_over_an"),
-                zones
-                    .into_iter()
-                    .map(|(id, text)| (Some(id), text))
-                    .filter(|(_, text)| self.tree_matches(text))
-                    .collect(),
-                t!("board.board_anatomy_section.no_copper_zones_yet"),
-            ),
-            (
-                "holes",
-                t!("board.board_anatomy_section.holes_and_cut_outs"),
-                t!("board.board_anatomy_section.holes_drilled_through_the_board"),
-                holes
-                    .into_iter()
-                    .map(|(id, text)| (Some(id), text))
-                    .filter(|(_, text)| self.tree_matches(text))
-                    .collect(),
-                t!("board.board_anatomy_section.no_holes_yet"),
-            ),
-            (
-                "words",
-                t!("board.board_anatomy_section.words_on_the_board"),
-                t!("board.board_anatomy_section.silk_text_printed_on_the"),
-                words
-                    .into_iter()
-                    .map(|(id, text)| (Some(id), text))
-                    .filter(|(_, text)| self.tree_matches(text))
-                    .collect(),
-                t!("board.board_anatomy_section.no_words_printed_yet"),
-            ),
-            (
-                "areas",
-                t!("board.board_anatomy_section.stricter_areas"),
-                t!("board.board_anatomy_section.patches_of_the_board_where"),
-                areas
-                    .into_iter()
-                    .map(|text| (None, text))
-                    .filter(|(_, text)| self.tree_matches(text))
-                    .collect(),
-                t!("board.board_anatomy_section.the_whole_board_follows_one"),
-            ),
-            (
-                "pairs",
-                t!("board.board_anatomy_section.watched_pairs"),
-                t!("board.board_anatomy_section.pairs_of_nets_that_must"),
-                pairs
-                    .into_iter()
-                    .map(|text| (None, text))
-                    .filter(|(_, text)| self.tree_matches(text))
-                    .collect(),
-                t!("board.board_anatomy_section.no_pairs_are_being_watched"),
-            ),
-        ];
-        for (key, title, tip, rows, empty) in groups {
-            let kind = match key {
-                "front" | "back" => "wires",
-                "vias" => "vias",
-                "zones" => "zones",
-                "holes" => "holes",
-                "words" => "words",
-                "areas" | "pairs" => "areas",
-                _ => "parts",
-            };
-            if self.kind_hidden(kind) {
-                continue;
-            }
-            let open = self.anat_open.iter().any(|k| k == key);
-            let header = egui::CollapsingHeader::new(title)
-                .id_salt(format!("anat-{key}"))
-                .open(Some(open))
-                .show(ui, |ui| {
-                    if matches!(key, "front" | "back") {
-                        let focus_key = if key == "front" {
-                            "copper:front"
-                        } else {
-                            "copper:back"
-                        };
-                        let focused = self.focus_layer.as_deref() == Some(focus_key);
-                        if ui
-                            .tap_button(if focused {
-                                t!("board.board_anatomy_section.stop_fading")
-                            } else {
-                                t!("board.board_anatomy_section.fade_others")
-                            })
-                            .on_hover_text(t!(
-                                "board.board_anatomy_section.everything_not_on_this_layer.tip"
-                            ))
-                            .clicked()
-                        {
-                            self.focus_layer = if focused {
-                                None
-                            } else {
-                                Some(focus_key.to_owned())
-                            };
-                        }
-                        ui.separator();
-                    }
-                    if rows.is_empty() {
-                        ui.label(egui::RichText::new(empty).small().color(self.muted()));
-                    }
-                    for (id, text) in rows {
-                        let mut row = egui::RichText::new(text);
-                        if id.is_none() {
-                            row = row.small();
-                        }
-                        let clicked = match id {
-                            Some(id) => ui
-                                .selectable_label(picked == Some(id), row)
-                                .on_hover_text(t!(
-                                    "board.board_anatomy_section.select_this_on_the_drawing.tip"
-                                ))
-                                .clicked(),
-                            None => {
-                                ui.label(row);
-                                false
-                            }
-                        };
-                        if clicked && let Some(id) = id {
-                            chosen = Some(id);
-                        }
-                    }
-                });
-            let clicked = header.header_response.clicked();
-            header.header_response.on_hover_text(tip);
-            if clicked {
-                if open {
-                    self.anat_open.retain(|k| k != key);
-                } else {
-                    self.anat_open.push(key.to_owned());
-                }
-            }
-        }
-        let open = self.anat_open.iter().any(|k| k == "parts");
-        let header = egui::CollapsingHeader::new(t!("board.board_anatomy_section.parts_and_pads"))
-            .id_salt("anat-parts")
-            .open(Some(open))
-            .show(ui, |ui| {
-                if parts.is_empty() {
-                    ui.label(
-                        egui::RichText::new(t!(
-                            "board.board_anatomy_section.no_parts_on_the_board"
-                        ))
-                        .small()
-                        .color(self.muted()),
-                    );
-                }
-                for (id, title, pads) in parts {
-                    egui::CollapsingHeader::new(title)
-                        .id_salt(format!("anat-fp-{id}"))
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            if ui
-                                .button(t!("board.board_anatomy_section.pick_up_this_part"))
-                                .on_hover_text(t!(
-                                    "board.board_anatomy_section.pick_up_this_part.tip"
-                                ))
-                                .clicked()
-                            {
-                                chosen = Some(id);
-                            }
-                            for pad in pads {
-                                ui.label(egui::RichText::new(pad).small());
-                            }
-                        });
-                }
-            });
-        let clicked = header.header_response.clicked();
-        header.header_response.on_hover_text(t!(
-            "board.board_anatomy_section.every_part_on_the_board.tip"
-        ));
-        if clicked {
-            if open {
-                self.anat_open.retain(|k| k != "parts");
-            } else {
-                self.anat_open.push("parts".to_owned());
-            }
-        }
-        // Machine layers the designer draws for their own laser, mill or printer.
-        if !self.kind_hidden("art") {
-            let layers: Vec<(Id, String, &'static str, bool, Vec<String>)> = self
-                .project
-                .board
-                .user_layers
-                .iter()
-                .filter(|l| self.tree_matches(&l.name))
-                .map(|l| {
-                    let kind = match l.kind {
-                        pcbcraft_doc::ArtKind::Cut => "cut",
-                        pcbcraft_doc::ArtKind::Perforation => "perforation",
-                        pcbcraft_doc::ArtKind::Silk => "silk",
-                        pcbcraft_doc::ArtKind::Mask => "mask",
-                        pcbcraft_doc::ArtKind::Other => "general",
-                    };
-                    (
-                        l.id,
-                        l.name.clone(),
-                        kind,
-                        l.visible,
-                        l.shapes.iter().map(art_shape_text).collect(),
-                    )
-                })
-                .collect();
-            let open = self.anat_open.iter().any(|k| k == "art");
-            let header = egui::CollapsingHeader::new(t!(
-                "board.board_anatomy_section.machine_layers_you_draw"
-            ))
-            .id_salt("anat-art")
-            .open(Some(open))
-            .show(ui, |ui| {
-                if layers.is_empty() {
-                    ui.label(
-                        egui::RichText::new(t!(
-                            "board.board_anatomy_section.no_machine_layers_yet_add"
-                        ))
-                        .small()
-                        .color(self.muted()),
-                    );
-                }
-                for (id, name, kind, visible, shapes) in layers {
-                    let mut shown = visible;
-                    ui.horizontal(|ui| {
-                        if ui
-                            .checkbox(&mut shown, egui::RichText::new(&name).strong())
-                            .on_hover_text(t!(
-                                "board.board_anatomy_section.tick_to_show_this_layer.tip"
-                            ))
-                            .clicked()
-                        {
-                            self.run("board.layer_visible_set", json!({"layer": id, "on": shown}));
-                        }
-                        let focus_key = format!("art:{name}");
-                        let focused = self.focus_layer.as_deref() == Some(focus_key.as_str());
-                        if ui
-                            .tap_button(if focused {
-                                t!("board.board_anatomy_section.stop_fading")
-                            } else {
-                                t!("board.board_anatomy_section.fade_others")
-                            })
-                            .on_hover_text(t!(
-                                "board.board_anatomy_section.everything_not_on_this_layer.tip"
-                            ))
-                            .clicked()
-                        {
-                            self.focus_layer = if focused { None } else { Some(focus_key) };
-                        }
-                        ui.label(
-                            egui::RichText::new(t!(
-                                "board.board_anatomy_section.kind_layer_len_shapes",
-                                kind = kind,
-                                len = shapes.len()
-                            ))
-                            .small()
-                            .color(self.muted()),
-                        );
-                    });
-                    egui::CollapsingHeader::new(t!(
-                        "board.board_anatomy_section.name_shapes",
-                        name = name
-                    ))
-                    .id_salt(format!("anat-art-{id}"))
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        if shapes.is_empty() {
-                            ui.label(
-                                egui::RichText::new(t!(
-                                    "board.board_anatomy_section.nothing_drawn_on_this_layer"
-                                ))
-                                .small()
-                                .color(self.muted()),
-                            );
-                        }
-                        for text in shapes {
-                            ui.label(egui::RichText::new(text).small());
-                        }
-                    });
-                }
-                if ui
-                    .button(t!("board.board_anatomy_section.new_layer"))
-                    .on_hover_text(t!("board.board_anatomy_section.new_layer.tip"))
-                    .clicked()
-                {
-                    let name = t!(
-                        "board.board_anatomy_section.art_v0",
-                        v0 = self.project.board.user_layers.len() + 1
-                    );
-                    self.run("board.layer_add", json!({"name": name, "kind": "other"}));
-                    if self.message.starts_with("board.layer_add") {
-                        self.art_layer = self.selected;
-                    }
-                }
-            });
-            let clicked = header.header_response.clicked();
-            header.header_response.on_hover_text(t!(
-                "board.board_anatomy_section.layers_you_draw_yourself_cut.tip"
-            ));
-            if clicked {
-                if open {
-                    self.anat_open.retain(|k| k != "art");
-                } else {
-                    self.anat_open.push("art".to_owned());
-                }
-            }
-        }
-        // Every connection by name, with room to add, rename and spotlight one.
-        if !self.kind_hidden("connections") {
-            let open = self.anat_open.iter().any(|k| k == "connections");
-            let header = egui::CollapsingHeader::new(t!("board.board_anatomy_section.connections"))
-                .id_salt("anat-connections")
-                .default_open(true)
-                .open(Some(open))
-                .show(ui, |ui| {
-                    self.nets_tab(ui);
-                });
-            let clicked = header.header_response.clicked();
-            header.header_response.on_hover_text(t!(
-                "board.board_anatomy_section.every_wire_connection_by_name.tip"
-            ));
-            if clicked {
-                if open {
-                    self.anat_open.retain(|k| k != "connections");
-                } else {
-                    self.anat_open.push("connections".to_owned());
-                }
-            }
-        }
-        // Notes stored inside the design file.
-        if !self.kind_hidden("notes") {
-            let notes: Vec<String> = self
-                .project
-                .meta
-                .iter()
-                .map(|(key, value)| format!("{key} · {value}"))
-                .filter(|text| self.tree_matches(text))
-                .collect();
-            let open = self.anat_open.iter().any(|k| k == "notes");
-            let header =
-                egui::CollapsingHeader::new(t!("board.board_anatomy_section.project_notes"))
-                    .id_salt("anat-notes")
-                    .open(Some(open))
-                    .show(ui, |ui| {
-                        if notes.is_empty() {
-                            ui.label(
-                                egui::RichText::new(t!(
-                                    "board.board_anatomy_section.no_notes_are_stored_with"
-                                ))
-                                .small()
-                                .color(self.muted()),
-                            );
-                        }
-                        for text in notes {
-                            ui.label(egui::RichText::new(text).small());
-                        }
-                    });
-            let clicked = header.header_response.clicked();
-            header.header_response.on_hover_text(t!(
-                "board.board_anatomy_section.free_form_notes_kept_inside.tip"
-            ));
-            if clicked {
-                if open {
-                    self.anat_open.retain(|k| k != "notes");
-                } else {
-                    self.anat_open.push("notes".to_owned());
-                }
-            }
-        }
-
-        if let Some(id) = chosen {
-            self.select(Some(id));
-            if self.tab != Tab::Pcb {
-                self.change_tab(Tab::Pcb);
-            }
-        }
-    }
     fn rotate(&mut self) {
         if let Some(id) = self.selected {
             if let Some(c) = self.project.component(id) {
@@ -3630,402 +2859,352 @@ impl App {
     fn narrow_window(ctx: &egui::Context) -> bool {
         ctx.content_rect().width() < NARROW_WINDOW
     }
+    /// The left aside: tabs Layers (the unified tree, default) and Library.
+    /// Context: the only panel left of the drawing; the Layers tree lives in
+    /// `layers_tree.rs`, the Library tab keeps the parts list and part picker.
     fn browser(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::left("left-rail")
-            .exact_size(44.0)
-            .resizable(false)
-            .frame(
-                egui::Frame::side_top_panel(ui.style())
-                    .inner_margin(egui::Margin::symmetric(4, 12)),
-            )
-            .show(ui, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(8.0);
-                    if ui
-                        .selectable_label(
-                            self.preferences.library_dock_open,
-                            t!("library.browser.lib"),
-                        )
-                        .on_hover_text(t!("library.browser.lib.tip"))
-                        .clicked()
-                    {
-                        if Self::narrow_window(ui.ctx()) {
-                            self.change_tab(Tab::Libraries);
-                        } else {
-                            self.preferences.library_dock_open =
-                                !self.preferences.library_dock_open;
-                        }
-                    }
-                    ui.add_space(8.0);
-                    let counts = Self::finding_counts(&self.checks);
-                    for (count, name, help) in [
-                        (
-                            counts.0,
-                            "errors",
-                            t!("library.browser.mistakes_the_checks_say_you"),
-                        ),
-                        (
-                            counts.1,
-                            "warnings",
-                            t!("library.browser.warnings_worth_a_look_but"),
-                        ),
-                        (
-                            counts.2,
-                            "notes",
-                            t!("library.browser.notes_from_the_checks_that"),
-                        ),
-                    ] {
-                        if ui
-                            .button(t!("library.browser.count", count = count))
-                            .on_hover_text(t!(
-                                "library.browser.count.tip",
-                                count = count,
-                                name = name,
-                                help = help
-                            ))
-                            .clicked()
-                        {
-                            self.change_tab(Tab::Checks);
-                        }
-                    }
-                });
-            });
-        if !self.preferences.library_dock_open || Self::narrow_window(ui.ctx()) {
+        if Self::narrow_window(ui.ctx()) {
             return;
         }
-        egui::Panel::left("library-dock")
-            .default_size(280.0)
+        egui::Panel::left("left-aside")
+            .default_size(300.0)
             .min_size(260.0)
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(t!("library.browser.library")).strong());
-                    if ui
-                        .tap_button(t!("library.browser.hide"))
-                        .on_hover_text(t!("library.browser.hide.tip"))
-                        .clicked()
-                    {
-                        self.preferences.library_dock_open = false;
-                    }
+                    ui.selectable_value(&mut self.preferences.left_tab, 0, t!("tree.tab.layers"))
+                        .on_hover_text(t!("tree.tab.layers.tip"));
+                    ui.selectable_value(&mut self.preferences.left_tab, 1, t!("tree.tab.library"))
+                        .on_hover_text(t!("tree.tab.library.tip"));
                 });
-                ui.add_space(8.0);
-                if ui
-                    .button(t!("library.browser.add_part"))
-                    .on_hover_text(t!("library.browser.add_part.tip"))
-                    .clicked()
-                {
-                    self.palette = true;
-                    self.part_search_focus = true;
-                }
-                if self.palette {
-                    ui.label(egui::RichText::new(t!("library.browser.add_a_part")).strong());
-                    let query_box = ui
-                        .add(
-                            crate::targets::text_field(&mut self.part_search)
-                                .hint_text(t!("library.browser.search_parts_by_name"))
-                                .desired_width(f32::INFINITY),
-                        )
-                        .named("Search parts by name")
-                        .on_hover_text(t!("library.browser.search_parts_by_name.tip"));
-                    if self.part_search_focus {
-                        query_box.request_focus();
-                        self.part_search_focus = false;
-                    }
-                    if ui
-                        .button(t!("library.browser.browse_component_libraries"))
-                        .on_hover_text(t!("library.browser.browse_component_libraries.tip"))
-                        .clicked()
-                    {
-                        self.change_tab(Tab::Settings);
-                        self.palette = false;
-                    }
-                    let query = self.part_search.trim().to_lowercase();
-                    let built_in: Vec<(&str, &str)> = TEMPLATES
-                        .iter()
-                        .filter(|t| {
-                            query.is_empty()
-                                || t.label.to_lowercase().contains(&query)
-                                || t.kind.contains(query.as_str())
-                        })
-                        .map(|t| (t.kind, t.label))
-                        .collect();
-                    let saved: Vec<pcbcraft_library::SymbolDefinition> = self
-                        .project
-                        .library
-                        .symbols
-                        .iter()
-                        .filter(|d| {
-                            query.is_empty()
-                                || d.name.to_lowercase().contains(&query)
-                                || d.keywords.to_lowercase().contains(query.as_str())
-                                || d.set.to_lowercase().contains(query.as_str())
-                        })
-                        .cloned()
-                        .collect();
+                ui.add_space(6.0);
+                if self.preferences.left_tab == 0 {
+                    self.layers_tree_panel(ui);
+                } else {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            if built_in.is_empty() && saved.is_empty() {
-                                ui.label(
-                                    egui::RichText::new(t!(
-                                        "library.browser.nothing_here_matches_trim_yet",
-                                        trim = self.part_search.trim()
-                                    ))
-                                    .small()
-                                    .color(self.muted()),
-                                );
-                            }
-                            if !built_in.is_empty() {
-                                ui.label(
-                                    egui::RichText::new(t!("library.browser.common_parts"))
-                                        .size(10.0)
-                                        .color(self.muted()),
-                                );
-                                for (kind, label) in built_in {
-                                    if ui
-                                        .button(label)
-                                        .on_hover_text(t!(
-                                            "library.browser.pick_this_part_the_next.tip"
-                                        ))
-                                        .clicked()
-                                    {
-                                        self.change_tab(Tab::Schematic);
-                                        self.tool = Tool::Place(kind.into());
-                                        self.palette = false;
-                                        self.part_search.clear();
-                                    }
-                                }
-                            }
-                            if !saved.is_empty() {
-                                ui.label(
-                                    egui::RichText::new(t!(
-                                        "library.browser.from_this_project_s_library"
-                                    ))
-                                    .size(10.0)
-                                    .color(self.muted()),
-                                );
-                                let mut sets: std::collections::BTreeMap<
-                                    String,
-                                    Vec<pcbcraft_library::SymbolDefinition>,
-                                > = std::collections::BTreeMap::new();
-                                for definition in saved {
-                                    sets.entry(definition.set.trim().to_owned())
-                                        .or_default()
-                                        .push(definition);
-                                }
-                                let loose = sets.remove("");
-                                for (set, definitions) in &sets {
-                                    let mut shown = !self.hidden_sets.iter().any(|h| h == set);
-                                    let row = ui
-                                        .checkbox(
-                                            &mut shown,
-                                            egui::RichText::new(t!(
-                                                "library.browser.set_len_part_v1",
-                                                set = set,
-                                                len = definitions.len(),
-                                                v1 = if definitions.len() == 1 { "" } else { "s" }
-                                            ))
-                                            .strong(),
-                                        )
-                                        .on_hover_text(t!("library.browser.set_len_part_v1.tip"));
-                                    if row.changed() {
-                                        if shown {
-                                            self.hidden_sets.retain(|h| h != set);
-                                        } else {
-                                            self.hidden_sets.push(set.clone());
-                                        }
-                                    }
-                                    if !shown {
-                                        continue;
-                                    }
-                                    for definition in definitions {
-                                        self.part_card(ui, definition);
-                                    }
-                                }
-                                for definition in loose.unwrap_or_default() {
-                                    self.part_card(ui, &definition);
-                                }
-                            }
-                            self.source_section(ui);
-                        });
-                }
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new(t!("library.browser.components"))
-                        .size(10.0)
-                        .color(self.muted()),
-                );
-                for c in self.project.components.clone() {
-                    let id = if self.tab == Tab::Pcb {
-                        self.project
-                            .board
-                            .footprints
-                            .iter()
-                            .find(|f| f.component == c.id)
-                            .map(|f| f.id)
-                            .unwrap_or(c.id)
-                    } else {
-                        c.id
-                    };
-                    if ui
-                        .selectable_label(
-                            self.selected == Some(id),
-                            t!(
-                                "library.browser.reference_value",
-                                reference = c.reference,
-                                value = c.value
-                            ),
-                        )
-                        .on_hover_text(t!("library.browser.reference_value.tip"))
-                        .clicked()
-                    {
-                        self.select(Some(id));
-                    }
-                    let what = c
-                        .field(&t!("library.browser.description"))
-                        .map(str::to_owned)
-                        .or_else(|| {
-                            c.library_symbol
-                                .as_ref()
-                                .map(|ls| ls.definition.description.clone())
-                        })
-                        .map(|d| d.trim().to_owned())
-                        .filter(|d| !d.is_empty());
-                    let origin = c.library_symbol.as_ref().map_or_else(
-                        || t!("library.browser.built_in"),
-                        |ls| t!("library.browser.from_name", name = ls.definition.name),
-                    );
-                    let note = what.map_or_else(
-                        || origin.clone(),
-                        |d| t!("library.browser.item_origin", item = d, origin = origin),
-                    );
-                    ui.label(
-                        egui::RichText::new(format!("    {note}"))
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-                if self.project.components.len() >= 2 {
-                    ui.add_space(12.0);
-                    ui.label(
-                        egui::RichText::new(t!("library.browser.renumber_parts"))
-                            .size(10.0)
-                            .color(self.muted()),
-                    );
-                    let mut prefixes: Vec<String> = self
-                        .project
-                        .components
-                        .iter()
-                        .map(|c| {
-                            c.reference
-                                .chars()
-                                .take_while(char::is_ascii_alphabetic)
-                                .collect::<String>()
-                        })
-                        .filter(|p| !p.is_empty())
-                        .collect();
-                    prefixes.sort();
-                    prefixes.dedup();
-                    let mut pick = self
-                        .renumber_plan
-                        .clone()
-                        .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
-                    ui.horizontal(|ui| {
-                        egui::ComboBox::from_id_salt("renumber-prefix")
-                            .selected_text(
-                                pick.clone()
-                                    .unwrap_or_else(|| t!("library.browser.all_letters")),
-                            )
-                            .show_ui(ui, |ui| {
-                                if ui
-                                    .selectable_label(
-                                        pick.is_none(),
-                                        t!("library.browser.all_letters"),
-                                    )
-                                    .on_hover_text(t!("library.browser.all_letters.tip"))
-                                    .clicked()
-                                {
-                                    pick = None;
-                                    ui.close();
-                                }
-                                for prefix in &prefixes {
-                                    if ui
-                                        .selectable_label(
-                                            pick.as_deref() == Some(prefix.as_str()),
-                                            prefix,
-                                        )
-                                        .on_hover_text(t!(
-                                            "library.browser.only_renumber_the_parts_that.tip"
-                                        ))
-                                        .clicked()
-                                    {
-                                        pick = Some(prefix.clone());
-                                        ui.close();
-                                    }
-                                }
-                            })
-                            .response
-                            .named("Renumber prefix")
-                            .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
-                        if ui
-                            .button(t!("library.browser.preview"))
-                            .on_hover_text(t!("library.browser.preview.tip"))
-                            .clicked()
-                        {
-                            let out = self.run_and_keep(
-                                "components.reannotate",
-                                json!({"dry_run": true, "prefix": pick}),
-                            );
-                            self.renumber_plan =
-                                out.get("renamed").and_then(Value::as_array).map(|rows| {
-                                    (
-                                        pick.clone(),
-                                        rows.iter()
-                                            .filter_map(|row| {
-                                                let from = row.get("from")?.as_str()?.to_owned();
-                                                let to = row.get("to")?.as_str()?.to_owned();
-                                                Some((from, to))
-                                            })
-                                            .collect(),
-                                    )
-                                });
-                        }
-                    });
-                    if self.renumber_plan.is_none() {
-                        self.renumber_prefix = pick.clone();
-                    }
-                    if let Some((_, plan)) = self.renumber_plan.clone() {
-                        for (from, to) in plan.iter().take(12) {
-                            ui.label(
-                                egui::RichText::new(t!(
-                                    "library.browser.from_to",
-                                    from = from,
-                                    to = to
-                                ))
-                                .small()
-                                .color(self.muted()),
-                            );
-                        }
-                        ui.horizontal(|ui| {
-                            if ui
-                                .button(t!("library.browser.renumber"))
-                                .on_hover_text(t!("library.browser.renumber.tip"))
-                                .clicked()
-                            {
-                                self.renumber_plan = None;
-                                self.run("components.reannotate", json!({"prefix": pick}));
-                            }
-                            if ui
-                                .button(t!("library.browser.cancel"))
-                                .on_hover_text(t!("library.browser.cancel.tip"))
-                                .clicked()
-                            {
-                                self.renumber_plan = None;
-                            }
-                        });
-                    }
+                        .show(ui, |ui| self.library_body(ui));
                 }
             });
+    }
+    /// The Library tab: add a part, common and saved parts, components, renumber.
+    fn library_body(&mut self, ui: &mut egui::Ui) {
+        if ui
+            .button(t!("library.browser.add_part"))
+            .on_hover_text(t!("library.browser.add_part.tip"))
+            .clicked()
+        {
+            self.palette = true;
+            self.part_search_focus = true;
+        }
+        if self.palette {
+            ui.label(egui::RichText::new(t!("library.browser.add_a_part")).strong());
+            let query_box = ui
+                .add(
+                    crate::targets::text_field(&mut self.part_search)
+                        .hint_text(t!("library.browser.search_parts_by_name"))
+                        .desired_width(f32::INFINITY),
+                )
+                .named("Search parts by name")
+                .on_hover_text(t!("library.browser.search_parts_by_name.tip"));
+            if self.part_search_focus {
+                query_box.request_focus();
+                self.part_search_focus = false;
+            }
+            if ui
+                .button(t!("library.browser.browse_component_libraries"))
+                .on_hover_text(t!("library.browser.browse_component_libraries.tip"))
+                .clicked()
+            {
+                self.change_tab(Tab::Settings);
+                self.palette = false;
+            }
+            let query = self.part_search.trim().to_lowercase();
+            let built_in: Vec<(&str, &str)> = TEMPLATES
+                .iter()
+                .filter(|t| {
+                    query.is_empty()
+                        || t.label.to_lowercase().contains(&query)
+                        || t.kind.contains(query.as_str())
+                })
+                .map(|t| (t.kind, t.label))
+                .collect();
+            let saved: Vec<pcbcraft_library::SymbolDefinition> = self
+                .project
+                .library
+                .symbols
+                .iter()
+                .filter(|d| {
+                    query.is_empty()
+                        || d.name.to_lowercase().contains(&query)
+                        || d.keywords.to_lowercase().contains(query.as_str())
+                        || d.set.to_lowercase().contains(query.as_str())
+                })
+                .cloned()
+                .collect();
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    if built_in.is_empty() && saved.is_empty() {
+                        ui.label(
+                            egui::RichText::new(t!(
+                                "library.browser.nothing_here_matches_trim_yet",
+                                trim = self.part_search.trim()
+                            ))
+                            .small()
+                            .color(self.muted()),
+                        );
+                    }
+                    if !built_in.is_empty() {
+                        ui.label(
+                            egui::RichText::new(t!("library.browser.common_parts"))
+                                .size(10.0)
+                                .color(self.muted()),
+                        );
+                        for (kind, label) in built_in {
+                            if ui
+                                .button(label)
+                                .on_hover_text(t!(
+                                    "library.browser.pick_this_part_the_next.tip"
+                                ))
+                                .clicked()
+                            {
+                                self.change_tab(Tab::Schematic);
+                                self.tool = Tool::Place(kind.into());
+                                self.palette = false;
+                                self.part_search.clear();
+                            }
+                        }
+                    }
+                    if !saved.is_empty() {
+                        ui.label(
+                            egui::RichText::new(t!(
+                                "library.browser.from_this_project_s_library"
+                            ))
+                            .size(10.0)
+                            .color(self.muted()),
+                        );
+                        let mut sets: std::collections::BTreeMap<
+                            String,
+                            Vec<pcbcraft_library::SymbolDefinition>,
+                        > = std::collections::BTreeMap::new();
+                        for definition in saved {
+                            sets.entry(definition.set.trim().to_owned())
+                                .or_default()
+                                .push(definition);
+                        }
+                        let loose = sets.remove("");
+                        for (set, definitions) in &sets {
+                            let mut shown = !self.hidden_sets.iter().any(|h| h == set);
+                            let row = ui
+                                .checkbox(
+                                    &mut shown,
+                                    egui::RichText::new(t!(
+                                        "library.browser.set_len_part_v1",
+                                        set = set,
+                                        len = definitions.len(),
+                                        v1 = if definitions.len() == 1 { "" } else { "s" }
+                                    ))
+                                    .strong(),
+                                )
+                                .on_hover_text(t!("library.browser.set_len_part_v1.tip"));
+                            if row.changed() {
+                                if shown {
+                                    self.hidden_sets.retain(|h| h != set);
+                                } else {
+                                    self.hidden_sets.push(set.clone());
+                                }
+                            }
+                            if !shown {
+                                continue;
+                            }
+                            for definition in definitions {
+                                self.part_card(ui, definition);
+                            }
+                        }
+                        for definition in loose.unwrap_or_default() {
+                            self.part_card(ui, &definition);
+                        }
+                    }
+                    self.source_section(ui);
+                });
+        }
+        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new(t!("library.browser.components"))
+                .size(10.0)
+                .color(self.muted()),
+        );
+        for c in self.project.components.clone() {
+            let id = if self.tab == Tab::Pcb {
+                self.project
+                    .board
+                    .footprints
+                    .iter()
+                    .find(|f| f.component == c.id)
+                    .map(|f| f.id)
+                    .unwrap_or(c.id)
+            } else {
+                c.id
+            };
+            if ui
+                .selectable_label(
+                    self.selected == Some(id),
+                    t!(
+                        "library.browser.reference_value",
+                        reference = c.reference,
+                        value = c.value
+                    ),
+                )
+                .on_hover_text(t!("library.browser.reference_value.tip"))
+                .clicked()
+            {
+                self.select(Some(id));
+            }
+            let what = c
+                .field(&t!("library.browser.description"))
+                .map(str::to_owned)
+                .or_else(|| {
+                    c.library_symbol
+                        .as_ref()
+                        .map(|ls| ls.definition.description.clone())
+                })
+                .map(|d| d.trim().to_owned())
+                .filter(|d| !d.is_empty());
+            let origin = c.library_symbol.as_ref().map_or_else(
+                || t!("library.browser.built_in"),
+                |ls| t!("library.browser.from_name", name = ls.definition.name),
+            );
+            let note = what.map_or_else(
+                || origin.clone(),
+                |d| t!("library.browser.item_origin", item = d, origin = origin),
+            );
+            ui.label(
+                egui::RichText::new(format!("    {note}"))
+                    .small()
+                    .color(self.muted()),
+            );
+        }
+        if self.project.components.len() >= 2 {
+            ui.add_space(12.0);
+            ui.label(
+                egui::RichText::new(t!("library.browser.renumber_parts"))
+                    .size(10.0)
+                    .color(self.muted()),
+            );
+            let mut prefixes: Vec<String> = self
+                .project
+                .components
+                .iter()
+                .map(|c| {
+                    c.reference
+                        .chars()
+                        .take_while(char::is_ascii_alphabetic)
+                        .collect::<String>()
+                })
+                .filter(|p| !p.is_empty())
+                .collect();
+            prefixes.sort();
+            prefixes.dedup();
+            let mut pick = self
+                .renumber_plan
+                .clone()
+                .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt("renumber-prefix")
+                    .selected_text(
+                        pick.clone()
+                            .unwrap_or_else(|| t!("library.browser.all_letters")),
+                    )
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(
+                                pick.is_none(),
+                                t!("library.browser.all_letters"),
+                            )
+                            .on_hover_text(t!("library.browser.all_letters.tip"))
+                            .clicked()
+                        {
+                            pick = None;
+                            ui.close();
+                        }
+                        for prefix in &prefixes {
+                            if ui
+                                .selectable_label(
+                                    pick.as_deref() == Some(prefix.as_str()),
+                                    prefix,
+                                )
+                                .on_hover_text(t!(
+                                    "library.browser.only_renumber_the_parts_that.tip"
+                                ))
+                                .clicked()
+                            {
+                                pick = Some(prefix.clone());
+                                ui.close();
+                            }
+                        }
+                    })
+                    .response
+                    .named("Renumber prefix")
+                    .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
+                if ui
+                    .button(t!("library.browser.preview"))
+                    .on_hover_text(t!("library.browser.preview.tip"))
+                    .clicked()
+                {
+                    let out = self.run_and_keep(
+                        "components.reannotate",
+                        json!({"dry_run": true, "prefix": pick}),
+                    );
+                    self.renumber_plan =
+                        out.get("renamed").and_then(Value::as_array).map(|rows| {
+                            (
+                                pick.clone(),
+                                rows.iter()
+                                    .filter_map(|row| {
+                                        let from = row.get("from")?.as_str()?.to_owned();
+                                        let to = row.get("to")?.as_str()?.to_owned();
+                                        Some((from, to))
+                                    })
+                                    .collect(),
+                            )
+                        });
+                }
+            });
+            if self.renumber_plan.is_none() {
+                self.renumber_prefix = pick.clone();
+            }
+            if let Some((_, plan)) = self.renumber_plan.clone() {
+                for (from, to) in plan.iter().take(12) {
+                    ui.label(
+                        egui::RichText::new(t!(
+                            "library.browser.from_to",
+                            from = from,
+                            to = to
+                        ))
+                        .small()
+                        .color(self.muted()),
+                    );
+                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(t!("library.browser.renumber"))
+                        .on_hover_text(t!("library.browser.renumber.tip"))
+                        .clicked()
+                    {
+                        self.renumber_plan = None;
+                        self.run("components.reannotate", json!({"prefix": pick}));
+                    }
+                    if ui
+                        .button(t!("library.browser.cancel"))
+                        .on_hover_text(t!("library.browser.cancel.tip"))
+                        .clicked()
+                    {
+                        self.renumber_plan = None;
+                    }
+                });
+            }
+        }
     }
     /// The Nets tab of the left dock: add, spotlight and rename connections.
     fn nets_tab(&mut self, ui: &mut egui::Ui) {
@@ -6214,31 +5393,13 @@ impl App {
             .min_size(280.0)
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
-                let split = self.preferences.aside_split.clamp(0.25, 0.75);
-                let top_h = (ui.available_height() * split).min(ui.available_height() - 160.0);
-                self.inspector_body(ui, top_h);
+                self.inspector_body(ui, 0.0);
             });
     }
     /// The layers tree over the properties page, in the side dock or, in a
     /// narrow window, in the strip under the drawing. `top_h` is the height
     /// the layers tree gets.
-    fn inspector_body(&mut self, ui: &mut egui::Ui, top_h: f32) {
-        ui.allocate_ui_with_layout(
-            egui::vec2(ui.available_width(), top_h),
-            egui::Layout::top_down(egui::Align::LEFT),
-            |ui| {
-                self.section_heading(ui, &t!("board.inspector.layers"));
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| self.layers_tab(ui));
-            },
-        );
-        ui.add(
-            egui::Slider::new(&mut self.preferences.aside_split, 0.25..=0.75)
-                .show_value(false)
-                .text(t!("board.inspector.resize")),
-        )
-        .on_hover_text(t!("board.inspector.resize.tip"));
+    fn inspector_body(&mut self, ui: &mut egui::Ui, _top_h: f32) {
         ui.horizontal(|ui| {
             ui.selectable_value(
                 &mut self.preferences.aside_lower_tab,
@@ -6264,7 +5425,9 @@ impl App {
             .show(ui, |ui| {
                 self.draw_tool_options(ui);
                 self.section_heading(ui, &t!("board.inspector.details"));
-                if let Some(id) = self
+                if self.selected.is_none() && self.tree.selected_key.is_some() {
+                    self.tree_row_properties(ui);
+                } else if let Some(id) = self
                     .selected
                     .filter(|id| datums::is_datum(&self.project, *id))
                 {
