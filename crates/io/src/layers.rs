@@ -438,6 +438,7 @@ pub fn legend_shapes(
 }
 
 /// Collect drawable shapes for one fabrication layer.
+/// Collect drawable shapes for one fabrication layer.
 pub fn layer_shapes(p: &Project, layer: FabLayer) -> Result<LayerShapes, String> {
     p.validate()?;
     let mut out = LayerShapes::default();
@@ -595,10 +596,10 @@ fn push_art_shape(shapes: &mut Vec<Shape>, shape: &ArtShape, p: &Project) {
             if points.len() >= 2 {
                 let mut ring: Vec<Point> =
                     points.iter().map(|pt| fabrication_point(p, *pt)).collect();
-                if ring.first() != ring.last() {
-                    if let Some(first) = ring.first().copied() {
-                        ring.push(first);
-                    }
+                if let (Some(first), Some(last)) = (ring.first(), ring.last())
+                    && first.distance(*last) > 1e-9
+                {
+                    ring.push(*first);
                 }
                 shapes.push(Shape::Stroke(ring, 0.1, true, ShapePolarity::Positive));
             }
@@ -685,7 +686,9 @@ pub fn copper_shape_counts(p: &Project, top: bool) -> Result<(usize, usize), Str
     Ok((flashes, regions))
 }
 
-pub fn gerber_copper_counts(p: &Project) -> Result<((usize, usize), (usize, usize)), String> {
+pub type GerberCopperCounts = ((usize, usize), (usize, usize));
+
+pub fn gerber_copper_counts(p: &Project) -> Result<GerberCopperCounts, String> {
     let files = crate::gerber_files(p)?;
     let front = files.get("pcb-F.Cu.gbr").ok_or("missing front copper")?;
     let back = files.get("pcb-B.Cu.gbr").ok_or("missing back copper")?;
@@ -778,13 +781,23 @@ mod tests {
             }),
         };
         let embedded_pad = pad.geometry.as_ref().ok_or("pad")?.clone();
+        let mut pad2 = pad.clone();
+        pad2.number = "2".into();
+        pad2.offset = Point::new(2.0, 0.0);
+        if let Some(g) = pad2.geometry.as_mut() {
+            g.number = "2".into();
+            g.position = Point::new(2.0, 0.0);
+        }
+        let mut embedded_pad2 = embedded_pad.clone();
+        embedded_pad2.number = "2".into();
+        embedded_pad2.position = Point::new(2.0, 0.0);
         project.board.footprints.push(Footprint {
             id: 2,
             component: 1,
             position: Point::new(0.0, 0.0),
             rotation: 0.0,
             locked: None,
-            pads: vec![pad],
+            pads: vec![pad, pad2],
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
@@ -794,15 +807,26 @@ mod tests {
             kind: "resistor".into(),
             position: Point::default(),
             rotation: 0.0,
-            pins: vec![pcbcraft_doc::Pin {
-                number: "1".into(),
-                name: String::new(),
-                offset: Point::new(-1.0, 0.0),
-                net: None,
-                electrical_type: "passive".into(),
-                direction: Some(180.0),
-                unit: 1,
-            }],
+            pins: vec![
+                pcbcraft_doc::Pin {
+                    number: "1".into(),
+                    name: String::new(),
+                    offset: Point::new(-1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: Some(180.0),
+                    unit: 1,
+                },
+                pcbcraft_doc::Pin {
+                    number: "2".into(),
+                    name: String::new(),
+                    offset: Point::new(1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: Some(0.0),
+                    unit: 1,
+                },
+            ],
             units: vec![],
             library_symbol: None,
             library_footprint: Some(pcbcraft_doc::LibraryFootprint {
@@ -811,7 +835,7 @@ mod tests {
                     name: "PAD-1.6".into(),
                     description: String::new(),
                     keywords: String::new(),
-                    pads: vec![embedded_pad],
+                    pads: vec![embedded_pad, embedded_pad2],
                     graphics: vec![],
                     model: None,
                     rules: None,

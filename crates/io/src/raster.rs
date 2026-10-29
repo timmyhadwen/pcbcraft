@@ -84,18 +84,6 @@ pub struct Raster {
 pub fn layer_raster(p: &Project, opts: &RasterOptions) -> Result<Raster, String> {
     opts.validate()?;
     p.validate()?;
-    let collected = layer_shapes(p, opts.layer)?;
-    rasterize_shapes(p, &collected.shapes, opts)
-}
-
-/// Rasterise an explicit shape list (for legend with pad clearance, UV colour pass, etc.).
-pub fn rasterize_shapes(
-    p: &Project,
-    shapes: &[Shape],
-    opts: &RasterOptions,
-) -> Result<Raster, String> {
-    opts.validate()?;
-    p.validate()?;
     let w_px = pixel_extent(p.board.width, opts.margin_mm, opts.dpi);
     let h_px = pixel_extent(p.board.height, opts.margin_mm, opts.dpi);
     let pixels = u64::from(w_px) * u64::from(h_px);
@@ -105,6 +93,7 @@ pub fn rasterize_shapes(
             p.board.width, p.board.height
         ));
     }
+    let collected = layer_shapes(p, opts.layer)?;
     let mut grey = GrayImage::from_pixel(w_px, h_px, Luma([255]));
     if opts.outline {
         let edge = profile_edge(p);
@@ -118,7 +107,7 @@ pub fn rasterize_shapes(
             ShapePolarity::Positive,
         );
     }
-    for shape in shapes {
+    for shape in &collected.shapes {
         draw_shape(&mut grey, shape, opts, p);
     }
     if let Some(reg) = opts.registration {
@@ -210,17 +199,15 @@ fn draw_stroke(
         .collect();
     let radius = width_mm * f64::from(opts.dpi) / 25.4 / 2.0;
     let color = ink(pol);
-    let segments: usize = if closed {
-        pts.len().saturating_sub(1)
-    } else {
-        pts.len().saturating_sub(1)
-    };
+    let segments = pts.len().saturating_sub(1);
     for i in 0..segments {
         let a = pts[i];
-        let b = if closed && i + 1 == pts.len() - 1 {
+        let b = if closed && i + 1 == segments {
             pts[0]
+        } else if i + 1 < pts.len() {
+            pts[i + 1]
         } else {
-            pts.get(i + 1).copied().unwrap_or(a)
+            a
         };
         line_grey(img, a, b, radius.max(0.5), color);
     }
@@ -366,12 +353,13 @@ fn encode_grey_png(img: &GrayImage, dpi: u32, depth: RasterDepth) -> Result<Vec<
     let xppu = (f64::from(dpi) / 0.0254).round() as u32;
     match depth {
         RasterDepth::Bits1 => {
-            let mut packed = vec![0u8; ((w as usize + 7) / 8) * h as usize];
+            let row_bytes = (w as usize).div_ceil(8);
+            let mut packed = vec![0u8; row_bytes * h as usize];
             for y in 0..h {
                 for x in 0..w {
                     if img.get_pixel(x, y).0[0] < 128 {
-                        let idx = y as usize * ((w as usize + 7) / 8) + x as usize / 8;
-                        packed[idx] |= 0x80 >> (x % 8);
+                        let idx = y as usize * row_bytes + x as usize / 8;
+                        packed[idx] |= 0x80_u8 >> (x % 8);
                     }
                 }
             }
@@ -386,9 +374,9 @@ fn encode_grey_png(img: &GrayImage, dpi: u32, depth: RasterDepth) -> Result<Vec<
             }));
             {
                 let mut writer = enc.write_header().map_err(|e| e.to_string())?;
-                for row in packed.chunks((w as usize + 7) / 8) {
-                    writer.write_image_data(row).map_err(|e| e.to_string())?;
-                }
+                writer
+                    .write_image_data(&packed)
+                    .map_err(|e| e.to_string())?;
             }
             Ok(out)
         }
@@ -402,12 +390,15 @@ fn encode_grey_png(img: &GrayImage, dpi: u32, depth: RasterDepth) -> Result<Vec<
                 yppu: xppu,
                 unit: png::Unit::Meter,
             }));
+            let mut data = Vec::with_capacity(w as usize * h as usize);
+            for y in 0..h {
+                for x in 0..w {
+                    data.push(img.get_pixel(x, y).0[0]);
+                }
+            }
             {
                 let mut writer = enc.write_header().map_err(|e| e.to_string())?;
-                for y in 0..h {
-                    let row: Vec<u8> = (0..w).map(|x| img.get_pixel(x, y).0[0]).collect();
-                    writer.write_image_data(&row).map_err(|e| e.to_string())?;
-                }
+                writer.write_image_data(&data).map_err(|e| e.to_string())?;
             }
             Ok(out)
         }
@@ -542,7 +533,6 @@ mod tests {
     use super::*;
     use crate::layers::FabLayer;
     use pcbcraft_doc::{Footprint, Pad, Project};
-    use pcbcraft_library::FootprintPad;
 
     fn pad_project(diameter_mm: f64) -> Result<Project, String> {
         let mut p = Project::default();
@@ -554,20 +544,7 @@ mod tests {
             diameter: diameter_mm,
             net: None,
             castellated: None,
-            geometry: Some(FootprintPad {
-                number: "1".into(),
-                pad_type: "smd".into(),
-                shape: "rect".into(),
-                position: Point::new(15.0, 15.0),
-                rotation: 0.0,
-                size: Point::new(diameter_mm, diameter_mm),
-                layers: vec!["F.Cu".into(), "F.Mask".into()],
-                drill: None,
-                roundrect_ratio: None,
-                raw_source: String::new(),
-                chamfer: None,
-                polygon: Vec::new(),
-            }),
+            geometry: None,
         };
         p.board.footprints.push(Footprint {
             id: 9001,
@@ -607,33 +584,7 @@ mod tests {
             ],
             units: vec![],
             library_symbol: None,
-            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
-                library: "test".into(),
-                definition: pcbcraft_library::FootprintDefinition {
-                    name: "pad".into(),
-                    description: String::new(),
-                    keywords: String::new(),
-                    pads: vec![FootprintPad {
-                        number: "1".into(),
-                        pad_type: "smd".into(),
-                        shape: "rect".into(),
-                        position: Point::new(15.0, 15.0),
-                        rotation: 0.0,
-                        size: Point::new(diameter_mm, diameter_mm),
-                        layers: vec!["F.Cu".into(), "F.Mask".into()],
-                        drill: None,
-                        roundrect_ratio: None,
-                        raw_source: String::new(),
-                        chamfer: None,
-                        polygon: Vec::new(),
-                    }],
-                    graphics: vec![],
-                    model: None,
-                    rules: None,
-                    raw_source: String::new(),
-                    unsupported: vec![],
-                },
-            }),
+            library_footprint: None,
             fields: vec![],
         });
         p.validate()?;
@@ -745,14 +696,18 @@ mod tests {
         let RasterPixels::Grey(img) = raster.pixels else {
             return Err("expected grey".into());
         };
-        let inset_px = (2.0_f64 * 1000.0 / 25.4).round() as u32;
-        let corners = [
-            (inset_px, inset_px),
-            (img.width() - 1 - inset_px, inset_px),
-            (img.width() - 1 - inset_px, img.height() - 1 - inset_px),
-            (inset_px, img.height() - 1 - inset_px),
+        let inset = 2.0;
+        let board_corners = [
+            Point::new(inset, inset),
+            Point::new(p.board.width - inset, inset),
+            Point::new(p.board.width - inset, p.board.height - inset),
+            Point::new(inset, p.board.height - inset),
         ];
-        for (cx, cy) in corners {
+        for corner in board_corners {
+            let fab = fabrication_point(&p, corner);
+            let px = fab_to_px(fab, &opts, img.width(), opts.mirror);
+            let cx = px.x.round() as u32;
+            let cy = px.y.round() as u32;
             let mut found = false;
             for dx in 0..8 {
                 for dy in 0..8 {
@@ -835,7 +790,10 @@ mod tests {
             margin_mm: 0.0,
             depth: RasterDepth::Grey8,
         };
-        let err = layer_raster(&p, &opts).unwrap_err();
+        let err = match layer_raster(&p, &opts) {
+            Err(reason) => reason,
+            Ok(_) => return Err("expected an oversized raster to be refused".into()),
+        };
         assert!(err.contains("500"), "reason should name width: {err}");
         assert!(
             err.contains("64 million"),
