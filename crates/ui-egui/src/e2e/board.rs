@@ -714,6 +714,10 @@ fn right_click(ctx: &egui::Context, app: &mut App, screen: egui::Pos2) {
             egui::Modifiers::NONE,
         );
     }
+    // A new popup is laid out hidden for a frame or two before it paints.
+    for _ in 0..3 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
 }
 
 fn sample_board_app() -> App {
@@ -801,7 +805,9 @@ fn a_newcomer_right_clicks_a_part_to_rotate_lock_or_delete_it() -> Result<(), St
         .first()
         .map(|f| (f.id, f.position, f.rotation))
         .ok_or("the sample board has parts")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    for _ in 0..6 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     let screen = pcb_screen(&app, at);
     right_click(&ctx, &mut app, screen);
     authoring::tests::tap(&ctx, &mut app, "Rotate")?;
@@ -952,6 +958,387 @@ fn a_newcomer_right_clicks_a_wire_and_cuts_it() -> Result<(), String> {
         before + 1,
         "Cut splits the wire in two: {}",
         app.message
+    );
+    Ok(())
+}
+
+/// A board with one routed wire, on the board tab, ready to right-click.
+///
+/// # Rules
+/// Returns the wire's midpoint in board units.
+///
+/// # Dependencies
+/// `track.route` in ../../../engine; `sample_design` from ../../../mcp.
+///
+/// # Do not
+/// Use for stories that need more than one wire.
+fn routed_wire_app() -> Result<(App, Point), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.tool_call(
+        "track.route",
+        json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+    );
+    let middle = app
+        .project
+        .board
+        .tracks
+        .first()
+        .map(|t| Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0))
+        .ok_or("routing should leave a wire")?;
+    app.change_tab(Tab::Pcb);
+    app.needs_fit = true;
+    Ok((app, middle))
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_pad_and_starts_a_route() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let (id, number, at) = app
+        .project
+        .board
+        .footprints
+        .iter()
+        .find_map(|f| {
+            f.pads.first().and_then(|p| {
+                f.pad_position(&p.number)
+                    .map(|at| (f.id, p.number.clone(), at))
+            })
+        })
+        .ok_or("the sample board has a pad")?;
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Start route")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        matches!(&app.tool, Tool::Route(Some((f, n))) if *f == id && *n == number),
+        "Start route arms the route tool on that pad: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_pad_and_opens_its_properties() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let (id, _number, at, home) = app
+        .project
+        .board
+        .footprints
+        .iter()
+        .find_map(|f| {
+            f.pads.first().and_then(|p| {
+                f.pad_position(&p.number)
+                    .map(|at| (f.id, p.number.clone(), at, f.position))
+            })
+        })
+        .ok_or("the sample board has a pad")?;
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    app.x = -9999.0;
+    authoring::tests::tap(&ctx, &mut app, "Properties")?;
+    assert_eq!(app.selected, Some(id), "the pad's part is selected");
+    assert_eq!(app.x, home.x, "Properties loads the part: {}", app.message);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_part_and_duplicates_it() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = app
+        .project
+        .board
+        .footprints
+        .first()
+        .map(|f| f.position)
+        .ok_or("the sample board has parts")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let before = app.project.components.len();
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Duplicate")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert_eq!(
+        app.project.components.len(),
+        before + 1,
+        "Duplicate places a copy: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_part_and_opens_its_properties() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = app
+        .project
+        .board
+        .footprints
+        .first()
+        .map(|f| f.position)
+        .ok_or("the sample board has parts")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    app.x = -9999.0;
+    authoring::tests::tap(&ctx, &mut app, "Properties")?;
+    assert_eq!(app.x, at.x, "Properties loads the part: {}", app.message);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_wire_and_changes_its_width() -> Result<(), String> {
+    let (mut app, middle) = routed_wire_app()?;
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, middle);
+    right_click(&ctx, &mut app, screen);
+    app.track_width = 0.75;
+    authoring::tests::tap(&ctx, &mut app, "Change width")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    let width = app.project.board.tracks.first().map(|t| t.width);
+    assert_eq!(width, Some(0.75), "Change width applies: {}", app.message);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_wire_and_opens_its_properties() -> Result<(), String> {
+    let (mut app, middle) = routed_wire_app()?;
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, middle);
+    right_click(&ctx, &mut app, screen);
+    let wire = app.project.board.tracks.first().map(|t| t.id);
+    assert_eq!(app.selected, wire, "right-click selects the wire");
+    app.x = -9999.0;
+    authoring::tests::tap(&ctx, &mut app, "Properties")?;
+    assert!(
+        app.canvas_menu.is_none(),
+        "Properties closes the menu: {}",
+        app.message
+    );
+    Ok(())
+}
+
+/// The sample design on the schematic tab, plus a pin that is on screen.
+///
+/// # Rules
+/// Fits the view first, then takes the first pin whose screen spot lies well
+/// inside the canvas. Returns the app, the part, the pin number and the
+/// screen spot.
+///
+/// # Dependencies
+/// `sample_design` from ../../../mcp.
+///
+/// # Do not
+/// Assume which part owns the pin.
+fn sample_schematic_pin(ctx: &egui::Context) -> Result<(App, Id, String, egui::Pos2), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Schematic);
+    app.needs_fit = true;
+    // Let the side panels settle so the canvas stops moving before we aim.
+    for _ in 0..6 {
+        frame(ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let inside = app.canvas_rect.shrink(30.0);
+    let found = app.project.components.iter().find_map(|c| {
+        c.pins.iter().find_map(|p| {
+            let spot = c
+                .pin_position(&p.number)
+                .map(|at| app.schematic.screen(at, app.canvas_rect))?;
+            inside
+                .contains(spot)
+                .then(|| (c.id, p.number.clone(), spot))
+        })
+    });
+    let (id, pin, spot) = found.ok_or("no pin is on screen")?;
+    Ok((app, id, pin, spot))
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_pin_and_starts_a_wire() -> Result<(), String> {
+    let ctx = egui::Context::default();
+    let (mut app, id, pin, screen) = sample_schematic_pin(&ctx)?;
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Start wire")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        matches!(&app.tool, Tool::Wire(Some(p)) if p.component == id && p.pin == pin),
+        "Start wire arms the wire tool on that pin: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_pin_and_marks_no_connect() -> Result<(), String> {
+    let ctx = egui::Context::default();
+    let (mut app, _id, _pin, screen) = sample_schematic_pin(&ctx)?;
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Mark no connect")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        matches!(app.tool, Tool::NoConnect),
+        "Mark no connect arms the no-connect tool: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_pin_and_opens_its_properties() -> Result<(), String> {
+    let ctx = egui::Context::default();
+    let (mut app, id, _pin, screen) = sample_schematic_pin(&ctx)?;
+    right_click(&ctx, &mut app, screen);
+    let home = app
+        .project
+        .component(id)
+        .map(|c| c.position)
+        .ok_or("pin's part exists")?;
+    app.x = -9999.0;
+    authoring::tests::tap(&ctx, &mut app, "Properties")?;
+    assert_eq!(app.selected, Some(id), "the pin's part is selected");
+    assert_eq!(app.x, home.x, "Properties loads the part: {}", app.message);
+    Ok(())
+}
+
+fn fresh_board_app() -> (egui::Context, App) {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    (ctx, app)
+}
+
+#[test]
+fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Result<(), String> {
+    let (ctx, mut app) = fresh_board_app();
+    app.tool_call(
+        "board.hole_place",
+        json!({"position": {"x": 10.0, "y": 12.0}, "diameter": 3.2}),
+    );
+    app.refresh();
+    let hole = app
+        .project
+        .board
+        .holes
+        .first()
+        .map(|h| h.id)
+        .ok_or("the mounting hole should exist")?;
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    assert!(
+        scrolled_to(&ctx, &mut app, "DATUMS")?,
+        "the tree offers a DATUMS group"
+    );
+    app.datum_ui.add_name = "MH1".into();
+    app.datum_ui.add_hole = Some(hole);
+    assert!(
+        scrolled_to(&ctx, &mut app, "Add datum")?,
+        "the add button is on screen"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
+    app.refresh();
+    let datum = app
+        .project
+        .board
+        .datums
+        .first()
+        .cloned()
+        .ok_or_else(|| format!("a datum should be added: {}", app.message))?;
+    assert_eq!(datum.hole, Some(hole), "the datum is tied to the hole");
+    assert!(
+        paints_text(&ctx, &mut app, "MH1")?,
+        "the name shows on the drawing"
+    );
+    // Select it and rename it in Properties.
+    app.select(Some(datum.id));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.datum_ui.name = "SCREW_A".into();
+    authoring::tests::tap(&ctx, &mut app, "Rename")?;
+    app.refresh();
+    assert_eq!(
+        app.project.board.datums[0].name, "SCREW_A",
+        "{}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "SCREW_A")?,
+        "the new name shows on the drawing"
+    );
+    // Move the hole: the datum follows.
+    app.tool_call(
+        "board.hole_move",
+        json!({"id": hole, "position": {"x": 30.0, "y": 20.0}}),
+    );
+    app.refresh();
+    let d = app.project.board.datums[0].clone();
+    let at = app.project.datum_position(&d);
+    assert!(
+        (at.x - 30.0).abs() < 1e-6 && (at.y - 20.0).abs() < 1e-6,
+        "the datum follows the hole to {}, {}: {}",
+        at.x,
+        at.y,
+        app.message
+    );
+    // Remove it.
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Remove")?;
+    app.refresh();
+    assert!(
+        app.project.board.datums.is_empty(),
+        "the datum is gone: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
+    let (ctx, mut app) = fresh_board_app();
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    assert!(scrolled_to(&ctx, &mut app, "DATUMS")?);
+    app.datum_ui.add_name = "bad name!".into();
+    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
+    app.refresh();
+    assert!(
+        app.project.board.datums.is_empty(),
+        "an illegal name adds nothing"
+    );
+    assert!(
+        !app.message.ends_with("committed"),
+        "the engine's reason is shown: {}",
+        app.message
+    );
+    app.datum_ui.add_name = "A".into();
+    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
+    app.datum_ui.add_name = "a".into();
+    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
+    app.refresh();
+    assert_eq!(
+        app.project.board.datums.len(),
+        1,
+        "names are unique ignoring case"
     );
     Ok(())
 }
@@ -1108,129 +1495,6 @@ fn a_newcomer_copies_a_part_and_pastes_it_from_the_right_click_menu() -> Result<
         before,
         "one undo removes the paste: {}",
         app.message
-    );
-    Ok(())
-}
-
-
-fn fresh_board_app() -> (egui::Context, App) {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let mut app = App::create(shared, Preferences::default(), None, None);
-    app.refresh();
-    app.tool_call("sample_design", json!({}));
-    let ctx = egui::Context::default();
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    (ctx, app)
-}
-
-#[test]
-fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Result<(), String> {
-    let (ctx, mut app) = fresh_board_app();
-    app.tool_call(
-        "board.hole_place",
-        json!({"position": {"x": 10.0, "y": 12.0}, "diameter": 3.2}),
-    );
-    app.refresh();
-    let hole = app
-        .project
-        .board
-        .holes
-        .first()
-        .map(|h| h.id)
-        .ok_or("the mounting hole should exist")?;
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
-    assert!(
-        scrolled_to(&ctx, &mut app, "DATUMS")?,
-        "the tree offers a DATUMS group"
-    );
-    app.datum_ui.add_name = "MH1".into();
-    app.datum_ui.add_hole = Some(hole);
-    assert!(
-        scrolled_to(&ctx, &mut app, "Add datum")?,
-        "the add button is on screen"
-    );
-    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
-    app.refresh();
-    let datum = app
-        .project
-        .board
-        .datums
-        .first()
-        .cloned()
-        .ok_or_else(|| format!("a datum should be added: {}", app.message))?;
-    assert_eq!(datum.hole, Some(hole), "the datum is tied to the hole");
-    assert!(
-        paints_text(&ctx, &mut app, "MH1")?,
-        "the name shows on the drawing"
-    );
-    // Select it and rename it in Properties.
-    app.select(Some(datum.id));
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    app.datum_ui.name = "SCREW_A".into();
-    authoring::tests::tap(&ctx, &mut app, "Rename")?;
-    app.refresh();
-    assert_eq!(
-        app.project.board.datums[0].name, "SCREW_A",
-        "{}",
-        app.message
-    );
-    assert!(
-        paints_text(&ctx, &mut app, "SCREW_A")?,
-        "the new name shows on the drawing"
-    );
-    // Move the hole: the datum follows.
-    app.tool_call(
-        "board.hole_move",
-        json!({"id": hole, "position": {"x": 30.0, "y": 20.0}}),
-    );
-    app.refresh();
-    let d = app.project.board.datums[0].clone();
-    let at = app.project.datum_position(&d);
-    assert!(
-        (at.x - 30.0).abs() < 1e-6 && (at.y - 20.0).abs() < 1e-6,
-        "the datum follows the hole to {}, {}: {}",
-        at.x,
-        at.y,
-        app.message
-    );
-    // Remove it.
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Remove")?;
-    app.refresh();
-    assert!(
-        app.project.board.datums.is_empty(),
-        "the datum is gone: {}",
-        app.message
-    );
-    Ok(())
-}
-
-#[test]
-fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
-    let (ctx, mut app) = fresh_board_app();
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
-    assert!(scrolled_to(&ctx, &mut app, "DATUMS")?);
-    app.datum_ui.add_name = "bad name!".into();
-    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
-    app.refresh();
-    assert!(
-        app.project.board.datums.is_empty(),
-        "an illegal name adds nothing"
-    );
-    assert!(
-        !app.message.ends_with("committed"),
-        "the engine's reason is shown: {}",
-        app.message
-    );
-    app.datum_ui.add_name = "A".into();
-    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
-    app.datum_ui.add_name = "a".into();
-    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
-    app.refresh();
-    assert_eq!(
-        app.project.board.datums.len(),
-        1,
-        "names are unique ignoring case"
     );
     Ok(())
 }
