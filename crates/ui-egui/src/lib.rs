@@ -9,8 +9,8 @@ mod datums;
 mod editing;
 mod footprint_wizard;
 mod impedance_panel;
-mod library;
 mod layers_tree;
+mod library;
 mod library_quality;
 mod motion;
 mod number_entry;
@@ -2861,8 +2861,16 @@ impl App {
                     &colours,
                     self.preferences.left_tab,
                     &[
-                        (layers_tree::Glyph::Layer, t!("tree.tab.layers"), t!("tree.tab.layers.tip")),
-                        (layers_tree::Glyph::Part, t!("tree.tab.library"), t!("tree.tab.library.tip")),
+                        (
+                            layers_tree::Glyph::Layer,
+                            t!("tree.tab.layers"),
+                            t!("tree.tab.layers.tip"),
+                        ),
+                        (
+                            layers_tree::Glyph::Part,
+                            t!("tree.tab.library"),
+                            t!("tree.tab.library.tip"),
+                        ),
                     ],
                 ) {
                     self.preferences.left_tab = tab;
@@ -2958,9 +2966,7 @@ impl App {
                         for (kind, label) in built_in {
                             if ui
                                 .button(label)
-                                .on_hover_text(t!(
-                                    "library.browser.pick_this_part_the_next.tip"
-                                ))
+                                .on_hover_text(t!("library.browser.pick_this_part_the_next.tip"))
                                 .clicked()
                             {
                                 self.change_tab(Tab::Schematic);
@@ -2972,11 +2978,9 @@ impl App {
                     }
                     if !saved.is_empty() {
                         ui.label(
-                            egui::RichText::new(t!(
-                                "library.browser.from_this_project_s_library"
-                            ))
-                            .size(10.0)
-                            .color(self.muted()),
+                            egui::RichText::new(t!("library.browser.from_this_project_s_library"))
+                                .size(10.0)
+                                .color(self.muted()),
                         );
                         let mut sets: std::collections::BTreeMap<
                             String,
@@ -7326,12 +7330,7 @@ mod tests {
         let ctx = egui::Context::default();
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
-        crate::e2e::support::press_on(
-            &ctx,
-            &mut app,
-            "sec:sheet:0/layer:wires",
-            egui::Key::Space,
-        );
+        crate::e2e::support::press_on(&ctx, &mut app, "sec:sheet:0/layer:wires", egui::Key::Space);
         assert!(
             app.preferences.hidden_layers.iter().any(|h| h == "Wires"),
             "unticking the row hides the wires layer"

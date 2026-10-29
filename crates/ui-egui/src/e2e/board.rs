@@ -223,7 +223,9 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         .ok_or("the wire should belong to a net")?;
     let tracks = "sec:copper/layer:copper:front/tracks".to_owned();
     let row = format!("{tracks}/net:{net}/track:{id}");
-    app.tree.expanded.extend([tracks.clone(), format!("{tracks}/net:{net}")]);
+    app.tree
+        .expanded
+        .extend([tracks.clone(), format!("{tracks}/net:{net}")]);
     let _ = &label;
     press_on(&ctx, &mut app, &row, egui::Key::Enter);
     assert_eq!(

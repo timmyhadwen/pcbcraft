@@ -328,7 +328,11 @@ fn layer_row(
     n: usize,
     expandable: bool,
 ) -> Row {
-    let mut r = counted(row(path, &format!("layer:{key}"), RowKind::Layer, label), n, expandable);
+    let mut r = counted(
+        row(path, &format!("layer:{key}"), RowKind::Layer, label),
+        n,
+        expandable,
+    );
     // A layer with nothing on it still opens when it has fixed children.
     r.expandable = expandable;
     r.dim = n == 0 && vis == Visibility::None;
@@ -363,7 +367,13 @@ fn copper_children(env: &Env, path: &str, side: Layer) -> Vec<Row> {
     let tracks = board.tracks.iter().filter(|t| t.layer == side).count();
     let zones = board.zones.iter().filter(|z| z.layer == side).count();
     let mut out = vec![
-        group_row(path, "pads", t!("tree.group.pads"), pads, Some(Visibility::Canvas("Pads"))),
+        group_row(
+            path,
+            "pads",
+            t!("tree.group.pads"),
+            pads,
+            Some(Visibility::Canvas("Pads")),
+        ),
         group_row(path, "tracks", t!("tree.group.tracks"), tracks, None),
         group_row(
             path,
@@ -398,7 +408,11 @@ fn layout_sections(env: &Env) -> Vec<Row> {
         section("sec:mask", t!("tree.section.mask"), 4),
         section("sec:board", t!("tree.section.board"), 2),
         section("sec:user", t!("tree.section.user"), board.user_layers.len()),
-        section("sec:parts", t!("tree.section.parts"), board.footprints.len()),
+        section(
+            "sec:parts",
+            t!("tree.section.parts"),
+            board.footprints.len(),
+        ),
         section("sec:nets", t!("tree.section.nets"), env.project.nets.len()),
     ]
 }
@@ -412,15 +426,27 @@ fn schematic_sections(env: &Env) -> Vec<Row> {
         let n = if id == 0 { 9 } else { 1 };
         out.push(section(&format!("sec:sheet:{id}"), name, n));
     }
-    out.push(section("sec:parts", t!("tree.section.parts"), project.components.len()));
-    out.push(section("sec:nets", t!("tree.section.nets"), project.nets.len()));
+    out.push(section(
+        "sec:parts",
+        t!("tree.section.parts"),
+        project.components.len(),
+    ));
+    out.push(section(
+        "sec:nets",
+        t!("tree.section.nets"),
+        project.nets.len(),
+    ));
     out
 }
 
 fn schematic_layers(env: &Env, path: &str, sheet: Id) -> Vec<Row> {
     let project = env.project;
     let c = &env.colours;
-    let comps = project.components.iter().filter(|c| c.sheet == sheet).count();
+    let comps = project
+        .components
+        .iter()
+        .filter(|c| c.sheet == sheet)
+        .count();
     if sheet != 0 {
         return vec![layer_row(
             path,
@@ -436,20 +462,87 @@ fn schematic_layers(env: &Env, path: &str, sheet: Id) -> Vec<Row> {
     let power = project.labels.iter().filter(|l| l.kind == "power").count();
     let labels = project.labels.iter().filter(|l| l.kind != "power").count();
     let pins: usize = project.components.iter().map(|c| c.pins.len()).sum();
-    let drawing = project.graphics.iter().filter(|g| g.layer == "schematic").count();
+    let drawing = project
+        .graphics
+        .iter()
+        .filter(|g| g.layer == "schematic")
+        .count();
     let l = |key: &str, label: String, swatch: Color32, vis: Visibility, n: usize, open: bool| {
         layer_row(path, key, label, swatch, vis, false, n, open)
     };
     vec![
-        l("wires", t!("tree.sch.wires"), c.canvas.wire, Visibility::Canvas("Wires"), project.wires.len(), true),
-        l("symbols", t!("tree.sch.symbols"), c.warn, Visibility::Canvas("Symbols"), comps, true),
-        l("labels", t!("tree.sch.labels"), c.canvas.wire, Visibility::Canvas("Net labels"), labels, true),
-        l("pinnums", t!("tree.sch.pin_numbers"), c.link, Visibility::None, pins, false),
-        l("power", t!("tree.sch.power_ports"), c.canvas.wire, Visibility::None, power, false),
-        l("buses", t!("tree.sch.buses"), c.warn, Visibility::None, 0, false),
-        l("notes", t!("tree.sch.notes"), c.muted, Visibility::None, 0, false),
-        l("drawing", t!("tree.sch.drawing"), c.link, Visibility::Canvas("Graphics"), drawing, false),
-        l("title", t!("tree.sch.title_block"), c.ink, Visibility::None, 1, false),
+        l(
+            "wires",
+            t!("tree.sch.wires"),
+            c.canvas.wire,
+            Visibility::Canvas("Wires"),
+            project.wires.len(),
+            true,
+        ),
+        l(
+            "symbols",
+            t!("tree.sch.symbols"),
+            c.warn,
+            Visibility::Canvas("Symbols"),
+            comps,
+            true,
+        ),
+        l(
+            "labels",
+            t!("tree.sch.labels"),
+            c.canvas.wire,
+            Visibility::Canvas("Net labels"),
+            labels,
+            true,
+        ),
+        l(
+            "pinnums",
+            t!("tree.sch.pin_numbers"),
+            c.link,
+            Visibility::None,
+            pins,
+            false,
+        ),
+        l(
+            "power",
+            t!("tree.sch.power_ports"),
+            c.canvas.wire,
+            Visibility::None,
+            power,
+            false,
+        ),
+        l(
+            "buses",
+            t!("tree.sch.buses"),
+            c.warn,
+            Visibility::None,
+            0,
+            false,
+        ),
+        l(
+            "notes",
+            t!("tree.sch.notes"),
+            c.muted,
+            Visibility::None,
+            0,
+            false,
+        ),
+        l(
+            "drawing",
+            t!("tree.sch.drawing"),
+            c.link,
+            Visibility::Canvas("Graphics"),
+            drawing,
+            false,
+        ),
+        l(
+            "title",
+            t!("tree.sch.title_block"),
+            c.ink,
+            Visibility::None,
+            1,
+            false,
+        ),
     ]
 }
 
@@ -476,7 +569,11 @@ fn net_rows(env: &Env, path: &str, unit_key: &str) -> Vec<Row> {
                     .count()
             };
             let mut r = row(path, &format!("net:{}", n.id), RowKind::Net, n.name.clone());
-            r.count = if unit_key == "pads" { t!("tree.pads", n = count) } else { t!("tree.pins", n = count) };
+            r.count = if unit_key == "pads" {
+                t!("tree.pads", n = count)
+            } else {
+                t!("tree.pins", n = count)
+            };
             r.swatch = Some(net_colour(&env.colours, n.id));
             r.round = true;
             r.net = Some(n.id);
@@ -543,7 +640,11 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                 ("silk:front", t!("tree.layer.top_silk"), Layer::Front),
                 ("silk:back", t!("tree.layer.bottom_silk"), Layer::Back),
             ] {
-                let parts = if side == Layer::Front { board.footprints.len() } else { 0 };
+                let parts = if side == Layer::Front {
+                    board.footprints.len()
+                } else {
+                    0
+                };
                 let texts = board.texts.iter().filter(|x| x.layer == side).count();
                 out.push(layer_row(
                     key,
@@ -565,7 +666,16 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                 ("paste:front", t!("tree.layer.top_paste"), c.muted, smd),
                 ("paste:back", t!("tree.layer.bottom_paste"), c.muted, 0),
             ] {
-                out.push(layer_row(key, k, label, sw, Visibility::None, false, n, false));
+                out.push(layer_row(
+                    key,
+                    k,
+                    label,
+                    sw,
+                    Visibility::None,
+                    false,
+                    n,
+                    false,
+                ));
             }
         }
         (TreeTab::Layout, ["sec:board"]) => {
@@ -586,7 +696,11 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                 key,
                 "courtyard",
                 t!("tree.layer.courtyard"),
-                if c.dark { Color32::from_rgb(0xB5, 0x8A, 0xE0) } else { Color32::from_rgb(0x8A, 0x52, 0xB8) },
+                if c.dark {
+                    Color32::from_rgb(0xB5, 0x8A, 0xE0)
+                } else {
+                    Color32::from_rgb(0x8A, 0x52, 0xB8)
+                },
                 Visibility::None,
                 false,
                 board.footprints.len(),
@@ -598,7 +712,11 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                 key,
                 "edge",
                 RowKind::Leaf,
-                t!("tree.edge", w = format!("{}", board.width), h = format!("{}", board.height)),
+                t!(
+                    "tree.edge",
+                    w = format!("{}", board.width),
+                    h = format!("{}", board.height)
+                ),
             );
             edge.dim = true;
             out.push(edge);
@@ -648,8 +766,16 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
         (_, ["sec:parts"]) => {
             if env.tab == TreeTab::Layout {
                 for f in &board.footprints {
-                    let mut r = row(key, &format!("fp:{}", f.id), RowKind::Part, reference_of(project, f));
-                    r.sub = project.component(f.component).map(|c| c.value.clone()).unwrap_or_default();
+                    let mut r = row(
+                        key,
+                        &format!("fp:{}", f.id),
+                        RowKind::Part,
+                        reference_of(project, f),
+                    );
+                    r.sub = project
+                        .component(f.component)
+                        .map(|c| c.value.clone())
+                        .unwrap_or_default();
                     r.count = f.pads.len().to_string();
                     r.mono = true;
                     r.select = Some(f.id);
@@ -663,7 +789,11 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
             }
         }
         (_, ["sec:nets"]) => {
-            let unit = if env.tab == TreeTab::Layout { "pads" } else { "pins" };
+            let unit = if env.tab == TreeTab::Layout {
+                "pads"
+            } else {
+                "pins"
+            };
             out = net_rows(env, key, unit);
         }
         (TreeTab::Layout, ["sec:nets", net]) => {
@@ -692,7 +822,11 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                         key,
                         &format!("npin:{}:{}", comp.id, pin.number),
                         RowKind::Pad,
-                        t!("tree.pin", number = format!("{}.{}", comp.reference, pin.number), name = pin.name),
+                        t!(
+                            "tree.pin",
+                            number = format!("{}.{}", comp.reference, pin.number),
+                            name = pin.name
+                        ),
                     );
                     r.select = Some(comp.id);
                     r.marks = false;
@@ -705,7 +839,10 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
             if let Some(f) = project.footprint(id) {
                 for (i, pad) in f.pads.iter().enumerate() {
                     let mut r = pad_row(key, f, i, pad);
-                    r.sub = pad.net.map(|n| project.net_name(n).to_owned()).unwrap_or_default();
+                    r.sub = pad
+                        .net
+                        .map(|n| project.net_name(n).to_owned())
+                        .unwrap_or_default();
                     out.push(r);
                 }
             }
@@ -720,7 +857,10 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                         RowKind::Pad,
                         t!("tree.pin", number = pin.number, name = pin.name),
                     );
-                    r.sub = pin.net.map(|n| project.net_name(n).to_owned()).unwrap_or_default();
+                    r.sub = pin
+                        .net
+                        .map(|n| project.net_name(n).to_owned())
+                        .unwrap_or_default();
                     r.select = Some(id);
                     r.marks = false;
                     out.push(r);
@@ -757,7 +897,11 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
         (TreeTab::Layout, [.., layer, "tracks", net]) if layer.starts_with("layer:") => {
             let side = side_of(layer);
             let id: Id = net[4..].parse().unwrap_or(0);
-            for t in board.tracks.iter().filter(|t| t.layer == side && t.net == id) {
+            for t in board
+                .tracks
+                .iter()
+                .filter(|t| t.layer == side && t.net == id)
+            {
                 let mut r = track_row(key, t);
                 r.net = Some(id);
                 out.push(r);
@@ -768,7 +912,12 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                 if f.pads.is_empty() {
                     continue;
                 }
-                let mut r = row(key, &format!("fp:{}", f.id), RowKind::Part, reference_of(project, f));
+                let mut r = row(
+                    key,
+                    &format!("fp:{}", f.id),
+                    RowKind::Part,
+                    reference_of(project, f),
+                );
                 r.count = f.pads.len().to_string();
                 r.mono = true;
                 r.select = Some(f.id);
@@ -798,7 +947,12 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
         (TreeTab::Layout, [.., layer, "text"]) if layer.starts_with("layer:") => {
             let side = side_of(layer);
             for x in board.texts.iter().filter(|x| x.layer == side) {
-                let mut r = row(key, &format!("text:{}", x.id), RowKind::Text, x.text.clone());
+                let mut r = row(
+                    key,
+                    &format!("text:{}", x.id),
+                    RowKind::Text,
+                    x.text.clone(),
+                );
                 r.select = Some(x.id);
                 out.push(r);
             }
@@ -809,7 +963,12 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
 }
 
 fn component_row(path: &str, c: &pcbcraft_doc::Component) -> Row {
-    let mut r = row(path, &format!("comp:{}", c.id), RowKind::Part, c.reference.clone());
+    let mut r = row(
+        path,
+        &format!("comp:{}", c.id),
+        RowKind::Part,
+        c.reference.clone(),
+    );
     r.sub = c.value.clone();
     r.count = c.pins.len().to_string();
     r.mono = true;
@@ -825,10 +984,22 @@ fn layer_children(env: &Env, key: &str, layer: &str, out: &mut Vec<Row>) {
         "copper:back" => out.extend(copper_children(env, key, Layer::Back)),
         "silk:front" | "silk:back" => {
             let side = side_of(layer);
-            let parts = if side == Layer::Front { board.footprints.len() } else { 0 };
-            let mut a = counted(row(key, "refs", RowKind::Leaf, t!("tree.silk.reference_text")), parts, false);
+            let parts = if side == Layer::Front {
+                board.footprints.len()
+            } else {
+                0
+            };
+            let mut a = counted(
+                row(key, "refs", RowKind::Leaf, t!("tree.silk.reference_text")),
+                parts,
+                false,
+            );
             a.dim = parts == 0;
-            let mut b = counted(row(key, "outlines", RowKind::Leaf, t!("tree.silk.outlines")), parts, false);
+            let mut b = counted(
+                row(key, "outlines", RowKind::Leaf, t!("tree.silk.outlines")),
+                parts,
+                false,
+            );
             b.dim = parts == 0;
             out.push(a);
             out.push(b);
@@ -841,7 +1012,12 @@ fn layer_children(env: &Env, key: &str, layer: &str, out: &mut Vec<Row>) {
             let id: Id = other[4..].parse().unwrap_or(0);
             if let Some(art) = board.user_layers.iter().find(|l| l.id == id) {
                 for (i, shape) in art.shapes.iter().enumerate() {
-                    out.push(row(key, &format!("shape:{i}"), RowKind::Shape, crate::art_shape_text(shape)));
+                    out.push(row(
+                        key,
+                        &format!("shape:{i}"),
+                        RowKind::Shape,
+                        crate::art_shape_text(shape),
+                    ));
                 }
             }
         }
@@ -860,7 +1036,12 @@ fn sheet_layer_children(env: &Env, key: &str, layer: &str, out: &mut Vec<Row>) {
     match layer {
         "wires" => {
             for w in &project.wires {
-                let mut r = row(key, &format!("wire:{}", w.id), RowKind::Wire, project.net_name(w.net).to_owned());
+                let mut r = row(
+                    key,
+                    &format!("wire:{}", w.id),
+                    RowKind::Wire,
+                    project.net_name(w.net).to_owned(),
+                );
                 let name = |p: &pcbcraft_doc::PinRef| {
                     project
                         .component(p.component)
@@ -878,7 +1059,12 @@ fn sheet_layer_children(env: &Env, key: &str, layer: &str, out: &mut Vec<Row>) {
         }
         "labels" => {
             for l in project.labels.iter().filter(|l| l.kind != "power") {
-                let mut r = row(key, &format!("label:{}", l.id), RowKind::Label, project.net_name(l.net).to_owned());
+                let mut r = row(
+                    key,
+                    &format!("label:{}", l.id),
+                    RowKind::Label,
+                    project.net_name(l.net).to_owned(),
+                );
                 r.sub = l.kind.clone();
                 r.select = Some(l.id);
                 out.push(r);
@@ -1031,7 +1217,11 @@ pub(crate) fn reveal_path(env: &Env, id: Id) -> Option<(Vec<String>, String)> {
             } else if let Some(z) = board.zones.iter().find(|z| z.id == id) {
                 format!("sec:copper/layer:{0}/zones/zone:{id}", copper_key(z.layer))
             } else if let Some(x) = board.texts.iter().find(|x| x.id == id) {
-                let k = if x.layer == Layer::Front { "silk:front" } else { "silk:back" };
+                let k = if x.layer == Layer::Front {
+                    "silk:front"
+                } else {
+                    "silk:back"
+                };
                 format!("sec:silk/layer:{k}/text/text:{id}")
             } else if board.cutouts.iter().any(|c| c.id == id) {
                 format!("sec:board/root/cut:{id}")
@@ -1082,7 +1272,11 @@ pub(crate) fn is_locked(project: &Project, locked: &BTreeSet<String>, id: Id) ->
         return locked.contains(copper_key(z.layer));
     }
     if let Some(x) = board.texts.iter().find(|x| x.id == id) {
-        return locked.contains(if x.layer == Layer::Front { "silk:front" } else { "silk:back" });
+        return locked.contains(if x.layer == Layer::Front {
+            "silk:front"
+        } else {
+            "silk:back"
+        });
     }
     if board.cutouts.iter().any(|c| c.id == id) || board.holes.iter().any(|h| h.id == id) {
         return locked.contains("outline");
@@ -1184,12 +1378,18 @@ pub(crate) fn glyph(painter: &egui::Painter, rect: Rect, g: Glyph, col: Color32)
             let body = Rect::from_min_max(p(-4.5, -0.5), p(4.5, 5.5));
             if g == Glyph::Lock {
                 painter.rect_filled(body, 1.5, col);
-                poly(arc(0.0, -1.0, 3.0, std::f32::consts::PI, std::f32::consts::TAU), false);
+                poly(
+                    arc(0.0, -1.0, 3.0, std::f32::consts::PI, std::f32::consts::TAU),
+                    false,
+                );
                 line(p(-3.0, -1.0), p(-3.0, -0.5));
                 line(p(3.0, -1.0), p(3.0, -0.5));
             } else {
                 painter.rect_stroke(body, 1.5, stroke, egui::StrokeKind::Inside);
-                poly(arc(0.0, -3.0, 3.0, std::f32::consts::PI, std::f32::consts::TAU), false);
+                poly(
+                    arc(0.0, -3.0, 3.0, std::f32::consts::PI, std::f32::consts::TAU),
+                    false,
+                );
                 line(p(-3.0, -3.0), p(-3.0, -0.5));
             }
         }
@@ -1202,7 +1402,10 @@ pub(crate) fn glyph(painter: &egui::Painter, rect: Rect, g: Glyph, col: Color32)
             line(p(5.0, 0.0), p(7.0, 0.0));
         }
         Glyph::Layer => {
-            poly(vec![p(0.0, -5.5), p(6.0, -2.5), p(0.0, 0.5), p(-6.0, -2.5)], true);
+            poly(
+                vec![p(0.0, -5.5), p(6.0, -2.5), p(0.0, 0.5), p(-6.0, -2.5)],
+                true,
+            );
             poly(vec![p(-6.0, 0.5), p(0.0, 3.5), p(6.0, 0.5)], false);
             poly(vec![p(-6.0, 3.5), p(0.0, 6.5), p(6.0, 3.5)], false);
         }
@@ -1230,10 +1433,7 @@ pub(crate) fn glyph(painter: &egui::Painter, rect: Rect, g: Glyph, col: Color32)
             }
         }
         Glyph::Track => {
-            painter.line_segment(
-                [p(-5.0, 4.0), p(-1.0, 4.0)],
-                Stroke::new(2.0, col),
-            );
+            painter.line_segment([p(-5.0, 4.0), p(-1.0, 4.0)], Stroke::new(2.0, col));
             painter.line_segment([p(-1.0, 4.0), p(2.0, 0.0)], Stroke::new(2.0, col));
             painter.line_segment([p(2.0, 0.0), p(5.0, 0.0)], Stroke::new(2.0, col));
             painter.circle_filled(p(5.5, 0.0), 1.6 * s, col);
@@ -1267,7 +1467,13 @@ pub(crate) fn glyph(painter: &egui::Painter, rect: Rect, g: Glyph, col: Color32)
         }
         Glyph::Label => {
             poly(
-                vec![p(-6.0, -3.5), p(2.5, -3.5), p(6.0, 0.0), p(2.5, 3.5), p(-6.0, 3.5)],
+                vec![
+                    p(-6.0, -3.5),
+                    p(2.5, -3.5),
+                    p(6.0, 0.0),
+                    p(2.5, 3.5),
+                    p(-6.0, 3.5),
+                ],
                 true,
             );
         }
@@ -1280,10 +1486,25 @@ pub(crate) fn glyph(painter: &egui::Painter, rect: Rect, g: Glyph, col: Color32)
             line(p(1.5, 1.5), p(6.0, 6.0));
         }
         Glyph::Wire => {
-            poly(vec![p(-6.0, 3.0), p(-2.0, 3.0), p(-2.0, -3.0), p(2.0, -3.0), p(2.0, 3.0), p(6.0, 3.0)], false);
+            poly(
+                vec![
+                    p(-6.0, 3.0),
+                    p(-2.0, 3.0),
+                    p(-2.0, -3.0),
+                    p(2.0, -3.0),
+                    p(2.0, 3.0),
+                    p(6.0, 3.0),
+                ],
+                false,
+            );
         }
         Glyph::Outline => {
-            painter.rect_stroke(Rect::from_min_max(p(-5.0, -4.0), p(5.0, 4.0)), 1.0, stroke, egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                Rect::from_min_max(p(-5.0, -4.0), p(5.0, 4.0)),
+                1.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
         }
         Glyph::Cross => {
             line(p(-4.0, -4.0), p(4.0, 4.0));
@@ -1354,7 +1575,12 @@ fn icon_button(
     if resp.hovered() || resp.has_focus() {
         ui.painter().rect_filled(rect.shrink(2.0), 4.0, hover_fill);
     }
-    glyph(ui.painter(), Rect::from_center_size(rect.center(), Vec2::splat(16.0)), g, col);
+    glyph(
+        ui.painter(),
+        Rect::from_center_size(rect.center(), Vec2::splat(16.0)),
+        g,
+        col,
+    );
     name_control(&resp, name, None);
     resp.on_hover_text(tip)
 }
@@ -1368,24 +1594,39 @@ fn icon_button(
 ///
 /// # Do not
 /// - Use it for page navigation; it is for the two tabs of the left aside.
-pub(crate) fn aside_tabs(ui: &mut Ui, colours: &ThemeColours, active: u8, tabs: &[(Glyph, String, String)]) -> Option<u8> {
+pub(crate) fn aside_tabs(
+    ui: &mut Ui,
+    colours: &ThemeColours,
+    active: u8,
+    tabs: &[(Glyph, String, String)],
+) -> Option<u8> {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.0), Sense::hover());
     let mut clicked = None;
     let mut x = rect.left() + PAD + 4.0;
     for (i, (g, label, tip)) in tabs.iter().enumerate() {
         let font = FontId::proportional(13.0);
-        let galley = ui.painter().layout_no_wrap(label.clone(), font, colours.ink);
+        let galley = ui
+            .painter()
+            .layout_no_wrap(label.clone(), font, colours.ink);
         let w = galley.size().x + 16.0 + 6.0 + 20.0;
         let tab = Rect::from_min_size(Pos2::new(x, rect.top()), Vec2::new(w, 40.0));
         let resp = ui.interact(tab, ui.id().with(("aside-tab", i)), Sense::click());
         let on = i as u8 == active;
         if resp.hovered() && !on {
-            ui.painter().rect_filled(tab.shrink2(Vec2::new(0.0, 6.0)), 4.0, colours.hover);
+            ui.painter()
+                .rect_filled(tab.shrink2(Vec2::new(0.0, 6.0)), 4.0, colours.hover);
         }
-        let col = if on || resp.hovered() { colours.ink } else { colours.muted };
+        let col = if on || resp.hovered() {
+            colours.ink
+        } else {
+            colours.muted
+        };
         glyph(
             ui.painter(),
-            Rect::from_center_size(Pos2::new(tab.left() + 17.0, tab.center().y), Vec2::splat(14.0)),
+            Rect::from_center_size(
+                Pos2::new(tab.left() + 17.0, tab.center().y),
+                Vec2::splat(14.0),
+            ),
             *g,
             col,
         );
@@ -1411,15 +1652,26 @@ pub(crate) fn aside_tabs(ui: &mut Ui, colours: &ThemeColours, active: u8, tabs: 
         x += w + 4.0;
     }
     ui.painter().line_segment(
-        [Pos2::new(rect.left(), rect.bottom()), Pos2::new(rect.right(), rect.bottom())],
+        [
+            Pos2::new(rect.left(), rect.bottom()),
+            Pos2::new(rect.right(), rect.bottom()),
+        ],
         Stroke::new(1.0, colours.muted.gamma_multiply(0.25)),
     );
     clicked
 }
 
 /// A ghost button: icon and one to three words, 28 points high.
-fn ghost_button(ui: &mut Ui, colours: &ThemeColours, g: Glyph, label: &str, tip: &str) -> egui::Response {
-    let galley = ui.painter().layout_no_wrap(label.to_owned(), FontId::proportional(13.0), colours.ink);
+fn ghost_button(
+    ui: &mut Ui,
+    colours: &ThemeColours,
+    g: Glyph,
+    label: &str,
+    tip: &str,
+) -> egui::Response {
+    let galley =
+        ui.painter()
+            .layout_no_wrap(label.to_owned(), FontId::proportional(13.0), colours.ink);
     let w = galley.size().x + 14.0 + 6.0 + 16.0;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 28.0), Sense::hover());
     let resp = ui.interact(rect, ui.id().with(("ghost", label)), Sense::click());
@@ -1428,7 +1680,10 @@ fn ghost_button(ui: &mut Ui, colours: &ThemeColours, g: Glyph, label: &str, tip:
     }
     glyph(
         ui.painter(),
-        Rect::from_center_size(Pos2::new(rect.left() + 15.0, rect.center().y), Vec2::splat(14.0)),
+        Rect::from_center_size(
+            Pos2::new(rect.left() + 15.0, rect.center().y),
+            Vec2::splat(14.0),
+        ),
         g,
         colours.ink,
     );
@@ -1507,7 +1762,14 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
 }
 
 /// Filter field with its add button, then Show all, Hide others, New layer.
-fn header(ui: &mut Ui, env: &Env, view: &mut TreeView, all: &[Row], colours: &ThemeColours, actions: &mut Vec<Action>) {
+fn header(
+    ui: &mut Ui,
+    env: &Env,
+    view: &mut TreeView,
+    all: &[Row],
+    colours: &ThemeColours,
+    actions: &mut Vec<Action>,
+) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.add_space(PAD + 4.0);
@@ -1518,22 +1780,40 @@ fn header(ui: &mut Ui, env: &Env, view: &mut TreeView, all: &[Row], colours: &Th
                 .hint_text(t!("tree.search"))
                 .desired_width(width),
         );
-        field.clone().named(&t!("tree.search")).on_hover_text(t!("tree.search.tip"));
+        field
+            .clone()
+            .named(&t!("tree.search"))
+            .on_hover_text(t!("tree.search.tip"));
         let r = field.rect;
         glyph(
             ui.painter(),
             Rect::from_center_size(Pos2::new(r.right() - 14.0, r.center().y), Vec2::splat(14.0)),
-            if view.query.is_empty() { Glyph::Search } else { Glyph::Cross },
+            if view.query.is_empty() {
+                Glyph::Search
+            } else {
+                Glyph::Cross
+            },
             colours.muted,
         );
         let (cell, _) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::hover());
         let id = ui.id().with("tree-add");
         let resp = ui.interact(cell, id, Sense::click());
-        ui.painter().rect_stroke(cell, 4.0, Stroke::new(1.0, colours.muted.gamma_multiply(0.6)), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            cell,
+            4.0,
+            Stroke::new(1.0, colours.muted.gamma_multiply(0.6)),
+            egui::StrokeKind::Inside,
+        );
         if resp.hovered() {
-            ui.painter().rect_filled(cell.shrink(1.0), 4.0, colours.hover);
+            ui.painter()
+                .rect_filled(cell.shrink(1.0), 4.0, colours.hover);
         }
-        glyph(ui.painter(), Rect::from_center_size(cell.center(), Vec2::splat(14.0)), Glyph::Plus, colours.ink);
+        glyph(
+            ui.painter(),
+            Rect::from_center_size(cell.center(), Vec2::splat(14.0)),
+            Glyph::Plus,
+            colours.ink,
+        );
         name_control(&resp, &t!("tree.add"), None);
         if resp.on_hover_text(t!("tree.add.tip")).clicked() {
             actions.push(Action::NewArtLayer);
@@ -1552,29 +1832,66 @@ fn header(ui: &mut Ui, env: &Env, view: &mut TreeView, all: &[Row], colours: &Th
     ui.horizontal(|ui| {
         ui.add_space(PAD);
         ui.spacing_mut().item_spacing.x = 4.0;
-        if ghost_button(ui, colours, Glyph::Eye, &t!("tree.show_all"), &t!("tree.show_all.tip")).clicked() {
+        if ghost_button(
+            ui,
+            colours,
+            Glyph::Eye,
+            &t!("tree.show_all"),
+            &t!("tree.show_all.tip"),
+        )
+        .clicked()
+        {
             actions.push(Action::SetHidden(Vec::new()));
         }
-        if ghost_button(ui, colours, Glyph::EyeOff, &t!("tree.hide_others"), &t!("tree.hide_others.tip")).clicked() {
+        if ghost_button(
+            ui,
+            colours,
+            Glyph::EyeOff,
+            &t!("tree.hide_others"),
+            &t!("tree.hide_others.tip"),
+        )
+        .clicked()
+        {
             let keep = view
                 .cursor
                 .as_deref()
-                .and_then(|k| all.iter().find(|r| r.key == k).and_then(|_| layer_visibility_name(all, k)))
+                .and_then(|k| {
+                    all.iter()
+                        .find(|r| r.key == k)
+                        .and_then(|_| layer_visibility_name(all, k))
+                })
                 .or(match env.tab {
-                    TreeTab::Layout => Some(if env.active == Layer::Front { "Top copper" } else { "Bottom copper" }),
+                    TreeTab::Layout => Some(if env.active == Layer::Front {
+                        "Top copper"
+                    } else {
+                        "Bottom copper"
+                    }),
                     TreeTab::Schematic => Some("Wires"),
                 });
             actions.push(Action::SetHidden(
-                layer_names(env.tab).iter().copied().filter(|n| Some(*n) != keep).collect(),
+                layer_names(env.tab)
+                    .iter()
+                    .copied()
+                    .filter(|n| Some(*n) != keep)
+                    .collect(),
             ));
         }
-        if ghost_button(ui, colours, Glyph::Plus, &t!("tree.new_layer"), &t!("tree.add_layer.tip")).clicked() {
+        if ghost_button(
+            ui,
+            colours,
+            Glyph::Plus,
+            &t!("tree.new_layer"),
+            &t!("tree.add_layer.tip"),
+        )
+        .clicked()
+        {
             actions.push(Action::NewArtLayer);
         }
     });
     ui.add_space(6.0);
     let (line, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(line, 0.0, colours.muted.gamma_multiply(0.22));
+    ui.painter()
+        .rect_filled(line, 0.0, colours.muted.gamma_multiply(0.22));
 }
 
 /// The canvas toggle name of the layer row that `key` sits on or under.
@@ -1582,7 +1899,10 @@ fn layer_visibility_name(all: &[Row], key: &str) -> Option<&'static str> {
     let mut path = key;
     loop {
         if let Some(r) = all.iter().find(|r| r.key == path)
-            && let Some(LayerControls { visibility: Visibility::Canvas(name), .. }) = &r.controls
+            && let Some(LayerControls {
+                visibility: Visibility::Canvas(name),
+                ..
+            }) = &r.controls
         {
             return Some(name);
         }
@@ -1626,12 +1946,21 @@ fn paint_row(
     let painter = ui.painter().clone();
     if selected {
         painter.rect_filled(rect, 0.0, colours.accent.gamma_multiply(0.16));
-        painter.rect_filled(Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height())), 0.0, colours.accent);
+        painter.rect_filled(
+            Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height())),
+            0.0,
+            colours.accent,
+        );
     } else if resp.hovered() && !is_section {
         painter.rect_filled(rect, 0.0, colours.hover);
     }
     if focused {
-        painter.rect_stroke(rect.shrink(1.0), 2.0, Stroke::new(2.0, colours.ink), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            rect.shrink(1.0),
+            2.0,
+            Stroke::new(2.0, colours.ink),
+            egui::StrokeKind::Inside,
+        );
     }
     let level = r.depth.saturating_sub(1) as f32;
     let level = if is_section { 0.0 } else { level };
@@ -1653,25 +1982,46 @@ fn paint_row(
         glyph(
             &painter,
             Rect::from_center_size(chevron_rect.center(), Vec2::splat(12.0)),
-            if expanded { Glyph::ChevronDown } else { Glyph::ChevronRight },
-            if cr.hovered() { colours.ink } else { colours.muted },
+            if expanded {
+                Glyph::ChevronDown
+            } else {
+                Glyph::ChevronRight
+            },
+            if cr.hovered() {
+                colours.ink
+            } else {
+                colours.muted
+            },
         );
         name_control(
             &cr,
-            &if expanded { t!("tree.collapse", name = r.label) } else { t!("tree.expand", name = r.label) },
+            &if expanded {
+                t!("tree.collapse", name = r.label)
+            } else {
+                t!("tree.expand", name = r.label)
+            },
             None,
         );
         chevron_clicked = cr.on_hover_text(t!("tree.chevron.tip")).clicked();
     }
     // Right column: eye, lock, count (design-system 5.7).
     let mut right = rect.right() - PAD;
-    let eye_cell = Rect::from_min_size(Pos2::new(right - CELL, rect.top() + 2.0), Vec2::new(CELL, ROW_HEIGHT - 4.0));
+    let eye_cell = Rect::from_min_size(
+        Pos2::new(right - CELL, rect.top() + 2.0),
+        Vec2::new(CELL, ROW_HEIGHT - 4.0),
+    );
     let lock_cell = eye_cell.translate(Vec2::new(-CELL, 0.0));
     let focus_cell = lock_cell.translate(Vec2::new(-CELL, 0.0));
     let hovered = resp.hovered() || focused;
     if let Some(ctl) = &r.controls {
         let can_hide = ctl.visibility != Visibility::None;
-        let eye_col = if !can_hide { colours.muted.gamma_multiply(0.4) } else if hidden { colours.muted.gamma_multiply(0.7) } else { colours.ink };
+        let eye_col = if !can_hide {
+            colours.muted.gamma_multiply(0.4)
+        } else if hidden {
+            colours.muted.gamma_multiply(0.7)
+        } else {
+            colours.ink
+        };
         let (name, tip) = if hidden {
             (t!("tree.show", name = r.label), t!("tree.show.tip"))
         } else if can_hide {
@@ -1692,7 +2042,10 @@ fn paint_row(
         if eye.clicked() && can_hide {
             match &ctl.visibility {
                 Visibility::Canvas(name) => actions.push(Action::SetShown { name, on: hidden }),
-                Visibility::Art(layer) => actions.push(Action::SetArtShown { layer: *layer, on: hidden }),
+                Visibility::Art(layer) => actions.push(Action::SetArtShown {
+                    layer: *layer,
+                    on: hidden,
+                }),
                 Visibility::None => {}
             }
         }
@@ -1702,10 +2055,24 @@ fn paint_row(
                 id.with("lock"),
                 lock_cell,
                 if locked { Glyph::Lock } else { Glyph::Unlock },
-                if locked { colours.ink } else { colours.muted.gamma_multiply(if hovered { 1.0 } else { 0.55 }) },
+                if locked {
+                    colours.ink
+                } else {
+                    colours
+                        .muted
+                        .gamma_multiply(if hovered { 1.0 } else { 0.55 })
+                },
                 colours.hover,
-                &if locked { t!("tree.unlock", name = r.label) } else { t!("tree.lock", name = r.label) },
-                &if locked { t!("tree.unlock.tip") } else { t!("tree.lock.tip") },
+                &if locked {
+                    t!("tree.unlock", name = r.label)
+                } else {
+                    t!("tree.lock", name = r.label)
+                },
+                &if locked {
+                    t!("tree.unlock.tip")
+                } else {
+                    t!("tree.lock.tip")
+                },
             );
             if lock.clicked() && !view.locked.remove(&ctl.key) {
                 view.locked.insert(ctl.key.clone());
@@ -1717,16 +2084,36 @@ fn paint_row(
                 id.with("focus"),
                 focus_cell,
                 Glyph::Focus,
-                if focus_on { colours.accent } else { colours.muted },
+                if focus_on {
+                    colours.accent
+                } else {
+                    colours.muted
+                },
                 colours.hover,
-                &if focus_on { t!("tree.unfocus", name = r.label) } else { t!("tree.focus", name = r.label) },
-                &if focus_on { t!("tree.unfocus.tip") } else { t!("tree.focus.tip") },
+                &if focus_on {
+                    t!("tree.unfocus", name = r.label)
+                } else {
+                    t!("tree.focus", name = r.label)
+                },
+                &if focus_on {
+                    t!("tree.unfocus.tip")
+                } else {
+                    t!("tree.focus.tip")
+                },
             );
             if fo.clicked() {
-                actions.push(Action::Focus(if focus_on { None } else { Some(ctl.key.clone()) }));
+                actions.push(Action::Focus(if focus_on {
+                    None
+                } else {
+                    Some(ctl.key.clone())
+                }));
             }
         }
-        right = if ctl.key.is_empty() { eye_cell.left() - 8.0 } else { lock_cell.left() - 8.0 };
+        right = if ctl.key.is_empty() {
+            eye_cell.left() - 8.0
+        } else {
+            lock_cell.left() - 8.0
+        };
     } else if r.kind == RowKind::Section {
         right = rect.right() - PAD - 4.0;
     } else {
@@ -1735,19 +2122,39 @@ fn paint_row(
     let mono = FontId::monospace(12.0);
     let mut label_right = right;
     if !r.count.is_empty() {
-        let count_col = if is_section { colours.muted } else { colours.muted.gamma_multiply(dim) };
-        let rect_c = painter.text(Pos2::new(right, cy), Align2::RIGHT_CENTER, &r.count, mono.clone(), count_col);
+        let count_col = if is_section {
+            colours.muted
+        } else {
+            colours.muted.gamma_multiply(dim)
+        };
+        let rect_c = painter.text(
+            Pos2::new(right, cy),
+            Align2::RIGHT_CENTER,
+            &r.count,
+            mono.clone(),
+            count_col,
+        );
         label_right = rect_c.left() - 8.0;
     }
     let active = env.tab == TreeTab::Layout
         && r.kind == RowKind::Layer
-        && r.controls.as_ref().is_some_and(|c| c.key == copper_key(env.active));
+        && r.controls
+            .as_ref()
+            .is_some_and(|c| c.key == copper_key(env.active));
     if active {
-        let badge = painter.layout_no_wrap(t!("tree.active"), FontId::proportional(11.0), colours.accent);
+        let badge = painter.layout_no_wrap(
+            t!("tree.active"),
+            FontId::proportional(11.0),
+            colours.accent,
+        );
         let w = badge.size().x + 12.0;
         let b = Rect::from_min_size(Pos2::new(label_right - w, cy - 9.0), Vec2::new(w, 18.0));
         painter.rect_filled(b, 4.0, colours.accent.gamma_multiply(0.16));
-        painter.galley(Pos2::new(b.left() + 6.0, cy - badge.size().y / 2.0), badge, colours.accent);
+        painter.galley(
+            Pos2::new(b.left() + 6.0, cy - badge.size().y / 2.0),
+            badge,
+            colours.accent,
+        );
         label_right = b.left() - 6.0;
     }
     // Icon or swatch, then the label.
@@ -1765,7 +2172,11 @@ fn paint_row(
                 painter.rect_filled(box_, 3.0, sw.gamma_multiply(dim));
             }
         } else {
-            let g = if r.kind == RowKind::Group { group_glyph(&r.key) } else { glyph_for(r.kind) };
+            let g = if r.kind == RowKind::Group {
+                group_glyph(&r.key)
+            } else {
+                glyph_for(r.kind)
+            };
             glyph(
                 &painter,
                 Rect::from_center_size(icon_c, Vec2::splat(14.0)),
@@ -1774,7 +2185,10 @@ fn paint_row(
             );
         }
     }
-    let clip = Rect::from_min_max(Pos2::new(label_left, rect.top()), Pos2::new(label_right.max(label_left), rect.bottom()));
+    let clip = Rect::from_min_max(
+        Pos2::new(label_left, rect.top()),
+        Pos2::new(label_right.max(label_left), rect.bottom()),
+    );
     let p = painter.with_clip_rect(clip);
     let top_level = matches!(r.kind, RowKind::Layer | RowKind::Part | RowKind::Net) || is_section;
     let ink = if is_section {
@@ -1791,10 +2205,18 @@ fn paint_row(
     } else {
         FontId::proportional(13.0)
     };
-    let text = if is_section { r.label.to_uppercase() } else { r.label.clone() };
+    let text = if is_section {
+        r.label.to_uppercase()
+    } else {
+        r.label.clone()
+    };
     let galley = painter.layout_no_wrap(text, font, ink);
     let label_w = galley.size().x;
-    p.galley(Pos2::new(label_left, cy - galley.size().y / 2.0), galley, ink);
+    p.galley(
+        Pos2::new(label_left, cy - galley.size().y / 2.0),
+        galley,
+        ink,
+    );
     if !r.sub.is_empty() {
         let dx = label_left + label_w + 6.0;
         if dx < label_right {
@@ -1812,8 +2234,16 @@ fn paint_row(
         Some(ctl) if !ctl.key.is_empty() => format!(
             "{}, {}, {}",
             r.label,
-            if hidden { t!("tree.state.hidden") } else { t!("tree.state.shown") },
-            if locked { t!("tree.state.locked") } else { t!("tree.state.unlocked") }
+            if hidden {
+                t!("tree.state.hidden")
+            } else {
+                t!("tree.state.shown")
+            },
+            if locked {
+                t!("tree.state.locked")
+            } else {
+                t!("tree.state.unlocked")
+            }
         ),
         _ if !r.sub.is_empty() => format!("{}, {}", r.label, r.sub),
         _ => r.label.clone(),
@@ -1868,7 +2298,8 @@ fn keyboard(ui: &mut Ui, env: &Env, view: &mut TreeView, all: &[Row], actions: &
         .as_ref()
         .and_then(|k| all.iter().position(|r| &r.key == k))
         .unwrap_or(0);
-    let press = |ui: &mut Ui, key: egui::Key| ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key));
+    let press =
+        |ui: &mut Ui, key: egui::Key| ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key));
     let go = |view: &mut TreeView, index: usize| {
         let index = index.min(all.len() - 1);
         let key = all[index].key.clone();
@@ -2007,19 +2438,31 @@ impl crate::App {
                     if self.preferences.hidden_layers.len() < all.len() {
                         for (id, shown) in ids {
                             if !shown {
-                                self.run("board.layer_visible_set", serde_json::json!({"layer": id, "on": true}));
+                                self.run(
+                                    "board.layer_visible_set",
+                                    serde_json::json!({"layer": id, "on": true}),
+                                );
                             }
                         }
                     }
                 }
                 Action::SetArtShown { layer, on } => {
-                    self.run("board.layer_visible_set", serde_json::json!({"layer": layer, "on": on}));
+                    self.run(
+                        "board.layer_visible_set",
+                        serde_json::json!({"layer": layer, "on": on}),
+                    );
                 }
                 Action::Focus(key) => self.focus_layer = key,
                 Action::HighlightNet(net) => self.highlight_net = net,
                 Action::NewArtLayer => {
-                    let name = t!("tree.new_layer_name", n = self.project.board.user_layers.len() + 1);
-                    self.run("board.layer_add", serde_json::json!({"name": name, "kind": "other"}));
+                    let name = t!(
+                        "tree.new_layer_name",
+                        n = self.project.board.user_layers.len() + 1
+                    );
+                    self.run(
+                        "board.layer_add",
+                        serde_json::json!({"name": name, "kind": "other"}),
+                    );
                     if self.message.starts_with("board.layer_add") {
                         self.art_layer = self.selected;
                     }
@@ -2041,7 +2484,11 @@ impl crate::App {
         let last = key.rsplit('/').next().unwrap_or("");
         if key.ends_with("/root") {
             ui.heading(t!("tree.board_settings"));
-            ui.label(egui::RichText::new(t!("tree.board_settings.help")).small().color(self.muted()));
+            ui.label(
+                egui::RichText::new(t!("tree.board_settings.help"))
+                    .small()
+                    .color(self.muted()),
+            );
             ui.add_space(8.0);
             self.stackup_section(ui);
             ui.add_space(8.0);
@@ -2061,7 +2508,11 @@ impl crate::App {
                 .map(|s| s.rsplit(':').next().unwrap_or(s).to_owned())
                 .unwrap_or_default();
             ui.heading(name);
-            ui.label(egui::RichText::new(t!("tree.row_properties.help")).small().color(self.muted()));
+            ui.label(
+                egui::RichText::new(t!("tree.row_properties.help"))
+                    .small()
+                    .color(self.muted()),
+            );
         }
     }
 }
@@ -2102,9 +2553,20 @@ mod tests {
             .collect();
         assert_eq!(
             sections,
-            ["sec:copper", "sec:silk", "sec:mask", "sec:board", "sec:user", "sec:parts", "sec:nets"]
+            [
+                "sec:copper",
+                "sec:silk",
+                "sec:mask",
+                "sec:board",
+                "sec:user",
+                "sec:parts",
+                "sec:nets"
+            ]
         );
-        assert!(list.iter().any(|r| r.key == "sec:copper/layer:copper:front"));
+        assert!(
+            list.iter()
+                .any(|r| r.key == "sec:copper/layer:copper:front")
+        );
     }
 
     #[test]
@@ -2127,7 +2589,10 @@ mod tests {
             ..Default::default()
         };
         let list = rows(&env(&project, &[]), &mut view);
-        assert!(list.iter().any(|r| r.kind == RowKind::Net && r.label == net));
+        assert!(
+            list.iter()
+                .any(|r| r.kind == RowKind::Net && r.label == net)
+        );
         assert!(list.iter().any(|r| r.key == "sec:nets"));
         view.query = "zzzz-no-such-thing".to_owned();
         assert!(rows(&env(&project, &[]), &mut view).is_empty());
@@ -2142,7 +2607,11 @@ mod tests {
         assert!(opens.contains(&"sec:parts".to_owned()));
         let mut view = TreeView::default();
         view.expanded.extend(opens);
-        assert!(rows(&env(&project, &[]), &mut view).iter().any(|r| r.key == target));
+        assert!(
+            rows(&env(&project, &[]), &mut view)
+                .iter()
+                .any(|r| r.key == target)
+        );
         Ok(())
     }
 
@@ -2151,10 +2620,19 @@ mod tests {
         let project = sample();
         let mut locked = BTreeSet::new();
         locked.insert("copper:front".to_owned());
-        if let Some(t) = project.board.tracks.iter().find(|t| t.layer == Layer::Front) {
+        if let Some(t) = project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.layer == Layer::Front)
+        {
             assert!(is_locked(&project, &locked, t.id));
         }
-        assert!(!is_locked(&project, &locked, project.board.footprints[0].id));
+        assert!(!is_locked(
+            &project,
+            &locked,
+            project.board.footprints[0].id
+        ));
     }
 
     #[test]

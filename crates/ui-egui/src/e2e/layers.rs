@@ -46,7 +46,12 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     app.tree.query.clear();
     // Focus a layer: the others dim.
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    press_on(&ctx, &mut app, "sec:copper/layer:copper:front", egui::Key::F);
+    press_on(
+        &ctx,
+        &mut app,
+        "sec:copper/layer:copper:front",
+        egui::Key::F,
+    );
     assert_eq!(
         app.focus_layer.as_deref(),
         Some("copper:front"),
@@ -73,15 +78,26 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
 #[test]
 fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
-    press_on(&ctx, &mut app, "sec:copper/layer:copper:front", egui::Key::Space);
+    press_on(
+        &ctx,
+        &mut app,
+        "sec:copper/layer:copper:front",
+        egui::Key::Space,
+    );
     assert!(
-        app.preferences.hidden_layers.iter().any(|h| h == "Top copper"),
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "Top copper"),
         "Space hides the layer: {}",
         app.message
     );
     key(&ctx, &mut app, egui::Key::Space);
     assert!(
-        !app.preferences.hidden_layers.iter().any(|h| h == "Top copper"),
+        !app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "Top copper"),
         "Space shows it again"
     );
     app.project.board.tracks.push(pcbcraft_doc::Track {

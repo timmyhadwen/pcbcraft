@@ -319,4 +319,3 @@ pub(crate) fn press_on(ctx: &egui::Context, app: &mut App, row: &str, k: egui::K
     }
     key(ctx, app, k);
 }
-
