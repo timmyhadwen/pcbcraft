@@ -92,7 +92,7 @@ const ROW_HEIGHT: f32 = 96.0;
 /// Side of the thumbnail on a card.
 const THUMB: f32 = 72.0;
 
-type Reply = Receiver<Result<Value, String>>;
+pub(crate) type Reply = Receiver<Result<Value, String>>;
 
 /// One installed part as the listing reports it.
 #[derive(Clone, Debug, PartialEq)]
@@ -160,10 +160,16 @@ pub(crate) enum ViewKind {
 /// What to do with a part once its definitions are read.
 #[derive(Clone)]
 enum Intent {
-    Place { target: String, at: Point },
+    Place {
+        target: String,
+        at: Point,
+    },
     Import,
     /// Place an online part with `library.place_online`; the worker's answer is its parameters.
-    Online { target: String, at: Point },
+    Online {
+        target: String,
+        at: Point,
+    },
 }
 
 /// A read of an installed part's definitions on a worker.
@@ -250,7 +256,7 @@ enum CardAction {
 
 /// Run `work` off the frame and hand back where its answer will arrive. In
 /// the browser build there are no threads, so it runs at once.
-fn spawn_read(
+pub(crate) fn spawn_read(
     ctx: &egui::Context,
     work: impl FnOnce() -> Result<Value, String> + Send + 'static,
 ) -> Reply {
@@ -676,6 +682,7 @@ impl App {
                             ui.close();
                         }
                     }
+                    self.online_menu(ui);
                     if ui
                         .button(t!("library.dock.clear_filters"))
                         .on_hover_text(t!("library.dock.clear_filters.tip"))
@@ -1043,10 +1050,9 @@ impl App {
                     return None;
                 }
             }
-            Card::BuiltIn(kind, _) => (
-                format!("built-in/{kind}"),
-                library_builtin::footprint(kind),
-            ),
+            Card::BuiltIn(kind, _) => {
+                (format!("built-in/{kind}"), library_builtin::footprint(kind))
+            }
             _ => return None,
         };
         if let Some(texture) = self.dock.thumbs.get(&key) {
@@ -1105,7 +1111,10 @@ impl App {
             rect.bottom(),
             Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
         );
-        let thumb = Rect::from_min_size(rect.min + egui::vec2(12.0, (ROW_HEIGHT - THUMB) / 2.0), egui::Vec2::splat(THUMB));
+        let thumb = Rect::from_min_size(
+            rect.min + egui::vec2(12.0, (ROW_HEIGHT - THUMB) / 2.0),
+            egui::Vec2::splat(THUMB),
+        );
         painter.rect_filled(thumb, 6.0, self.surface());
         let want_symbol = self.dock.view != ViewKind::Footprints;
         let want_footprint = self.dock.view != ViewKind::Symbols;
@@ -1651,7 +1660,13 @@ impl App {
     ///
     /// # Rules
     /// - Needs the open source switched on; otherwise says so and does nothing.
-    fn dock_fetch_online(&mut self, ctx: &egui::Context, part: &PartResult, target: &str, at: Point) {
+    fn dock_fetch_online(
+        &mut self,
+        ctx: &egui::Context,
+        part: &PartResult,
+        target: &str,
+        at: Point,
+    ) {
         let Some(source) = self.part_sources.open() else {
             self.message = t!("library.dock.online_off");
             return;
@@ -1668,6 +1683,18 @@ impl App {
         });
     }
 
+    /// Test hook: place an online part the way a card pick does.
+    #[cfg(test)]
+    pub(crate) fn place_online_for_test(
+        &mut self,
+        ctx: &egui::Context,
+        part: &PartResult,
+        target: &str,
+        at: Point,
+    ) {
+        self.dock_fetch_online(ctx, part, target, at);
+    }
+
     /// A worker read finished: import or place the part.
     fn dock_finish(&mut self, intent: Intent, name: &str, result: Result<Value, String>) {
         let value = match result {
@@ -1679,7 +1706,11 @@ impl App {
         };
         if let Intent::Online { target, at } = intent {
             let mut params = value;
-            params["target"] = json!(if target == "board" { "layout" } else { "schematic" });
+            params["target"] = json!(if target == "board" {
+                "layout"
+            } else {
+                "schematic"
+            });
             params["position"] = json!(at);
             self.run("library.place_online", params);
             self.dock_after_place(&target);

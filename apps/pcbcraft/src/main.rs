@@ -1,5 +1,6 @@
 mod host;
-// The Online library hooks it up in the Library tab (#788); until then nothing calls it.
+// The transport behind the Library tab's Online source. Its background read and
+// cache purge helpers are for the settings page and are not called yet.
 #[allow(dead_code)]
 mod online_http;
 fn main() -> eframe::Result {
@@ -61,6 +62,10 @@ fn main() -> eframe::Result {
     let project_path = option("--project");
     let select = option("--select");
     let left = option("--left");
+    let search = option("--search");
+    let offline = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+        args.iter().any(|a| a == "--offline"),
+    ));
     let options = eframe::NativeOptions {
         viewport: egui_viewport(option("--size").as_deref()),
         ..Default::default()
@@ -74,6 +79,14 @@ fn main() -> eframe::Result {
                     .with_project_path(project_path)
                     .with_capture_select(select)
                     .with_left_tab(left)
+                    .with_capture_search(search)
+                    .with_online_fetcher(
+                        Box::new(online_http::HttpFetcher::new(
+                            online_http::Policy::default(),
+                            offline.clone(),
+                        )),
+                        offline,
+                    )
                     .with_host(host::host()),
             ))
         }),

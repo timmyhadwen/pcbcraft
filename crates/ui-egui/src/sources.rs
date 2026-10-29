@@ -16,8 +16,10 @@ use super::*;
 use pcbcraft_library::cad::CadSource;
 use pcbcraft_library::cad_cache::{CadCache, default_cache_dir};
 use pcbcraft_library::open_library::{FetchError, Fetcher, OpenLibrarySource};
-use pcbcraft_library::sources::{PartResult, PartSource, ResponseCache};
+use pcbcraft_library::sources::{PartResult, PartSource};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Receiver;
 
 /// The transport used until the live one lands: it answers nothing, so only
 /// files already kept on this computer are served.
@@ -33,10 +35,20 @@ impl Fetcher for CacheOnly {
     }
 }
 
+/// An online search running on a worker.
+struct Search {
+    query: String,
+    rx: Receiver<Result<Value, String>>,
+}
+
 #[derive(Default)]
 pub(super) struct PartSources {
     source: Option<Arc<OpenLibrarySource>>,
-    cache: ResponseCache,
+    /// Set by the desktop app so the Offline toggle can stop all requests.
+    offline: Option<Arc<AtomicBool>>,
+    /// The search in flight, and the last answer with the query it was for.
+    search: Option<Search>,
+    answer: Option<(String, Result<Vec<PartResult>, String>)>,
     notice: String,
 }
 
@@ -44,20 +56,6 @@ impl PartSources {
     /// The open source, when it is switched on.
     pub(super) fn open(&self) -> Option<Arc<OpenLibrarySource>> {
         self.source.clone()
-    }
-}
-
-fn now_secs() -> u64 {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        0
     }
 }
 
@@ -122,33 +120,62 @@ impl App {
                 return Vec::new();
             }
             let query = self.part_search.trim().to_owned();
-            if query.is_empty() {
+            if query.chars().count() < 2 {
                 note(ui, "Type a part number or keyword to search the sources.");
                 return Vec::new();
             }
             let Some(source) = self.part_sources.source.clone() else {
                 return Vec::new();
             };
-            let found = self
+            // Collect a finished search, then start the next one when the box changed.
+            if let Some(search) = self.part_sources.search.take() {
+                match search.rx.try_recv() {
+                    Ok(result) => {
+                        let parts = result.and_then(|v| {
+                            serde_json::from_value::<Vec<PartResult>>(v).map_err(|e| e.to_string())
+                        });
+                        self.part_sources.answer = Some((search.query, parts));
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {
+                        self.part_sources.search = Some(search);
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
+                }
+            }
+            let answered = self
                 .part_sources
-                .cache
-                .search(source.as_ref(), &query, now_secs());
+                .answer
+                .as_ref()
+                .is_some_and(|(q, _)| *q == query);
+            if !answered && self.part_sources.search.is_none() {
+                let (worker, asked) = (source.clone(), query.clone());
+                let reply = library_dock::spawn_read(ui.ctx(), move || {
+                    PartSource::search(worker.as_ref(), &asked)
+                        .map_err(|e| e.to_string())
+                        .and_then(|p| serde_json::to_value(p).map_err(|e| e.to_string()))
+                });
+                self.part_sources.search = Some(Search { query, rx: reply });
+            }
+            if self.part_sources.search.is_some() {
+                note(ui, "Searching the open library...");
+            }
             let name = PartSource::name(source.as_ref()).to_owned();
             let credit = format!(
                 "{}. {}",
                 source.license().name,
                 CadSource::attribution(source.as_ref()).text
             );
-            match found {
-                Err(e) => {
-                    ui.label(egui::RichText::new(e.to_string()).small());
+            match &self.part_sources.answer {
+                None => Vec::new(),
+                Some((_, Err(e))) => {
+                    note(ui, e);
                     Vec::new()
                 }
-                Ok(parts) if parts.is_empty() => {
-                    note(ui, &format!("{name} has nothing for \"{query}\"."));
+                Some((q, Ok(parts))) if parts.is_empty() => {
+                    note(ui, &format!("{name} has nothing for \"{q}\"."));
                     Vec::new()
                 }
-                Ok(parts) => parts.into_iter().map(|p| (p, credit.clone())).collect(),
+                Some((_, Ok(parts))) => parts.iter().map(|p| (p.clone(), credit.clone())).collect(),
             }
         }
     }
@@ -164,7 +191,60 @@ impl App {
             None => CadCache::in_memory(),
         };
         self.part_sources.source = Some(Arc::new(OpenLibrarySource::new(fetcher, cache)));
-        self.part_sources.cache = ResponseCache::default();
+        self.part_sources.search = None;
+        self.part_sources.answer = None;
+    }
+    /// Hand the open source a live transport and its offline switch; the
+    /// Online source is then on from the start. Called by the desktop app.
+    pub fn with_online_fetcher(
+        mut self,
+        fetcher: Box<dyn Fetcher>,
+        offline: Arc<AtomicBool>,
+    ) -> Self {
+        self.use_open_source(fetcher, None);
+        self.part_sources.offline = Some(offline);
+        self
+    }
+    /// True when no online search is wanted or the one wanted has answered;
+    /// a `--capture` image waits for it.
+    pub(super) fn online_settled(&self) -> bool {
+        let query = self.part_search.trim();
+        self.part_sources.source.is_none()
+            || query.chars().count() < 2
+            || (self.part_sources.search.is_none()
+                && self
+                    .part_sources
+                    .answer
+                    .as_ref()
+                    .is_some_and(|(q, _)| q == query))
+    }
+    /// The Offline and Clear online cache items of the filter overflow menu.
+    pub(super) fn online_menu(&mut self, ui: &mut egui::Ui) {
+        if let Some(flag) = self.part_sources.offline.clone() {
+            let off = flag.load(Ordering::SeqCst);
+            if ui
+                .selectable_label(off, t!("library.dock.offline"))
+                .on_hover_text(t!("library.dock.offline.tip"))
+                .clicked()
+            {
+                flag.store(!off, Ordering::SeqCst);
+                self.part_sources.answer = None;
+                ui.close();
+            }
+        }
+        if let Some(source) = self.part_sources.source.clone()
+            && ui
+                .button(t!("library.dock.clear_cache"))
+                .on_hover_text(t!("library.dock.clear_cache.tip"))
+                .clicked()
+        {
+            self.message = match source.cache().purge() {
+                Ok(()) => t!("library.dock.cache_cleared"),
+                Err(e) => e.to_string(),
+            };
+            self.part_sources.answer = None;
+            ui.close();
+        }
     }
     /// After a source part is placed, write its maker and numbers onto the
     /// new component in one step.

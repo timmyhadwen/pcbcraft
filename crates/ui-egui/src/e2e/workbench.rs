@@ -44,19 +44,6 @@ fn centre_of(output: &egui::FullOutput, label: &str, left_of: f32) -> Option<egu
     })
 }
 
-fn click(ctx: &egui::Context, app: &mut App, at: egui::Pos2) {
-    let press = |pressed| egui::Event::PointerButton {
-        pos: at,
-        button: egui::PointerButton::Primary,
-        pressed,
-        modifiers: egui::Modifiers::NONE,
-    };
-    frame_plain(ctx, app, vec![egui::Event::PointerMoved(at)]);
-    frame_plain(ctx, app, vec![press(true)]);
-    frame_plain(ctx, app, vec![press(false)]);
-    frame_plain(ctx, app, vec![]);
-}
-
 fn fresh() -> App {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
@@ -104,19 +91,22 @@ fn a_newcomer_opens_the_library_tab_and_sees_described_parts() -> Result<(), Str
 }
 
 #[test]
-fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), String> {
+fn a_newcomer_sees_the_check_counts_in_the_status_strip_and_opens_checks() -> Result<(), String> {
     let mut app = fresh();
     app.checks = json!({
         "erc": [{"severity":"error"},{"severity":"error"},{"severity":"warning"}],
         "drc": [{"severity":"info"},{"severity":"info"},{"severity":"info"},{"severity":"info"}]
     });
+    app.change_tab(Tab::Pcb);
     let ctx = egui::Context::default();
-    let out = settled(&ctx, &mut app);
-    let errors = centre_of(&out, "2", 44.0).ok_or("an errors badge reads 2")?;
-    centre_of(&out, "1", 44.0).ok_or("a warnings badge reads 1")?;
-    centre_of(&out, "4", 44.0).ok_or("a notes badge reads 4")?;
-    click(&ctx, &mut app, errors);
-    assert_eq!(app.tab, Tab::Checks, "a badge opens the Checks tab");
+    settled(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "2 errors")?;
+    frame_plain(&ctx, &mut app, vec![]);
+    assert_eq!(
+        app.tab,
+        Tab::Checks,
+        "the error count opens the Checks page"
+    );
     Ok(())
 }
 

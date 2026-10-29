@@ -1239,6 +1239,15 @@ impl App {
         self.capture_select = reference;
         self
     }
+    /// Fill the Library tab's search box and open that tab, so a `--capture`
+    /// image can show a search result.
+    pub fn with_capture_search(mut self, query: Option<String>) -> Self {
+        if let Some(q) = query {
+            self.part_search = q;
+            self.preferences.left_tab = 1;
+        }
+        self
+    }
     /// Open the left aside on its Library tab (`library`) or its Layers tab
     /// (`layers`), so a `--capture` image can show either.
     pub fn with_left_tab(mut self, tab: Option<String>) -> Self {
@@ -6235,7 +6244,7 @@ impl App {
             || (self.library.catalog.is_some()
                 && (self.library.results.is_some() || self.library.path.is_empty())
                 && self.library.pending.is_none());
-        if self.capture.is_some() && self.frames >= 5 && library_ready {
+        if self.capture.is_some() && self.frames >= 5 && library_ready && self.online_settled() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
         if let Some(path) = self.capture.clone() {
