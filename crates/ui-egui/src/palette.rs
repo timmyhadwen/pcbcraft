@@ -23,6 +23,10 @@ use egui::Color32;
 ///
 /// # Do not
 /// - Add a literal colour for something meaningful in `canvas.rs`; add a field.
+// The board drawing reads `canvas/layout_art.rs` `BoardArt`; the old board,
+// wire and pad label colours stay for the contrast tests until the shared
+// token palette replaces them.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CanvasColours {
     pub board: Color32,
