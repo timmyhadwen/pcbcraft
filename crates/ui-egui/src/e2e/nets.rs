@@ -330,7 +330,7 @@ fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -392,7 +392,7 @@ fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),

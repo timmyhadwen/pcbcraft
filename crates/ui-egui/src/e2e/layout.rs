@@ -56,6 +56,7 @@ fn a_newcomer_freezes_a_part_so_nothing_moves_it() -> Result<(), String> {
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Pcb);
     app.select(Some(10));
     app.refresh();
     let ctx = egui::Context::default();

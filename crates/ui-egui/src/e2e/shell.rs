@@ -124,3 +124,41 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     );
     Ok(())
 }
+#[test]
+fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Library")?,
+        "the left dock is the library browser: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Layers")?,
+        "the right dock leads with the layers tree: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Properties")?,
+        "object details sit in the lower right tab: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "Files")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Project files")?,
+        "build outputs moved under Files: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "Layout")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Mounting hole")?,
+        "board tools sit in the strip under the tabs: {}",
+        app.message
+    );
+    Ok(())
+}

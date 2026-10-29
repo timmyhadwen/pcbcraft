@@ -143,7 +143,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -224,7 +224,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -250,7 +250,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -277,7 +277,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -398,7 +398,7 @@ fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
