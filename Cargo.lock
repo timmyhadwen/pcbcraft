@@ -2790,6 +2790,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pcbcraft-sim"
+version = "0.1.0"
+
+[[package]]
 name = "pcbcraft-text"
 version = "0.1.0"
 
