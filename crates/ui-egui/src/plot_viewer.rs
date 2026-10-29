@@ -107,8 +107,7 @@ pub fn ui(
                 egui::TextEdit::singleline(&mut state.folder_path)
                     .desired_width(220.0)
                     .hint_text("Path to copper and drill files"),
-            )
-            .named("Folder with plot files")
+            ).named("Path to copper and drill files")
             .on_hover_text(
                 "Type the folder where copper and drill files were written, then load them here.",
             );

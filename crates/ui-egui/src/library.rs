@@ -300,7 +300,7 @@ impl App {
                         egui::TextEdit::singleline(&mut self.library.new_source)
                             .hint_text("Folder to add as a library source")
                             .desired_width(320.0),
-                    ).named("Folder to add")
+                    ).named("Folder to add as a library source")
                     .on_hover_text("Any folder holding symbol files or footprint collections, from any distributor or your own shelf; it joins the list above without moving your files. Press Enter to add it.");
                 let selected_source = items
                     .iter()
@@ -353,7 +353,7 @@ impl App {
                     egui::TextEdit::singleline(&mut self.library.query)
                         .hint_text("Search names, descriptions, keywords")
                         .desired_width(360.0),
-                ).named("Search library");
+                ).named("Search names, descriptions, keywords");
                 if ui
                     .button("Search")
                     .on_hover_text(
@@ -399,7 +399,7 @@ impl App {
             if results.get("scan_truncated").and_then(Value::as_bool)==Some(true) {left.label("Directory scan reached its limit; more entries may exist.");}
             let listed: Vec<Value> = results.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
             let shown: Vec<&Value> = listed.iter().filter(|item| entry_matches(item, &filter)).collect();
-            let response = left.add(egui::TextEdit::singleline(&mut self.library.filter).hint_text("Filter shown results").desired_width(240.0)).named("Filter results");
+            let response = left.add(egui::TextEdit::singleline(&mut self.library.filter).hint_text("Filter shown results").desired_width(240.0)).named("Filter shown results");
             let response = response.on_hover_text("Narrow the list below as you type; matches names and descriptions, ignoring case. Double-click to clear.");
             if left.button("Clear filter").on_hover_text("Show every listed result again.").clicked() || response.double_clicked() {self.library.filter.clear();}
             if !filter.is_empty() {left.label(format!("{} of {} listed entries match the filter", shown.len(), listed.len()));}

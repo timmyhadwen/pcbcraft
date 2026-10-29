@@ -193,17 +193,6 @@ story | textinput:folder for the files (blank means "outputs" beside the desig |
 story | textinput:layer name | no a_newcomer story, tracked in #520
 story | textinput:what to print | no a_newcomer story, tracked in #520
 name | colorwell on settings at* | unlabeled widget, tracked in #520
-name | combobox on 3d at* | unlabeled widget, tracked in #520
-name | combobox on checks at* | unlabeled widget, tracked in #520
-name | combobox on files at* | unlabeled widget, tracked in #520
-name | combobox on footprint-editor at* | unlabeled widget, tracked in #520
-name | combobox on libraries at* | unlabeled widget, tracked in #520
-name | combobox on pcb at* | unlabeled widget, tracked in #520
-name | combobox on project-library at* | unlabeled widget, tracked in #520
-name | combobox on rules at* | unlabeled widget, tracked in #520
-name | combobox on schematic at* | unlabeled widget, tracked in #520
-name | combobox on settings at* | unlabeled widget, tracked in #520
-name | combobox on symbol-editor at* | unlabeled widget, tracked in #520
 name | small on 3d at* | unlabeled widget, tracked in #520
 name | small on checks at* | unlabeled widget, tracked in #520
 name | small on files at* | unlabeled widget, tracked in #520
@@ -215,19 +204,6 @@ name | small on rules at* | unlabeled widget, tracked in #520
 name | small on schematic at* | unlabeled widget, tracked in #520
 name | small on settings at* | unlabeled widget, tracked in #520
 name | small on symbol-editor at* | unlabeled widget, tracked in #520
-name | spinbutton on 3d at* | unlabeled widget, tracked in #520
-name | spinbutton on checks at* | unlabeled widget, tracked in #520
-name | spinbutton on files at* | unlabeled widget, tracked in #520
-name | spinbutton on footprint-editor at* | unlabeled widget, tracked in #520
-name | spinbutton on libraries at* | unlabeled widget, tracked in #520
-name | spinbutton on pcb at* | unlabeled widget, tracked in #520
-name | spinbutton on project-library at* | unlabeled widget, tracked in #520
-name | spinbutton on rules at* | unlabeled widget, tracked in #520
-name | spinbutton on schematic at* | unlabeled widget, tracked in #520
-name | spinbutton on settings at* | unlabeled widget, tracked in #520
-name | spinbutton on symbol-editor at* | unlabeled widget, tracked in #520
-name | textinput on footprint-editor at* | unlabeled widget, tracked in #520
-name | textinput on symbol-editor at* | unlabeled widget, tracked in #520
 story | button:Draw arc | no a_newcomer story, tracked in #520
 story | button:Draw circle | no a_newcomer story, tracked in #520
 story | button:Draw line | no a_newcomer story, tracked in #520
@@ -268,3 +244,75 @@ story | radiobutton:Auto-allow design edits | no story yet, tracked in #520
 tooltip | button:Add hole | below the fold of the longer Settings page, tracked in #520
 tooltip | button:Apply board dimensions | below the fold of the longer Settings page, tracked in #520
 story | button:Add hole | below the fold of the longer Settings page, tracked in #520
+story | combobox:Custom check measure | missing story, newly named by #671 #672 #673, tracked in #520
+story | combobox:First net of the pair | missing story, newly named by #671 #672 #673, tracked in #520
+story | combobox:Negative net | missing story, newly named by #671 #672 #673, tracked in #520
+story | combobox:Positive net | missing story, newly named by #671 #672 #673, tracked in #520
+story | combobox:Pour connection | missing story, newly named by #671 #672 #673, tracked in #520
+story | combobox:Second net of the pair | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Area corner X | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Area corner Y | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Area height | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Area width | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Board height | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Board width | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Changes per message | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Copies across | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Copies down | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Copper stays apart by | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Custom check limit | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Cutout X | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Cutout Y | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Cutout radius | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Gap between copies | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Keep apart by | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Pour X | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Pour Y | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Pour height | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Pour width | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Rail width | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Run together gap | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Teardrop depth | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Text X | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Text Y | missing story, newly named by #671 #672 #673, tracked in #520
+story | spinbutton:Text size | missing story, newly named by #671 #672 #673, tracked in #520
+story | textinput:Default value | missing story, newly named by #671 #672 #673, tracked in #520
+story | textinput:Description | missing story, newly named by #671 #672 #673, tracked in #520
+story | textinput:Name | missing story, newly named by #671 #672 #673, tracked in #520
+story | textinput:Reference prefix | missing story, newly named by #671 #672 #673, tracked in #520
+story | textinput:Set name | missing story, newly named by #671 #672 #673, tracked in #520
+story | textinput:Suggested footprint | missing story, newly named by #671 #672 #673, tracked in #520
+tooltip | combobox:Add datum at | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | combobox:First net of the pair | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | combobox:Negative net | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | combobox:Positive net | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | combobox:Pour connection | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | combobox:Second net of the pair | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Area corner X | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Area corner Y | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Area height | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Area width | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Board height | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Board width | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Copies across | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Copies down | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Copper stays apart by | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Cutout X | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Cutout Y | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Cutout radius | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Gap between copies | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Pour X | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Pour Y | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Pour height | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Pour width | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Rail width | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Run together gap | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Text X | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Text Y | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | spinbutton:Text size | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | textinput:Default value | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | textinput:Description | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | textinput:Name | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | textinput:Reference prefix | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | textinput:Set name | missing tooltip, newly named by #671 #672 #673, tracked in #520
+tooltip | textinput:Suggested footprint | missing tooltip, newly named by #671 #672 #673, tracked in #520

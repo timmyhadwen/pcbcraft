@@ -1628,8 +1628,7 @@ impl App {
                 egui::TextEdit::singleline(&mut self.stack_name)
                     .desired_width(70.0)
                     .hint_text("layer name"),
-            )
-            .named("New layer name")
+            ).named("layer name")
             .on_hover_text("Name this layer, for example Core, Prepreg or L2.");
             egui::ComboBox::from_id_salt("stack-add-kind")
                 .selected_text(self.stack_kind.clone())
@@ -1980,7 +1979,7 @@ impl App {
                 egui::TextEdit::singleline(&mut self.tree_query)
                     .hint_text("Search the whole board")
                     .desired_width(150.0),
-            ).named("Search the board")
+            ).named("Search the whole board")
             .on_hover_text(
                 "Type a part reference, a net name or a layer name; the tree keeps only matching rows.",
             );
@@ -3030,7 +3029,7 @@ impl App {
                                         egui::TextEdit::singleline(&mut self.path)
                                             .hint_text("design file path")
                                             .desired_width(240.0),
-                                    ).named("Design file path")
+                                    ).named("design file path")
                                     .on_hover_text(
                                         "The file that Open on this page, and in the File menu, uses.",
                                     );
@@ -3401,7 +3400,7 @@ impl App {
                             egui::TextEdit::singleline(&mut self.part_search)
                                 .hint_text("Search parts by name")
                                 .desired_width(f32::INFINITY),
-                        ).named("Search parts")
+                        ).named("Search parts by name")
                         .on_hover_text("Type any part name; the list below narrows as you type.");
                     if self.part_search_focus {
                         query_box.request_focus();
@@ -3791,7 +3790,7 @@ impl App {
                         egui::TextEdit::singleline(draft)
                             .desired_width(120.0)
                             .hint_text("net name"),
-                    ).named("Net name")
+                    ).named("net name")
                     .on_hover_text("1 to 128 characters; every net needs its own name.");
                     if ui
                         .button("Use name")
@@ -4253,8 +4252,7 @@ impl App {
                 egui::TextEdit::singleline(&mut self.label_text)
                     .desired_width(110.0)
                     .hint_text("what to print"),
-            )
-            .named("Text to print")
+            ).named("what to print")
             .on_hover_text("The words to print on the board.");
         });
         ui.horizontal(|ui| {
@@ -4359,7 +4357,7 @@ impl App {
                 egui::TextEdit::singleline(&mut self.svg_path)
                     .hint_text("drawing file path (.svg)")
                     .desired_width(150.0),
-            ).named("Drawing file path")
+            ).named("drawing file path (.svg)")
             .on_hover_text(
                 "A vector drawing whose edge can become the board outline, or whose shapes can be laid onto the board as artwork.",
             );
@@ -4441,7 +4439,7 @@ impl App {
             egui::TextEdit::singleline(&mut self.make_dir)
                 .hint_text("folder for the files (blank means \"outputs\" beside the design)")
                 .desired_width(220.0),
-        ).named("Output folder")
+        ).named("folder for the files (blank means \"outputs\" beside the design)")
         .on_hover_text(
             "Where the make files land. Leave blank to use a folder named outputs next to the design file.",
         );
@@ -4968,7 +4966,7 @@ impl App {
                     egui::TextEdit::singleline(&mut self.custom_name)
                         .hint_text("What this check means, in your words")
                         .desired_width(150.0),
-                ).named("Check name");
+                ).named("What this check means, in your words");
                 response
                     .on_hover_text("The name this check reports under, e.g. \"keep power wires meaty\".");
                 egui::ComboBox::from_id_salt("custom-measure")
@@ -5236,8 +5234,7 @@ impl App {
                     egui::TextEdit::singleline(&mut self.dp_name)
                         .hint_text("USB")
                         .desired_width(90.0),
-                )
-                .named("Pair name")
+                ).named("USB")
                 .on_hover_text("A name you will recognise, like USB or HDMI.");
             });
             ui.horizontal(|ui| {
@@ -5537,7 +5534,7 @@ impl App {
                         egui::TextEdit::multiline(&mut text)
                             .desired_width(200.0)
                             .hint_text("what this build changes"),
-                    ).named("Build note")
+                    ).named("what this build changes")
                     .on_hover_text("A sentence or two, saved with the design.");
                     let save = ui
                         .button("Save note")
@@ -5705,7 +5702,7 @@ impl App {
                             egui::TextEdit::singleline(&mut self.swap_name)
                                 .desired_width(80.0)
                                 .hint_text("package name"),
-                        ).named("Swap package name")
+                        ).named("package name")
                         .on_hover_text(
                             "The package this build uses instead, for example a smaller size.",
                         );
@@ -6338,7 +6335,7 @@ impl App {
                             egui::TextEdit::singleline(&mut self.command_query)
                                 .hint_text("filter command names and descriptions")
                                 .desired_width(300.0),
-                        ).named("Command filter");
+                        ).named("filter command names and descriptions");
                         if self.command_focus {
                             search.request_focus();
                             self.command_focus = false;
@@ -6354,7 +6351,7 @@ impl App {
                                 .desired_width(380.0)
                                 .desired_rows(3)
                                 .interactive(true),
-                        ).named("Command parameters")
+                        ).named("parameters as JSON, one line per value reads easiest")
                         .on_hover_text(
                             "Edit the parameters here; Enter adds a new line so long lists stay readable, and Ctrl+Enter or Execute runs the command.",
                         );
@@ -6895,8 +6892,7 @@ impl App {
                     egui::TextEdit::singleline(&mut self.art_text)
                         .hint_text("words to print")
                         .desired_width(f32::INFINITY),
-                )
-                .named("Layer text")
+                ).named("words to print")
                 .on_hover_text("The words a click will print on the active layer.");
             }
             ui.separator();

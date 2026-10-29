@@ -76,7 +76,7 @@ impl App {
                         egui::TextEdit::singleline(&mut self.datum_ui.add_name)
                             .hint_text("Datum name")
                             .desired_width(90.0),
-                    ).named("New datum name")
+                    ).named("Datum name")
                     .on_hover_text(
                         "Letters, digits, dash or underscore, up to 32 characters. Each name is used once.",
                     );
