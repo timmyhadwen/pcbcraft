@@ -25,6 +25,8 @@ pub const MAX_ITEMS: usize = 2048;
 
 mod material;
 pub use material::{MATERIALS, Material, material};
+mod net_members;
+pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub mod fill;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
