@@ -83,6 +83,32 @@ pub enum SourceError {
     Unavailable(String),
 }
 
+/// Sources answer part searches with stock, prices, lifecycle and datasheet
+/// links. Implementations may be live (network) or recorded (file). Every
+/// implementation must be thread-safe and return bounded results.
+///
+/// # Rules
+/// - `id()` returns a short stable string used as the cache key.
+/// - `search()` returns at most `MAX_RESULTS` entries.
+/// - `fetch()` returns `NotFound` when the part number is not recognized.
+/// - Error variants: `Invalid` (bad input), `NotFound` (no match),
+///   `RateLimited` (back off), `Unavailable` (service down).
+///
+/// # Dependencies
+/// - `PartResult` (this module): the record returned by searches.
+/// - `SourceError` (this module): error types.
+/// - `SetupCard` (this module): setup instructions shown to the user.
+/// - `Attribution` (this module): credit text and link.
+///
+/// # Implementations
+/// - `FixtureSource` (this module): recorded answers from JSON files.
+/// - Live distributor sources: separate crates that implement this trait and
+///   are discovered through the source registry.
+///
+/// # Do not
+/// - Return unbounded result lists; truncate to `MAX_RESULTS`.
+/// - Store mutable state without synchronization; the trait requires `Send + Sync`.
+/// - Return `Invalid` for a part number that simply has no match; use `NotFound`.
 pub trait PartSource: Send + Sync {
     /// Short stable identifier used as the cache key.
     fn id(&self) -> &str;
@@ -247,6 +273,9 @@ impl FixtureSource {
 }
 
 impl PartSource for FixtureSource {
+    // Contract: id() returns "fixture", search() returns at most MAX_RESULTS
+    // entries matching the query, fetch() returns NotFound when the part
+    // number is not in the recorded set.
     fn id(&self) -> &str {
         "fixture"
     }
