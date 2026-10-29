@@ -41,23 +41,6 @@ pub(crate) fn name_control(response: &Response, name: &str, selected: Option<boo
     });
 }
 
-/// Plain-language name for a tool strip button, keyed by its control id.
-pub(crate) fn tool_name(id: &str) -> &str {
-    match id {
-        "tool-select" => "Select",
-        "tool-move" => "Move",
-        "tool-wire" => "Wire",
-        "tool-noconnect" => "No connect",
-        "tool-route" => "Route",
-        "tool-line" => "Draw line",
-        "tool-box" => "Draw box",
-        "tool-circle" => "Draw circle",
-        "tool-outline" => "Draw outline",
-        "tool-words" => "Print words",
-        other => other,
-    }
-}
-
 /// Keep the egui zoom factor and the saved scale in step. A change made
 /// with the keyboard zoom keys is adopted into the preference; a change
 /// made in Settings is pushed to egui.
