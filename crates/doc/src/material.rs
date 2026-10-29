@@ -8,7 +8,7 @@
 //! - Every entry carries the frequency its figures were stated at and a source note.
 //!
 //! # Dependencies
-//! - Used by `LayerRecord::dk` and `LayerRecord::df` in `lib.rs`.
+//! - `crates/doc/src/lib.rs` uses it from `LayerRecord::dk` and `LayerRecord::df`.
 //!
 //! # Do not
 //! - Add an entry without a source note.
