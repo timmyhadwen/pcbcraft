@@ -1,8 +1,14 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
+mod footprint_check;
+mod footprint_generate;
 mod paths;
 mod reader;
 mod sexpr;
 mod validation;
+pub use footprint_check::{FootprintFinding, check_footprint};
+pub use footprint_generate::{
+    GenerateFootprintParams, LandDensity, generate_footprint, overlapping_pad_fixture,
+};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
