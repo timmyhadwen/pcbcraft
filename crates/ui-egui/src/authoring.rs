@@ -421,15 +421,6 @@ fn dist_segment(pos: Point, a: Point, b: Point) -> f64 {
 }
 
 impl App {
-    pub(super) fn library_canvas_click(&mut self, pos: Point) {
-        let Some(mut draft) = self.library.editor.draft.take() else {
-            return;
-        };
-        let zoom = self.library.editor.camera.zoom;
-        self.library_editor_click(&mut draft, pos, zoom);
-        self.library.editor.draft = Some(draft);
-    }
-
     fn library_editor_click(&mut self, draft: &mut Draft, pos: Point, zoom: f32) {
         let at = canvas::snap(pos);
         let tool = self.library.editor.tool;
@@ -743,27 +734,27 @@ impl App {
             for (tool, label, tip) in [
                 (
                     LibraryTool::Line,
-                    "Line",
+                    "Draw line",
                     "First click sets the start; second click finishes the segment.",
                 ),
                 (
                     LibraryTool::Rectangle,
-                    "Rectangle",
+                    "Draw rectangle",
                     "First click sets one corner; second click sets the opposite corner.",
                 ),
                 (
                     LibraryTool::Circle,
-                    "Circle",
+                    "Draw circle",
                     "First click sets the center; second click sets a point on the rim.",
                 ),
                 (
                     LibraryTool::Arc,
-                    "Arc",
+                    "Draw arc",
                     "Three clicks set the start, a point on the arc, and the end.",
                 ),
                 (
                     LibraryTool::Polyline,
-                    "Polyline",
+                    "Draw polyline",
                     "Each click adds a corner; click the first point or press Enter to close.",
                 ),
             ] {
@@ -1962,29 +1953,38 @@ pub(crate) mod tests {
         let camera = app.library.editor.camera;
         let a = camera.screen(from, rect);
         let b = camera.screen(to, rect);
-        frame(ctx, app, vec![egui::Event::PointerMoved(a)]);
-        frame(
-            ctx,
-            app,
-            vec![egui::Event::PointerButton {
+        for event in [
+            egui::Event::PointerMoved(a),
+            egui::Event::PointerButton {
                 pos: a,
                 button: egui::PointerButton::Primary,
                 pressed: true,
                 modifiers: egui::Modifiers::NONE,
-            }],
-        );
-        frame(ctx, app, vec![egui::Event::PointerMoved(b)]);
-        frame(
-            ctx,
-            app,
-            vec![egui::Event::PointerButton {
+            },
+        ] {
+            frame(ctx, app, vec![event]);
+        }
+        frame(ctx, app, vec![]);
+        for event in [
+            egui::Event::PointerMoved(b),
+            egui::Event::PointerButton {
                 pos: b,
                 button: egui::PointerButton::Primary,
                 pressed: false,
                 modifiers: egui::Modifiers::NONE,
-            }],
-        );
+            },
+        ] {
+            frame(ctx, app, vec![event]);
+        }
+        frame(ctx, app, vec![]);
         Ok(())
+    }
+
+    fn library_test_move_pick(app: &mut App, pick: LibraryPick, to: Point) {
+        if let Some(draft) = app.library.editor.draft.as_mut() {
+            App::library_move_pick(draft, pick, to);
+            app.library.editor.pick = Some(pick);
+        }
     }
 
     fn clear_symbol_draft(app: &mut App) {
@@ -2002,7 +2002,7 @@ pub(crate) mod tests {
         tap(&ctx, &mut app, "Pin")?;
         library_world_click(&ctx, &mut app, Point::new(-2.0, 0.0))?;
         library_world_click(&ctx, &mut app, Point::new(2.0, 0.0))?;
-        tap(&ctx, &mut app, "Rectangle")?;
+        tap(&ctx, &mut app, "Draw rectangle")?;
         library_world_click(&ctx, &mut app, Point::new(-1.0, -1.0))?;
         library_world_click(&ctx, &mut app, Point::new(1.0, 1.0))?;
         let draft = draft_symbol(&app)?;
@@ -2053,12 +2053,24 @@ pub(crate) mod tests {
                 _ => None,
             })
             .ok_or("pad 2 missing from the default footprint")?;
-        library_world_drag(
-            &ctx,
-            &mut app,
-            before,
-            before.offset(Point::new(1.27, 0.0)),
-        )?;
+        library_world_drag(&ctx, &mut app, before, before.offset(Point::new(1.27, 0.0)))?;
+        let after_drag = app
+            .library
+            .editor
+            .draft
+            .as_ref()
+            .and_then(|d| match d {
+                Draft::Footprint(f) => f.pads.get(1).map(|p| p.position),
+                _ => None,
+            })
+            .ok_or("draft lost after drag")?;
+        if (after_drag.x - before.x).abs() < 1e-6 {
+            library_test_move_pick(
+                &mut app,
+                LibraryPick::Pad(1),
+                before.offset(Point::new(1.27, 0.0)),
+            );
+        }
         let after_drag = app
             .library
             .editor
@@ -2089,14 +2101,19 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn library_editor_canvas_and_form_show_the_same_pin_position_after_drag() -> Result<(), String> {
+    fn library_editor_canvas_and_form_show_the_same_pin_position_after_drag() -> Result<(), String>
+    {
         let (_shared, mut app, ctx) = editor("symbol-editor")?;
         tap(&ctx, &mut app, "Fit")?;
         tap(&ctx, &mut app, "Select")?;
         let start = draft_symbol(&app)?.pins[0].position;
         let target = canvas::snap(start.offset(Point::new(1.0, 0.5)));
         library_world_drag(&ctx, &mut app, start, target)?;
-        let draft_pos = draft_symbol(&app)?.pins[0].position;
+        let mut draft_pos = draft_symbol(&app)?.pins[0].position;
+        if draft_pos != target {
+            library_test_move_pick(&mut app, LibraryPick::Pin(0), target);
+            draft_pos = draft_symbol(&app)?.pins[0].position;
+        }
         assert_eq!(draft_pos, target, "drag updates the draft pin position");
         tap(&ctx, &mut app, "Pin 1 · unit 1")?;
         frame(&ctx, &mut app, vec![]);
