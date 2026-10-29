@@ -715,7 +715,9 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             if ui
                 .selectable_label(self.library.editor.tool == LibraryTool::Select, "Select")
-                .on_hover_text("Pick pins, pads, or graphics. Drag to move. R rotates; Delete removes.")
+                .on_hover_text(
+                    "Pick pins, pads, or graphics. Drag to move. R rotates; Delete removes.",
+                )
                 .clicked()
             {
                 self.library.editor.tool = LibraryTool::Select;
@@ -812,17 +814,17 @@ impl App {
         );
         self.library.editor.canvas_rect = Some(response.rect);
         let mut camera = self.library.editor.camera;
-        if self.library.editor.needs_fit && response.rect.width() > 40.0 && response.rect.height() > 40.0
+        if self.library.editor.needs_fit
+            && response.rect.width() > 40.0
+            && response.rect.height() > 40.0
         {
+            let (symbol, footprint) = match &draft {
+                Draft::Symbol(s) => (Some(s), None),
+                Draft::Footprint(f) => (None, Some(f)),
+            };
             let paths = super::library::library_geometry_paths(
-                match draft {
-                    Draft::Symbol(s) => Some(s),
-                    _ => None,
-                },
-                match draft {
-                    Draft::Footprint(f) => Some(f),
-                    _ => None,
-                },
+                symbol,
+                footprint,
                 self.library.preview_unit.max(1),
             );
             let (lo, hi) = super::library::library_paths_bounds(&paths);
@@ -850,9 +852,7 @@ impl App {
             ));
         }
         self.library.editor.camera = camera;
-        let cursor = response
-            .hover_pos()
-            .map(|p| camera.world(p, response.rect));
+        let cursor = response.hover_pos().map(|p| camera.world(p, response.rect));
         let snapped = cursor.map(canvas::snap);
         if response.hovered() {
             if ui.input(|i| i.key_pressed(egui::Key::Enter))
@@ -891,8 +891,7 @@ impl App {
         }
         if response.dragged_by(egui::PointerButton::Primary)
             && self.library.editor.tool == LibraryTool::Select
-            && let (Some((pick, offset)), Some(pos)) =
-                (self.library.editor.drag_anchor, cursor)
+            && let (Some((pick, offset)), Some(pos)) = (self.library.editor.drag_anchor, cursor)
             && matches!(pick, LibraryPick::Pin(_) | LibraryPick::Pad(_))
         {
             Self::library_move_pick(draft, pick, pos.offset(offset));
@@ -950,11 +949,7 @@ impl App {
                         ],
                         stroke,
                     );
-                    painter.circle_filled(
-                        camera.screen(pin.position, response.rect),
-                        3.0,
-                        accent,
-                    );
+                    painter.circle_filled(camera.screen(pin.position, response.rect), 3.0, accent);
                 }
             }
             Draft::Footprint(def) => {
@@ -988,10 +983,7 @@ impl App {
                             .iter()
                             .map(|p| camera.screen(*p, response.rect))
                             .collect();
-                        painter.add(egui::Shape::closed_line(
-                            pts,
-                            Stroke::new(1.5, color),
-                        ));
+                        painter.add(egui::Shape::closed_line(pts, Stroke::new(1.5, color)));
                     }
                 }
             }
@@ -1076,7 +1068,9 @@ fn graphic_translate(graphic: &mut Graphic, delta: Point) {
             *end = end.offset(delta);
         }
         Graphic::Circle { center, .. } => *center = center.offset(delta),
-        Graphic::Arc { start, mid, end, .. } => {
+        Graphic::Arc {
+            start, mid, end, ..
+        } => {
             *start = start.offset(delta);
             *mid = mid.offset(delta);
             *end = end.offset(delta);
@@ -1934,11 +1928,7 @@ pub(crate) mod tests {
             .editor
             .canvas_rect
             .ok_or("library canvas was not laid out")?;
-        let pos = app
-            .library
-            .editor
-            .camera
-            .screen(canvas::snap(world), rect);
+        let pos = app.library.editor.camera.screen(canvas::snap(world), rect);
         for pressed in [true, false] {
             frame(
                 ctx,
@@ -2018,11 +2008,17 @@ pub(crate) mod tests {
         let draft = draft_symbol(&app)?;
         assert_eq!(draft.pins.len(), 2, "two pin clicks place two pins");
         assert!(
-            draft.pins.iter().any(|p| p.position == Point::new(-2.0, 0.0)),
+            draft
+                .pins
+                .iter()
+                .any(|p| p.position == Point::new(-2.0, 0.0)),
             "pin one sits on the first grid click"
         );
         assert!(
-            draft.pins.iter().any(|p| p.position == Point::new(2.0, 0.0)),
+            draft
+                .pins
+                .iter()
+                .any(|p| p.position == Point::new(2.0, 0.0)),
             "pin two sits on the second grid click"
         );
         let rect = draft

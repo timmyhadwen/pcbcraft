@@ -477,11 +477,8 @@ impl App {
                 });
             }
         }
-        let paths = library_geometry_paths(
-            symbol,
-            footprint,
-            self.library.preview_unit.max(1),
-        );
+        let paths =
+            library_geometry_paths(symbol, footprint, self.library.preview_unit.max(1));
         let (response, painter) =
             ui.allocate_painter(Vec2::new(ui.available_width(), 180.0), egui::Sense::hover());
         let (center, extent) = library_paths_extent(&paths);
@@ -598,10 +595,7 @@ pub(super) fn library_paths_bounds(paths: &[Vec<Point>]) -> (Point, Point) {
             Point::new(max.x + pad, max.y + pad),
         )
     } else {
-        (
-            Point::new(-4.0, -4.0),
-            Point::new(4.0, 4.0),
-        )
+        (Point::new(-4.0, -4.0), Point::new(4.0, 4.0))
     }
 }
 
@@ -614,9 +608,7 @@ fn paint_library_paths(
 ) {
     for path in paths.iter().filter(|p| p.len() > 1) {
         painter.add(egui::Shape::line(
-            path.iter()
-                .map(|p| camera.screen(*p, rect))
-                .collect(),
+            path.iter().map(|p| camera.screen(*p, rect)).collect(),
             Stroke::new(1.5, color),
         ));
     }
