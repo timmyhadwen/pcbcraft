@@ -670,4 +670,9 @@ mod area_tests {
             ("lib.rs", "empty_state"),
         ])
     }
+
+    #[test]
+    fn every_key_used_by_settings_exists() -> Result<(), String> {
+        keys_exist(&[("lib.rs", "settings_tab"), ("lib.rs", "shortcuts")])
+    }
 }

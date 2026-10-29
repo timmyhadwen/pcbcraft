@@ -52,3 +52,5 @@ lib.rs human_code
 lib.rs checks_view
 lib.rs custom_heading
 lib.rs custom_measure_line
+lib.rs settings_tab
+lib.rs shortcuts
