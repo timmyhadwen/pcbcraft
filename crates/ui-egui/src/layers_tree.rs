@@ -2973,27 +2973,21 @@ impl crate::App {
         };
         let last = key.rsplit('/').next().unwrap_or("");
         if key == "root" || key.ends_with("/root") {
-            ui.label(crate::fonts::title(t!("tree.board_settings")));
-            ui.label(
-                egui::RichText::new(t!("tree.board_settings.help"))
-                    .font(crate::fonts::Role::Caption.font())
-                    .color(self.muted()),
-            );
-            ui.add_space(8.0);
-            self.stackup_section(ui);
-            ui.add_space(8.0);
-            self.holes_section(ui);
-            self.datums_section(ui);
-            self.fiducials_section(ui);
-            self.via_spans_section(ui);
+            self.board_root_properties(ui);
         } else if last.starts_with("side:")
             || last.starts_with("inner:")
             || last.starts_with("diel:")
         {
-            self.stack_properties(ui, last);
+            egui::Frame::NONE
+                .inner_margin(egui::Margin::symmetric(16, 12))
+                .show(ui, |ui| self.stack_properties(ui, last));
         } else if last.starts_with("net:") || key == "nets" {
-            ui.label(crate::fonts::title(t!("tree.net_settings")));
-            self.nets_tab(ui);
+            egui::Frame::NONE
+                .inner_margin(egui::Margin::symmetric(16, 12))
+                .show(ui, |ui| {
+                    ui.label(crate::fonts::title(t!("tree.net_settings")));
+                    self.nets_tab(ui);
+                });
         } else {
             let name = self
                 .tree

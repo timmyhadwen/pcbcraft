@@ -195,31 +195,6 @@ impl App {
         }
     }
 
-    /// Flip button for a chosen footprint in the Properties pane.
-    ///
-    /// # Rules
-    /// - Calls `footprint.flip`; the engine refuses locked parts and says why.
-    pub(crate) fn flip_button(&mut self, ui: &mut egui::Ui, id: Id) {
-        let on_bottom = self
-            .project
-            .footprint(id)
-            .is_some_and(|f| f.board_side() == Layer::Back);
-        let (label, tip) = if on_bottom {
-            (
-                t!("board.inspector.flip_to_top"),
-                t!("board.inspector.flip_to_top.tip"),
-            )
-        } else {
-            (
-                t!("board.inspector.flip_to_bottom"),
-                t!("board.inspector.flip_to_bottom.tip"),
-            )
-        };
-        if ui.button(label).on_hover_text(tip).clicked() {
-            self.run("footprint.flip", json!({"id": id}));
-        }
-    }
-
     /// Flip parts that a command just created when the bottom layer is active.
     ///
     /// Why: dropped components adopt the current layer, with no extra click.
