@@ -1,9 +1,8 @@
 use pcbcraft_doc::{Component, Footprint, Layer, Net, Pad, Pin, Project, Track};
 use pcbcraft_geom::{Point, segment_distance};
 use pcbcraft_io::{
-    CamMirrorAxis as MirrorAxis, CncProfile, IsolationOptions, Side, Spindle, Tool, isolation_gcode,
-    isolation_paths,
-    cam_layer_shapes as layer_shapes,
+    CamMirrorAxis as MirrorAxis, CncProfile, IsolationOptions, Side, Spindle, Tool,
+    cam_layer_shapes as layer_shapes, isolation_gcode, isolation_paths,
 };
 
 fn tool_two_pass() -> Tool {
@@ -148,7 +147,9 @@ fn no_cut_comes_closer_to_copper_than_half_the_tool() -> Result<(), String> {
         mirror_axis: MirrorAxis::Y,
         alignment_holes: false,
     };
-    let gcode = isolation_gcode(&p, &opts, &CncProfile::default())?.files[0].1.clone();
+    let gcode = isolation_gcode(&p, &opts, &CncProfile::default())?.files[0]
+        .1
+        .clone();
     let copper = layer_shapes(&p, Layer::Front)?;
     let half = tool.diameter_mm / 2.0;
     let safe = CncProfile::default().safe_z_mm;
@@ -173,10 +174,10 @@ fn no_cut_comes_closer_to_copper_than_half_the_tool() -> Result<(), String> {
             for shape in &copper {
                 for (a, b) in pcbcraft_geom::polygon_edges(&shape.outline) {
                     let d = segment_distance(pos, next, a, b);
-                        assert!(
-                            d + 0.002 >= half,
-                            "cut passes {d:.3} mm from copper (limit {half:.3})"
-                        );
+                    assert!(
+                        d + 0.002 >= half,
+                        "cut passes {d:.3} mm from copper (limit {half:.3})"
+                    );
                 }
             }
             pos = next;
@@ -206,18 +207,19 @@ fn bottom_side_is_mirrored_about_the_chosen_axis() -> Result<(), String> {
     };
     let mut opts_bottom = opts_top.clone();
     opts_bottom.side = Side::Bottom;
-    let top = isolation_gcode(&p, &opts_top, &CncProfile::default())?.files[0].1.clone();
-    let bottom = isolation_gcode(&p, &opts_bottom, &CncProfile::default())?.files[0].1.clone();
+    let top = isolation_gcode(&p, &opts_top, &CncProfile::default())?.files[0]
+        .1
+        .clone();
+    let bottom = isolation_gcode(&p, &opts_bottom, &CncProfile::default())?.files[0]
+        .1
+        .clone();
     assert_ne!(top, bottom);
     let centre = Point::new(p.board.width / 2.0, p.board.height / 2.0);
     let xs = |text: &str| {
         text.lines()
             .filter_map(|line| {
-                line.split_whitespace().find_map(|token| {
-                    token
-                        .strip_prefix('X')
-                        .and_then(|v| v.parse::<f64>().ok())
-                })
+                line.split_whitespace()
+                    .find_map(|token| token.strip_prefix('X').and_then(|v| v.parse::<f64>().ok()))
             })
             .collect::<Vec<_>>()
     };
@@ -251,7 +253,7 @@ fn two_nets_closer_than_the_tool_refuse_with_both_ids() {
         mirror_axis: MirrorAxis::Y,
         alignment_holes: false,
     };
-    let err = isolation_paths(&p, &opts).unwrap_err();
+    let err = isolation_paths(&p, &opts).err().unwrap_or_default();
     assert!(err.contains("10") && err.contains("11"));
 }
 

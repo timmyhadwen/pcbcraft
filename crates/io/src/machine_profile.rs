@@ -46,13 +46,7 @@ pub fn machine_profile_to_toml(profile: &MachineProfile) -> Result<String, Strin
 fn toml_value_to_json(value: toml::Value) -> Value {
     match value {
         toml::Value::String(s) => Value::String(s),
-        toml::Value::Integer(i) => {
-            if i >= i64::from(i32::MIN) && i <= i64::from(i32::MAX) {
-                Value::Number(i.into())
-            } else {
-                Value::Number(i.into())
-            }
-        }
+        toml::Value::Integer(i) => Value::Number(i.into()),
         toml::Value::Float(f) => match serde_json::Number::from_f64(f) {
             Some(n) => Value::Number(n),
             None => Value::String(f.to_string()),

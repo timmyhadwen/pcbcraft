@@ -108,6 +108,26 @@ fn sample_two_pads_track() -> Project {
     p
 }
 
+fn arc_word(line: &str) -> bool {
+    matches!(
+        line.split_whitespace().next(),
+        Some("G2" | "G02" | "G3" | "G03")
+    )
+}
+
+/// Compares text with a stored fixture; `UPDATE_GOLDEN=1` rewrites the fixture.
+fn golden(name: &str, text: &str) -> Result<(), String> {
+    let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+    if std::env::var("UPDATE_GOLDEN").is_ok() {
+        std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    }
+    let want = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
+    if want != text {
+        return Err(format!("output differs from fixture {name}"));
+    }
+    Ok(())
+}
+
 fn settings(id: &str) -> Result<pcbcraft_io::SnapmakerSettings, String> {
     snapmaker_settings(&builtin_machine_profile(id)?, false)
 }
@@ -172,7 +192,7 @@ fn snapmaker_isolation_golden_two_pads_one_track() -> Result<(), String> {
     assert!(text.contains(";Header End\nG90\nG21\nG17\n"));
     assert!(text.contains("M3 P100\n"));
     assert!(!text.lines().any(|l| l.contains('S') && !l.starts_with(';')));
-    assert!(!text.lines().any(|l| l.starts_with("G2") || l.starts_with("G3")));
+    assert!(!text.lines().any(arc_word));
     let tail: Vec<&str> = text.lines().rev().take(2).collect();
     assert_eq!(tail, vec!["M5", "M400"]);
     let declared: usize = text
@@ -270,6 +290,8 @@ fn snapmaker_drill_three_tool_sizes_yields_three_files_each_with_header_and_boun
         assert!(text.contains("M3 P100\n"));
         assert!(text.ends_with("M400\nM5\n"));
     }
+    golden("snapmaker_drill_0.3mm.nc", &files[0].1)?;
+    golden("snapmaker_drill_2.0mm.nc", &files[2].1)?;
     max_xs.sort();
     assert_eq!(max_xs, vec!["10", "20", "30"]);
     Ok(())
@@ -295,7 +317,7 @@ fn snapmaker_outline_file_has_header_and_no_arcs() -> Result<(), String> {
     };
     let text = snapmaker_finalize(&outline_gcode(&p, &options, &mill_profile(&s))?, &s)?;
     assert!(text.starts_with(";Header Start\n"));
-    assert!(!text.lines().any(|l| l.starts_with("G2") || l.starts_with("G3")));
+    assert!(!text.lines().any(arc_word));
     assert!(text.ends_with("M400\nM5\n"));
     Ok(())
 }

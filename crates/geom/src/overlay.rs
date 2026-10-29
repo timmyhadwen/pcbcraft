@@ -34,13 +34,12 @@ impl FloatPointCompatible for Point {
 }
 
 fn open_ring(ring: &Ring) -> Vec<Point> {
-    let mut pts: Vec<Point> = ring
-        .iter()
-        .copied()
-        .filter(|p| p.valid())
-        .collect();
+    let mut pts: Vec<Point> = ring.iter().copied().filter(|p| p.valid()).collect();
     if pts.len() >= 2
-        && pts.first().zip(pts.last()).is_some_and(|(a, b)| a.distance(*b) < 1e-9)
+        && pts
+            .first()
+            .zip(pts.last())
+            .is_some_and(|(a, b)| a.distance(*b) < 1e-9)
     {
         pts.pop();
     }

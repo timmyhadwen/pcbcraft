@@ -6,6 +6,7 @@ pub mod profiles;
 pub mod recents;
 mod route;
 mod selection_clip;
+mod snapmaker;
 mod tuning;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
@@ -2090,7 +2091,7 @@ pub fn commands() -> Vec<CommandSpec> {
                     "mirror_axis":{"type":"string","enum":["x","y"],"default":"y"},
                     "alignment_holes":{"type":"boolean","default":false}
                 }),
-                &["side","tool"],
+                &["side", "tool"],
             ),
         ),
     ];
@@ -2101,6 +2102,7 @@ pub fn commands() -> Vec<CommandSpec> {
             description,
             input_schema,
         })
+        .chain(snapmaker::commands())
         .chain(authoring::commands())
         .chain(images::commands())
         .chain(tuning::commands())
@@ -2162,11 +2164,15 @@ impl Session {
         }
         if commands
             .iter()
-            .all(|c| c.command == "cam.isolation")
+            .all(|c| c.command == "cam.isolation" || snapmaker::handles(&c.command))
         {
             let mut results = vec![];
             for command in commands {
-                results.push(run_read_only(&self.project, &command.command, &command.params)?);
+                results.push(run_read_only(
+                    &self.project,
+                    &command.command,
+                    &command.params,
+                )?);
             }
             return Ok(json!({"revision":self.revision,"results":results}));
         }
@@ -5972,17 +5978,15 @@ fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> R
     }
     Ok(())
 }
-/// Run one command with named parameters resolved, then record what it bound.
-/// A plain number written where a parameter could stand releases that field,
-/// so a later parameter change never overrides a deliberate edit.
-}
 
 const MAX_MACHINE_PROFILE_JSON_BYTES: usize = 65536;
 
 fn machine_profile_from_json(v: &Value) -> Result<pcbcraft_doc::MachineProfile, Error> {
     let bytes = serde_json::to_vec(v).map_err(|e| Error::Invalid(e.to_string()))?;
     if bytes.len() > MAX_MACHINE_PROFILE_JSON_BYTES {
-        return Err(Error::Invalid("machine profile payload exceeds 64 KiB".into()));
+        return Err(Error::Invalid(
+            "machine profile payload exceeds 64 KiB".into(),
+        ));
     }
     parse(v)
 }
@@ -5991,19 +5995,22 @@ fn upsert_machine_profile(
     profiles: &mut Vec<pcbcraft_doc::MachineProfile>,
     profile: pcbcraft_doc::MachineProfile,
 ) -> Result<bool, Error> {
-    profile
-        .validate()
-        .map_err(|reason| Error::Invalid(reason))?;
+    profile.validate().map_err(Error::Invalid)?;
     if let Some(existing) = profiles.iter_mut().find(|p| p.id == profile.id) {
         *existing = profile;
         return Ok(true);
     }
     if profiles.len() >= pcbcraft_doc::MAX_ITEMS {
-        return Err(Error::Invalid("machine profile limit reached (2048)".into()));
+        return Err(Error::Invalid(
+            "machine profile limit reached (2048)".into(),
+        ));
     }
     profiles.push(profile);
     Ok(false)
-
+}
+/// Run one command with named parameters resolved, then record what it bound.
+/// A plain number written where a parameter could stand releases that field,
+/// so a later parameter change never overrides a deliberate edit.
 fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<Value, Error> {
     let resolved = resolve_parameters(p, command, params)?;
     let target = BindingTarget::of(command);
@@ -6055,16 +6062,13 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
     }
     Ok(result)
 }
-fn run_command(
-    p: &mut Project,
-    next: &mut Id,
-    command: &str,
-    params: &Value,
-) -> Result<Value, Error> {
 fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Error> {
     match command {
         "cam.isolation" => cam_isolation(p, params).map_err(Error::Invalid),
-        _ => Err(Error::Invalid(format!("unknown read-only command: {command}"))),
+        c if snapmaker::handles(c) => snapmaker::run(p, c, params).map_err(Error::Invalid),
+        _ => Err(Error::Invalid(format!(
+            "unknown read-only command: {command}"
+        ))),
     }
 }
 
@@ -6106,14 +6110,19 @@ fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
         .get("spindle_rpm")
         .and_then(Value::as_u64)
         .filter(|v| *v > 0)
-        .ok_or_else(|| "tool.spindle_rpm must be positive".to_string())? as u32;
+        .ok_or_else(|| "tool.spindle_rpm must be positive".to_string())?
+        as u32;
     let overlap_pct = params
         .get("overlap_pct")
         .and_then(Value::as_u64)
         .unwrap_or(50) as u8;
-    let mirror_axis = match params.get("mirror_axis").and_then(Value::as_str).unwrap_or("y") {
-        "x" => pcbcraft_io::MirrorAxis::X,
-        "y" => pcbcraft_io::MirrorAxis::Y,
+    let mirror_axis = match params
+        .get("mirror_axis")
+        .and_then(Value::as_str)
+        .unwrap_or("y")
+    {
+        "x" => pcbcraft_io::CamMirrorAxis::X,
+        "y" => pcbcraft_io::CamMirrorAxis::Y,
         _ => return Err("mirror_axis must be x or y".into()),
     };
     let alignment_holes = params
@@ -6148,8 +6157,13 @@ fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
     }))
 }
 
-fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<Value, Error> {
-    if command == "cam.isolation" {
+fn run_command(
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+) -> Result<Value, Error> {
+    if command == "cam.isolation" || snapmaker::handles(command) {
         return run_read_only(p, command, params);
     }
     if let Some(result) = authoring::run(p, next, command, params) {
@@ -13713,8 +13727,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         "machine.add accepts either a preset or a profile object, not both".into(),
                     ));
                 }
-                let mut profile = pcbcraft_io::builtin_machine_profile(&preset)
-                    .map_err(Error::Invalid)?;
+                let mut profile =
+                    pcbcraft_io::builtin_machine_profile(&preset).map_err(Error::Invalid)?;
                 if let Some(id) = a.id {
                     if id.is_empty() || id.len() > 64 {
                         return Err(Error::Invalid(
@@ -13731,7 +13745,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "machine.add needs a preset id or a profile object".into(),
                 ));
             };
-            if p.machine_profiles.iter().any(|existing| existing.id == profile.id) {
+            if p.machine_profiles
+                .iter()
+                .any(|existing| existing.id == profile.id)
+            {
                 return Err(Error::Invalid(
                     "a machine profile with that id already exists".into(),
                 ));
@@ -13743,7 +13760,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         "machine.set" => {
             let a: MachineSetParams = parse(params)?;
             let profile = machine_profile_from_json(&a.profile)?;
-            if !p.machine_profiles.iter().any(|existing| existing.id == profile.id) {
+            if !p
+                .machine_profiles
+                .iter()
+                .any(|existing| existing.id == profile.id)
+            {
                 return Err(Error::Invalid(format!(
                     "no machine profile named {} in the design",
                     profile.id
@@ -13773,9 +13794,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let profiles: Vec<Value> = p
                 .machine_profiles
                 .iter()
-                .map(|profile| {
-                    json!({"id": profile.id, "name": profile.name, "kind": profile.kind})
-                })
+                .map(
+                    |profile| json!({"id": profile.id, "name": profile.name, "kind": profile.kind}),
+                )
                 .collect();
             Ok(json!({"profiles": profiles, "count": profiles.len()}))
         }
@@ -13784,8 +13805,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if a.path.is_empty() || a.path.len() > 4096 {
                 return Err(Error::Invalid("import path must be 1 to 4096 bytes".into()));
             }
-            let text = pcbcraft_io::read_text(std::path::Path::new(&a.path))
-                .map_err(Error::Invalid)?;
+            let text =
+                pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
             let profile = pcbcraft_io::machine_profile_from_toml(&text).map_err(Error::Invalid)?;
             let replaced = upsert_machine_profile(&mut p.machine_profiles, profile.clone())?;
             Ok(json!({"id": profile.id, "replaced": replaced}))
@@ -28034,11 +28055,7 @@ mod tests {
     #[test]
     fn machine_add_from_preset_refuses_duplicate_id() -> Result<(), Error> {
         let mut s = Session::sample()?;
-        s.execute(
-            "machine.add",
-            json!({"preset":"commarker-b6-mopa"}),
-            None,
-        )?;
+        s.execute("machine.add", json!({"preset":"commarker-b6-mopa"}), None)?;
         for preset in pcbcraft_io::builtin_machine_profile_ids() {
             if *preset != "commarker-b6-mopa" {
                 s.execute("machine.add", json!({"preset": preset}), None)?;
@@ -28046,12 +28063,8 @@ mod tests {
         }
         assert_eq!(s.project.machine_profiles.len(), 5);
         assert!(
-            s.execute(
-                "machine.add",
-                json!({"preset":"commarker-b6-mopa"}),
-                None
-            )
-            .is_err()
+            s.execute("machine.add", json!({"preset":"commarker-b6-mopa"}), None)
+                .is_err()
         );
         Ok(())
     }
@@ -28060,10 +28073,9 @@ mod tests {
     fn machine_import_then_export_matches_golden() -> Result<(), Error> {
         let mut s = Session::sample()?;
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let golden = manifest
-            .join("../io/tests/fixtures/machine-profiles/commarker-b6-mopa.toml");
-        let golden_text = std::fs::read_to_string(&golden)
-            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let golden = manifest.join("../io/tests/fixtures/machine-profiles/commarker-b6-mopa.toml");
+        let golden_text =
+            std::fs::read_to_string(&golden).map_err(|e| Error::Invalid(e.to_string()))?;
         let expected =
             pcbcraft_io::machine_profile_from_toml(&golden_text).map_err(Error::Invalid)?;
         s.execute(
@@ -28080,10 +28092,9 @@ mod tests {
             json!({"id":"commarker-b6-mopa","path": out_path.to_string_lossy()}),
             None,
         )?;
-        let exported = std::fs::read_to_string(&out_path)
-            .map_err(|e| Error::Invalid(e.to_string()))?;
-        let round =
-            pcbcraft_io::machine_profile_from_toml(&exported).map_err(Error::Invalid)?;
+        let exported =
+            std::fs::read_to_string(&out_path).map_err(|e| Error::Invalid(e.to_string()))?;
+        let round = pcbcraft_io::machine_profile_from_toml(&exported).map_err(Error::Invalid)?;
         if round != expected {
             return Err(Error::Invalid(
                 "exported profile did not match the golden".into(),
@@ -33087,6 +33098,9 @@ mod tests {
         );
         let back = s.execute("via.set_span", json!({"id":id,"to_layer":"B.Cu"}), None);
         assert!(back.is_ok(), "bottom layer is the through span");
+        Ok(())
+    }
+    #[test]
     fn cam_isolation_returns_files_without_editing_history() -> Result<(), Error> {
         let mut s = Session::default();
         let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
@@ -33107,10 +33121,16 @@ mod tests {
             None,
         )?;
         assert_eq!(s.revision, before);
-        assert!(out["result"]["files"]
-            .as_array()
-            .is_some_and(|a| !a.is_empty()));
-        assert!(out["result"]["estimate_s"].as_f64().is_some_and(|v| v > 0.0));
+        assert!(
+            out["result"]["files"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty())
+        );
+        assert!(
+            out["result"]["estimate_s"]
+                .as_f64()
+                .is_some_and(|v| v > 0.0)
+        );
         Ok(())
     }
 }

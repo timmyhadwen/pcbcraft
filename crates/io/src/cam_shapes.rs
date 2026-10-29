@@ -12,15 +12,15 @@ pub struct LayerShape {
 const EPS: f64 = 1e-6;
 
 fn clean_ring(points: &[Point]) -> Option<Ring> {
-    let mut ring: Vec<Point> = points
-        .iter()
-        .copied()
-        .filter(|p| p.valid())
-        .collect();
+    let mut ring: Vec<Point> = points.iter().copied().filter(|p| p.valid()).collect();
     if ring.len() < 3 {
         return None;
     }
-    if ring.first().zip(ring.last()).is_some_and(|(a, b)| a.distance(*b) < EPS) {
+    if ring
+        .first()
+        .zip(ring.last())
+        .is_some_and(|(a, b)| a.distance(*b) < EPS)
+    {
         ring.pop();
     }
     ring.dedup_by(|a, b| a.distance(*b) < EPS);
@@ -37,10 +37,7 @@ fn circle_ring(centre: Point, radius: f64) -> Ring {
     let mut ring: Vec<Point> = (0..steps)
         .map(|i| {
             let a = 2.0 * std::f64::consts::PI * (i as f64) / (steps as f64);
-            Point::new(
-                centre.x + radius * a.cos(),
-                centre.y + radius * a.sin(),
-            )
+            Point::new(centre.x + radius * a.cos(), centre.y + radius * a.sin())
         })
         .collect();
     if let Some(first) = ring.first().copied() {
@@ -140,10 +137,8 @@ pub fn layer_shapes(project: &Project, layer: Layer) -> Result<Vec<LayerShape>, 
             let (s, c) = tie.rotation.to_radians().sin_cos();
             let r = tie.diameter / 2.0;
             for (net, sign) in [(tie.net_a, -1.0), (tie.net_b, 1.0)] {
-                let centre = Point::new(
-                    tie.position.x + sign * r * c,
-                    tie.position.y + sign * r * s,
-                );
+                let centre =
+                    Point::new(tie.position.x + sign * r * c, tie.position.y + sign * r * s);
                 shapes.push(LayerShape {
                     id: tie.id,
                     net,

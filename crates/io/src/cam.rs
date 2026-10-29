@@ -101,7 +101,10 @@ impl GcodeWriter {
         Self {
             dialect,
             lines: vec![],
-            bounds: (Point::new(f64::INFINITY, f64::INFINITY), Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY)),
+            bounds: (
+                Point::new(f64::INFINITY, f64::INFINITY),
+                Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
+            ),
             cut_mm: 0.0,
             plunge_mm: 0.0,
             rapid_mm: 0.0,
@@ -143,19 +146,14 @@ impl GcodeWriter {
     pub fn rapid(&mut self, p: Point, jog: f64) {
         self.feed = jog;
         self.move_time(p, false);
-        self.lines.push(format!(
-            "G0 X{:.3} Y{:.3}",
-            p.x, p.y
-        ));
+        self.lines.push(format!("G0 X{:.3} Y{:.3}", p.x, p.y));
     }
 
     pub fn cut(&mut self, p: Point, feed: f64) {
         self.feed = feed;
         self.move_time(p, true);
-        self.lines.push(format!(
-            "G1 X{:.3} Y{:.3} F{:.0}",
-            p.x, p.y, feed
-        ));
+        self.lines
+            .push(format!("G1 X{:.3} Y{:.3} F{:.0}", p.x, p.y, feed));
     }
 
     pub fn plunge(&mut self, z: f64, rate: f64) {
@@ -256,12 +254,7 @@ fn check_net_clearance(shapes: &[LayerShape], tool_d: f64) -> Result<(), String>
             if d < tool_d {
                 return Err(format!(
                     "nets {} and {} are {:.3} mm apart, less than the {:.3} mm tool; widen clearance between objects {} and {}",
-                    shapes[i].net,
-                    shapes[j].net,
-                    d,
-                    tool_d,
-                    shapes[i].id,
-                    shapes[j].id
+                    shapes[i].net, shapes[j].net, d, tool_d, shapes[i].id, shapes[j].id
                 ));
             }
         }
@@ -273,7 +266,10 @@ fn linearise_ring(ring: &Ring) -> Vec<Point> {
     let open = {
         let mut pts: Vec<Point> = ring.to_vec();
         if pts.len() >= 2
-            && pts.first().zip(pts.last()).is_some_and(|(a, b)| a.distance(*b) < 1e-9)
+            && pts
+                .first()
+                .zip(pts.last())
+                .is_some_and(|(a, b)| a.distance(*b) < 1e-9)
         {
             pts.pop();
         }
@@ -293,10 +289,7 @@ fn linearise_ring(ring: &Ring) -> Vec<Point> {
         let steps = ((a.distance(b) / LINEARISE_TOL_MM).ceil() as usize).max(1);
         for i in 1..=steps {
             let t = i as f64 / steps as f64;
-            path.push(Point::new(
-                a.x + (b.x - a.x) * t,
-                a.y + (b.y - a.y) * t,
-            ));
+            path.push(Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
         }
     }
     path
@@ -417,7 +410,9 @@ pub fn isolation_gcode(
             opts.tool.depth_mm, p.board.thickness
         ));
     }
-    if opts.tool.diameter_mm <= 0.0 || opts.tool.feed_mm_min <= 0.0 || opts.tool.plunge_mm_min <= 0.0
+    if opts.tool.diameter_mm <= 0.0
+        || opts.tool.feed_mm_min <= 0.0
+        || opts.tool.plunge_mm_min <= 0.0
     {
         return Err("tool diameter, feed and plunge must be positive".into());
     }
@@ -440,7 +435,11 @@ pub fn isolation_gcode(
     writer.spindle_off();
     writer.lines.push("M2".into());
     let estimate = writer.estimate_s();
-    if let Some(first) = writer.lines.iter_mut().find(|l| l.starts_with("; estimate_s=")) {
+    if let Some(first) = writer
+        .lines
+        .iter_mut()
+        .find(|l| l.starts_with("; estimate_s="))
+    {
         *first = format!("; estimate_s={:.1}", estimate);
     }
     let body = writer.finish();
@@ -450,9 +449,11 @@ pub fn isolation_gcode(
     };
     let mut alignment = None;
     if opts.side == Side::Bottom && opts.alignment_holes {
-        let outline = p.board.outline.as_ref().ok_or(
-            "alignment holes need a board outline".to_string(),
-        )?;
+        let outline = p
+            .board
+            .outline
+            .as_ref()
+            .ok_or("alignment holes need a board outline".to_string())?;
         let mut min_x = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
         for pt in outline {
@@ -464,8 +465,18 @@ pub fn isolation_gcode(
             MirrorAxis::Y => outline.iter().map(|p| p.y).sum::<f64>() / outline.len() as f64,
         };
         let holes = [
-            transform_point(Point::new(min_x - 5.0, y), opts.side, opts.mirror_axis, centre),
-            transform_point(Point::new(max_x + 5.0, y), opts.side, opts.mirror_axis, centre),
+            transform_point(
+                Point::new(min_x - 5.0, y),
+                opts.side,
+                opts.mirror_axis,
+                centre,
+            ),
+            transform_point(
+                Point::new(max_x + 5.0, y),
+                opts.side,
+                opts.mirror_axis,
+                centre,
+            ),
         ];
         check_bounds(&holes, profile)?;
         alignment = Some([holes[0], holes[1]]);

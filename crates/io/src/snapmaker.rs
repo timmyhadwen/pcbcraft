@@ -224,19 +224,16 @@ fn word(line: &str, letter: char) -> Option<f64> {
     })
 }
 
+/// Per-axis extremes of the coordinates a program actually visits.
 struct Bounds {
-    min: [f64; 3],
-    max: [f64; 3],
-    any: bool,
+    min: [Option<f64>; 3],
+    max: [Option<f64>; 3],
 }
 
 impl Bounds {
-    fn note(&mut self, v: [f64; 3]) {
-        for i in 0..3 {
-            self.min[i] = if self.any { self.min[i].min(v[i]) } else { v[i] };
-            self.max[i] = if self.any { self.max[i].max(v[i]) } else { v[i] };
-        }
-        self.any = true;
+    fn note(&mut self, axis: usize, v: f64) {
+        self.min[axis] = Some(self.min[axis].map_or(v, |m| m.min(v)));
+        self.max[axis] = Some(self.max[axis].map_or(v, |m| m.max(v)));
     }
 }
 
@@ -279,14 +276,12 @@ fn check_axis(
 pub fn snapmaker_finalize(input: &str, s: &SnapmakerSettings) -> Result<String, String> {
     let mut body: Vec<String> = Vec::new();
     let mut bounds = Bounds {
-        min: [0.0; 3],
-        max: [0.0; 3],
-        any: false,
+        min: [None; 3],
+        max: [None; 3],
     };
-    let (mut x, mut y, mut z) = (0.0_f64, 0.0_f64, s.safe_z_mm);
+    let mut at: [Option<f64>; 3] = [None; 3];
     let mut feed = s.work_speed_mm_min;
     let mut seconds = 0.0_f64;
-    let mut moved = false;
     for (i, raw) in input.lines().enumerate() {
         if i >= MAX_LINES {
             return Err("G-code is too long".into());
@@ -338,12 +333,16 @@ pub fn snapmaker_finalize(input: &str, s: &SnapmakerSettings) -> Result<String, 
             }
             "G0" | "G00" | "G1" | "G01" => {
                 let rapid = code == "G0" || code == "G00";
-                let nx = word(line, 'X').unwrap_or(x);
-                let ny = word(line, 'Y').unwrap_or(y);
-                let nz = word(line, 'Z').unwrap_or(z);
-                check_axis("X", nx, 0.0, s.work_x_mm, s, line_no)?;
-                check_axis("Y", ny, 0.0, s.work_y_mm, s, line_no)?;
-                check_axis("Z", nz, -s.work_z_mm, s.work_z_mm, s, line_no)?;
+                let target = [word(line, 'X'), word(line, 'Y'), word(line, 'Z')];
+                if let Some(v) = target[0] {
+                    check_axis("X", v, 0.0, s.work_x_mm, s, line_no)?;
+                }
+                if let Some(v) = target[1] {
+                    check_axis("Y", v, 0.0, s.work_y_mm, s, line_no)?;
+                }
+                if let Some(v) = target[2] {
+                    check_axis("Z", v, -s.work_z_mm, s.work_z_mm, s, line_no)?;
+                }
                 let given = word(line, 'F');
                 if rapid {
                     feed = given.unwrap_or(s.jog_speed_mm_min);
@@ -353,18 +352,24 @@ pub fn snapmaker_finalize(input: &str, s: &SnapmakerSettings) -> Result<String, 
                 if !(feed.is_finite() && feed > 0.0) {
                     return Err(format!("feed on line {line_no} must be positive"));
                 }
-                let dist =
-                    ((nx - x).powi(2) + (ny - y).powi(2) + (nz - z).powi(2)).sqrt();
-                if moved {
-                    seconds += dist / feed * 60.0;
+                let mut squared = 0.0;
+                for axis in 0..3 {
+                    if let Some(v) = target[axis] {
+                        if let Some(old) = at[axis] {
+                            squared += (v - old).powi(2);
+                        }
+                        at[axis] = Some(v);
+                        bounds.note(axis, v);
+                    }
                 }
-                moved = true;
-                (x, y, z) = (nx, ny, nz);
-                bounds.note([x, y, z]);
+                seconds += squared.sqrt() / feed * 60.0;
                 let mut out = format!("{} ", if rapid { "G0" } else { "G1" });
                 let mut parts = Vec::new();
-                for (letter, v) in [('X', word(line, 'X')), ('Y', word(line, 'Y')), ('Z', word(line, 'Z'))]
-                {
+                for (letter, v) in [
+                    ('X', word(line, 'X')),
+                    ('Y', word(line, 'Y')),
+                    ('Z', word(line, 'Z')),
+                ] {
                     if let Some(v) = v {
                         parts.push(format!("{letter}{}", num(v)));
                     }
@@ -388,16 +393,17 @@ pub fn snapmaker_finalize(input: &str, s: &SnapmakerSettings) -> Result<String, 
     let time_index = lines.len();
     lines.push(String::new());
     lines.push(";is_rotate: false".into());
-    let (mn, mx) = if bounds.any {
-        (bounds.min, bounds.max)
-    } else {
-        ([0.0; 3], [0.0; 3])
-    };
     for (i, a) in ["x", "y", "z"].iter().enumerate() {
-        lines.push(format!(";max_{a}(mm): {}", num(mx[i])));
+        lines.push(format!(
+            ";max_{a}(mm): {}",
+            num(bounds.max[i].unwrap_or(0.0))
+        ));
     }
     for (i, a) in ["x", "y", "z"].iter().enumerate() {
-        lines.push(format!(";min_{a}(mm): {}", num(mn[i])));
+        lines.push(format!(
+            ";min_{a}(mm): {}",
+            num(bounds.min[i].unwrap_or(0.0))
+        ));
     }
     lines.push(format!(
         ";work_speed(mm/minute): {}",

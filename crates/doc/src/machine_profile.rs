@@ -9,7 +9,6 @@ const MAX_VENDOR_LEN: usize = 128;
 const MAX_MODEL_LEN: usize = 128;
 const MAX_NOTES_LEN: usize = 4096;
 const MAX_SHORT: usize = 64;
-const MAX_MEDIUM: usize = 256;
 
 fn valid_slug(id: &str) -> bool {
     !id.is_empty()
@@ -34,6 +33,9 @@ pub struct WorkArea {
     pub y: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub z: Option<f64>,
+    /// Y length once a Quick Swap kit is fitted; absent when the machine has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y_with_quick_swap: Option<f64>,
     pub origin: String,
     pub y_up: bool,
 }
@@ -272,7 +274,7 @@ pub struct UvPrinterSection {
     pub limits: Option<UvLimitsSection>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct MachineProfile {
     pub id: String,
@@ -335,7 +337,9 @@ impl UvPrinterSection {
 impl MachineProfile {
     pub fn validate(&self) -> Result<(), String> {
         if !valid_slug(&self.id) {
-            return Err("machine profile id must be 1 to 64 lowercase letters, digits or hyphens".into());
+            return Err(
+                "machine profile id must be 1 to 64 lowercase letters, digits or hyphens".into(),
+            );
         }
         if !bounded(&self.name, MAX_NAME_LEN) {
             return Err("machine profile name must be 1 to 128 bytes".into());
@@ -357,14 +361,18 @@ impl MachineProfile {
         self.validate_output()?;
         match kind {
             "laser_galvo" | "laser_gantry" => {
-                if !self.mill.is_empty() || !self.pick_place.is_empty() || !self.uv_printer.is_empty()
+                if !self.mill.is_empty()
+                    || !self.pick_place.is_empty()
+                    || !self.uv_printer.is_empty()
                 {
                     return Err("laser profiles may only carry laser settings".into());
                 }
                 self.validate_laser()?;
             }
             "cnc_mill" => {
-                if !self.laser.is_empty() || !self.pick_place.is_empty() || !self.uv_printer.is_empty()
+                if !self.laser.is_empty()
+                    || !self.pick_place.is_empty()
+                    || !self.uv_printer.is_empty()
                 {
                     return Err("mill profiles may only carry mill settings".into());
                 }
@@ -389,12 +397,26 @@ impl MachineProfile {
 
     fn validate_work_area(&self) -> Result<(), String> {
         let w = &self.work_area;
-        if !w.x.is_finite() || !w.y.is_finite() || w.x <= 0.0 || w.y <= 0.0 || w.x > 5000.0 || w.y > 5000.0
+        if !w.x.is_finite()
+            || !w.y.is_finite()
+            || w.x <= 0.0
+            || w.y <= 0.0
+            || w.x > 5000.0
+            || w.y > 5000.0
         {
             return Err("work area width and height must be positive finite millimetres".into());
         }
-        if w.z.is_some_and(|z| !z.is_finite() || z <= 0.0 || z > 5000.0) {
+        if w.z
+            .is_some_and(|z| !z.is_finite() || z <= 0.0 || z > 5000.0)
+        {
             return Err("work area depth must be a positive finite millimetre value".into());
+        }
+        if w.y_with_quick_swap
+            .is_some_and(|y| !y.is_finite() || y <= 0.0 || y > w.y)
+        {
+            return Err(
+                "Quick Swap work depth must be positive and not exceed the full depth".into(),
+            );
         }
         if !optional_bounded(&w.origin, MAX_SHORT) {
             return Err("work area origin label is too long".into());
@@ -446,8 +468,8 @@ impl MachineProfile {
         if self.mill.tool.len() > MAX_PROFILE_ROWS {
             return Err("mill profiles carry at most 64 tools".into());
         }
-        if let Some(spindle) = &self.mill.spindle {
-            if !spindle.default_percent.is_finite()
+        if let Some(spindle) = &self.mill.spindle
+            && (!spindle.default_percent.is_finite()
                 || spindle.default_percent < 50.0
                 || spindle.default_percent > 100.0
                 || !spindle.min_percent.is_finite()
@@ -456,10 +478,9 @@ impl MachineProfile {
                 || !spindle.max_percent.is_finite()
                 || spindle.max_percent < 50.0
                 || spindle.max_percent > 100.0
-                || spindle.min_percent > spindle.max_percent
-            {
-                return Err("mill spindle percent must stay between 50 and 100".into());
-            }
+                || spindle.min_percent > spindle.max_percent)
+        {
+            return Err("mill spindle percent must stay between 50 and 100".into());
         }
         for tool in &self.mill.tool {
             if !bounded(&tool.id, MAX_SHORT) {
@@ -522,6 +543,7 @@ mod tests {
             model: "X".into(),
             notes: String::new(),
             work_area: WorkArea {
+                y_with_quick_swap: None,
                 x: 150.0,
                 y: 150.0,
                 z: None,
@@ -570,6 +592,7 @@ mod tests {
             model: "Y".into(),
             notes: String::new(),
             work_area: WorkArea {
+                y_with_quick_swap: None,
                 x: 320.0,
                 y: 325.0,
                 z: Some(275.0),

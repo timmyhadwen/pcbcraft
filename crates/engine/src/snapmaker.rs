@@ -10,7 +10,7 @@
 use super::*;
 use pcbcraft_io::{
     DrillDialect, DrillMillTool, DrillOptions, DrillOrder, OutlineCompensation, OutlineOptions,
-    Side, Spindle, SnapmakerSettings, Tabs, ToolChange,
+    Side, SnapmakerSettings, Spindle, Tabs, ToolChange,
 };
 
 const COMMANDS: [&str; 3] = [
@@ -154,8 +154,8 @@ fn rpm_for(percent: f64, s: &SnapmakerSettings) -> u32 {
 }
 
 fn percent_checked(percent: f64, s: &SnapmakerSettings) -> Result<u8, String> {
-    if !percent.is_finite() || percent.fract().abs() > 1e-9 && percent.fract().abs() < 1.0 - 1e-9 {
-        // fractional percent is rounded by the spindle helper
+    if !percent.is_finite() {
+        return Err("spindle percent must be a number".into());
     }
     pcbcraft_io::spindle_percent(Spindle::Percent(percent.round().clamp(0.0, 255.0) as u8), s)
 }
@@ -225,7 +225,8 @@ pub(super) fn run(p: &Project, command: &str, params: &Value) -> Result<Value, S
                 mirror_axis: pcbcraft_io::CamMirrorAxis::Y,
                 alignment_holes: false,
             };
-            let out = pcbcraft_io::isolation_gcode(p, &opts, &pcbcraft_io::snapmaker_cnc_profile(&s))?;
+            let out =
+                pcbcraft_io::isolation_gcode(p, &opts, &pcbcraft_io::snapmaker_cnc_profile(&s))?;
             Ok(files_json(
                 pcbcraft_io::snapmaker_files(out.files, &s)?,
                 &s.profile_id,
@@ -315,5 +316,101 @@ fn mill_profile(s: &SnapmakerSettings) -> pcbcraft_io::CamProfile {
         direction: pcbcraft_io::CutDirection::Conventional,
         plating_allowance_mm: 0.0,
         fab_plated: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session_with_track() -> Result<Session, Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("no net id".into()))?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":[5.0,5.0],"end":[15.0,5.0],"width":0.3,"layer":"F.Cu"}),
+            None,
+        )?;
+        Ok(s)
+    }
+
+    const A350T: &str = "snapmaker-2-a350t-200w-cnc";
+
+    #[test]
+    fn cam_snapmaker_artifact_refuses_depth_past_board_thickness() -> Result<(), Error> {
+        let mut s = session_with_track()?;
+        let thickness = s.project.board.thickness;
+        let before = s.revision;
+        let refused = s.execute(
+            "cam.snapmaker_isolation",
+            json!({"profile_id":A350T,"tool_id":"iso-0.2","side":"top","depth_mm":thickness + 0.5}),
+            None,
+        );
+        assert!(refused.is_err_and(|e| e.to_string().contains("deeper than")));
+        assert_eq!(s.revision, before);
+        Ok(())
+    }
+
+    #[test]
+    fn cam_snapmaker_artifact_refuses_zero_feed() -> Result<(), Error> {
+        let mut s = session_with_track()?;
+        let refused = s.execute(
+            "cam.snapmaker_isolation",
+            json!({"profile_id":A350T,"tool_id":"iso-0.2","side":"top","depth_mm":0.08,"feed_mm_min":0.0}),
+            None,
+        );
+        assert!(refused.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn cam_snapmaker_artifact_refuses_spindle_percent_40() -> Result<(), Error> {
+        let mut s = session_with_track()?;
+        let refused = s.execute(
+            "cam.snapmaker_isolation",
+            json!({"profile_id":A350T,"tool_id":"iso-0.2","side":"top","depth_mm":0.08,"spindle_percent":40.0}),
+            None,
+        );
+        assert!(refused.is_err_and(|e| e.to_string().contains("50 to 100")));
+        Ok(())
+    }
+
+    #[test]
+    fn cam_snapmaker_artifact_refuses_unknown_tool_and_profile() -> Result<(), Error> {
+        let mut s = session_with_track()?;
+        let tool = s.execute(
+            "cam.snapmaker_isolation",
+            json!({"profile_id":A350T,"tool_id":"nope","side":"top","depth_mm":0.08}),
+            None,
+        );
+        assert!(tool.is_err_and(|e| e.to_string().contains("no tool named nope")));
+        let profile = s.execute(
+            "cam.snapmaker_outline",
+            json!({"profile_id":"missing","tool_id":"iso-0.2"}),
+            None,
+        );
+        assert!(profile.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn cam_snapmaker_isolation_returns_header_file_without_editing_history() -> Result<(), Error> {
+        let mut s = session_with_track()?;
+        let before = s.revision;
+        let out = s.execute(
+            "cam.snapmaker_isolation",
+            json!({"profile_id":A350T,"tool_id":"iso-0.2","side":"top","depth_mm":0.08}),
+            None,
+        )?;
+        assert_eq!(s.revision, before);
+        let body = out["result"]["files"][0]["body"]
+            .as_str()
+            .ok_or_else(|| Error::Invalid("no file".into()))?;
+        assert!(body.starts_with(";Header Start\n"));
+        assert!(body.contains("M3 P100\n"));
+        assert!(body.ends_with("M400\nM5\n"));
+        Ok(())
     }
 }
