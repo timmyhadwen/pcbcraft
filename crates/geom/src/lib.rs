@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod hull;
+pub mod poly;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
