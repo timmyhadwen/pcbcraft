@@ -52,9 +52,11 @@ fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
         hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
     }
     let pad = 2.0;
+    // On the board view the dimension lines sit left of and below the board.
+    let (left, below) = if pcb { (7.0, 6.0) } else { (pad, pad) };
     (
-        Point::new(lo.x - pad, lo.y - pad),
-        Point::new(hi.x + pad, hi.y + pad),
+        Point::new(lo.x - left, lo.y - pad),
+        Point::new(hi.x + pad, hi.y + below),
     )
 }
 
