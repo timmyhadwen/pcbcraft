@@ -1463,7 +1463,7 @@ impl App {
                     .color(self.muted()),
             );
         }
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.stack_name)
                     .desired_width(70.0)
@@ -3079,13 +3079,40 @@ impl App {
         .response
         .on_hover_text("Shortcuts, the command search and bug reports.");
     }
+    /// The datasheet address when the field holds a plain web link.
+    fn datasheet_url(field: Option<&str>) -> Option<String> {
+        let url = field?.trim();
+        let lower = url.to_ascii_lowercase();
+        ((lower.starts_with("http://") || lower.starts_with("https://"))
+            && url.len() <= 2048
+            && !url.chars().any(char::is_whitespace))
+        .then(|| url.to_owned())
+    }
+    /// How many check findings are errors, warnings and notes.
+    fn finding_counts(checks: &Value) -> (usize, usize, usize) {
+        let mut counts = (0, 0, 0);
+        for key in ["erc", "drc"] {
+            let Some(findings) = checks.get(key).and_then(Value::as_array) else {
+                continue;
+            };
+            for f in findings {
+                match f.get("severity").and_then(Value::as_str) {
+                    Some("error") => counts.0 += 1,
+                    Some("warning") => counts.1 += 1,
+                    _ => counts.2 += 1,
+                }
+            }
+        }
+        counts
+    }
     fn browser(&mut self, ui: &mut egui::Ui) {
         egui::Panel::left("left-rail")
-            .default_size(44.0)
-            .min_size(44.0)
-            .max_size(44.0)
+            .exact_size(44.0)
             .resizable(false)
-            .frame(Self::dock_frame(ui.style()))
+            .frame(
+                egui::Frame::side_top_panel(ui.style())
+                    .inner_margin(egui::Margin::symmetric(4, 12)),
+            )
             .show(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
@@ -3096,37 +3123,22 @@ impl App {
                     {
                         self.preferences.library_dock_open = !self.preferences.library_dock_open;
                     }
-                    let mut fix = 0usize;
-                    let mut mind = 0usize;
-                    let checks = self.checks.clone();
-                    for key in ["erc", "drc"] {
-                        if let Some(findings) = checks.get(key).and_then(Value::as_array) {
-                            for f in findings {
-                                let loud =
-                                    f.get("severity").and_then(Value::as_str) == Some("error");
-                                if loud {
-                                    fix += 1;
-                                } else {
-                                    mind += 1;
-                                }
-                            }
+                    ui.add_space(8.0);
+                    let counts = Self::finding_counts(&self.checks);
+                    for (count, name, help) in [
+                        (counts.0, "errors", "Mistakes the checks say you must fix."),
+                        (counts.1, "warnings", "Warnings worth a look, but not blockers."),
+                        (counts.2, "notes", "Notes from the checks that need no action."),
+                    ] {
+                        if ui
+                            .button(format!("{count}"))
+                            .on_hover_text(format!(
+                                "{count} {name} from the checks. {help} Click to open the Checks tab."
+                            ))
+                            .clicked()
+                        {
+                            self.change_tab(Tab::Checks);
                         }
-                    }
-                    if fix > 0
-                        && ui
-                            .button(format!("{fix}"))
-                            .on_hover_text("Open the Checks tab for errors you must fix.")
-                            .clicked()
-                    {
-                        self.change_tab(Tab::Checks);
-                    }
-                    if mind > 0
-                        && ui
-                            .button(format!("{mind}"))
-                            .on_hover_text("Open the Checks tab for warnings worth a look.")
-                            .clicked()
-                    {
-                        self.change_tab(Tab::Checks);
                     }
                 });
             });
@@ -3733,6 +3745,24 @@ impl App {
     }
     /// Room for a full-page panel to breathe: wide side margins and one
     /// readable column, so nothing sits flush against the window edge.
+    /// Padding for a full-width tab body: 16 px at the sides, 12 above.
+    fn padded<T>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> T) -> T {
+        egui::Frame::NONE
+            .inner_margin(egui::Margin {
+                left: 16,
+                right: 16,
+                top: 12,
+                bottom: 12,
+            })
+            .show(ui, add)
+            .inner
+    }
+    /// A dock section title: 8 px of air above and 4 below.
+    fn section_heading(&self, ui: &mut egui::Ui, text: &str) {
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new(text).strong().color(self.ink()));
+        ui.add_space(4.0);
+    }
     fn margined<T>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> T) -> T {
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(28, 20))
@@ -5460,11 +5490,7 @@ impl App {
                     egui::vec2(ui.available_width(), top_h),
                     egui::Layout::top_down(egui::Align::LEFT),
                     |ui| {
-                        ui.label(
-                            egui::RichText::new("Layers")
-                                .size(10.0)
-                                .color(self.muted()),
-                        );
+                        self.section_heading(ui, "Layers");
                         egui::ScrollArea::vertical()
                             .auto_shrink([false, false])
                             .show(ui, |ui| self.layers_tab(ui));
@@ -5501,13 +5527,8 @@ impl App {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                ui.add_space(12.0);
                 self.draw_tool_options(ui);
-                ui.label(
-                    egui::RichText::new("PROPERTIES")
-                        .size(10.0)
-                        .color(self.muted()),
-                );
+                self.section_heading(ui, "Details");
                 if let Some(id) = self.selected {
                     let c = self.project.component(id).cloned().or_else(|| {
                         self.project
@@ -5589,6 +5610,19 @@ impl App {
                                 "object.duplicate",
                                 json!({"ids": [target], "offset": {"x": 2.0, "y": 2.0}}),
                             );
+                        }
+                        let sheet = Self::datasheet_url(c.field("Datasheet"));
+                        if ui
+                            .add_enabled(sheet.is_some(), egui::Button::new("View datasheet"))
+                            .on_hover_text(if sheet.is_some() {
+                                "Open this part's datasheet in your browser."
+                            } else {
+                                "This part has no web address in its Datasheet field yet."
+                            })
+                            .clicked()
+                            && let Some(url) = sheet
+                        {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                         }
                         if self.project.footprint(id).is_some() {
                             ui.label("Dock to board edge");
@@ -5895,7 +5929,12 @@ impl App {
             Tool::Fiducial => "Fiducial mark".to_owned(),
             Tool::DrawLayer => "Draw on a layer".to_owned(),
         };
-        egui::Panel::bottom("status").show(ui, |ui| {
+        egui::Panel::bottom("status")
+            .frame(
+                egui::Frame::side_top_panel(ui.style())
+                    .inner_margin(egui::Margin::symmetric(16, 4)),
+            )
+            .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(&self.message)
@@ -5949,6 +5988,7 @@ impl App {
         });
         if self.command_open {
             egui::Panel::bottom("commands")
+                .frame(Self::dock_frame(ui.style()))
                 .resizable(true)
                 .default_size(220.0)
                 .show(ui, |ui| {
@@ -6730,17 +6770,17 @@ impl App {
                         Tab::Schematic | Tab::Pcb => self.canvas(ui),
                         Tab::Files => {
                             egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.files_tab(ui))
+                                .show(ui, |ui| Self::padded(ui, |ui| self.files_tab(ui)))
                                 .inner
                         }
                         Tab::Board3d => {
                             egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.board3d_tab(ui))
+                                .show(ui, |ui| Self::padded(ui, |ui| self.board3d_tab(ui)))
                                 .inner
                         }
                         Tab::Libraries => {
                             egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.library(ui))
+                                .show(ui, |ui| Self::padded(ui, |ui| self.library(ui)))
                                 .inner
                         }
                         Tab::Rules => {
@@ -7099,7 +7139,7 @@ mod tests {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 300.0)?,
+            scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 700.0)?,
             "the board's edge lives in its own plain-language section"
         );
         app.svg_path = file.to_string_lossy().into_owned();
@@ -7327,7 +7367,7 @@ mod tests {
         }
         authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            scrolled_to_at(&ctx, &mut app, "MAKE FILES", 300.0)?,
+            scrolled_to_at(&ctx, &mut app, "MAKE FILES", 700.0)?,
             "the settings page should offer the factory files"
         );
         authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
