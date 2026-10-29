@@ -14,7 +14,7 @@
 /// - Only names that touch the disk belong here; edits stay available.
 ///
 /// # Dependencies
-/// - `../../mcp/src` tool names (`open`, `save`, `export`)
+/// - `crates/mcp/src/lib.rs` tool names (`open`, `save`, `export`)
 ///
 /// # Do not
 /// - Add a tool that only changes the in-memory design.

@@ -6,8 +6,8 @@
 //! build needs a browser with WebGPU; a failed start shows the same message.
 //!
 //! # Dependencies
-//! - `../../crates/text/strings/en.txt` (message text)
-//! - `index.html`, `webgpu-check.js`
+//! - `crates/text/strings/en.txt` (message text)
+//! - `apps/pcbcraft-web/index.html` and `apps/pcbcraft-web/webgpu-check.js`
 //!
 //! # Do not
 //! - Add text literals here; read them from the catalog.
@@ -60,7 +60,7 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
 /// - Best effort: a missing element is ignored, the console already has the error.
 ///
 /// # Dependencies
-/// - `index.html` (`#needs-webgpu`, `#pcbcraft`)
+/// - `apps/pcbcraft-web/index.html` (`#needs-webgpu`, `#pcbcraft`)
 ///
 /// # Do not
 /// - Panic or return an error; this runs on the failure path.
@@ -87,7 +87,7 @@ fn show_start_failure() {
 /// - Never panic; fall back to an empty session.
 ///
 /// # Dependencies
-/// - `../../crates/engine/src/lib.rs` (`Session::sample`)
+/// - `crates/engine/src/lib.rs` (`Session::sample`)
 ///
 /// # Do not
 /// - Read files; the browser has none.
