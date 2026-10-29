@@ -7,6 +7,7 @@ use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
+use pcbcraft_text::t;
 use std::collections::BTreeMap;
 
 /// Guidance shown when a panel section has no content yet: what belongs
@@ -444,11 +445,11 @@ enum PadLabels {
     Off,
 }
 impl PadLabels {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> String {
         match self {
-            Self::Number => "Pads: number",
-            Self::Net => "Pads: net",
-            Self::Off => "Pads: off",
+            Self::Number => t!("pad_labels.number"),
+            Self::Net => t!("pad_labels.net"),
+            Self::Off => t!("pad_labels.off"),
         }
     }
 }
@@ -468,6 +469,12 @@ struct Preferences {
     aside_lower_tab: u8,
     #[serde(default = "default_true")]
     library_dock_open: bool,
+    /// Language tag of the text catalog, or `system` to follow the computer.
+    #[serde(default = "default_language")]
+    language: String,
+}
+fn default_language() -> String {
+    pcbcraft_text::SYSTEM.into()
 }
 fn default_aside_split() -> f32 {
     0.45
@@ -486,6 +493,7 @@ impl Default for Preferences {
             aside_split: default_aside_split(),
             aside_lower_tab: 0,
             library_dock_open: true,
+            language: default_language(),
         }
     }
 }
@@ -582,6 +590,8 @@ pub struct App {
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
     preferences: Preferences,
+    /// Text for the language chosen in Settings.
+    catalog: std::sync::Arc<pcbcraft_text::Catalog>,
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
@@ -918,6 +928,9 @@ impl App {
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
+            catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
+                &preferences.language,
+            )),
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,
@@ -2605,7 +2618,7 @@ impl App {
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         let brand = ui.add(
                             egui::Label::new(
-                                egui::RichText::new("PCBCraft")
+                                egui::RichText::new(t!("app.name"))
                                     .size(15.0)
                                     .strong()
                                     .color(self.accent()),
@@ -2613,14 +2626,14 @@ impl App {
                             .sense(egui::Sense::click()),
                         );
                         if brand
-                            .on_hover_text("Back to the start screen, where you open or begin a design.")
+                            .on_hover_text(t!("app.brand.tip"))
                             .clicked()
                         {
                             self.home_open = true;
                         }
                         if ui
-                            .button("Home")
-                            .on_hover_text("Open the start screen.")
+                            .button(t!("app.home"))
+                            .on_hover_text(t!("app.home.tip"))
                             .clicked()
                         {
                             self.home_open = true;
@@ -2631,21 +2644,21 @@ impl App {
                             self.edit_menu(ui);
                             self.help_menu(ui);
                             if ui
-                                .button("Save")
-                                .on_hover_text("Write the design to its file on disk.")
+                                .button(t!("app.save"))
+                                .on_hover_text(t!("app.save.tip"))
                                 .clicked()
                             {
                                 self.tool_call("save", json!({"path": self.path}));
                             }
                             if ui
-                                .button("Undo")
+                                .button(t!("app.undo"))
                                 .on_hover_text(command_tip("undo"))
                                 .clicked()
                             {
                                 self.tool_call("undo", json!({}));
                             }
                             if ui
-                                .button("Redo")
+                                .button(t!("app.redo"))
                                 .on_hover_text(command_tip("redo"))
                                 .clicked()
                             {
@@ -2659,10 +2672,10 @@ impl App {
                                 .strong()
                                 .color(self.ink()),
                         )
-                        .on_hover_text("This document tab names the open design.");
+                        .on_hover_text(t!("app.tab.tip"));
                         if ui
-                            .button("+")
-                            .on_hover_text("Start another design from the New section on the start screen.")
+                            .button(t!("app.new_tab"))
+                            .on_hover_text(t!("app.new_tab.tip"))
                             .clicked()
                         {
                             self.home_open = true;
@@ -2674,10 +2687,10 @@ impl App {
                                 .small()
                                 .color(self.muted()),
                         )
-                        .on_hover_text("Application version.");
+                        .on_hover_text(t!("app.version.tip"));
                         if ui
-                            .button("Report a bug")
-                            .on_hover_text("Open a prefilled issue with version and environment details.")
+                            .button(t!("app.report_bug"))
+                            .on_hover_text(t!("app.report_bug.tip"))
                             .clicked()
                         {
                             let url = format!(
@@ -2687,8 +2700,8 @@ impl App {
                             ui.ctx().open_url(egui::OpenUrl::same_tab(url));
                         }
                         if ui
-                            .button("Settings")
-                            .on_hover_text("Project settings, appearance, and library sources.")
+                            .button(t!("app.settings"))
+                            .on_hover_text(t!("app.settings.tip"))
                             .clicked()
                         {
                             self.change_tab(Tab::Settings);
@@ -2896,35 +2909,33 @@ impl App {
         }
     }
     fn file_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("File", |ui| {
+        ui.menu_button(t!("menu.file"), |ui| {
             if ui
-                .button("New")
-                .on_hover_text("Start a fresh empty design.")
+                .button(t!("menu.file.new"))
+                .on_hover_text(t!("menu.file.new.tip"))
                 .clicked()
             {
                 self.tool_call("new_design", json!({}));
                 self.select(None);
             }
             if ui
-                .button("Open")
-                .on_hover_text(
-                    "Choose a design to open; your recent designs are listed on the screen that appears.",
-                )
+                .button(t!("menu.file.open"))
+                .on_hover_text(t!("menu.file.open.tip"))
                 .clicked()
             {
                 self.home_open = true;
             }
             if ui
-                .button("Save")
-                .on_hover_text("Write the design to its file on disk. (Ctrl+S works too.)")
+                .button(t!("menu.file.save"))
+                .on_hover_text(t!("menu.file.save.tip"))
                 .clicked()
             {
                 self.tool_call("save", json!({"path":self.path}));
             }
             ui.separator();
             if ui
-                .button("Export")
-                .on_hover_text("Write the board out so other design tools can open it.")
+                .button(t!("menu.file.export"))
+                .on_hover_text(t!("menu.file.export.tip"))
                 .clicked()
             {
                 let path = std::path::Path::new(&self.path)
@@ -2934,8 +2945,8 @@ impl App {
                 self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
             }
             if ui
-                .button("Copy picture")
-                .on_hover_text("Copy a PNG snapshot of the current view so it can be pasted into a document.")
+                .button(t!("menu.file.copy_picture"))
+                .on_hover_text(t!("menu.file.copy_picture.tip"))
                 .clicked()
             {
                 let ctx = ui.ctx().clone();
@@ -2943,30 +2954,28 @@ impl App {
             }
         })
         .response
-        .on_hover_text("Start, open, save, export and share this design.");
+        .on_hover_text(t!("menu.file.tip"));
     }
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Edit", |ui| {
+        ui.menu_button(t!("menu.edit"), |ui| {
             if ui
-                .button("Undo")
-                .on_hover_text("Step back one action; every edit here is one undoable step.")
+                .button(t!("menu.edit.undo"))
+                .on_hover_text(t!("menu.edit.undo.tip"))
                 .clicked()
             {
                 self.tool_call("undo", json!({}));
             }
             if ui
-                .button("Redo")
-                .on_hover_text("Step forward to the action you undid.")
+                .button(t!("menu.edit.redo"))
+                .on_hover_text(t!("menu.edit.redo.tip"))
                 .clicked()
             {
                 self.tool_call("redo", json!({}));
             }
             ui.separator();
             if ui
-                .button("Update board from schematic")
-                .on_hover_text(
-                    "Copy every symbol, wire and net onto the board, then show the board.",
-                )
+                .button(t!("menu.edit.sync"))
+                .on_hover_text(t!("menu.edit.sync.tip"))
                 .clicked()
             {
                 self.run("board.sync", json!({}));
@@ -2978,119 +2987,153 @@ impl App {
             {
                 let name = net.name.clone();
                 if ui
-                    .button(format!("Clear wiring on {name}"))
-                    .on_hover_text(
-                        "Lift every piece of copper drawn for the lit connection. The connection itself stays.",
-                    )
+                    .button(t!("menu.edit.clear_net", name = name))
+                    .on_hover_text(t!("menu.edit.clear_net.tip"))
                     .clicked()
                 {
                     self.run("net.unroute", json!({"net": lit}));
                 }
             }
             if ui
-                .button("Clear all wiring")
-                .on_hover_text(
-                    "Start the copper over on the whole board. Parts, connections and copper zones stay.",
-                )
+                .button(t!("menu.edit.clear_all"))
+                .on_hover_text(t!("menu.edit.clear_all.tip"))
                 .clicked()
             {
                 self.run("board.unroute", json!({}));
             }
         })
         .response
-        .on_hover_text(
-            "Step back and forward, sync the board, and start the wiring over on one connection or the whole board.",
-        );
+        .on_hover_text(t!("menu.edit.tip"));
+    }
+    /// Switch the app's language; the next frame paints in it.
+    fn set_language(&mut self, tag: &str) {
+        self.preferences.language = tag.to_string();
+        self.catalog = std::sync::Arc::new(pcbcraft_text::Catalog::for_language(tag));
+        pcbcraft_text::activate(&self.catalog);
+    }
+    fn language_menu(&mut self, ui: &mut egui::Ui) {
+        let mut picked = None;
+        ui.menu_button(t!("menu.settings.language"), |ui| {
+            let current = self.preferences.language.clone();
+            if ui
+                .selectable_label(
+                    current == pcbcraft_text::SYSTEM,
+                    t!("menu.settings.language.system"),
+                )
+                .on_hover_text(t!("menu.settings.language.system.tip"))
+                .clicked()
+            {
+                picked = Some(pcbcraft_text::SYSTEM.to_string());
+            }
+            for language in pcbcraft_text::shipped_languages() {
+                if ui
+                    .selectable_label(current == language.tag, language.name)
+                    .on_hover_text(t!("menu.settings.language.pick.tip"))
+                    .clicked()
+                {
+                    picked = Some(language.tag);
+                }
+            }
+        })
+        .response
+        .on_hover_text(t!("menu.settings.language.tip"));
+        if let Some(tag) = picked {
+            self.set_language(&tag);
+            ui.ctx().request_repaint();
+        }
     }
     fn settings_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Settings", |ui| {
+        ui.menu_button(t!("menu.settings"), |ui| {
             if ui
-                .button("Appearance & settings…")
-                .on_hover_text(
-                    "Open the settings page: theme, accent colour and everything for the project.",
-                )
+                .button(t!("menu.settings.appearance"))
+                .on_hover_text(t!("menu.settings.appearance.tip"))
                 .clicked()
             {
                 self.change_tab(Tab::Settings);
             }
             if ui
                 .button(if self.preferences.dark {
-                    "Switch to the light theme"
+                    t!("menu.settings.theme_light")
                 } else {
-                    "Switch to the dark theme"
+                    t!("menu.settings.theme_dark")
                 })
-                .on_hover_text("Change between the dark and light look.")
+                .on_hover_text(t!("menu.settings.theme.tip"))
                 .clicked()
             {
                 self.preferences.dark = !self.preferences.dark;
             }
             if ui
                 .button(if self.preferences.grid {
-                    "Hide the grid"
+                    t!("menu.settings.grid_hide")
                 } else {
-                    "Show the grid"
+                    t!("menu.settings.grid_show")
                 })
-                .on_hover_text("Show or hide the placement grid in the work area.")
+                .on_hover_text(t!("menu.settings.grid.tip"))
                 .clicked()
             {
                 self.preferences.grid = !self.preferences.grid;
             }
-            ui.menu_button("Route on", |ui| {
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top");
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Back, "Bottom");
+            ui.menu_button(t!("menu.settings.route_on"), |ui| {
+                ui.selectable_value(
+                    &mut self.route_layer,
+                    pcbcraft_doc::Layer::Front,
+                    t!("menu.settings.route_top"),
+                );
+                ui.selectable_value(
+                    &mut self.route_layer,
+                    pcbcraft_doc::Layer::Back,
+                    t!("menu.settings.route_bottom"),
+                );
             })
             .response
-            .on_hover_text("Choose which copper layer new tracks are drawn on.");
-            ui.menu_button("Pad labels", |ui| {
+            .on_hover_text(t!("menu.settings.route_on.tip"));
+            ui.menu_button(t!("menu.settings.pad_labels"), |ui| {
                 ui.selectable_value(
                     &mut self.preferences.pad_labels,
                     PadLabels::Number,
                     PadLabels::Number.name(),
                 )
-                .on_hover_text("Draw each pad's own number on the board.");
+                .on_hover_text(t!("menu.settings.pad_labels.number.tip"));
                 ui.selectable_value(
                     &mut self.preferences.pad_labels,
                     PadLabels::Net,
                     PadLabels::Net.name(),
                 )
-                .on_hover_text("Draw the net name on each pad, useful when debugging.");
+                .on_hover_text(t!("menu.settings.pad_labels.net.tip"));
                 ui.selectable_value(
                     &mut self.preferences.pad_labels,
                     PadLabels::Off,
                     PadLabels::Off.name(),
                 )
-                .on_hover_text("Hide the pad labels for a clean picture.");
+                .on_hover_text(t!("menu.settings.pad_labels.off.tip"));
             })
             .response
-            .on_hover_text(
-                "Pick what sits at each pad centre on the board: its number, its net, or nothing.",
-            );
+            .on_hover_text(t!("menu.settings.pad_labels.tip"));
+            self.language_menu(ui);
             ui.separator();
             if ui
-                .button("Library sources…")
-                .on_hover_text("Manage the folders that feed the component list.")
+                .button(t!("menu.settings.library_sources"))
+                .on_hover_text(t!("menu.settings.library_sources.tip"))
                 .clicked()
             {
                 self.change_tab(Tab::Libraries);
             }
         })
         .response
-        .on_hover_text("Theme, grid and library folders.");
+        .on_hover_text(t!("menu.settings.tip"));
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Help", |ui| {
+        ui.menu_button(t!("menu.help"), |ui| {
             if ui
-                .button("Keyboard shortcuts")
-                .on_hover_text("Show every keyboard shortcut and mouse gesture in one list.")
+                .button(t!("menu.help.shortcuts"))
+                .on_hover_text(t!("menu.help.shortcuts.tip"))
                 .clicked()
             {
                 self.shortcuts_open = !self.shortcuts_open;
             }
             if ui
-                .button("Commands  Ctrl+K")
-                .on_hover_text(
-                    "Search every command by name and run it, with its parameters explained.",
-                )
+                .button(t!("menu.help.commands"))
+                .on_hover_text(t!("menu.help.commands.tip"))
                 .clicked()
             {
                 self.command_open = !self.command_open;
@@ -3099,7 +3142,7 @@ impl App {
             }
         })
         .response
-        .on_hover_text("Shortcuts list and the command search.");
+        .on_hover_text(t!("menu.help.tip"));
     }
     fn browser(&mut self, ui: &mut egui::Ui) {
         egui::Panel::left("left-rail")
@@ -3784,6 +3827,7 @@ impl App {
         ui.checkbox(&mut self.preferences.grid, "Show grid");
         ui.label("Accent color");
         ui.color_edit_button_srgb(&mut self.preferences.accent);
+        self.language_menu(ui);
         ui.label(
             egui::RichText::new("Appearance is saved automatically.")
                 .small()
@@ -6758,6 +6802,7 @@ impl App {
 
     fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        pcbcraft_text::activate(&self.catalog);
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();

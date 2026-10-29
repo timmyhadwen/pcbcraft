@@ -11,6 +11,7 @@ tests, wasm and docs in one go and must be green before pushing.
 | Format and policy | `cargo xtask policy`, `cargo xtask fmt` | Crate dependency layers, workspace lints keep `unwrap_used`, `expect_used`, `panic`, `unimplemented`, `todo` and `unreachable` at deny (AGENTS.md), no source `allow` of them, rustfmt |
 | Clippy and docs | `cargo xtask clippy`, `cargo xtask docs` | Clippy with `-D warnings` on all targets, rustdoc with warnings denied |
 | Tests | `cargo xtask test` | Workspace tests with cargo-nextest (profile `ci`, JUnit report uploaded) plus doctests. Includes the headless `a_newcomer_*` end-to-end tests in crates/ui-egui |
+| Text catalog | `cargo xtask strings check` (and `strings extract`) | `crates/text/strings/en.txt` is well formed with no duplicate keys, translation files have no unknown keys and keep the English `{placeholders}`, every `t!("key")` in crates/ui-egui exists, and no string literal sits in a text call inside a function listed in `crates/text/strings/converted-fns.txt` |
 | WebAssembly | `cargo xtask wasm` | The shared UI and the browser entry point build for wasm32 |
 | Minimum Rust version | `cargo xtask msrv` | Builds with the `rust-version` in Cargo.toml |
 | Licenses and advisories | `cargo xtask deny` | `deny.toml`: GPL-3.0 compatible license allow list, RustSec advisories, yanked crates, unknown registries and git sources |
