@@ -368,11 +368,11 @@ fn collect_groups(
     frame: &JobFrame,
 ) -> Result<Vec<OperationGroup>, String> {
     let mut groups = Vec::new();
-    for id in LASER_OPERATION_IDS {
-        if !options.operations.contains(*id) {
+    for op_id in LASER_OPERATION_IDS {
+        if !options.operations.contains(op_id) {
             continue;
         }
-        let rings = match *id {
+        let rings = match op_id {
             "fiducials" => fiducial_rings(p, side)?,
             "isolation-cut" => {
                 pcbcraft_rules::isolation_cut_polygons(p, side, options.isolation_width_mm)?
@@ -397,11 +397,11 @@ fn collect_groups(
         }
         for ring in &rings {
             if !polygon_is_simple(ring) {
-                return Err(format!("operation {id} emitted a non-simple ring"));
+                return Err(format!("operation {op_id} emitted a non-simple ring"));
             }
         }
         groups.push(OperationGroup {
-            id: (*id).to_string(),
+            id: op_id.to_string(),
             rings,
         });
     }
