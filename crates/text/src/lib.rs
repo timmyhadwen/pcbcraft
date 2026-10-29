@@ -659,4 +659,15 @@ mod area_tests {
             ("lib.rs", "field_help"),
         ])
     }
+
+    #[test]
+    fn every_key_used_by_checks_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "checks_view"),
+            ("lib.rs", "human_code"),
+            ("lib.rs", "custom_heading"),
+            ("lib.rs", "custom_measure_line"),
+            ("lib.rs", "empty_state"),
+        ])
+    }
 }

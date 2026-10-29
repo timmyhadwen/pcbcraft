@@ -791,6 +791,42 @@ rules.rules_tab.remove.tip = Delete this rule set; its connections fall back to 
 rules.rules_tab.gap = Gap
 # lib.rs param_help
 
+# lib.rs checks_view
+checks.checks_view.design_checks = Design checks
+checks.checks_view.select_a_finding_to_inspect = Select a finding to inspect its affected object in the editor.
+checks.checks_view.electrical = Electrical
+checks.checks_view.whether_the_wiring_makes_electrical = Whether the wiring makes electrical sense: pins with no connection, parts missing footprints, and power pins left floating.
+checks.checks_view.board = Board
+checks.checks_view.whether_the_copper_can_actually = Whether the copper can actually be made: gaps too small, wires not joined, and widths the factory cannot etch.
+checks.checks_view.no_findings_in_the_implemented = No findings in the implemented checks
+checks.checks_view.a_check_you_wrote = A check you wrote.
+checks.checks_view.the_board_is_checked_against = The board is checked against this rule after every edit.
+checks.checks_view.whose_who_the_list_below.tip = {whose}{who}The list below shows every place it fired; click one to jump to it.
+checks.checks_view.select_this_on_the_drawing.tip = Select this on the drawing.
+checks.checks_view.hide_this = Hide this
+checks.checks_view.hide_this.tip = You have looked at this and it is fine: hide just this finding. Everything you hide can be brought back below.
+checks.checks_view.quiet_this_area = Quiet this area
+checks.checks_view.quiet_this_area.tip = This corner of the board is the way you want it: ask the check to leave anything inside a box drawn around these items alone. You can clear the box below.
+checks.checks_view.things_you_asked_not_to = Things you asked not to be told about
+checks.checks_view.code_count_hidden = {code} · {count} hidden
+checks.checks_view.bring_back_code = Bring back {code}
+checks.checks_view.bring_back_code.tip = Show every hidden finding from this check again; each one can be hidden afresh.
+checks.checks_view.quiet_zones_checks_that_leave = Quiet zones: checks that leave these corners alone
+checks.checks_view.code_count_zone_s = {code} · {count} zone(s)
+checks.checks_view.clear_code_zones = Clear {code} zones
+checks.checks_view.clear_code_zones.tip = Remove every quiet box for this check, so it reports the whole board again.
+
+# lib.rs custom_heading
+checks.custom_heading.your_check_name = Your check: {name}
+
+# lib.rs custom_measure_line
+checks.custom_measure_line.what_limit_mm = {what} {limit} mm
+checks.custom_measure_line.wires_thinner_than = wires thinner than
+checks.custom_measure_line.wires_longer_than = wires longer than
+checks.custom_measure_line.more_than_n_parts = more than {n} parts
+checks.custom_measure_line.more_than_n_vias = more than {n} vias
+checks.custom_measure_line.more_than_n_wires_on = more than {n} wires on one net
+
 unit.mm10.tip = Smallest allowed clear space between this group's copper and everything else.
 rules.rules_tab.wire_width = Wire width
 unit.mm11.tip = Width new tracks on these connections start with.
@@ -978,6 +1014,50 @@ field_help.position = Absolute millimetres from the design origin; Apply moves j
 field_help.board = Board outline size in millimetres; both values must be larger than zero.
 field_help.cutout = Radius of the circle the cutout tool places; the whole circle must stay inside the board.
 rules.param_help.required = required
+
+# check names by code (a code with no line here shows its code in words)
+check.annular_ring = Annular ring
+check.art_off_board = Art off board
+check.aspect_ratio = Aspect ratio
+check.board_edge = Board edge
+check.clearance = Clearance
+check.copper_short = Copper short
+check.copper_to_edge = Copper to edge
+check.cut_hits_via = Cut hits via
+check.cutout_clearance = Cutout clearance
+check.diffpair_gap = Diffpair gap
+check.diffpair_skew = Diffpair skew
+check.keepout = Keepout
+check.length_group_skew = Length group skew
+check.mask_covers_pad = Mask covers pad
+check.min_drill = Min drill
+check.min_space = Min space
+check.min_track = Min track
+check.missing_footprint = Missing footprint
+check.pad_clearance_bound = Pad clearance bound
+check.panel_component_near_score = Panel component near score
+check.panel_copper_near_score = Panel copper near score
+check.panel_missing_fiducials = Panel missing fiducials
+check.panel_tab_too_narrow = Panel tab too narrow
+check.panel_too_large_for_assembler = Panel too large for assembler
+check.pour_fill = Pour fill
+check.silk_text_height = Silk text height
+check.single_pin_net = Single pin net
+check.stacked_microvia = Stacked microvia
+check.thermal_starved = Thermal starved
+check.track_length = Track length
+check.track_width = Track width
+check.unassigned_pin = Unassigned pin
+check.unrouted = Unrouted
+check.via_aspect_ratio = Via aspect ratio
+check.via_span_not_allowed = Via span not allowed
+check.zone_island = Zone island
+check.zone_unconnected = Zone unconnected
+checks.measure.track_width_below = A wire thinner than
+checks.measure.track_length_above = A wire longer than
+checks.measure.part_count_above = More parts than
+checks.measure.via_count_above = More vias than
+checks.measure.net_track_count_above = More wires on one net than
 
 unit.mm = mm
 unit.mil = mil

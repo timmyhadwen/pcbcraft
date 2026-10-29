@@ -204,6 +204,11 @@ fn art_shape_text(shape: &pcbcraft_doc::ArtShape) -> String {
 }
 
 fn human_code(code: &str) -> String {
+    let key = format!("check.{code}");
+    let named = pcbcraft_text::lookup(&key, &[]);
+    if named != key {
+        return named;
+    }
     let words = code.replace('_', " ");
     let mut chars = words.chars();
     match chars.next() {
@@ -216,14 +221,17 @@ fn human_code(code: &str) -> String {
         None => words,
     }
 }
-/// The plain measurements a designer can write a check about, with the
-/// token the engine stores for each.
+/// The plain measurements a designer can write a check about, as a catalog
+/// key for the words and the token the engine stores for each.
 const CUSTOM_MEASURES: [(&str, &str); 5] = [
-    ("A wire thinner than", "track width below"),
-    ("A wire longer than", "track length above"),
-    ("More parts than", "part count above"),
-    ("More vias than", "via count above"),
-    ("More wires on one net than", "net track count above"),
+    ("checks.measure.track_width_below", "track width below"),
+    ("checks.measure.track_length_above", "track length above"),
+    ("checks.measure.part_count_above", "part count above"),
+    ("checks.measure.via_count_above", "via count above"),
+    (
+        "checks.measure.net_track_count_above",
+        "net track count above",
+    ),
 ];
 /// One line in plain words for a check the designer wrote, e.g. "more than
 /// 5 parts" or "wires thinner than 0.20 mm".
@@ -232,19 +240,20 @@ fn custom_measure_line(measure: &str, limit: f64) -> String {
         limit as i64
     } else {
         // counts print whole; wire measures keep two decimals
-        return format!(
-            "{} {limit:.2} mm",
-            match measure {
-                "track width below" => "wires thinner than",
-                "track length above" => "wires longer than",
-                other => other,
-            }
+        return t!(
+            "checks.custom_measure_line.what_limit_mm",
+            what = match measure {
+                "track width below" => t!("checks.custom_measure_line.wires_thinner_than"),
+                "track length above" => t!("checks.custom_measure_line.wires_longer_than"),
+                other => other.to_owned(),
+            },
+            limit = format!("{:.2}", limit)
         );
     };
     match measure {
-        "part count above" => format!("more than {n} parts"),
-        "via count above" => format!("more than {n} vias"),
-        "net track count above" => format!("more than {n} wires on one net"),
+        "part count above" => t!("checks.custom_measure_line.more_than_n_parts", n = n),
+        "via count above" => t!("checks.custom_measure_line.more_than_n_vias", n = n),
+        "net track count above" => t!("checks.custom_measure_line.more_than_n_wires_on", n = n),
         other => format!("{other} {n}"),
     }
 }
@@ -255,7 +264,7 @@ fn custom_heading(project: &pcbcraft_doc::Project, code: &str) -> String {
         .strip_prefix("custom_")
         .and_then(|rest| rest.parse::<u64>().ok())
         .and_then(|id| project.custom_checks.iter().find(|c| c.id == id))
-        .map(|c| format!("Your check: {}", c.name));
+        .map(|c| t!("checks.custom_heading.your_check_name", name = c.name));
     written.unwrap_or_else(|| human_code(code))
 }
 fn role_label(kind: &str) -> String {
@@ -5089,10 +5098,17 @@ impl App {
                 );
                 response.on_hover_text(t!("rules.rules_tab.the_name_this_check_reports.tip"));
                 egui::ComboBox::from_id_salt("custom-measure")
-                    .selected_text(CUSTOM_MEASURES[self.custom_measure.min(4)].0)
+                    .selected_text(pcbcraft_text::lookup(
+                        CUSTOM_MEASURES[self.custom_measure.min(4)].0,
+                        &[],
+                    ))
                     .show_ui(ui, |ui| {
                         for (i, (label, _)) in CUSTOM_MEASURES.iter().enumerate() {
-                            ui.selectable_value(&mut self.custom_measure, i, *label);
+                            ui.selectable_value(
+                                &mut self.custom_measure,
+                                i,
+                                pcbcraft_text::lookup(label, &[]),
+                            );
                         }
                     })
                     .response
@@ -6616,8 +6632,8 @@ impl App {
     }
     fn checks_view(&mut self, ui: &mut egui::Ui) {
         ui.add_space(24.0);
-        ui.heading("Design checks");
-        ui.label("Select a finding to inspect its affected object in the editor.");
+        ui.heading(t!("checks.checks_view.design_checks"));
+        ui.label(t!("checks.checks_view.select_a_finding_to_inspect"));
         if self
             .checks
             .get("erc")
@@ -6636,13 +6652,13 @@ impl App {
         for (key, label, blurb) in [
             (
                 "erc",
-                "Electrical",
-                "Whether the wiring makes electrical sense: pins with no connection, parts missing footprints, and power pins left floating.",
+                t!("checks.checks_view.electrical"),
+                t!("checks.checks_view.whether_the_wiring_makes_electrical"),
             ),
             (
                 "drc",
-                "Board",
-                "Whether the copper can actually be made: gaps too small, wires not joined, and widths the factory cannot etch.",
+                t!("checks.checks_view.board"),
+                t!("checks.checks_view.whether_the_copper_can_actually"),
             ),
         ] {
             ui.label(egui::RichText::new(label).size(18.0).strong());
@@ -6650,8 +6666,10 @@ impl App {
             if let Some(findings) = checks.get(key).and_then(Value::as_array) {
                 if findings.is_empty() {
                     ui.label(
-                        egui::RichText::new("No findings in the implemented checks")
-                            .color(self.accent()),
+                        egui::RichText::new(t!(
+                            "checks.checks_view.no_findings_in_the_implemented"
+                        ))
+                        .color(self.accent()),
                     );
                 }
                 let mut groups: Vec<CheckGroup> = Vec::new();
@@ -6707,12 +6725,13 @@ impl App {
                     };
                     ui.add_space(6.0);
                     let whose = if code.starts_with("custom_") {
-                        "A check you wrote. "
+                        format!("{} ", t!("checks.checks_view.a_check_you_wrote"))
                     } else {
-                        "The board is checked against this rule after every edit. "
+                        format!("{} ", t!("checks.checks_view.the_board_is_checked_against"))
                     };
-                    ui.label(title_text).on_hover_text(format!(
-                        "{whose}{who}The list below shows every place it fired; click one to jump to it.",
+                    ui.label(title_text).on_hover_text(t!(
+                        "checks.checks_view.whose_who_the_list_below.tip",
+                        whose = whose,
                         who = if loud {
                             "It must be fixed before the board is built. "
                         } else {
@@ -6724,7 +6743,9 @@ impl App {
                             ui.add_space(14.0);
                             if ui
                                 .button(message)
-                                .on_hover_text("Select this on the drawing.")
+                                .on_hover_text(t!(
+                                    "checks.checks_view.select_this_on_the_drawing.tip"
+                                ))
                                 .clicked()
                                 && let Some(id) = objects.first().copied()
                             {
@@ -6737,10 +6758,8 @@ impl App {
                             }
                             if !objects.is_empty()
                                 && ui
-                                    .small_button("Hide this")
-                                    .on_hover_text(
-                                        "You have looked at this and it is fine: hide just this finding. Everything you hide can be brought back below.",
-                                    )
+                                    .small_button(t!("checks.checks_view.hide_this"))
+                                    .on_hover_text(t!("checks.checks_view.hide_this.tip"))
                                     .clicked()
                             {
                                 self.run(
@@ -6763,10 +6782,8 @@ impl App {
                                 {
                                     let pad = 2.0;
                                     if ui
-                                        .small_button("Quiet this area")
-                                        .on_hover_text(
-                                            "This corner of the board is the way you want it: ask the check to leave anything inside a box drawn around these items alone. You can clear the box below.",
-                                        )
+                                        .small_button(t!("checks.checks_view.quiet_this_area"))
+                                        .on_hover_text(t!("checks.checks_view.quiet_this_area.tip"))
                                         .clicked()
                                     {
                                         self.run(
@@ -6797,18 +6814,20 @@ impl App {
             .collect();
         if !silenced.is_empty() {
             ui.label(
-                egui::RichText::new("Things you asked not to be told about")
+                egui::RichText::new(t!("checks.checks_view.things_you_asked_not_to"))
                     .small()
                     .color(self.muted()),
             );
             for (code, count) in silenced {
                 ui.horizontal(|ui| {
-                    ui.label(format!("{code} · {count} hidden"));
+                    ui.label(t!(
+                        "checks.checks_view.code_count_hidden",
+                        code = code,
+                        count = count
+                    ));
                     if ui
-                        .small_button(format!("Bring back {code}"))
-                        .on_hover_text(
-                            "Show every hidden finding from this check again; each one can be hidden afresh.",
-                        )
+                        .small_button(t!("checks.checks_view.bring_back_code", code = code))
+                        .on_hover_text(t!("checks.checks_view.bring_back_code.tip"))
                         .clicked()
                     {
                         self.run("rules.include", json!({"code": code}));
@@ -6825,18 +6844,20 @@ impl App {
             .collect();
         if !zones.is_empty() {
             ui.label(
-                egui::RichText::new("Quiet zones: checks that leave these corners alone")
+                egui::RichText::new(t!("checks.checks_view.quiet_zones_checks_that_leave"))
                     .small()
                     .color(self.muted()),
             );
             for (code, count) in zones {
                 ui.horizontal(|ui| {
-                    ui.label(format!("{code} · {count} zone(s)"));
+                    ui.label(t!(
+                        "checks.checks_view.code_count_zone_s",
+                        code = code,
+                        count = count
+                    ));
                     if ui
-                        .small_button(format!("Clear {code} zones"))
-                        .on_hover_text(
-                            "Remove every quiet box for this check, so it reports the whole board again.",
-                        )
+                        .small_button(t!("checks.checks_view.clear_code_zones", code = code))
+                        .on_hover_text(t!("checks.checks_view.clear_code_zones.tip"))
                         .clicked()
                     {
                         self.run("rules.include_region", json!({"code": code}));

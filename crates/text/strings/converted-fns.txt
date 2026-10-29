@@ -48,3 +48,7 @@ library_quality.rs refresh_footprint_quality
 lib.rs field_help
 lib.rs rules_tab
 lib.rs param_help
+lib.rs human_code
+lib.rs checks_view
+lib.rs custom_heading
+lib.rs custom_measure_line
