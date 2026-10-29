@@ -46,12 +46,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     app.tree.query.clear();
     // Focus a layer: the others dim.
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    press_on(
-        &ctx,
-        &mut app,
-        "side:top/copper",
-        egui::Key::F,
-    );
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::F);
     assert_eq!(
         app.focus_layer.as_deref(),
         Some("copper:front"),
@@ -78,12 +73,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
 #[test]
 fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
-    press_on(
-        &ctx,
-        &mut app,
-        "side:top/copper",
-        egui::Key::Space,
-    );
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::Space);
     assert!(
         app.preferences
             .hidden_layers
@@ -172,6 +162,68 @@ fn a_board_of_two_thousand_parts_keeps_the_tree_interactive() -> Result<(), Stri
     assert!(
         each.as_millis() < 400,
         "a frame with 2,000 parts took {each:?}"
+    );
+    Ok(())
+}
+
+/// Where the painted text `label` sits on the current frame, if anywhere.
+fn text_at(ctx: &egui::Context, app: &mut App, label: &str) -> Option<egui::Pos2> {
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let mut found = None;
+    for shape in &output.shapes {
+        if let egui::Shape::Text(text) = &shape.shape
+            && text.galley.text() == label
+        {
+            found = Some(text.pos + text.galley.size() / 2.0);
+        }
+    }
+    found
+}
+
+#[test]
+fn a_newcomer_hides_a_layer_from_its_right_click_menu() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let row = text_at(&ctx, &mut app, "Copper").ok_or("the Copper row is not on screen")?;
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(row),
+                egui::Event::PointerButton {
+                    pos: row,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let item = text_at(&ctx, &mut app, "Hide  Space").ok_or("the menu offers Hide with its shortcut")?;
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(item),
+                egui::Event::PointerButton {
+                    pos: item,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.preferences.hidden_layers.iter().any(|h| h == "Top copper"),
+        "the menu hides the layer on the drawing: {}",
+        app.message
     );
     Ok(())
 }

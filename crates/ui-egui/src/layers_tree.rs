@@ -478,15 +478,27 @@ fn top_level(env: &Env) -> Vec<Row> {
     let mut out = Vec::new();
     let mut root = row("", "root", RowKind::Layer, t!("tree.layer.board"));
     root.swatch = Some(c.warn);
-    root.sub = t!("tree.board_size", w = format!("{}", board.width), h = format!("{}", board.height));
+    root.sub = t!(
+        "tree.board_size",
+        w = format!("{}", board.width),
+        h = format!("{}", board.height)
+    );
     out.push(root);
     for item in stack(env) {
         match item {
             Stack::Copper(i, name) => {
                 let (key, label, sw) = if i == 0 {
-                    ("side:top".to_owned(), t!("tree.layer.top", n = 1), c.canvas.front)
+                    (
+                        "side:top".to_owned(),
+                        t!("tree.layer.top", n = 1),
+                        c.canvas.front,
+                    )
                 } else if i + 1 >= total {
-                    ("side:bottom".to_owned(), t!("tree.layer.bottom", n = i + 1), c.canvas.back)
+                    (
+                        "side:bottom".to_owned(),
+                        t!("tree.layer.bottom", n = i + 1),
+                        c.canvas.back,
+                    )
                 } else {
                     (
                         format!("inner:{i}"),
@@ -509,7 +521,11 @@ fn top_level(env: &Env) -> Vec<Row> {
     }
     let vias = board.vias.len();
     let holes = board.holes.len();
-    let mut drills = counted(row("", "drills", RowKind::Layer, t!("tree.layer.drills")), vias + holes, true);
+    let mut drills = counted(
+        row("", "drills", RowKind::Layer, t!("tree.layer.drills")),
+        vias + holes,
+        true,
+    );
     drills.swatch = Some(c.link);
     drills.controls = Some(LayerControls {
         key: String::new(),
@@ -539,19 +555,32 @@ fn top_level(env: &Env) -> Vec<Row> {
     out.push(user);
     let mut comps = counted(
         row("", "components", RowKind::Layer, t!("tree.section.parts")),
-        if env.tab == TreeTab::Layout { board.footprints.len() } else { env.project.components.len() },
+        if env.tab == TreeTab::Layout {
+            board.footprints.len()
+        } else {
+            env.project.components.len()
+        },
         true,
     );
     comps.swatch = Some(c.ink);
     out.push(comps);
-    let mut nets = counted(row("", "nets", RowKind::Layer, t!("tree.section.nets")), env.project.nets.len(), true);
+    let mut nets = counted(
+        row("", "nets", RowKind::Layer, t!("tree.section.nets")),
+        env.project.nets.len(),
+        true,
+    );
     nets.swatch = Some(c.canvas.wire);
     out.push(nets);
     out
 }
 
 fn footprint_row(project: &Project, path: &str, f: &pcbcraft_doc::Footprint) -> Row {
-    let mut r = row(path, &format!("fp:{}", f.id), RowKind::Part, reference_of(project, f));
+    let mut r = row(
+        path,
+        &format!("fp:{}", f.id),
+        RowKind::Part,
+        reference_of(project, f),
+    );
     let value = project
         .component(f.component)
         .map(|c| c.value.clone())
@@ -568,13 +597,26 @@ fn footprint_row(project: &Project, path: &str, f: &pcbcraft_doc::Footprint) -> 
 fn net_copper(env: &Env, path: &str, id: Id, side: Layer, out: &mut Vec<Row>) {
     let project = env.project;
     let board = &project.board;
-    for t in board.tracks.iter().filter(|t| t.layer == side && t.net == id) {
+    for t in board
+        .tracks
+        .iter()
+        .filter(|t| t.layer == side && t.net == id)
+    {
         let mut r = track_row(path, t);
         r.net = Some(id);
         out.push(r);
     }
-    for z in board.zones.iter().filter(|z| z.layer == side && z.net == id) {
-        let mut r = row(path, &format!("zone:{}", z.id), RowKind::Zone, t!("tree.zone", net = project.net_name(z.net)));
+    for z in board
+        .zones
+        .iter()
+        .filter(|z| z.layer == side && z.net == id)
+    {
+        let mut r = row(
+            path,
+            &format!("zone:{}", z.id),
+            RowKind::Zone,
+            t!("tree.zone", net = project.net_name(z.net)),
+        );
         r.select = Some(z.id);
         r.net = Some(id);
         out.push(r);
@@ -595,8 +637,16 @@ fn net_copper(env: &Env, path: &str, id: Id, side: Layer, out: &mut Vec<Row>) {
 /// How many rows of copper net `id` has on `side`.
 fn net_copper_count(env: &Env, id: Id, side: Layer) -> usize {
     let board = &env.project.board;
-    let mut n = board.tracks.iter().filter(|t| t.layer == side && t.net == id).count()
-        + board.zones.iter().filter(|z| z.layer == side && z.net == id).count();
+    let mut n = board
+        .tracks
+        .iter()
+        .filter(|t| t.layer == side && t.net == id)
+        .count()
+        + board
+            .zones
+            .iter()
+            .filter(|z| z.layer == side && z.net == id)
+            .count();
     if side == Layer::Front {
         n += board
             .footprints
@@ -621,16 +671,74 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             let front = s == Layer::Front;
             let tracks = board.tracks.iter().filter(|t| t.layer == s).count();
             let zones = board.zones.iter().filter(|z| z.layer == s).count();
-            let pads: usize = if front { board.footprints.iter().map(|f| f.pads.len()).sum() } else { 0 };
-            let (name, ck) = if front { ("Top copper", "copper:front") } else { ("Bottom copper", "copper:back") };
+            let pads: usize = if front {
+                board.footprints.iter().map(|f| f.pads.len()).sum()
+            } else {
+                0
+            };
+            let (name, ck) = if front {
+                ("Top copper", "copper:front")
+            } else {
+                ("Bottom copper", "copper:back")
+            };
             let sw = if front { c.canvas.front } else { c.canvas.back };
-            out.push(sub_row(key, "copper", ck, t!("tree.sub.copper"), sw, Visibility::Canvas(name), true, tracks + zones + pads, true));
-            out.push(sub_row(key, "mask", if front { "mask:front" } else { "mask:back" }, t!("tree.sub.mask"), c.canvas.mask, Visibility::None, false, if front { pads } else { 0 }, false));
+            out.push(sub_row(
+                key,
+                "copper",
+                ck,
+                t!("tree.sub.copper"),
+                sw,
+                Visibility::Canvas(name),
+                true,
+                tracks + zones + pads,
+                true,
+            ));
+            out.push(sub_row(
+                key,
+                "mask",
+                if front { "mask:front" } else { "mask:back" },
+                t!("tree.sub.mask"),
+                c.canvas.mask,
+                Visibility::None,
+                false,
+                if front { pads } else { 0 },
+                false,
+            ));
             let texts = board.texts.iter().filter(|x| x.layer == s).count();
             let parts = if front { board.footprints.len() } else { 0 };
-            out.push(sub_row(key, "silk", if front { "silk:front" } else { "silk:back" }, t!("tree.sub.silk"), c.ink, Visibility::Canvas("Package artwork"), false, parts * 2 + texts, parts + texts > 0));
-            out.push(sub_row(key, "paste", if front { "paste:front" } else { "paste:back" }, t!("tree.sub.paste"), c.muted, Visibility::None, false, if front { pads } else { 0 }, false));
-            out.push(sub_row(key, "components", if front { "parts:front" } else { "parts:back" }, t!("tree.sub.components"), c.canvas.pad, Visibility::Canvas("Pads"), false, parts, parts > 0));
+            out.push(sub_row(
+                key,
+                "silk",
+                if front { "silk:front" } else { "silk:back" },
+                t!("tree.sub.silk"),
+                c.ink,
+                Visibility::Canvas("Package artwork"),
+                false,
+                parts * 2 + texts,
+                parts + texts > 0,
+            ));
+            out.push(sub_row(
+                key,
+                "paste",
+                if front { "paste:front" } else { "paste:back" },
+                t!("tree.sub.paste"),
+                c.muted,
+                Visibility::None,
+                false,
+                if front { pads } else { 0 },
+                false,
+            ));
+            out.push(sub_row(
+                key,
+                "components",
+                if front { "parts:front" } else { "parts:back" },
+                t!("tree.sub.components"),
+                c.canvas.pad,
+                Visibility::Canvas("Pads"),
+                false,
+                parts,
+                parts > 0,
+            ));
         }
         [inner] if inner.starts_with("inner:") => {
             let mut r = row(key, "copper", RowKind::Leaf, t!("tree.sub.copper"));
@@ -647,7 +755,12 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 if n == 0 {
                     continue;
                 }
-                let mut r = row(key, &format!("net:{id}"), RowKind::Net, project.net_name(id).to_owned());
+                let mut r = row(
+                    key,
+                    &format!("net:{id}"),
+                    RowKind::Net,
+                    project.net_name(id).to_owned(),
+                );
                 r.count = n.to_string();
                 r.swatch = Some(net_colour(&c, id));
                 r.round = true;
@@ -662,11 +775,28 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
         }
         [side, "silk"] => {
             let s = side_of_path(side);
-            let parts = if s == Layer::Front { board.footprints.len() } else { 0 };
-            out.push(counted(row(key, "refs", RowKind::Leaf, t!("tree.silk.reference_text")), parts, false));
-            out.push(counted(row(key, "outlines", RowKind::Leaf, t!("tree.silk.outlines")), parts, false));
+            let parts = if s == Layer::Front {
+                board.footprints.len()
+            } else {
+                0
+            };
+            out.push(counted(
+                row(key, "refs", RowKind::Leaf, t!("tree.silk.reference_text")),
+                parts,
+                false,
+            ));
+            out.push(counted(
+                row(key, "outlines", RowKind::Leaf, t!("tree.silk.outlines")),
+                parts,
+                false,
+            ));
             for x in board.texts.iter().filter(|x| x.layer == s) {
-                let mut r = row(key, &format!("text:{}", x.id), RowKind::Text, x.text.clone());
+                let mut r = row(
+                    key,
+                    &format!("text:{}", x.id),
+                    RowKind::Text,
+                    x.text.clone(),
+                );
                 r.select = Some(x.id);
                 out.push(r);
             }
@@ -679,34 +809,74 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             }
         }
         ["drills"] => {
-            let mut sizes: Vec<String> = board.vias.iter().map(|v| format!("{:.2}", v.drill)).collect();
+            let mut sizes: Vec<String> = board
+                .vias
+                .iter()
+                .map(|v| format!("{:.2}", v.drill))
+                .collect();
             sizes.sort();
             sizes.dedup();
             for size in sizes {
-                let n = board.vias.iter().filter(|v| format!("{:.2}", v.drill) == size).count();
-                let mut r = row(key, &format!("drill:{size}"), RowKind::Via, t!("tree.drill", size = size));
+                let n = board
+                    .vias
+                    .iter()
+                    .filter(|v| format!("{:.2}", v.drill) == size)
+                    .count();
+                let mut r = row(
+                    key,
+                    &format!("drill:{size}"),
+                    RowKind::Via,
+                    t!("tree.drill", size = size),
+                );
                 r.count = n.to_string();
                 r.expandable = true;
                 out.push(r);
             }
             for h in &board.holes {
-                let mut r = row(key, &format!("hole:{}", h.id), RowKind::Hole, if h.end.is_some() { t!("tree.slot", size = format!("{:.2}", h.diameter)) } else { t!("tree.mounting_hole") });
+                let mut r = row(
+                    key,
+                    &format!("hole:{}", h.id),
+                    RowKind::Hole,
+                    if h.end.is_some() {
+                        t!("tree.slot", size = format!("{:.2}", h.diameter))
+                    } else {
+                        t!("tree.mounting_hole")
+                    },
+                );
                 r.sub = format!("{:.0}, {:.0}", h.position.x, h.position.y);
                 r.select = Some(h.id);
                 out.push(r);
             }
         }
         ["drills", drill] if drill.starts_with("drill:") => {
-            for v in board.vias.iter().filter(|v| format!("{:.2}", v.drill) == drill[6..]) {
+            for v in board
+                .vias
+                .iter()
+                .filter(|v| format!("{:.2}", v.drill) == drill[6..])
+            {
                 out.push(via_row(key, project, v));
             }
         }
         ["edge"] => {
-            let mut edge = row(key, "edge", RowKind::Leaf, t!("tree.edge", w = format!("{}", board.width), h = format!("{}", board.height)));
+            let mut edge = row(
+                key,
+                "edge",
+                RowKind::Leaf,
+                t!(
+                    "tree.edge",
+                    w = format!("{}", board.width),
+                    h = format!("{}", board.height)
+                ),
+            );
             edge.dim = true;
             out.push(edge);
             for cut in &board.cutouts {
-                let mut r = row(key, &format!("cut:{}", cut.id), RowKind::Hole, t!("tree.cutout"));
+                let mut r = row(
+                    key,
+                    &format!("cut:{}", cut.id),
+                    RowKind::Hole,
+                    t!("tree.cutout"),
+                );
                 r.sub = format!("{:.0}, {:.0}", cut.center.x, cut.center.y);
                 r.select = Some(cut.id);
                 out.push(r);
@@ -733,7 +903,12 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             let id: Id = art[4..].parse().unwrap_or(0);
             if let Some(layer) = board.user_layers.iter().find(|l| l.id == id) {
                 for (i, shape) in layer.shapes.iter().enumerate() {
-                    out.push(row(key, &format!("shape:{i}"), RowKind::Shape, crate::art_shape_text(shape)));
+                    out.push(row(
+                        key,
+                        &format!("shape:{i}"),
+                        RowKind::Shape,
+                        crate::art_shape_text(shape),
+                    ));
                 }
             }
         }
@@ -747,7 +922,10 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             if let Some(f) = project.footprint(id) {
                 for (i, pad) in f.pads.iter().enumerate() {
                     let mut r = pad_row(key, f, i, pad);
-                    r.sub = pad.net.map(|n| project.net_name(n).to_owned()).unwrap_or_default();
+                    r.sub = pad
+                        .net
+                        .map(|n| project.net_name(n).to_owned())
+                        .unwrap_or_default();
                     out.push(r);
                 }
             }
@@ -763,7 +941,12 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                         levels.push(format!("L{}", level(env, s)));
                     }
                 }
-                let pads = board.footprints.iter().flat_map(|f| &f.pads).filter(|p| p.net == Some(n.id)).count();
+                let pads = board
+                    .footprints
+                    .iter()
+                    .flat_map(|f| &f.pads)
+                    .filter(|p| p.net == Some(n.id))
+                    .count();
                 let mut r = row(key, &format!("net:{}", n.id), RowKind::Net, n.name.clone());
                 r.sub = levels.join(" ");
                 r.count = t!("tree.pads", n = pads);
@@ -779,8 +962,17 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             for s in [Layer::Front, Layer::Back] {
                 let n = net_copper_count(env, id, s);
                 if n > 0 {
-                    let seg = if s == Layer::Front { "layer:front" } else { "layer:back" };
-                    let mut r = row(key, seg, RowKind::Group, t!("tree.net_layer", n = level(env, s), side = side_label(s)));
+                    let seg = if s == Layer::Front {
+                        "layer:front"
+                    } else {
+                        "layer:back"
+                    };
+                    let mut r = row(
+                        key,
+                        seg,
+                        RowKind::Group,
+                        t!("tree.net_layer", n = level(env, s), side = side_label(s)),
+                    );
                     r.count = n.to_string();
                     r.expandable = true;
                     r.net = Some(id);
@@ -793,7 +985,11 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
         }
         ["nets", net, layer] if layer.starts_with("layer:") => {
             let id: Id = net[4..].parse().unwrap_or(0);
-            let s = if layer.ends_with("front") { Layer::Front } else { Layer::Back };
+            let s = if layer.ends_with("front") {
+                Layer::Front
+            } else {
+                Layer::Back
+            };
             net_copper(env, key, id, s, &mut out);
         }
         _ => {}
@@ -811,12 +1007,24 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
             let mut sheets: Vec<(Id, String)> = vec![(0, t!("tree.sheet.first"))];
             sheets.extend(project.sheets.iter().map(|s| (s.id, s.name.clone())));
             for (id, name) in sheets {
-                out.push(section(&format!("sec:sheet:{id}"), name, if id == 0 { 4 } else { 1 }));
+                out.push(section(
+                    &format!("sec:sheet:{id}"),
+                    name,
+                    if id == 0 { 4 } else { 1 },
+                ));
             }
-            let mut comps = counted(row("", "components", RowKind::Layer, t!("tree.section.parts")), project.components.len(), true);
+            let mut comps = counted(
+                row("", "components", RowKind::Layer, t!("tree.section.parts")),
+                project.components.len(),
+                true,
+            );
             comps.swatch = Some(c.ink);
             out.push(comps);
-            let mut nets = counted(row("", "nets", RowKind::Layer, t!("tree.section.nets")), project.nets.len(), true);
+            let mut nets = counted(
+                row("", "nets", RowKind::Layer, t!("tree.section.nets")),
+                project.nets.len(),
+                true,
+            );
             nets.swatch = Some(c.canvas.wire);
             nets.controls = Some(LayerControls {
                 key: String::new(),
@@ -828,16 +1036,49 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
         [sec] if sec.starts_with("sec:sheet:") => {
             let id: Id = sec[10..].parse().unwrap_or(0);
             let comps = project.components.iter().filter(|c| c.sheet == id).count();
-            let mut l = |seg: &str, label: String, sw: Color32, vis: Visibility, n: usize, open: bool| {
-                out.push(layer_row(key, seg, label, sw, vis, false, n, open));
-            };
-            l("symbols", t!("tree.sch.symbols"), c.warn, Visibility::Canvas("Symbols"), comps, true);
+            let mut l =
+                |seg: &str, label: String, sw: Color32, vis: Visibility, n: usize, open: bool| {
+                    out.push(layer_row(key, seg, label, sw, vis, false, n, open));
+                };
+            l(
+                "symbols",
+                t!("tree.sch.symbols"),
+                c.warn,
+                Visibility::Canvas("Symbols"),
+                comps,
+                true,
+            );
             if id == 0 {
                 let power = project.labels.iter().filter(|l| l.kind == "power").count();
-                let drawing = project.graphics.iter().filter(|g| g.layer == "schematic").count();
-                l("power", t!("tree.sch.power_ports"), c.canvas.wire, Visibility::None, power, false);
-                l("drawing", t!("tree.sch.drawing"), c.link, Visibility::Canvas("Graphics"), drawing, false);
-                l("title", t!("tree.sch.title_block"), c.ink, Visibility::None, 1, false);
+                let drawing = project
+                    .graphics
+                    .iter()
+                    .filter(|g| g.layer == "schematic")
+                    .count();
+                l(
+                    "power",
+                    t!("tree.sch.power_ports"),
+                    c.canvas.wire,
+                    Visibility::None,
+                    power,
+                    false,
+                );
+                l(
+                    "drawing",
+                    t!("tree.sch.drawing"),
+                    c.link,
+                    Visibility::Canvas("Graphics"),
+                    drawing,
+                    false,
+                );
+                l(
+                    "title",
+                    t!("tree.sch.title_block"),
+                    c.ink,
+                    Visibility::None,
+                    1,
+                    false,
+                );
             }
         }
         [sec, "layer:symbols"] if sec.starts_with("sec:sheet:") => {
@@ -855,8 +1096,16 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
             let id: Id = comp[5..].parse().unwrap_or(0);
             if let Some(cmp) = project.component(id) {
                 for (i, pin) in cmp.pins.iter().enumerate() {
-                    let mut r = row(key, &format!("pin:{i}"), RowKind::Pad, t!("tree.pin", number = pin.number, name = pin.name));
-                    r.sub = pin.net.map(|n| project.net_name(n).to_owned()).unwrap_or_default();
+                    let mut r = row(
+                        key,
+                        &format!("pin:{i}"),
+                        RowKind::Pad,
+                        t!("tree.pin", number = pin.number, name = pin.name),
+                    );
+                    r.sub = pin
+                        .net
+                        .map(|n| project.net_name(n).to_owned())
+                        .unwrap_or_default();
                     r.select = Some(id);
                     r.marks = false;
                     out.push(r);
@@ -868,22 +1117,43 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
             let id: Id = net[4..].parse().unwrap_or(0);
             for w in project.wires.iter().filter(|w| w.net == id) {
                 let name = |p: &pcbcraft_doc::PinRef| {
-                    project.component(p.component).map_or_else(|| "?".to_owned(), |c| format!("{}.{}", c.reference, p.pin))
+                    project
+                        .component(p.component)
+                        .map_or_else(|| "?".to_owned(), |c| format!("{}.{}", c.reference, p.pin))
                 };
-                let mut r = row(key, &format!("wire:{}", w.id), RowKind::Wire, t!("tree.wire"));
+                let mut r = row(
+                    key,
+                    &format!("wire:{}", w.id),
+                    RowKind::Wire,
+                    t!("tree.wire"),
+                );
                 r.sub = t!("tree.wire_ends", from = name(&w.from), to = name(&w.to));
                 r.select = Some(w.id);
                 out.push(r);
             }
             for l in project.labels.iter().filter(|l| l.net == id) {
-                let mut r = row(key, &format!("label:{}", l.id), RowKind::Label, project.net_name(id).to_owned());
+                let mut r = row(
+                    key,
+                    &format!("label:{}", l.id),
+                    RowKind::Label,
+                    project.net_name(id).to_owned(),
+                );
                 r.sub = l.kind.clone();
                 r.select = Some(l.id);
                 out.push(r);
             }
             for comp in &project.components {
                 for pin in comp.pins.iter().filter(|p| p.net == Some(id)) {
-                    let mut r = row(key, &format!("npin:{}:{}", comp.id, pin.number), RowKind::Pad, t!("tree.pin", number = format!("{}.{}", comp.reference, pin.number), name = pin.name));
+                    let mut r = row(
+                        key,
+                        &format!("npin:{}:{}", comp.id, pin.number),
+                        RowKind::Pad,
+                        t!(
+                            "tree.pin",
+                            number = format!("{}.{}", comp.reference, pin.number),
+                            name = pin.name
+                        ),
+                    );
                     r.select = Some(comp.id);
                     r.marks = false;
                     out.push(r);
@@ -963,7 +1233,11 @@ fn walk(env: &Env, view: &TreeView, row: Row, depth: u8, level: u8, out: &mut Ve
     let mut row = row;
     row.depth = depth;
     row.level = level;
-    let child_level = if row.kind == RowKind::Section { level } else { level.saturating_add(1) };
+    let child_level = if row.kind == RowKind::Section {
+        level
+    } else {
+        level.saturating_add(1)
+    };
     let start = out.len();
     let searching = !view.query.trim().is_empty();
     let own = searching && matches_query(&row, view.query.trim());
@@ -2135,25 +2409,44 @@ fn row_menu(
             actions.push(Action::SelectKey(r.key.clone()));
         }
         if ctl.visibility != Visibility::None {
-            let label = if hidden { t!("tree.menu.show") } else { t!("tree.menu.hide") };
+            let label = if hidden {
+                t!("tree.menu.show")
+            } else {
+                t!("tree.menu.hide")
+            };
             if item(ui, label, t!("tree.menu.hide.tip")) {
                 match &ctl.visibility {
                     Visibility::Canvas(name) => actions.push(Action::SetShown { name, on: hidden }),
-                    Visibility::Art(layer) => actions.push(Action::SetArtShown { layer: *layer, on: hidden }),
+                    Visibility::Art(layer) => actions.push(Action::SetArtShown {
+                        layer: *layer,
+                        on: hidden,
+                    }),
                     Visibility::None => {}
                 }
             }
         }
         if !ctl.key.is_empty() {
-            let label = if locked { t!("tree.menu.unlock") } else { t!("tree.menu.lock") };
+            let label = if locked {
+                t!("tree.menu.unlock")
+            } else {
+                t!("tree.menu.lock")
+            };
             if item(ui, label, t!("tree.menu.lock.tip")) && !view.locked.remove(&ctl.key) {
                 view.locked.insert(ctl.key.clone());
             }
         }
         if ctl.focusable {
-            let label = if focus_on { t!("tree.menu.unfocus") } else { t!("tree.menu.focus") };
+            let label = if focus_on {
+                t!("tree.menu.unfocus")
+            } else {
+                t!("tree.menu.focus")
+            };
             if item(ui, label, t!("tree.menu.focus.tip")) {
-                actions.push(Action::Focus(if focus_on { None } else { Some(ctl.key.clone()) }));
+                actions.push(Action::Focus(if focus_on {
+                    None
+                } else {
+                    Some(ctl.key.clone())
+                }));
             }
         }
         if let Visibility::Art(id) = ctl.visibility
@@ -2166,7 +2459,10 @@ fn row_menu(
         if item(ui, t!("tree.menu.select"), t!("tree.menu.select.tip")) {
             actions.push(Action::Select(id));
         }
-        if r.marks && env.selected == Some(id) && item(ui, t!("tree.menu.delete"), t!("tree.menu.delete.tip")) {
+        if r.marks
+            && env.selected == Some(id)
+            && item(ui, t!("tree.menu.delete"), t!("tree.menu.delete.tip"))
+        {
             actions.push(Action::Delete(id));
         }
     }
@@ -2177,7 +2473,11 @@ fn row_menu(
         actions.push(Action::HighlightNet(Some(net)));
     }
     if r.kind == RowKind::Layer && r.controls.is_none() && r.key != "root" {
-        let label = if view.expanded.contains(&r.key) { t!("tree.menu.collapse") } else { t!("tree.menu.expand") };
+        let label = if view.expanded.contains(&r.key) {
+            t!("tree.menu.collapse")
+        } else {
+            t!("tree.menu.expand")
+        };
         if item(ui, label, t!("tree.chevron.tip")) {
             toggle(view, &r.key);
         }
@@ -2497,7 +2797,16 @@ mod tests {
             .collect();
         assert_eq!(
             tops,
-            ["root", "side:top", "side:bottom", "drills", "edge", "user", "components", "nets"]
+            [
+                "root",
+                "side:top",
+                "side:bottom",
+                "drills",
+                "edge",
+                "user",
+                "components",
+                "nets"
+            ]
         );
         assert!(list.iter().any(|r| r.key == "side:top/copper"));
     }
@@ -2522,7 +2831,10 @@ mod tests {
             ..Default::default()
         };
         let list = rows(&env(&project, &[]), &mut view);
-        assert!(list.iter().any(|r| r.kind == RowKind::Net && r.label == net));
+        assert!(
+            list.iter()
+                .any(|r| r.kind == RowKind::Net && r.label == net)
+        );
         assert!(list.iter().any(|r| r.key == "nets"));
         view.query = "zzzz-no-such-thing".to_owned();
         assert!(rows(&env(&project, &[]), &mut view).is_empty());
@@ -2537,7 +2849,11 @@ mod tests {
         assert!(opens.contains(&"components".to_owned()));
         let mut view = TreeView::default();
         view.expanded.extend(opens);
-        assert!(rows(&env(&project, &[]), &mut view).iter().any(|r| r.key == target));
+        assert!(
+            rows(&env(&project, &[]), &mut view)
+                .iter()
+                .any(|r| r.key == target)
+        );
         Ok(())
     }
 
