@@ -813,7 +813,11 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
     app.datum_ui.name = "SCREW_A".into();
     authoring::tests::tap(&ctx, &mut app, "Rename")?;
     app.refresh();
-    assert_eq!(app.project.board.datums[0].name, "SCREW_A", "{}", app.message);
+    assert_eq!(
+        app.project.board.datums[0].name, "SCREW_A",
+        "{}",
+        app.message
+    );
     assert!(
         paints_text(&ctx, &mut app, "SCREW_A")?,
         "the new name shows on the drawing"

@@ -1,7 +1,7 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod authoring;
-mod datums;
 mod canvas;
+mod datums;
 mod library;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
