@@ -1749,7 +1749,10 @@ pub(crate) mod tests {
                 let mut stills = 0;
                 while stills < 2 {
                     let output = frame(ctx, app, vec![]);
-                    if let Some(pos) = find(&output) {
+                    if let Some(seen) = find(&output) {
+                        // One more quiet frame: the page may still be settling,
+                        // and the click must land where the label rests.
+                        let pos = find(&frame(ctx, app, vec![])).unwrap_or(seen);
                         for pressed in [true, false] {
                             frame(
                                 ctx,
