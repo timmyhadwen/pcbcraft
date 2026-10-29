@@ -104,7 +104,7 @@ fn new_pin(number: &str, unit: u32, position: Point, angle: f64) -> SymbolPin {
         visible: true,
     }
 }
-fn new_pad(number: &str, x: f64) -> FootprintPad {
+pub(crate) fn new_pad(number: &str, x: f64) -> FootprintPad {
     FootprintPad {
         number: number.into(),
         pad_type: "thru_hole".into(),
@@ -723,9 +723,19 @@ impl App {
                                         "Plated through-hole",
                                     )
                                     .on_hover_text("Drilled and plated so legs can pass through.");
+                                    ui.selectable_value(
+                                        &mut pad.pad_type,
+                                        "unplated".into(),
+                                        "Unplated hole",
+                                    )
+                                    .on_hover_text(
+                                        "A bare drilled hole for a locating peg or screw. It has no copper and no net.",
+                                    );
                                 });
                             if before != pad.pad_type {
-                                if pad.pad_type == "thru_hole" {
+                                if pad.pad_type == "unplated" {
+                                    apply_unplated_defaults(pad);
+                                } else if pad.pad_type == "thru_hole" {
                                     pad.layers = vec!["*.Cu".into(), "*.Mask".into()];
                                     pad.drill = Some(Drill {
                                         size: Point::new(0.8, 0.8),
@@ -823,6 +833,19 @@ impl App {
     }
 }
 
+/// Turn a library pad into an unplated mechanical hole: no number, no copper
+/// layers, zero copper size, and a drill that alone defines the hole.
+pub(crate) fn apply_unplated_defaults(pad: &mut pcbcraft_library::FootprintPad) {
+    pad.number.clear();
+    pad.layers.clear();
+    let size = pad.drill.as_ref().map_or(Point::new(1.0, 1.0), |d| d.size);
+    pad.size = Point::default();
+    pad.drill = Some(Drill {
+        size,
+        offset: Point::default(),
+    });
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -917,6 +940,7 @@ pub(crate) mod tests {
             egui::pos2(720.0, 400.0),
             egui::pos2(300.0, 500.0),
             egui::pos2(150.0, 500.0),
+            egui::pos2(1180.0, 400.0),
         ];
         // Later shapes sit on top of earlier ones, so the last visible
         // copy of a label is the one a real click would land on.
@@ -995,6 +1019,34 @@ pub(crate) mod tests {
         }
         Err(format!("{label} never appeared on screen"))
     }
+
+    /// Click a tool-strip icon registered under `id` on the last painted frame.
+    pub(crate) fn tap_icon(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
+        frame(ctx, app, vec![]);
+        frame(ctx, app, vec![]);
+        let pos = app
+            .icon_rects
+            .get(id)
+            .map(|rect| rect.center())
+            .ok_or_else(|| format!("icon {id} was not published"))?;
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        Ok(())
+    }
+
     fn draft_symbol(app: &App) -> Result<SymbolDefinition, String> {
         app.library
             .editor
