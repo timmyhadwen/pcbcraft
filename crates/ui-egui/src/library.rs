@@ -619,7 +619,7 @@ pub(super) fn library_paths_bounds(paths: &[Vec<Point>]) -> (Point, Point) {
     }
 }
 
-fn paint_library_paths(
+pub(super) fn paint_library_paths(
     painter: &egui::Painter,
     rect: Rect,
     camera: Camera,
