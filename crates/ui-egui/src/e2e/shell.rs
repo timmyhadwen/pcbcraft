@@ -180,3 +180,91 @@ fn a_newcomer_picks_the_move_tool_from_the_strip_icons() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// Where a text label is painted: its vertical centre, if it is on screen.
+fn text_row(ctx: &egui::Context, app: &mut App, needle: &str) -> Option<f32> {
+    for _ in 0..3 {
+        let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+        for shape in &output.shapes {
+            if let egui::Shape::Text(text) = &shape.shape
+                && text.galley.text() == needle
+            {
+                return Some(text.pos.y + text.galley.size().y / 2.0);
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn a_newcomer_sees_a_slim_bar_with_only_the_brand_and_the_menus() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    let ctx = egui::Context::default();
+    for needle in ["PCBCraft", "File", "Edit", "Help"] {
+        let row = text_row(&ctx, &mut app, needle)
+            .ok_or_else(|| format!("{needle} is not on screen"))?;
+        assert!(
+            row < App::APP_BAR_HEIGHT,
+            "{needle} sits in the 34 px bar, found at {row}"
+        );
+    }
+    for gone in ["Home", "Report a bug", "Save", "Undo", "Redo", env!("CARGO_PKG_VERSION")] {
+        assert!(
+            text_row(&ctx, &mut app, gone).is_none_or(|row| row > App::APP_BAR_HEIGHT),
+            "{gone} no longer sits in the bar"
+        );
+    }
+    authoring::tests::tap(&ctx, &mut app, "Help")?;
+    for needle in ["Shortcuts", "Commands", "Report a bug"] {
+        assert!(paints_text(&ctx, &mut app, needle)?, "Help lists {needle}");
+    }
+    authoring::tests::tap(&ctx, &mut app, "File")?;
+    for needle in ["New", "Open", "Save", "Settings", "Export", "Copy picture"] {
+        assert!(paints_text(&ctx, &mut app, needle)?, "File lists {needle}");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_cannot_undo_before_the_first_edit() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "Edit")?;
+    authoring::tests::tap(&ctx, &mut app, "Undo")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        !app.message.starts_with("undo"),
+        "Undo is greyed out with nothing to undo: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "Layout")?;
+    for word in ["Select", "Move", "Route", "Line", "Box", "Circle", "Outline", "Text"] {
+        assert!(paints_text(&ctx, &mut app, word)?, "the strip says {word}");
+    }
+    for cryptic in ["Sel", "Mv", "Rt", "Ln", "Bx", "Cr", "Pl", "Tx"] {
+        assert!(!paints_text(&ctx, &mut app, cryptic)?, "no {cryptic}");
+    }
+    app.closed_tabs.push(Tab::Rules);
+    assert!(text_row(&ctx, &mut app, "Rules").is_none(), "a closed view leaves the row");
+    authoring::tests::tap(&ctx, &mut app, "+")?;
+    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    assert!(matches!(app.tab, Tab::Rules), "the + menu reopens it");
+    authoring::tests::tap(&ctx, &mut app, "Files")?;
+    authoring::tests::tap(&ctx, &mut app, "Library sources")?;
+    assert!(matches!(app.tab, Tab::Libraries), "Library sources stays reachable");
+    Ok(())
+}
