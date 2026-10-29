@@ -16,8 +16,10 @@
 use pcbcraft_library::cad::{CadKind, CadRef, CadSource};
 use pcbcraft_library::online_import::{footprint_ref_from_field, import_part};
 use pcbcraft_library::open_library::OpenLibrarySource;
+use pcbcraft_library::read_footprint;
 use pcbcraft_library::read_symbols;
 use serde_json::Value;
+use serde_json::json;
 
 /// Fetch one open-library part named by its `Library/Name` sku and shape it
 /// for the engine.
@@ -55,4 +57,30 @@ pub(crate) fn import_open(source: &OpenLibrarySource, sku: &str) -> Result<Value
         }
     }
     Err(last)
+}
+
+/// Read just the symbol of an open-library part, and the footprint it names
+/// when one can be had, for the card thumbnail and description.
+///
+/// # Rules
+/// - Goes through the source's cache; a missing footprint is not an error.
+///
+/// # Do not
+/// - Fetch a 3D model; that happens only when the part is placed.
+pub(crate) fn peek_open(source: &OpenLibrarySource, sku: &str) -> Result<Value, String> {
+    let (library, name) = sku
+        .split_once('/')
+        .ok_or_else(|| "this part has no library path to open".to_owned())?;
+    let symbol = CadRef::new(CadKind::Symbol, library, name).map_err(|e| e.to_string())?;
+    let file = source.fetch_symbol(&symbol).map_err(|e| e.to_string())?;
+    let text = file.text().map_err(|e| e.to_string())?;
+    let def = read_symbols(text)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|d| d.name == name)
+        .ok_or_else(|| "the symbol file does not hold this part".to_owned())?;
+    let footprint = footprint_ref_from_field(&def.footprint)
+        .and_then(|f| source.fetch_footprint(&f).ok())
+        .and_then(|f| f.text().ok().and_then(|t| read_footprint(t).ok()));
+    Ok(json!({"symbol": def, "footprint": footprint}))
 }
