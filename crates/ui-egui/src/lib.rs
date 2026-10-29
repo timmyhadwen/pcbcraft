@@ -2,7 +2,6 @@
 mod authoring;
 mod canvas;
 mod library;
-use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
@@ -6409,40 +6408,6 @@ impl App {
     fn record_icon(&mut self, _id: &str, _rect: Rect) {
         #[cfg(test)]
         self.icon_rects.insert(_id.to_owned(), _rect);
-    }
-
-    fn icon_button_style(&self) -> IconButtonStyle {
-        let stroke = Stroke::new(1.0, self.ink().gamma_multiply(0.35));
-        let fill = if self.preferences.dark {
-            Color32::from_rgb(28, 40, 56)
-        } else {
-            Color32::from_rgb(220, 228, 238)
-        };
-        let hover = if self.preferences.dark {
-            Color32::from_rgb(40, 58, 80)
-        } else {
-            Color32::from_rgb(200, 212, 228)
-        };
-        IconButtonStyle {
-            normal: ButtonVisuals {
-                fill,
-                stroke,
-                icon: self.ink(),
-            },
-            hovered: ButtonVisuals {
-                fill: hover,
-                stroke,
-                icon: self.ink(),
-            },
-            pressed: None,
-            selected: ButtonVisuals {
-                fill: self.accent().gamma_multiply(0.35),
-                stroke: Stroke::new(1.0, self.accent()),
-                icon: self.ink(),
-            },
-            corner_radius: egui::CornerRadius::same(6),
-            focus_stroke: Stroke::new(1.0, self.accent()),
-        }
     }
 
     fn tool_strip_button(
