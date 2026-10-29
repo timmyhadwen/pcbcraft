@@ -1,8 +1,8 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
 use pcbcraft_doc::{
-    ArtKind, ArtShape, Board, FabRules, Id, Layer, Pad, PanelSeparation, Project, Via,
-    PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM,
-    PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, panel_layout, panel_score_lines,
+    ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
+    PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
+    PanelSeparation, Project, Via, panel_layout, panel_score_lines,
 };
 use pcbcraft_geom::{Point, point_segment, segment_distance};
 use serde::Serialize;
