@@ -89,6 +89,10 @@ pub(crate) enum Phase {
 }
 
 impl State {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "Settings connects a backend in the next change")
+    )]
     /// A start context for a backend that runs its own tool loop; tool calls come back to `poll`.
     pub(crate) fn start_context(&self, work_dir: std::path::PathBuf) -> StartContext {
         StartContext {
@@ -124,6 +128,10 @@ impl App {
         self
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "Settings connects a backend in the next change")
+    )]
     /// Use `backend` for the conversation. It reports `Ready` when it can take a message.
     pub(crate) fn assistant_use(&mut self, backend: Box<dyn ChatBackend>) {
         self.assistant.backend = Some(backend);
