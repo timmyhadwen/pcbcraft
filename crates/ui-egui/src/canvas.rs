@@ -1430,14 +1430,14 @@ impl App {
             painter.text(
                 rect.center() - Vec2::new(0.0, 25.0),
                 Align2::CENTER_CENTER,
-                "Start your circuit",
+                t!("schematic.paint_schematic.start_your_circuit"),
                 FontId::proportional(28.0),
                 self.ink(),
             );
             painter.text(
                 rect.center() + Vec2::new(0.0, 20.0),
                 Align2::CENTER_CENTER,
-                "Press A to add a symbol, or open the start screen for a worked example",
+                t!("schematic.paint_schematic.press_a_to_add_a"),
                 FontId::proportional(14.0),
                 self.muted(),
             );

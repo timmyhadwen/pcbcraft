@@ -23,20 +23,22 @@ use std::collections::BTreeMap;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
-/// staring at a blank list.
+/// staring at a blank list. Each constant is a catalog key (en.txt), read
+/// through `empty_state`.
 #[cfg(test)]
-const EMPTY_SYMBOLS: &str =
-    "No symbols yet. Press A to open the symbol palette, or run component.add to add one.";
-const EMPTY_NETS: &str = "No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import and board.sync will create the packages.";
+const EMPTY_SYMBOLS: &str = "empty.symbols";
+const EMPTY_NETS: &str = "empty.nets";
 #[cfg(test)]
-const EMPTY_BOARD: &str =
-    "No packages on the board yet. Run board.sync to place a package for every symbol.";
-const EMPTY_CHECKS: &str =
-    "Checks run automatically on every edit; findings are listed here as soon as one appears.";
+const EMPTY_BOARD: &str = "empty.board";
+const EMPTY_CHECKS: &str = "empty.checks";
 
-/// Render an empty-state line in the small muted style.
-fn empty_state(ui: &mut egui::Ui, text: &str, muted: egui::Color32) {
-    ui.label(egui::RichText::new(text).small().color(muted));
+/// Render the empty-state line for catalog key `key` in the small muted style.
+fn empty_state(ui: &mut egui::Ui, key: &str, muted: egui::Color32) {
+    ui.label(
+        egui::RichText::new(pcbcraft_text::lookup(key, &[]))
+            .small()
+            .color(muted),
+    );
 }
 
 /// Help copy shown under the inspector's editable fields. Each line names
@@ -399,7 +401,10 @@ fn type_note(field: &Value) -> String {
             .map(str::to_string)
             .collect();
         if !names.is_empty() {
-            return format!("one of {}", names.join(" or "));
+            return t!(
+                "schematic.type_note.one_of_list",
+                list = names.join(&format!(" {} ", t!("schematic.type_note.or")))
+            );
         }
     }
     match field.get("type").and_then(Value::as_str) {
@@ -410,17 +415,17 @@ fn type_note(field: &Value) -> String {
                 .and_then(Value::as_f64);
             let max = field.get("maximum").and_then(Value::as_f64);
             match (min, max) {
-                (Some(lo), Some(hi)) => format!("number {lo} to {hi}"),
-                (Some(lo), None) => format!("number from {lo}"),
-                (None, Some(hi)) => format!("number up to {hi}"),
-                (None, None) => "number".into(),
+                (Some(lo), Some(hi)) => t!("schematic.type_note.number_lo_to_hi", lo = lo, hi = hi),
+                (Some(lo), None) => t!("schematic.type_note.number_from_lo", lo = lo),
+                (None, Some(hi)) => t!("schematic.type_note.number_up_to_hi", hi = hi),
+                (None, None) => t!("schematic.type_note.number"),
             }
         }
-        Some("string") => "text".into(),
-        Some("boolean") => "true or false".into(),
-        Some("array") => "list".into(),
-        Some("object") => "object".into(),
-        _ => "value".into(),
+        Some("string") => t!("schematic.type_note.text"),
+        Some("boolean") => t!("schematic.type_note.true_or_false"),
+        Some("array") => t!("schematic.type_note.list"),
+        Some("object") => t!("schematic.type_note.object"),
+        _ => t!("schematic.type_note.value"),
     }
 }
 
@@ -801,7 +806,7 @@ impl App {
     fn part_card(&mut self, ui: &mut egui::Ui, definition: &pcbcraft_library::SymbolDefinition) {
         if ui
             .button(&definition.name)
-            .on_hover_text("Pick this saved part; the next click on the schematic places it.")
+            .on_hover_text(t!("schematic.part_card.pick_this_saved_part_the.tip"))
             .clicked()
         {
             self.change_tab(Tab::Schematic);
@@ -813,9 +818,13 @@ impl App {
         let words = tags.join(" · ");
         let note = match (definition.description.trim(), words.as_str()) {
             ("", "") => String::new(),
-            ("", tags) => format!("search words: {tags}"),
+            ("", tags) => t!("schematic.part_card.search_words_tags", tags = tags),
             (what, "") => what.to_owned(),
-            (what, tags) => format!("{what} · search words: {tags}"),
+            (what, tags) => t!(
+                "schematic.part_card.what_search_words_tags",
+                what = what,
+                tags = tags
+            ),
         };
         if !note.is_empty() {
             ui.label(egui::RichText::new(note).small().color(self.muted()));
@@ -837,14 +846,33 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         let base = project.board.clearance;
         let class = project.net_class(net);
         let (value, source) = match class {
-            Some(c) if c.clearance > base => (c.clearance, format!("the usual gap for {}", c.name)),
+            Some(c) if c.clearance > base => (
+                c.clearance,
+                t!(
+                    "schematic.object_detail_rows.the_usual_gap_for_name",
+                    name = c.name
+                ),
+            ),
             Some(c) => (
                 base,
-                format!("the board's usual gap, {} asks no more", c.name),
+                t!(
+                    "schematic.object_detail_rows.the_board_s_usual_gap",
+                    name = c.name
+                ),
             ),
-            None => (base, "the board's usual gap".to_string()),
+            None => (
+                base,
+                t!("schematic.object_detail_rows.the_board_s_usual_gap2"),
+            ),
         };
-        rows.push(("Clearance".into(), format!("{value:.3} mm · {source}")));
+        rows.push((
+            t!("schematic.object_detail_rows.clearance"),
+            t!(
+                "schematic.object_detail_rows.value_mm_source",
+                value = format!("{:.3}", value),
+                source = source
+            ),
+        ));
         let stricter: Vec<String> = project
             .board
             .pair_rules
@@ -852,102 +880,196 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
             .filter(|r| (r.a == net || r.b == net) && r.clearance > value)
             .map(|r| {
                 let other = if r.a == net { r.b } else { r.a };
-                format!(
-                    "{:.3} mm away from {}",
-                    r.clearance,
-                    project.net_name(other)
+                t!(
+                    "schematic.object_detail_rows.clearance_mm_away_from_v1",
+                    clearance = format!("{:.3}", r.clearance),
+                    v1 = project.net_name(other)
                 )
             })
             .collect();
         if !stricter.is_empty() {
-            rows.push(("Special gaps".into(), stricter.join(" · ")));
+            rows.push((
+                t!("schematic.object_detail_rows.special_gaps"),
+                stricter.join(" · "),
+            ));
         }
     };
     let mut rows: Vec<(String, String)> = Vec::new();
     if let Some(t) = project.board.tracks.iter().find(|t| t.id == id) {
-        rows.push(("Net".into(), format!("{} · follows the wiring", net(t.net))));
-        rows.push(("Layer".into(), layer(&t.layer)));
+        rows.push((
+            t!("schematic.object_detail_rows.net"),
+            t!(
+                "schematic.object_detail_rows.v0_follows_the_wiring",
+                v0 = net(t.net)
+            ),
+        ));
+        rows.push((t!("schematic.object_detail_rows.layer"), layer(&t.layer)));
         let class = project.net_class(t.net);
         let width_note = match class {
             Some(c) if (t.width - c.width).abs() < 1e-6 => {
-                format!("{:.3} mm · the usual width for {}", t.width, c.name)
+                t!(
+                    "schematic.object_detail_rows.width_mm_the_usual_width",
+                    width = format!("{:.3}", t.width),
+                    name = c.name
+                )
             }
-            Some(c) => format!(
-                "{:.3} mm · chosen for this wire, not the usual {:.3} mm for {}",
-                t.width, c.width, c.name
+            Some(c) => t!(
+                "schematic.object_detail_rows.width_mm_chosen_for_this",
+                width = format!("{:.3}", t.width),
+                width2 = format!("{:.3}", c.width),
+                name = c.name
             ),
-            None => format!("{:.3} mm · chosen for this wire", t.width),
+            None => t!(
+                "schematic.object_detail_rows.width_mm_chosen_for_this2",
+                width = format!("{:.3}", t.width)
+            ),
         };
-        rows.push(("Width".into(), width_note));
+        rows.push((t!("schematic.object_detail_rows.width"), width_note));
         clearance_rows(t.net, &mut rows);
         rows.push((
-            "From".into(),
-            format!("{:.2}, {:.2} mm", t.start.x, t.start.y),
+            t!("schematic.object_detail_rows.from"),
+            t!(
+                "schematic.object_detail_rows.x_y_mm",
+                x = format!("{:.2}", t.start.x),
+                y = format!("{:.2}", t.start.y)
+            ),
         ));
-        rows.push(("To".into(), format!("{:.2}, {:.2} mm", t.end.x, t.end.y)));
+        rows.push((
+            t!("schematic.object_detail_rows.to"),
+            t!(
+                "schematic.object_detail_rows.x_y_mm",
+                x = format!("{:.2}", t.end.x),
+                y = format!("{:.2}", t.end.y)
+            ),
+        ));
         if t.arc.is_some() {
-            rows.push(("Shape".into(), "curved through a midpoint".into()));
+            rows.push((
+                t!("schematic.object_detail_rows.shape"),
+                t!("schematic.object_detail_rows.curved_through_a_midpoint"),
+            ));
         }
     } else if let Some(v) = project.board.vias.iter().find(|v| v.id == id) {
-        rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
-        rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
-        rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.push((
+            t!("schematic.object_detail_rows.net"),
+            t!(
+                "schematic.object_detail_rows.v0_follows_the_wiring",
+                v0 = net(v.net)
+            ),
+        ));
+        rows.push((
+            t!("schematic.object_detail_rows.copper"),
+            t!(
+                "schematic.object_detail_rows.diameter_mm",
+                diameter = format!("{:.2}", v.diameter)
+            ),
+        ));
+        rows.push((
+            t!("schematic.object_detail_rows.drill"),
+            t!(
+                "schematic.object_detail_rows.drill_mm",
+                drill = format!("{:.2}", v.drill)
+            ),
+        ));
         rows.extend(via_span::via_span_rows(project, v));
         rows.push((
-            "Protection".into(),
+            t!("schematic.object_detail_rows.protection"),
             via_covering::covering_name(v.effective_covering(&project.board)).into(),
         ));
         clearance_rows(v.net, &mut rows);
         rows.push((
-            "Position".into(),
-            format!("{:.2}, {:.2} mm", v.position.x, v.position.y),
+            t!("schematic.object_detail_rows.position"),
+            t!(
+                "schematic.object_detail_rows.x_y_mm",
+                x = format!("{:.2}", v.position.x),
+                y = format!("{:.2}", v.position.y)
+            ),
         ));
     } else if let Some(z) = project.board.zones.iter().find(|z| z.id == id) {
-        rows.push(("Net".into(), net(z.net)));
-        rows.push(("Layer".into(), layer(&z.layer)));
+        rows.push((t!("schematic.object_detail_rows.net"), net(z.net)));
+        rows.push((t!("schematic.object_detail_rows.layer"), layer(&z.layer)));
         clearance_rows(z.net, &mut rows);
         rows.push((
-            "Copper".into(),
+            t!("schematic.object_detail_rows.copper"),
             if z.filled {
                 "poured".into()
             } else {
-                "outline only".into()
+                t!("schematic.object_detail_rows.outline_only")
             },
         ));
-        rows.push(("Outline".into(), format!("{} vertices", z.outline.len())));
+        rows.push((
+            t!("schematic.object_detail_rows.outline"),
+            t!(
+                "schematic.object_detail_rows.len_vertices",
+                len = z.outline.len()
+            ),
+        ));
         if !z.cutouts.is_empty() {
-            rows.push(("Cutouts".into(), format!("{}", z.cutouts.len())));
+            rows.push((
+                t!("schematic.object_detail_rows.cutouts"),
+                format!("{}", z.cutouts.len()),
+            ));
         }
     } else if let Some(l) = project.labels.iter().find(|l| l.id == id) {
-        rows.push(("Kind".into(), l.kind.clone()));
-        rows.push(("Net".into(), net(l.net)));
+        rows.push((t!("schematic.object_detail_rows.kind"), l.kind.clone()));
+        rows.push((t!("schematic.object_detail_rows.net"), net(l.net)));
         rows.push((
-            "Position".into(),
-            format!("{:.2}, {:.2} mm", l.position.x, l.position.y),
+            t!("schematic.object_detail_rows.position"),
+            t!(
+                "schematic.object_detail_rows.x_y_mm",
+                x = format!("{:.2}", l.position.x),
+                y = format!("{:.2}", l.position.y)
+            ),
         ));
     } else if let Some(w) = project.drawn_wires.iter().find(|w| w.id == id) {
         rows.push((
-            "Net".into(),
+            t!("schematic.object_detail_rows.net"),
             w.net.map(net).unwrap_or_else(|| "unbound".into()),
         ));
-        rows.push(("Points".into(), format!("{}", w.points.len())));
+        rows.push((
+            t!("schematic.object_detail_rows.points"),
+            format!("{}", w.points.len()),
+        ));
     } else if let Some(t) = project.board.texts.iter().find(|t| t.id == id) {
-        rows.push(("Text".into(), t.text.clone()));
-        rows.push(("Size".into(), format!("{:.2} mm", t.size)));
-        rows.push(("Layer".into(), layer(&t.layer)));
-        rows.push(("Angle".into(), format!("{:.0} degrees", t.rotation)));
+        rows.push((t!("schematic.object_detail_rows.text"), t.text.clone()));
+        rows.push((
+            t!("schematic.object_detail_rows.size"),
+            t!(
+                "schematic.object_detail_rows.size_mm",
+                size = format!("{:.2}", t.size)
+            ),
+        ));
+        rows.push((t!("schematic.object_detail_rows.layer"), layer(&t.layer)));
+        rows.push((
+            t!("schematic.object_detail_rows.angle"),
+            t!(
+                "schematic.object_detail_rows.rotation_degrees",
+                rotation = format!("{:.0}", t.rotation)
+            ),
+        ));
     } else if let Some(g) = project.graphics.iter().find(|g| g.id == id) {
-        rows.push(("Shape".into(), g.shape.clone()));
-        rows.push(("Layer".into(), g.layer.clone()));
+        rows.push((t!("schematic.object_detail_rows.shape"), g.shape.clone()));
+        rows.push((t!("schematic.object_detail_rows.layer"), g.layer.clone()));
         if !g.text.is_empty() {
-            rows.push(("Text".into(), g.text.clone()));
+            rows.push((t!("schematic.object_detail_rows.text"), g.text.clone()));
         }
-        rows.push(("Stroke".into(), format!("{:.3} mm", g.width)));
-        rows.push(("Points".into(), format!("{}", g.points.len())));
+        rows.push((
+            t!("schematic.object_detail_rows.stroke"),
+            t!(
+                "schematic.object_detail_rows.width_mm",
+                width = format!("{:.3}", g.width)
+            ),
+        ));
+        rows.push((
+            t!("schematic.object_detail_rows.points"),
+            format!("{}", g.points.len()),
+        ));
     } else if let Some(gr) = project.graphic_groups.iter().find(|gr| gr.id == id) {
         rows.push((
-            "Group".into(),
-            format!("{} graphics move as one", gr.graphics.len()),
+            t!("schematic.object_detail_rows.group"),
+            t!(
+                "schematic.object_detail_rows.len_graphics_move_as_one",
+                len = gr.graphics.len()
+            ),
         ));
     }
     rows
@@ -3711,11 +3833,14 @@ impl App {
             self.pin_pick = None;
         }
         if ui
-            .button("New net")
-            .on_hover_text("Add a blank connection you can name and draw wires onto.")
+            .button(t!("schematic.nets_tab.new_net"))
+            .on_hover_text(t!("schematic.nets_tab.new_net.tip"))
             .clicked()
         {
-            let name = format!("Net {}", self.project.nets.len() + 1);
+            let name = t!(
+                "schematic.nets_tab.net_v0",
+                v0 = self.project.nets.len() + 1
+            );
             self.tool_call("net.create", json!({"name": name}));
             self.net_editor = self
                 .project
@@ -3739,16 +3864,16 @@ impl App {
             let total: f64 = lengths.values().map(|(length, _)| *length).sum();
             let routed = lengths.len();
             ui.label(
-                egui::RichText::new(format!(
-                    "{total:.1} mm of copper \u{b7} {routed} of {} nets routed",
-                    self.project.nets.len()
+                egui::RichText::new(t!(
+                    "schematic.nets_tab.total_mm_of_copper_routed",
+                    total = format!("{:.1}", total),
+                    routed = routed,
+                    len = self.project.nets.len()
                 ))
                 .small()
                 .color(self.muted()),
             )
-            .on_hover_text(
-                "Total routed copper on the board, and how many connections still need tracks.",
-            );
+            .on_hover_text(t!("schematic.nets_tab.total_mm_of_copper_routed.tip"));
         }
         for net in self.project.nets.clone() {
             if !self.tree_matches(&net.name) {
@@ -3758,12 +3883,11 @@ impl App {
             let renaming = self.net_draft.as_ref().is_some_and(|(id, _)| *id == net.id);
             ui.horizontal(|ui| {
                 if ui
-                    .add(egui::Label::new(if lit { "\u{25cf}" } else { "\u{25cb}" }).sense(
-                        egui::Sense::click(),
-                    ))
-                    .on_hover_text(
-                        "Spotlight this net: its copper, vias and pads light up on the board while everything else fades. Click again to clear the spotlight.",
+                    .add(
+                        egui::Label::new(if lit { "\u{25cf}" } else { "\u{25cb}" })
+                            .sense(egui::Sense::click()),
                     )
+                    .on_hover_text(t!("schematic.nets_tab.spotlight_this_net_its_copper.tip"))
                     .clicked()
                 {
                     self.highlight_net = if lit { None } else { Some(net.id) };
@@ -3775,12 +3899,12 @@ impl App {
                     ui.add(
                         egui::TextEdit::singleline(draft)
                             .desired_width(120.0)
-                            .hint_text("net name"),
+                            .hint_text(t!("schematic.nets_tab.net_name")),
                     )
-                    .on_hover_text("1 to 128 characters; every net needs its own name.");
+                    .on_hover_text(t!("schematic.nets_tab.net_name.tip"));
                     if ui
-                        .button("Use name")
-                        .on_hover_text("Keep this name for the connection.")
+                        .button(t!("schematic.nets_tab.use_name"))
+                        .on_hover_text(t!("schematic.nets_tab.use_name.tip"))
                         .clicked()
                     {
                         let name = draft.clone();
@@ -3788,8 +3912,8 @@ impl App {
                         self.tool_call("net.rename", json!({"id": net.id, "name": name}));
                     }
                     if ui
-                        .button("Cancel")
-                        .on_hover_text("Leave the name as it was.")
+                        .button(t!("schematic.nets_tab.cancel"))
+                        .on_hover_text(t!("schematic.nets_tab.cancel.tip"))
                         .clicked()
                     {
                         self.net_draft = None;
@@ -3797,24 +3921,26 @@ impl App {
                 } else {
                     if ui
                         .selectable_label(lit, &net.name)
-                        .on_hover_text(
-                            "Spotlight this net: its copper, vias and pads light up on the board while everything else fades. Click again to clear the spotlight.",
-                        )
+                        .on_hover_text(t!("schematic.nets_tab.spotlight_this_net_its_copper.tip"))
                         .clicked()
                     {
                         self.highlight_net = if lit { None } else { Some(net.id) };
                     }
                     if ui
-                        .small_button("Rename")
-                        .on_hover_text("Type a new name for this connection.")
+                        .small_button(t!("schematic.nets_tab.rename"))
+                        .on_hover_text(t!("schematic.nets_tab.rename.tip"))
                         .clicked()
                     {
                         self.net_draft = Some((net.id, net.name.clone()));
                     }
                     let open = self.net_editor == Some(net.id);
                     if ui
-                        .small_button(if open { "Hide pins" } else { "Pins" })
-                        .on_hover_text("Show or hide the list of pins on this connection.")
+                        .small_button(if open {
+                            t!("schematic.nets_tab.hide_pins")
+                        } else {
+                            t!("schematic.nets_tab.pins")
+                        })
+                        .on_hover_text(t!("schematic.nets_tab.show_or_hide_the_list.tip"))
                         .clicked()
                     {
                         self.net_editor = if open { None } else { Some(net.id) };
@@ -3822,22 +3948,22 @@ impl App {
                     }
                     if let Some((length, vias)) = lengths.get(&net.id) {
                         ui.label(
-                            egui::RichText::new(format!("{length:.1} mm \u{b7} {vias} vias"))
-                                .small()
-                                .color(self.muted()),
+                            egui::RichText::new(t!(
+                                "schematic.nets_tab.length_mm_vias_vias",
+                                length = format!("{:.1}", length),
+                                vias = vias
+                            ))
+                            .small()
+                            .color(self.muted()),
                         )
-                        .on_hover_text(
-                            "Copper already routed for this net on the board.",
-                        );
+                        .on_hover_text(t!("schematic.nets_tab.length_mm_vias_vias.tip"));
                     } else {
                         ui.label(
-                            egui::RichText::new("not routed yet")
+                            egui::RichText::new(t!("schematic.nets_tab.not_routed_yet"))
                                 .small()
                                 .color(self.muted()),
                         )
-                        .on_hover_text(
-                            "This connection has no copper on the board yet; the dashed lines on the sheet show where it needs to go.",
-                        );
+                        .on_hover_text(t!("schematic.nets_tab.not_routed_yet.tip"));
                     }
                 }
             });
@@ -3847,9 +3973,18 @@ impl App {
                 for comp in &self.project.components {
                     for pin in &comp.pins {
                         let label = if pin.name.is_empty() || pin.name == pin.number {
-                            format!("{} pin {}", comp.reference, pin.number)
+                            t!(
+                                "schematic.nets_tab.reference_pin_number",
+                                reference = comp.reference,
+                                number = pin.number
+                            )
                         } else {
-                            format!("{} pin {} ({})", comp.reference, pin.number, pin.name)
+                            t!(
+                                "schematic.nets_tab.reference_pin_number_name",
+                                reference = comp.reference,
+                                number = pin.number,
+                                name = pin.name
+                            )
                         };
                         let r = PinRef {
                             component: comp.id,
@@ -3866,19 +4001,19 @@ impl App {
                 ui.indent(("net-pins", net.id), |ui| {
                     if members.is_empty() {
                         ui.label(
-                            egui::RichText::new("No pins on this connection yet.")
-                                .size(10.0)
-                                .color(self.muted()),
+                            egui::RichText::new(t!(
+                                "schematic.nets_tab.no_pins_on_this_connection"
+                            ))
+                            .size(10.0)
+                            .color(self.muted()),
                         );
                     } else {
                         for (label, r) in &members {
                             ui.horizontal(|ui| {
                                 ui.label(label);
                                 if ui
-                                    .small_button("\u{d7}")
-                                    .on_hover_text(
-                                        "Take this pin off the connection. Nothing moves on the board.",
-                                    )
+                                    .small_button(t!("schematic.nets_tab.text"))
+                                    .on_hover_text(t!("schematic.nets_tab.text.tip"))
                                     .clicked()
                                 {
                                     self.tool_call(
@@ -3893,7 +4028,7 @@ impl App {
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt(("pin-pick", net.id))
                             .selected_text(if pick.is_empty() {
-                                "choose a spare pin".to_owned()
+                                t!("schematic.nets_tab.choose_a_spare_pin")
                             } else {
                                 pick.clone()
                             })
@@ -3901,9 +4036,9 @@ impl App {
                                 for (label, _) in &spares {
                                     if ui
                                         .selectable_label(&pick == label, label)
-                                        .on_hover_text(
-                                            "A pin that is not on any connection yet.",
-                                        )
+                                        .on_hover_text(t!(
+                                            "schematic.nets_tab.a_pin_that_is_not.tip"
+                                        ))
                                         .clicked()
                                     {
                                         pick = label.clone();
@@ -3912,16 +4047,15 @@ impl App {
                                 }
                             })
                             .response
-                            .on_hover_text("Pick a pin to add to this connection.");
+                            .on_hover_text(t!("schematic.nets_tab.pick_a_pin_to_add.tip"));
                         if ui
                             .add_enabled(
                                 !pick.is_empty(),
-                                egui::Button::new("Connect"),
+                                egui::Button::new(t!("schematic.nets_tab.connect")),
                             )
-                            .on_hover_text("Add the pin chosen above to this connection.")
+                            .on_hover_text(t!("schematic.nets_tab.connect.tip"))
                             .clicked()
-                            && let Some((_, r)) =
-                                spares.iter().find(|(label, _)| *label == pick)
+                            && let Some((_, r)) = spares.iter().find(|(label, _)| *label == pick)
                         {
                             self.tool_call("net.connect", json!({"net": net.id, "pins": [r]}));
                             self.pin_pick = None;
@@ -3929,11 +4063,9 @@ impl App {
                     });
                     if spares.is_empty() {
                         ui.label(
-                            egui::RichText::new(
-                                "Every pin in this design is already on a connection.",
-                            )
-                            .size(10.0)
-                            .color(self.muted()),
+                            egui::RichText::new(t!("schematic.nets_tab.every_pin_in_this_design"))
+                                .size(10.0)
+                                .color(self.muted()),
                         );
                     }
                 });
@@ -3947,9 +4079,12 @@ impl App {
             && let Some(net) = self.project.nets.iter().find(|n| n.id == lit)
         {
             ui.label(
-                egui::RichText::new(format!("Spotlighting {} on the board.", net.name))
-                    .size(10.0)
-                    .color(self.accent()),
+                egui::RichText::new(t!(
+                    "schematic.nets_tab.spotlighting_name_on_the_board",
+                    name = net.name
+                ))
+                .size(10.0)
+                .color(self.accent()),
             );
         }
     }
@@ -7950,7 +8085,9 @@ mod tests {
             .iter()
             .map(|spec| spec.id)
             .collect();
-        for copy in [EMPTY_SYMBOLS, EMPTY_NETS, EMPTY_BOARD] {
+        for key in [EMPTY_SYMBOLS, EMPTY_NETS, EMPTY_BOARD] {
+            let copy = pcbcraft_text::lookup(key, &[]);
+            let copy = copy.as_str();
             for name in ["component.add", "netlist.import", "board.sync"] {
                 if copy.contains(name) {
                     assert!(registry.contains(&name), "{name} must exist");
@@ -7963,7 +8100,7 @@ mod tests {
                 "empty guidance must name a filling command: {copy}"
             );
         }
-        assert!(EMPTY_CHECKS.contains("automatically"));
+        assert!(pcbcraft_text::lookup(EMPTY_CHECKS, &[]).contains("automatically"));
     }
 
     #[test]

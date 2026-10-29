@@ -576,3 +576,56 @@ pub mod scan {
         out
     }
 }
+
+#[cfg(test)]
+mod area_tests {
+    use super::*;
+
+    /// Every `t!` key used inside `fns` (`file function` pairs under
+    /// crates/ui-egui/src) exists in en.txt.
+    fn keys_exist(fns: &[(&str, &str)]) -> Result<(), String> {
+        let english: BTreeSet<String> = parse(ENGLISH).0.into_iter().map(|(k, _)| k).collect();
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui-egui/src");
+        for (file, function) in fns {
+            let text = std::fs::read_to_string(src.join(file)).map_err(|e| e.to_string())?;
+            let body = scan::fn_body(&text, function)
+                .ok_or_else(|| format!("{file}: no fn {function}"))?;
+            for key in scan::referenced_keys(body) {
+                assert!(english.contains(&key), "{file} {function}: key {key}");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn every_key_used_by_board_layout_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "layers_tab"),
+            ("lib.rs", "board_anatomy_section"),
+            ("lib.rs", "stackup_section"),
+            ("lib.rs", "holes_section"),
+            ("lib.rs", "fiducials_section"),
+            ("lib.rs", "footer"),
+            ("lib.rs", "tool_strip"),
+            ("lib.rs", "draw_tool_options"),
+            ("lib.rs", "tool_hint"),
+            ("lib.rs", "inspector"),
+            ("canvas.rs", "canvas"),
+            ("canvas.rs", "paint_board"),
+            ("canvas.rs", "canvas_click"),
+            ("board3d.rs", "show"),
+        ])
+    }
+
+    #[test]
+    fn every_key_used_by_schematic_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "nets_tab"),
+            ("lib.rs", "part_card"),
+            ("lib.rs", "object_detail_rows"),
+            ("lib.rs", "type_note"),
+            ("lib.rs", "empty_state"),
+            ("canvas.rs", "paint_schematic"),
+        ])
+    }
+}
