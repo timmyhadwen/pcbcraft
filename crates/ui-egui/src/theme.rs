@@ -9,6 +9,7 @@
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/contrast.rs checks the role pairs below.
+//! - crates/ui-egui/src/fonts.rs sets the text styles `apply` installs.
 //!
 //! # Do not
 //! - Add a literal colour, size or radius to a widget; add a field or constant here.
@@ -389,6 +390,7 @@ pub fn apply(ctx: &egui::Context, tokens: &Tokens) {
     ctx.set_theme(egui::ThemePreference::from(theme));
     ctx.style_mut_of(theme, |style| {
         apply_spacing(style);
+        crate::fonts::apply_text_styles(style);
         style.visuals = visuals;
     });
 }

@@ -15,6 +15,8 @@
 | KiCad board format | https://dev-docs.kicad.org/en/file-formats/sexpr-pcb/ | Public format documentation | Original limited board writer |
 | KiCad library formats | https://dev-docs.kicad.org/en/file-formats/ | Public format documentation | Original Rust symbol/footprint readers |
 | KiCad library fixtures | https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints | Ubuntu packages 10.0.6~ubuntu24.04.1; CC-BY-SA 4.0 + KiCad design-output exception | Extracted R/LED/LM2904/LM358 symbols and unmodified R_0805 footprint; community contributors; exact provenance/checksums and modifications in docs/kicad-libraries.md; original license in crates/library/tests/fixtures/LICENSE-kicad-libraries.md |
+| IBM Plex Sans | https://github.com/IBM/plex | Variable font 2.x, cut to static weights 400, 500 and 600; SIL OFL 1.1 (crates/ui-egui/assets/fonts/OFL-IBMPlex.txt) | Interface font, embedded in `crates/ui-egui/src/fonts.rs` |
+| JetBrains Mono | https://github.com/JetBrains/JetBrainsMono | Regular; SIL OFL 1.1 (crates/ui-egui/assets/fonts/OFL-JetBrainsMono.txt) | Numbers, references and net names font, embedded in `crates/ui-egui/src/fonts.rs` |
 
 KiCad's official PCB_POINT API/source documentation was consulted to distinguish
 non-manufactured reference-point metadata from copper/outline geometry; exact links

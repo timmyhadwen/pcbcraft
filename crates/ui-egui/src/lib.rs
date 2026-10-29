@@ -9,6 +9,7 @@ mod datums;
 mod editing;
 mod footprint_wizard;
 mod icons;
+pub mod fonts;
 mod impedance_panel;
 mod layers_tree;
 mod library;
