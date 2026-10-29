@@ -15,9 +15,13 @@ use std::collections::BTreeMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ListingSource {
+    /// Recorded sample data.
     Fixture,
+    /// A part in the open project.
     Project,
+    /// A part from an installed library.
     Installed,
+    /// A part from an online distributor.
     Distributor,
 }
 
@@ -25,21 +29,37 @@ pub enum ListingSource {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
+    /// Resistors.
     Resistor,
+    /// Capacitors.
     Capacitor,
+    /// Inductors and ferrite beads.
     Inductor,
+    /// Diodes other than LEDs.
     Diode,
+    /// Light emitting diodes.
     Led,
+    /// Bipolar transistors.
     Transistor,
+    /// Field effect transistors.
     Mosfet,
+    /// Voltage regulators and converters.
     IcRegulator,
+    /// Microcontrollers.
     IcMcu,
+    /// Logic ICs.
     IcLogic,
+    /// Analog ICs.
     IcAnalog,
+    /// Connectors and headers.
     Connector,
+    /// Crystals and oscillators.
     Crystal,
+    /// Ready-made modules.
     Module,
+    /// Mechanical parts.
     Mechanical,
+    /// Anything the table does not map.
     Other,
 }
 
@@ -48,10 +68,15 @@ pub enum Category {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Lifecycle {
+    /// In production.
     Active,
+    /// Not recommended for new designs.
     Nrnd,
+    /// Last time buy offered.
     LastTimeBuy,
+    /// Discontinued or obsolete.
     Obsolete,
+    /// The source did not say, or said something unmapped.
     #[default]
     Unknown,
 }
@@ -60,11 +85,17 @@ pub enum Lifecycle {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Packaging {
+    /// On a reel.
     Reel,
+    /// Cut tape.
     CutTape,
+    /// In a tray.
     Tray,
+    /// In a tube.
     Tube,
+    /// Loose in bulk.
     Bulk,
+    /// Anything the table does not map.
     Other,
 }
 
@@ -72,12 +103,19 @@ pub enum Packaging {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Unit {
+    /// Ohm.
     Ohm,
+    /// Farad.
     Farad,
+    /// Henry.
     Henry,
+    /// Hertz.
     Hertz,
+    /// Volt.
     Volt,
+    /// Ampere.
     Ampere,
+    /// Watt.
     Watt,
 }
 
@@ -86,7 +124,9 @@ pub enum Unit {
 /// two spellings of one package compare equal.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageKey {
+    /// Canonical package key; empty when not recognised.
     pub key: String,
+    /// The source's own package text.
     pub text: String,
 }
 
@@ -94,41 +134,67 @@ pub struct PackageKey {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartListing {
+    /// Kind of source this listing came from.
     pub source: ListingSource,
+    /// Name of the library or distributor.
     pub source_id: String,
+    /// The source's own key, such as a SKU.
     pub source_ref: String,
+    /// Manufacturer name.
     pub manufacturer: String,
+    /// Manufacturer part number.
     pub mpn: String,
+    /// The source's description text.
     pub description: String,
+    /// Category from the closed list.
     pub category: Category,
     /// The source's own category text, kept for display.
     pub source_category: String,
+    /// Canonical package key; empty when unknown.
     pub package_key: String,
+    /// The source's own package text.
     pub package_text: String,
     /// SI base units; see `value_unit`.
     pub value: Option<f64>,
+    /// Unit of `value`.
     pub value_unit: Option<Unit>,
     /// Percent below and above nominal, so +80/-20 is `(20.0, 80.0)`.
     pub tolerance_pct: Option<(f32, f32)>,
+    /// Rated voltage in volts.
     pub rated_voltage_v: Option<f64>,
+    /// Lowest operating temperature in degrees Celsius.
     pub temp_min_c: Option<f32>,
+    /// Highest operating temperature in degrees Celsius.
     pub temp_max_c: Option<f32>,
+    /// Rated power in watts.
     pub power_w: Option<f64>,
+    /// Units in stock; empty when the source gave no count.
     pub stock: Option<u64>,
     /// Seconds since the Unix epoch of the answer that gave `stock`.
     pub stock_at: Option<u64>,
     /// Sorted by quantity, each in the currency the source returned.
     pub price_breaks: Vec<PriceBreak>,
+    /// Smallest order quantity.
     pub min_order_qty: Option<u32>,
+    /// Orders come in multiples of this.
     pub order_multiple: Option<u32>,
+    /// How the part is supplied.
     pub packaging: Option<Packaging>,
+    /// Lifecycle from the fixed list.
     pub lifecycle: Lifecycle,
+    /// The source's own lifecycle text.
     pub lifecycle_raw: String,
+    /// Whether the part is RoHS compliant.
     pub rohs: Option<bool>,
+    /// Link to the datasheet.
     pub datasheet_url: Option<String>,
+    /// Link to a schematic symbol.
     pub symbol: Option<String>,
+    /// Link to a footprint.
     pub footprint: Option<String>,
+    /// Link to a 3D model.
     pub model3d: Option<String>,
+    /// Credit the source asks to see.
     pub attribution: Option<Attribution>,
 }
 
