@@ -74,7 +74,10 @@ fn header(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
             .on_hover_text(text::CLEAR_TIP)
             .clicked()
         {
-            app.assistant.transcript.items.retain(|i| matches!(i, Item::Approval { answer: None, .. }));
+            app.assistant
+                .transcript
+                .items
+                .retain(|i| matches!(i, Item::Approval { answer: None, .. }));
         }
     });
 }
@@ -90,7 +93,12 @@ fn composer(app: &mut App, ui: &mut egui::Ui) {
     let send_key = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
     ui.horizontal(|ui| {
         let busy = matches!(app.assistant.phase(), Phase::Working | Phase::Waiting);
-        if ui.button(text::SEND).on_hover_text(text::SEND_TIP).clicked() || send_key {
+        if ui
+            .button(text::SEND)
+            .on_hover_text(text::SEND_TIP)
+            .clicked()
+            || send_key
+        {
             app.assistant_send();
         }
         if ui

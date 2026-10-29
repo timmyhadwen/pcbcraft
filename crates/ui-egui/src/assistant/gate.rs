@@ -65,7 +65,11 @@ pub(super) fn describe(tool: &str, args: &Value) -> String {
         "open" | "save" => {
             let path = text(args, "path").unwrap_or_default();
             let name = path.rsplit(['/', '\\']).next().unwrap_or("").to_string();
-            let verb = if tool == "open" { "Open" } else { "Save the design to" };
+            let verb = if tool == "open" {
+                "Open"
+            } else {
+                "Save the design to"
+            };
             format!("{verb} {name}")
         }
         other => describe_command(other, args),
@@ -105,6 +109,9 @@ mod tests {
         let args = json!({"command":"component.add","params":{"kind":"resistor","reference":"R1","value":"10k"}});
         assert_eq!(describe("execute", &args), "Add resistor R1 (10k)");
         assert_eq!(tool_key("execute", &args), "component.add");
-        assert_eq!(describe("batch", &json!({"commands":[{},{}]})), "Batch of 2 commands");
+        assert_eq!(
+            describe("batch", &json!({"commands":[{},{}]})),
+            "Batch of 2 commands"
+        );
     }
 }

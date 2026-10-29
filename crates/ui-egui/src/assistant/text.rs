@@ -12,7 +12,8 @@ pub(super) const NEW_CHAT_TIP: &str = "Forget this conversation and start a fres
 pub(super) const CLEAR: &str = "Clear";
 pub(super) const CLEAR_TIP: &str = "Remove the messages shown here. The design is not touched.";
 pub(super) const SEND: &str = "Send";
-pub(super) const SEND_TIP: &str = "Send this message (Ctrl+Enter). While the model works it is queued.";
+pub(super) const SEND_TIP: &str =
+    "Send this message (Ctrl+Enter). While the model works it is queued.";
 pub(super) const STOP: &str = "Stop";
 pub(super) const STOP_TIP: &str = "Stop the model. Questions waiting for you are declined.";
 pub(super) const ALLOW: &str = "Allow";
@@ -37,7 +38,8 @@ pub(super) const STATE_WAITING: &str = "Waiting for you";
 pub(super) const STATE_TIP: &str = "What the assistant is doing right now.";
 pub(super) const QUEUED_TIP: &str = "Waiting for the model to finish its current answer.";
 pub(super) const DENIED_NOTE: &str = "The user declined this change.";
-pub(super) const NEW_DESIGN_NOTE: &str = "A different design was opened. Earlier changes belong to the old one.";
+pub(super) const NEW_DESIGN_NOTE: &str =
+    "A different design was opened. Earlier changes belong to the old one.";
 
 /// The tab label, with the count of questions waiting for an answer.
 pub(super) fn tab_label(waiting: usize) -> String {

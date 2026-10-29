@@ -31,7 +31,9 @@ pub(super) fn item(ui: &mut egui::Ui, item: &Item, muted: egui::Color32) -> Opti
             None
         }
         Item::Thought { text } => {
-            ui.add(egui::Label::new(egui::RichText::new(text.as_str()).italics().color(muted)).wrap());
+            ui.add(
+                egui::Label::new(egui::RichText::new(text.as_str()).italics().color(muted)).wrap(),
+            );
             None
         }
         Item::ToolCall {
@@ -46,7 +48,11 @@ pub(super) fn item(ui: &mut egui::Ui, item: &Item, muted: egui::Color32) -> Opti
                 Some(ToolStatus::InProgress) => "running",
                 _ => "waiting",
             };
-            let response = ui.label(egui::RichText::new(format!("{title}  ·  {word}")).small().color(muted));
+            let response = ui.label(
+                egui::RichText::new(format!("{title}  ·  {word}"))
+                    .small()
+                    .color(muted),
+            );
             if let Some(c) = content {
                 response.on_hover_text(c.chars().take(400).collect::<String>());
             }
@@ -54,12 +60,19 @@ pub(super) fn item(ui: &mut egui::Ui, item: &Item, muted: egui::Color32) -> Opti
         }
         Item::Plan(entries) => {
             for (step, state) in entries {
-                ui.label(egui::RichText::new(format!("{state}: {step}")).small().color(muted));
+                ui.label(
+                    egui::RichText::new(format!("{state}: {step}"))
+                        .small()
+                        .color(muted),
+                );
             }
             None
         }
         Item::Permission { title, answer, .. } => {
-            ui.label(format!("{title}: {}", answer.as_deref().unwrap_or("waiting")));
+            ui.label(format!(
+                "{title}: {}",
+                answer.as_deref().unwrap_or("waiting")
+            ));
             None
         }
         Item::Approval { id, title, answer } => approval(ui, *id, title, *answer),
@@ -69,8 +82,14 @@ pub(super) fn item(ui: &mut egui::Ui, item: &Item, muted: egui::Color32) -> Opti
             None
         }
         Item::Note { text, error } => {
-            let color = if *error { egui::Color32::LIGHT_RED } else { muted };
-            ui.add(egui::Label::new(egui::RichText::new(text.as_str()).small().color(color)).wrap());
+            let color = if *error {
+                egui::Color32::LIGHT_RED
+            } else {
+                muted
+            };
+            ui.add(
+                egui::Label::new(egui::RichText::new(text.as_str()).small().color(color)).wrap(),
+            );
             None
         }
         Item::UndoStep { changes, undone } => {
@@ -104,7 +123,11 @@ fn approval(ui: &mut egui::Ui, id: u64, title: &str, answer: Option<bool>) -> Op
             }
             None => {
                 ui.horizontal_wrapped(|ui| {
-                    if ui.button(text::ALLOW).on_hover_text(text::ALLOW_TIP).clicked() {
+                    if ui
+                        .button(text::ALLOW)
+                        .on_hover_text(text::ALLOW_TIP)
+                        .clicked()
+                    {
                         pressed = Some(Pressed::Allow(id));
                     }
                     if ui
@@ -114,7 +137,11 @@ fn approval(ui: &mut egui::Ui, id: u64, title: &str, answer: Option<bool>) -> Op
                     {
                         pressed = Some(Pressed::AlwaysAllow(id));
                     }
-                    if ui.button(text::DENY).on_hover_text(text::DENY_TIP).clicked() {
+                    if ui
+                        .button(text::DENY)
+                        .on_hover_text(text::DENY_TIP)
+                        .clicked()
+                    {
                         pressed = Some(Pressed::Deny(id));
                     }
                 });

@@ -1904,6 +1904,7 @@ dependencies = [
  "eframe",
  "egui",
  "image",
+ "pcbcraft-assistant",
  "pcbcraft-doc",
  "pcbcraft-engine",
  "pcbcraft-geom",

@@ -67,7 +67,12 @@ fn with_fake_model() -> App {
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     app.preferences.aside_lower_tab = 1;
-    let model = FakeModel::new(app.assistant.start_context(std::path::PathBuf::new()).tools.unwrap_or_else(|| channel().0));
+    let model = FakeModel::new(
+        app.assistant
+            .start_context(std::path::PathBuf::new())
+            .tools
+            .unwrap_or_else(|| channel().0),
+    );
     app.assistant_use(Box::new(model));
     app
 }
@@ -99,14 +104,20 @@ fn a_newcomer_asks_the_assistant_to_add_a_resistor() -> Result<(), String> {
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
-    assert!(paints_text(&ctx, &mut app, "Add resistor R1 (10k)")?, "the card names the change");
+    assert!(
+        paints_text(&ctx, &mut app, "Add resistor R1 (10k)")?,
+        "the card names the change"
+    );
     assert!(!has_r1(&app), "nothing runs before the user answers");
     authoring::tests::tap(&ctx, &mut app, "Allow")?;
     for _ in 0..4 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
     assert!(has_r1(&app), "the part is on the sheet");
-    assert!(paints_text(&ctx, &mut app, "Ready")?, "the model finished its turn");
+    assert!(
+        paints_text(&ctx, &mut app, "Ready")?,
+        "the model finished its turn"
+    );
     Ok(())
 }
 
