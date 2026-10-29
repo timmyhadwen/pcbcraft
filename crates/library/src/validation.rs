@@ -194,8 +194,8 @@ impl FootprintDefinition {
             metadata(&p.raw_source, &[])?;
             if !p.position.valid()
                 || !scalar(p.rotation)
-                || !positive_size(p.size)
-                || p.layers.is_empty()
+                || (!positive_size(p.size) && p.pad_type != "unplated")
+                || (p.layers.is_empty() && p.pad_type != "unplated")
                 || p.layers.len() > 64
                 || p.shape.is_empty()
                 || p.pad_type.is_empty()
@@ -204,6 +204,17 @@ impl FootprintDefinition {
             }
             for layer in &p.layers {
                 text(layer)?;
+            }
+            if p.pad_type == "unplated" {
+                if p.drill.is_none() {
+                    return Err(bad("unplated pad needs a drill"));
+                }
+                if p.layers.iter().any(|l| {
+                    l.ends_with(".Cu") || l.as_str() == "*.Cu" || l == "F.Cu" || l == "B.Cu"
+                }) {
+                    return Err(bad("unplated pad must not include copper layers"));
+                }
+                continue;
             }
             if p.roundrect_ratio
                 .is_some_and(|r| !r.is_finite() || !(0.0..=0.5).contains(&r))

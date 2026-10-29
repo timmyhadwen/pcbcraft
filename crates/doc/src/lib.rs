@@ -795,7 +795,11 @@ impl Footprint {
         self.pads
             .iter()
             .find(|p| p.number == number)
-            .map(|p| self.position.offset(p.offset.rotate(-self.rotation)))
+            .map(|p| self.pad_world_position(p))
+    }
+    /// World position of a placed pad, including mechanical pads with no number.
+    pub fn pad_world_position(&self, pad: &Pad) -> Point {
+        self.position.offset(pad.offset.rotate(-self.rotation))
     }
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1712,10 +1716,6 @@ pub struct Project {
     #[serde(default)]
     pub no_connects: Vec<NoConnectFlag>,
     pub board: Board,
-    /// Manufacturing panel grid and separation settings; absent means panel
-    /// checks stay off until the designer enables them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub panel: Option<PanelSettings>,
     #[serde(default)]
     pub library: ProjectLibrary,
 }
@@ -2595,6 +2595,7 @@ impl Project {
                     .definition
                     .pads
                     .iter()
+                    .filter(|p| !p.number.is_empty())
                     .map(|p| p.number.as_str())
                     .collect();
                 if pins != pads {
@@ -2798,7 +2799,25 @@ impl Project {
                 );
             }
             for p in &f.pads {
-                if !numbers.insert(&p.number)
+                let unplated = p
+                    .geometry
+                    .as_ref()
+                    .is_some_and(|g| g.pad_type == "unplated");
+                if unplated {
+                    if p.net.is_some() {
+                        return Err("unplated footprint pad cannot carry a net".into());
+                    }
+                    if !p.offset.valid()
+                        || !p.diameter.is_finite()
+                        || p.diameter < 0.0
+                        || p.net.is_some_and(|n| !nets.contains(&n))
+                    {
+                        return Err("invalid pad or stale pad net; sync the PCB".into());
+                    }
+                    if !p.number.is_empty() && !numbers.insert(&p.number) {
+                        return Err("invalid pad or stale pad net; sync the PCB".into());
+                    }
+                } else if !numbers.insert(&p.number)
                     || !p.offset.valid()
                     || !positive(p.diameter)
                     || p.net.is_some_and(|n| !nets.contains(&n))
@@ -2813,8 +2832,12 @@ impl Project {
                 if let Some(geometry) = &p.geometry {
                     if geometry.position != p.offset
                         || geometry.number != p.number
-                        || !positive(geometry.size.x)
-                        || !positive(geometry.size.y)
+                        || (!unplated && (!positive(geometry.size.x) || !positive(geometry.size.y)))
+                        || (unplated
+                            && (geometry.size.x < 0.0
+                                || geometry.size.y < 0.0
+                                || !geometry.size.x.is_finite()
+                                || !geometry.size.y.is_finite()))
                     {
                         return Err("pad geometry does not match imported footprint".into());
                     }
@@ -3045,6 +3068,31 @@ pub fn validate_footprint_support(
     }
     let mut numbers = BTreeSet::new();
     for p in &definition.pads {
+        if p.pad_type == "unplated" {
+            if matches!(p.shape_kind(), PadShape::Unsupported) {
+                return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads with a drill strictly inside the pad; unnumbered mechanical holes and back SMD placement are planned".into());
+            }
+            if p.layers
+                .iter()
+                .any(|l| l.ends_with(".Cu") || l.as_str() == "*.Cu" || l == "F.Cu" || l == "B.Cu")
+            {
+                return Err("unplated mechanical pad must not include copper layers".into());
+            }
+            let Some(drill) = &p.drill else {
+                return Err("unplated mechanical pad needs a drill".into());
+            };
+            if drill.size.x.min(drill.size.y) <= 0.0 {
+                return Err("unplated mechanical pad needs a positive drill".into());
+            }
+            let copper_present = p.size.x > 1e-9 && p.size.y > 1e-9;
+            if copper_present && !drill_inside_pad(p) {
+                return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads with a drill strictly inside the pad; unnumbered mechanical holes and back SMD placement are planned".into());
+            }
+            if !p.number.is_empty() && !numbers.insert(&p.number) {
+                return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads with a drill strictly inside the pad; unnumbered mechanical holes and back SMD placement are planned".into());
+            }
+            continue;
+        }
         let copper_ok = if p.pad_type == "thru_hole" {
             p.layers.iter().any(|l| l == "*.Cu")
                 || (p.layers.iter().any(|l| l == "F.Cu") && p.layers.iter().any(|l| l == "B.Cu"))
@@ -3583,5 +3631,137 @@ mod drill_tests {
         assert_eq!(one.len(), 5);
         assert!((pcbcraft_geom::polygon_area(&one).abs() - (2.0 - 0.02)).abs() < 1e-12);
         assert!(pcbcraft_geom::polygon_is_simple(&one));
+    }
+
+    fn thru_pin(number: &str, x: f64) -> pcbcraft_library::FootprintPad {
+        pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
+    fn unplated_peg(x: f64, y: f64) -> pcbcraft_library::FootprintPad {
+        pcbcraft_library::FootprintPad {
+            number: String::new(),
+            pad_type: "unplated".into(),
+            shape: "circle".into(),
+            position: Point::new(x, y),
+            rotation: 0.0,
+            size: Point::default(),
+            layers: vec![],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(3.0, 3.0),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
+    #[test]
+    fn validate_footprint_support_accepts_unplated_pegs_without_numbers() -> Result<(), String> {
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "PegConn".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![
+                thru_pin("1", -2.54),
+                thru_pin("2", 2.54),
+                unplated_peg(-5.0, 5.0),
+                unplated_peg(5.0, 5.0),
+            ],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        validate_footprint_support(&definition)?;
+        Ok(())
+    }
+
+    #[test]
+    fn project_validate_rejects_unplated_footprint_pad_with_net() -> Result<(), String> {
+        let peg = unplated_peg(0.0, 5.0);
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "PegOnly".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![thru_pin("1", 0.0), thru_pin("2", 2.54), peg.clone()],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        validate_footprint_support(&definition)?;
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut c = component_template("resistor", 2, "R1".into(), Point::default())
+            .ok_or("missing template")?;
+        c.pins[0].net = Some(1);
+        c.pins[1].net = Some(1);
+        c.library_footprint = Some(LibraryFootprint {
+            library: "test".into(),
+            definition: definition.clone(),
+        });
+        p.components.push(c);
+        p.board.footprints.push(Footprint {
+            id: 3,
+            component: 2,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![
+                Pad {
+                    number: "1".into(),
+                    offset: Point::new(0.0, 0.0),
+                    diameter: 1.6,
+                    net: Some(1),
+                    castellated: None,
+                    geometry: Some(definition.pads[0].clone()),
+                },
+                Pad {
+                    number: "2".into(),
+                    offset: Point::new(2.54, 0.0),
+                    diameter: 1.6,
+                    net: Some(1),
+                    castellated: None,
+                    geometry: Some(definition.pads[1].clone()),
+                },
+                Pad {
+                    number: String::new(),
+                    offset: peg.position,
+                    diameter: 0.0,
+                    net: Some(1),
+                    castellated: None,
+                    geometry: Some(peg),
+                },
+            ],
+        });
+        assert!(
+            p.validate()
+                .is_err_and(|e| e.contains("unplated footprint pad cannot carry a net"))
+        );
+        Ok(())
     }
 }
