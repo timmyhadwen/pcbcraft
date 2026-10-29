@@ -195,38 +195,38 @@ impl App {
     /// # Do not
     /// - Keep a second copy of the target here; read and write `App::target`.
     pub(crate) fn layer_field(&mut self, ui: &mut Ui) {
-        use crate::a11y::Named;
-        ui.label(
-            egui::RichText::new(t!("target.field"))
-                .small()
-                .color(self.muted()),
-        )
-        .on_hover_text(t!("target.field.tip"));
-        let current = self.current_target();
-        let mut picked = None;
-        egui::ComboBox::from_id_salt("draw-target")
-            .selected_text(self.target_label())
-            .width(150.0)
-            .show_ui(ui, |ui| {
-                for choice in self.target_choices() {
-                    let saved = self.target;
-                    self.target = choice;
-                    let label = self.target_label();
-                    self.target = saved;
-                    if ui
-                        .selectable_label(current == choice, label)
-                        .on_hover_text(t!("target.choice.tip"))
-                        .clicked()
-                    {
-                        picked = Some(choice);
-                    }
-                }
+        let t = crate::theme::tokens(ui.ctx());
+        let choices = self.target_choices();
+        let labels: Vec<String> = choices
+            .iter()
+            .map(|choice| {
+                let saved = self.target;
+                self.target = *choice;
+                let label = self.target_label();
+                self.target = saved;
+                label
             })
-            .response
-            .on_hover_text(t!("target.field.tip"))
-            .named("Layer");
-        if let Some(choice) = picked {
-            self.set_target(choice);
+            .collect();
+        let current = self.current_target();
+        let mut idx = choices.iter().position(|c| *c == current).unwrap_or(0);
+        let before = idx;
+        let options: Vec<&str> = labels.iter().map(String::as_str).collect();
+        // Drawn right to left by the tool bar: the select first, its label to the left.
+        crate::ui_kit::select::select(
+            ui,
+            "draw-target",
+            &mut idx,
+            &options,
+            &t!("target.field"),
+            &t!("target.field.tip"),
+            170.0,
+        );
+        ui.label(crate::fonts::caption(t!("target.field")).color(t.muted))
+            .on_hover_text(t!("target.field.tip"));
+        if idx != before
+            && let Some(choice) = choices.get(idx)
+        {
+            self.set_target(*choice);
         }
     }
 

@@ -294,6 +294,30 @@ impl App {
         self.message = t!("workspace.layout_reset");
     }
 
+    /// The full-width tool bar under the tab nav, for the workspaces that have one.
+    ///
+    /// # Rules
+    /// - Files and Manufacture have no tool bar, so no panel is drawn for them.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/toolbar.rs
+    pub(crate) fn toolbar_panel(&mut self, ui: &mut egui::Ui) {
+        if !matches!(self.tab, Tab::Schematic | Tab::Pcb | Tab::Board3d) {
+            return;
+        }
+        let tokens = crate::theme::tokens(ui.ctx());
+        egui::Panel::top("tool-bar")
+            .exact_size(crate::theme::BAR_HEIGHT)
+            .frame(
+                egui::Frame::NONE
+                    .fill(tokens.panel)
+                    .stroke(Stroke::new(crate::theme::BORDER, tokens.line)),
+            )
+            .show(ui, |ui| {
+                self.workspace().toolbar(self, ui);
+            });
+    }
+
     /// The 2D | 3D and Top | Bottom toggles, a floating kit card just inside the
     /// canvas, below the top ruler and right of the left ruler.
     ///

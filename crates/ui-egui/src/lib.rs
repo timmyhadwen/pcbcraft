@@ -36,6 +36,7 @@ mod target_size;
 mod targets;
 pub mod theme;
 mod tool_modifiers;
+mod toolbar;
 pub mod ui_kit;
 mod via_covering;
 mod via_span;
@@ -2493,58 +2494,63 @@ impl App {
             (Tab::Pcb, t!("docks.workbench_tabs.layout")),
             (Tab::PlotFiles, t!("docks.workbench_tabs.manufacture")),
         ];
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 20.0;
-            ui.add_space(Self::PAGE_GUTTER);
-            for (tab, label) in shown {
-                let selected = self.tab == tab || (tab == Tab::Pcb && self.tab == Tab::Board3d);
-                let text = egui::RichText::new(label.clone());
-                let text = if selected {
-                    text.strong().color(self.ink())
-                } else {
-                    text.color(self.muted())
-                };
-                let response = ui
-                    .add(
-                        egui::Button::new(text)
-                            .frame(false)
-                            .min_size(egui::vec2(0.0, 32.0)),
-                    )
-                    .on_hover_text(t!(
+        let tokens = theme::tokens(ui.ctx());
+        let labels: Vec<(Tab, String, String)> = shown
+            .iter()
+            .map(|(tab, label)| {
+                (
+                    *tab,
+                    label.clone(),
+                    t!(
                         "docks.workbench_tabs.switch_to_the_label_view2",
                         label = label
-                    ));
-                if selected {
-                    let r = response.rect;
-                    ui.painter().line_segment(
-                        [
-                            egui::pos2(r.left() + 4.0, r.bottom()),
-                            egui::pos2(r.right() - 4.0, r.bottom()),
-                        ],
-                        Stroke::new(2.0, self.accent()),
-                    );
-                }
-                if response.clicked() {
-                    // The Layout workspace remembers whether it was in 3D.
-                    let remembered_3d = tab == Tab::Pcb
-                        && self
-                            .preferences
-                            .layouts
-                            .get("layout")
-                            .is_some_and(|l| l.view_3d);
-                    self.change_tab(if remembered_3d { Tab::Board3d } else { tab });
-                }
-            }
-        });
-        if !matches!(self.tool, Tool::Select) && !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
-            ui.horizontal(|ui| {
-                ui.add_space(Self::PAGE_GUTTER);
-                ui.label(
-                    egui::RichText::new(tool_hint(&self.tool))
-                        .small()
-                        .color(self.muted()),
+                    ),
+                )
+            })
+            .collect();
+        let mut current = labels
+            .iter()
+            .position(|(tab, ..)| {
+                self.tab == *tab || (*tab == Tab::Pcb && self.tab == Tab::Board3d)
+            })
+            .unwrap_or(usize::MAX);
+        let was = current;
+        let items: Vec<ui_kit::tab_bar::TabItem<'_>> = labels
+            .iter()
+            .map(|(_, label, tip)| ui_kit::tab_bar::TabItem::new(label, tip))
+            .collect();
+        egui::Panel::top("tab-nav")
+            .exact_size(theme::BAR_HEIGHT)
+            .frame(
+                egui::Frame::NONE
+                    .fill(tokens.ground)
+                    .inner_margin(egui::Margin::symmetric(8, 0)),
+            )
+            .show(ui, |ui| {
+                // `current` is clamped by the bar; keep "no tab" (another page) out of range.
+                let mut index = current.min(items.len().saturating_sub(1));
+                let response = ui_kit::tab_bar::tab_bar(
+                    ui,
+                    "workbench-tabs",
+                    &mut index,
+                    &items,
+                    ui_kit::tab_bar::TabSize::Nav,
                 );
+                if response.changed() {
+                    current = index;
+                }
             });
+        if current != was
+            && let Some((tab, ..)) = labels.get(current)
+        {
+            // The Layout workspace remembers whether it was in 3D.
+            let remembered_3d = *tab == Tab::Pcb
+                && self
+                    .preferences
+                    .layouts
+                    .get("layout")
+                    .is_some_and(|l| l.view_3d);
+            self.change_tab(if remembered_3d { Tab::Board3d } else { *tab });
         }
     }
     fn start_home(&mut self, ui: &mut egui::Ui) {
@@ -3029,24 +3035,36 @@ impl App {
         if !tabs.iter().any(|t| t.id == self.region().left_tab) {
             self.region().left_tab = tabs[0].id.to_owned();
         }
-        let colours = self.colours();
-        let entries: Vec<(layers_tree::Glyph, String, String)> = tabs
+        let labels: Vec<(String, String)> = tabs.iter().map(|t| ((t.label)(), (t.tip)())).collect();
+        let items: Vec<ui_kit::tab_bar::TabItem<'_>> = labels
             .iter()
-            .map(|t| {
-                let glyph = if t.id == "library" {
-                    layers_tree::Glyph::Part
-                } else {
-                    layers_tree::Glyph::Layer
-                };
-                (glyph, (t.label)(), (t.tip)())
-            })
+            .map(|(label, tip)| ui_kit::tab_bar::TabItem::new(label, tip))
             .collect();
-        let current = tabs
+        let mut current = tabs
             .iter()
             .position(|t| t.id == self.region().left_tab)
             .unwrap_or(0);
-        if let Some(next) = layers_tree::aside_tabs(ui, &colours, current as u8, &entries)
-            && let Some(tab) = tabs.get(next as usize)
+        let tokens = theme::tokens(ui.ctx());
+        let response = egui::Frame::NONE
+            .inner_margin(egui::Margin::symmetric(8, 0))
+            .show(ui, |ui| {
+                ui_kit::tab_bar::tab_bar(
+                    ui,
+                    "left-aside-tabs",
+                    &mut current,
+                    &items,
+                    ui_kit::tab_bar::TabSize::Aside,
+                )
+            })
+            .inner;
+        let rule = ui.min_rect().bottom();
+        ui.painter().hline(
+            ui.max_rect().x_range(),
+            rule,
+            egui::Stroke::new(theme::BORDER, tokens.line),
+        );
+        if response.changed()
+            && let Some(tab) = tabs.get(current)
         {
             self.region().left_tab = tab.id.to_owned();
         }
@@ -5416,10 +5434,15 @@ impl App {
                 });
             return;
         }
+        let tokens = theme::tokens(ui.ctx());
         egui::Panel::right("inspector")
-            .default_size(280.0)
+            .default_size(340.0)
             .min_size(280.0)
-            .frame(Self::dock_frame(ui.style()))
+            .frame(
+                egui::Frame::NONE
+                    .fill(tokens.panel)
+                    .stroke(egui::Stroke::new(theme::BORDER, tokens.line)),
+            )
             .show(ui, |ui| {
                 self.inspector_body(ui, 0.0);
             });
@@ -5431,23 +5454,27 @@ impl App {
         if self.preferences.aside_lower_tab > 1 {
             self.preferences.aside_lower_tab = 0;
         }
-        ui.horizontal(|ui| {
-            ui.selectable_value(
-                &mut self.preferences.aside_lower_tab,
-                0,
-                t!("board.inspector.properties"),
-            )
-            .on_hover_text(t!("board.inspector.properties.tip"));
+        {
+            let props = t!("board.inspector.properties");
+            let props_tip = t!("board.inspector.properties.tip");
+            let assist = assistant::tab_label(self.assistant.waiting());
+            let assist_tip = assistant::tab_tip();
+            let mut items = vec![ui_kit::tab_bar::TabItem::new(&props, &props_tip)];
             if assistant::shown(self) {
-                ui.selectable_value(
-                    &mut self.preferences.aside_lower_tab,
-                    1,
-                    assistant::tab_label(self.assistant.waiting()),
-                )
-                .on_hover_text(assistant::tab_tip());
+                items.push(ui_kit::tab_bar::TabItem::new(&assist, &assist_tip));
             }
-        });
-        ui.separator();
+            let mut index = usize::from(self.preferences.aside_lower_tab);
+            let response = ui_kit::tab_bar::tab_bar(
+                ui,
+                "right-aside-tabs",
+                &mut index,
+                &items,
+                ui_kit::tab_bar::TabSize::Aside,
+            );
+            if response.changed() {
+                self.preferences.aside_lower_tab = index as _;
+            }
+        }
         if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
             assistant::pane::show(self, ui);
             return;
@@ -5876,70 +5903,74 @@ impl App {
             _ => (11.0, self.pcb.zoom),
         };
         let zoom_pct = (zoom / base * 100.0).round() as i32;
+        let tokens = theme::tokens(ui.ctx());
         egui::Panel::bottom("status")
+            .exact_size(theme::STATUS_HEIGHT)
             .frame(
-                egui::Frame::side_top_panel(ui.style())
-                    .inner_margin(egui::Margin::symmetric(16, 4)),
+                egui::Frame::NONE
+                    .fill(tokens.ground)
+                    .stroke(egui::Stroke::new(theme::BORDER, tokens.line))
+                    .inner_margin(egui::Margin::symmetric(8, 0)),
             )
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let status = ui.label(
-                        egui::RichText::new(&self.message)
-                            .small()
-                            .color(self.muted()),
-                    );
+                use ui_kit::{icons as kit_icons, status_item::status_item};
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    let status =
+                        status_item(ui, None, &self.message, &t!("status.message.tip"), false);
                     a11y::announce_status(ui.ctx(), &status, &self.message);
                     if !self.edit.hint.is_empty() {
-                        ui.label(
-                            egui::RichText::new(&self.edit.hint)
-                                .small()
-                                .color(self.accent()),
-                        )
-                        .on_hover_text(t!("modifier.status.tip"));
+                        status_item(ui, None, &self.edit.hint, &t!("modifier.status.tip"), false);
+                    } else if !matches!(self.tool, Tool::Select) {
+                        status_item(
+                            ui,
+                            None,
+                            &tool_hint(&self.tool),
+                            &t!("status.message.tip"),
+                            false,
+                        );
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(reading) = self.measure_readout() {
-                            ui.label(egui::RichText::new(reading).small().strong())
-                                .on_hover_text(t!(
-                                    "board.footer.the_last_measurement_press_esc.tip"
-                                ));
-                        }
+                        let zoom_text = t!("board.footer.zoom_pct", zoom_pct = zoom_pct);
+                        status_item(ui, None, &zoom_text, &t!("board.footer.zoom_pct.tip"), true);
                         if let Some(p) = self.cursor {
-                            ui.label(
-                                egui::RichText::new(t!(
-                                    "board.footer.x_y_mm",
-                                    x = format!("{:.2}", p.x),
-                                    y = format!("{:.2}", p.y)
-                                ))
-                                .small()
-                                .color(self.muted()),
-                            )
-                            .on_hover_text(t!("board.footer.x_y_mm.tip"));
+                            let text = t!(
+                                "board.footer.x_y_mm",
+                                x = format!("{:.2}", p.x),
+                                y = format!("{:.2}", p.y)
+                            );
+                            status_item(ui, None, &text, &t!("board.footer.x_y_mm.tip"), true);
                         }
-                        ui.label(
-                            egui::RichText::new(t!("board.footer.zoom_pct", zoom_pct = zoom_pct))
-                                .small()
-                                .color(self.muted()),
-                        )
-                        .on_hover_text(t!("board.footer.zoom_pct.tip"));
                         if self.tab == Tab::Pcb {
-                            ui.label(
-                                egui::RichText::new(t!(
-                                    "target.status",
-                                    layer = self.target_label()
-                                ))
-                                .small()
-                                .color(self.muted()),
-                            )
-                            .on_hover_text(t!("target.status.tip"));
+                            let text = t!("target.status", layer = self.target_label());
+                            status_item(ui, None, &text, &t!("target.status.tip"), false);
                         }
-                        let fix_btn = ui
-                            .tap_button(self.catalog.plural("board.footer.errors", fix as u64))
-                            .on_hover_text(t!("board.footer.errors.tip"));
-                        let mind_btn = ui
-                            .tap_button(self.catalog.plural("board.footer.warnings", mind as u64))
-                            .on_hover_text(t!("board.footer.warnings.tip"));
-                        if fix_btn.clicked() || mind_btn.clicked() {
+                        if let Some(reading) = self.measure_readout() {
+                            status_item(
+                                ui,
+                                None,
+                                &reading,
+                                &t!("board.footer.the_last_measurement_press_esc.tip"),
+                                true,
+                            );
+                        }
+                        let warn_text = self.catalog.plural("board.footer.warnings", mind as u64);
+                        let fix_text = self.catalog.plural("board.footer.errors", fix as u64);
+                        let warn_btn = status_item(
+                            ui,
+                            Some(kit_icons::WARNING),
+                            &warn_text,
+                            &t!("board.footer.warnings.tip"),
+                            false,
+                        );
+                        let fix_btn = status_item(
+                            ui,
+                            Some(kit_icons::ERROR),
+                            &fix_text,
+                            &t!("board.footer.errors.tip"),
+                            false,
+                        );
+                        if fix_btn.clicked() || warn_btn.clicked() {
                             self.change_tab(Tab::Checks);
                         }
                     });
@@ -6320,20 +6351,6 @@ impl App {
             tool_modifiers::Platform::host(),
         )
     }
-    fn tool_strip_button(
-        &mut self,
-        ui: &mut egui::Ui,
-        id: &str,
-        icon: &str,
-        label: String,
-        tip: String,
-        selected: bool,
-    ) -> egui::Response {
-        let response = icons::icon_label_button(ui, icon, &label, &tip, selected);
-        self.record_icon(id, response.rect);
-        response
-    }
-
     fn draw_tool_options(&mut self, ui: &mut egui::Ui) {
         if self.tab != Tab::Pcb {
             return;
@@ -6466,254 +6483,6 @@ impl App {
         }
     }
 
-    fn tool_strip(&mut self, ui: &mut egui::Ui) {
-        if !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
-            return;
-        }
-        egui::ScrollArea::horizontal()
-            .id_salt("tool-strip-scroll")
-            .auto_shrink([false, true])
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add_space(Self::PAGE_GUTTER);
-                    let select = |app: &mut App| {
-                        app.tool = Tool::Select;
-                    };
-                    if self
-                        .tool_strip_button(
-                            ui,
-                            "tool-select",
-                            "select",
-                            t!("board.tool_strip.select"),
-                            self.tool_tip(
-                                t!("board.tool_strip.select_objects_on_the_drawing"),
-                                tool_modifiers::ToolKind::Select,
-                                Some(tool_modifiers::Hotkey::Select),
-                            ),
-                            matches!(self.tool, Tool::Select),
-                        )
-                        .clicked()
-                    {
-                        select(self);
-                    }
-                    if self
-                        .tool_strip_button(
-                            ui,
-                            "tool-move",
-                            "move",
-                            t!("board.tool_strip.move"),
-                            self.tool_tip(
-                                t!("board.tool_strip.move_tool_drop_the_selection"),
-                                tool_modifiers::ToolKind::Move,
-                                None,
-                            ),
-                            matches!(self.tool, Tool::Move),
-                        )
-                        .clicked()
-                    {
-                        self.tool = Tool::Move;
-                    }
-                    ui.separator();
-                    if self.tab == Tab::Schematic {
-                        if self
-                            .tool_strip_button(
-                                ui,
-                                "tool-place-part",
-                                "part",
-                                t!("library.browser.place_part"),
-                                t!("library.browser.place_part.tip"),
-                                self.palette,
-                            )
-                            .clicked()
-                        {
-                            self.open_part_search();
-                        }
-                        if self
-                            .tool_strip_button(
-                                ui,
-                                "tool-wire",
-                                "wire",
-                                t!("board.tool_strip.wire"),
-                                self.tool_tip(
-                                    t!("board.tool_strip.wire_tool_click_two_pins"),
-                                    tool_modifiers::ToolKind::Wire,
-                                    Some(tool_modifiers::Hotkey::Wire),
-                                ),
-                                matches!(self.tool, Tool::Wire(_)),
-                            )
-                            .clicked()
-                        {
-                            self.tool = Tool::Wire(None);
-                        }
-                        if self
-                            .tool_strip_button(
-                                ui,
-                                "tool-noconnect",
-                                "no-connect",
-                                t!("board.tool_strip.no_connect"),
-                                self.tool_tip(
-                                    t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
-                                    tool_modifiers::ToolKind::NoConnect,
-                                    None,
-                                ),
-                                matches!(self.tool, Tool::NoConnect),
-                            )
-                            .clicked()
-                        {
-                            self.tool = Tool::NoConnect;
-                        }
-                    }
-                    if self.tab == Tab::Pcb {
-                        self.layer_field(ui);
-                        ui.separator();
-                        if self
-                            .tool_strip_button(
-                                ui,
-                                "tool-route",
-                                "route",
-                                t!("board.tool_strip.route"),
-                                self.tool_tip(
-                                    t!("board.tool_strip.route_tool_click_two_pads"),
-                                    tool_modifiers::ToolKind::Route,
-                                    Some(tool_modifiers::Hotkey::Route),
-                                ),
-                                matches!(self.tool, Tool::Route(_)),
-                            )
-                            .clicked()
-                        {
-                            self.tool = Tool::Route(None);
-                        }
-                        ui.separator();
-                        for (shape, id, icon, glyph, tip) in [
-                            (
-                                DrawShape::Line,
-                                "tool-line",
-                                "line",
-                                t!("board.tool_strip.line"),
-                                t!("board.tool_strip.draw_a_straight_line_on"),
-                            ),
-                            (
-                                DrawShape::Rect,
-                                "tool-box",
-                                "box",
-                                t!("board.tool_strip.box"),
-                                t!("board.tool_strip.draw_a_box_on_a"),
-                            ),
-                            (
-                                DrawShape::Circle,
-                                "tool-circle",
-                                "circle",
-                                t!("board.tool_strip.circle"),
-                                t!("board.tool_strip.draw_a_circle_on_a"),
-                            ),
-                            (
-                                DrawShape::Poly,
-                                "tool-outline",
-                                "board-outline",
-                                t!("board.tool_strip.outline"),
-                                t!("board.tool_strip.draw_an_outline_on_a"),
-                            ),
-                            (
-                                DrawShape::Words,
-                                "tool-words",
-                                "text",
-                                t!("board.tool_strip.text"),
-                                t!("board.tool_strip.print_words_on_a_user"),
-                            ),
-                        ] {
-                            let armed =
-                                matches!(self.tool, Tool::DrawLayer) && self.art_shape == shape;
-                            let hotkey =
-                                (shape == DrawShape::Words).then_some(tool_modifiers::Hotkey::Text);
-                            let tip =
-                                self.tool_tip(tip, tool_modifiers::ToolKind::DrawLayer, hotkey);
-                            if self
-                                .tool_strip_button(ui, id, icon, glyph, tip, armed)
-                                .clicked()
-                            {
-                                self.tool = Tool::DrawLayer;
-                                self.art_shape = shape;
-                                self.art_start = None;
-                                self.art_points.clear();
-                            }
-                        }
-                        if icons::icon_label_button(
-                            ui,
-                            "shapes",
-                            &t!("board.tool_strip.draw_shape"),
-                            &t!("board.tool_strip.draw_shape.tip"),
-                            matches!(self.tool, Tool::DrawLayer),
-                        )
-                        .clicked()
-                        {
-                            self.tool = Tool::DrawLayer;
-                            self.art_shape = DrawShape::Line;
-                            self.art_start = None;
-                            self.art_points.clear();
-                        }
-                        ui.separator();
-                        if icons::icon_label_button(
-                            ui,
-                            "cutout",
-                            &t!("board.tool_strip.cutout"),
-                            &self.tool_tip(
-                                command_tip("board.cutout.add"),
-                                tool_modifiers::ToolKind::Cutout,
-                                None,
-                            ),
-                            matches!(self.tool, Tool::Cutout),
-                        )
-                        .clicked()
-                        {
-                            self.tool = Tool::Cutout;
-                        }
-                        if icons::icon_label_button(
-                            ui,
-                            "mounting-hole",
-                            &t!("board.tool_strip.mounting_hole"),
-                            &self.tool_tip(
-                                t!("board.tool_strip.mounting_hole.tip"),
-                                tool_modifiers::ToolKind::Hole,
-                                None,
-                            ),
-                            matches!(self.tool, Tool::Hole),
-                        )
-                        .clicked()
-                        {
-                            self.tool = Tool::Hole;
-                        }
-                        if icons::icon_label_button(
-                            ui,
-                            "focus",
-                            &t!("board.tool_strip.assembly_mark"),
-                            &self.tool_tip(
-                                t!("board.tool_strip.assembly_mark.tip"),
-                                tool_modifiers::ToolKind::Fiducial,
-                                None,
-                            ),
-                            matches!(self.tool, Tool::Fiducial),
-                        )
-                        .clicked()
-                        {
-                            self.tool = Tool::Fiducial;
-                        }
-                    }
-                    ui.separator();
-                    self.editing_controls(ui);
-                    // Inline after the chips, so it wraps instead of lying over them.
-                    if !matches!(self.tool, Tool::Select) {
-                        ui.label(
-                            egui::RichText::new(tool_hint(&self.tool))
-                                .small()
-                                .color(self.muted()),
-                        );
-                    }
-                });
-            });
-        ui.separator();
-    }
-
     fn files_tab(&mut self, ui: &mut egui::Ui) {
         Self::margined(ui, |ui| {
             ui.heading(t!("library.files_tab.project_files"));
@@ -6776,13 +6545,13 @@ impl App {
         if self.home_open {
             self.start_home(ui);
         } else {
+            self.workbench_tabs(ui);
+            self.toolbar_panel(ui);
             self.browser(ui);
             self.inspector(ui);
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(self.surface()))
                 .show(ui, |ui| {
-                    self.workbench_tabs(ui);
-                    self.workspace().toolbar(self, ui);
                     self.bottom_sheet(ui);
                     self.page_left = ui.max_rect().left();
                     if let Some(workspace) = workspace::workspace_for(self.tab) {

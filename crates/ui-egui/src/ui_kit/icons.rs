@@ -66,6 +66,10 @@ pub const CLOSE: Icon = Icon(|p, r, c| {
 pub const CHEVRON_DOWN: Icon =
     Icon(|p, r, c| line(p, r, c, &[(4.0, 6.0), (8.0, 10.0), (12.0, 6.0)]));
 
+/// A chevron pointing up.
+pub const CHEVRON_UP: Icon =
+    Icon(|p, r, c| line(p, r, c, &[(4.0, 10.0), (8.0, 6.0), (12.0, 10.0)]));
+
 /// A chevron pointing right.
 pub const CHEVRON_RIGHT: Icon =
     Icon(|p, r, c| line(p, r, c, &[(6.0, 4.0), (10.0, 8.0), (6.0, 12.0)]));

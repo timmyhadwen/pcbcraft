@@ -159,63 +159,103 @@ impl App {
     }
 
     fn sheet_tab_strip(&mut self, ui: &mut egui::Ui, count: usize, open: bool, current: SheetTab) {
-        for region_tab in self.workspace().bottom_tabs() {
-            let tab = SheetTab::from_id(region_tab.id);
-            let label = if tab == SheetTab::Findings && count > 0 {
-                t!("sheet.tab_findings_count", count = count)
-            } else {
-                (region_tab.label)()
-            };
-            let tip = (region_tab.tip)();
-            let active = open && current == tab;
-            if ui
-                .selectable_label(active, label)
-                .on_hover_text(tip)
-                .clicked()
-            {
-                if active {
-                    self.region().bottom_open = false;
-                } else {
-                    self.open_sheet(tab);
+        use crate::ui_kit::{
+            button::{Size, icon_button, secondary_button},
+            chip::BadgeKind,
+            icons as kit_icons,
+            tab_bar::{TabItem, TabSize, tab_bar},
+        };
+        let tabs = self.workspace().bottom_tabs();
+        let labels: Vec<(SheetTab, String, String)> = tabs
+            .iter()
+            .map(|t| (SheetTab::from_id(t.id), (t.label)(), (t.tip)()))
+            .collect();
+        let items: Vec<TabItem<'_>> = labels
+            .iter()
+            .map(|(tab, label, tip)| {
+                let mut item = TabItem::new(label, tip);
+                if *tab == SheetTab::Findings && count > 0 {
+                    item.badge = Some((count.to_string(), BadgeKind::Warning));
                 }
-            }
+                item
+            })
+            .collect();
+        let mut index = labels.iter().position(|(t, ..)| *t == current).unwrap_or(0);
+        // The tab bar takes the width left after the buttons at the right.
+        let right_w = if open && current == SheetTab::Findings {
+            300.0
+        } else {
+            40.0
+        };
+        let bar_w = (ui.available_width() - right_w).max(120.0);
+        let response = ui
+            .allocate_ui(egui::vec2(bar_w, TabSize::Sheet.height()), |ui| {
+                tab_bar(ui, "bottom-sheet-tabs", &mut index, &items, TabSize::Sheet)
+            })
+            .inner;
+        if response.changed()
+            && let Some((tab, ..)) = labels.get(index)
+        {
+            self.open_sheet(*tab);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let (arrow, tip) = if open {
-                ("v", t!("sheet.collapse.tip"))
+            let (icon, name, tip) = if open {
+                (
+                    kit_icons::CHEVRON_DOWN,
+                    t!("sheet.collapse"),
+                    t!("sheet.collapse.tip"),
+                )
             } else {
-                ("^", t!("sheet.expand.tip"))
+                (
+                    kit_icons::CHEVRON_UP,
+                    t!("sheet.expand"),
+                    t!("sheet.expand.tip"),
+                )
             };
-            if ui.tap_button(arrow).on_hover_text(tip).clicked() {
+            if icon_button(ui, icon, &name, &tip, Size::Normal, true).clicked() {
                 self.region().bottom_open = !open;
             }
             if open && current == SheetTab::Findings {
-                if ui
-                    .tap_button(t!("sheet.run_checks"))
-                    .on_hover_text(t!("sheet.run_checks.tip"))
-                    .clicked()
+                let run = t!("sheet.run_checks");
+                if secondary_button(
+                    ui,
+                    None,
+                    &run,
+                    &t!("sheet.run_checks.tip"),
+                    Size::Normal,
+                    true,
+                )
+                .clicked()
                 {
                     // Checks are recomputed from the session whenever its
                     // revision differs from ours, so a mismatch forces a rerun.
                     self.revision = self.revision.wrapping_add(1);
                     self.message = t!("sheet.checks_ran");
                 }
-                let current = self.sheet.filter;
-                egui::ComboBox::from_id_salt("sheet-severity")
-                    .selected_text(Self::filter_label(current))
-                    .show_ui(ui, |ui| {
-                        for f in [
-                            SeverityFilter::All,
-                            SeverityFilter::Errors,
-                            SeverityFilter::Warnings,
-                            SeverityFilter::Notes,
-                        ] {
-                            ui.selectable_value(&mut self.sheet.filter, f, Self::filter_label(f));
-                        }
-                    })
-                    .response
-                    .named("Filter findings")
-                    .on_hover_text(t!("sheet.filter.tip"));
+                let options = [
+                    SeverityFilter::All,
+                    SeverityFilter::Errors,
+                    SeverityFilter::Warnings,
+                    SeverityFilter::Notes,
+                ];
+                let labels: Vec<String> = options.iter().map(|f| Self::filter_label(*f)).collect();
+                let names: Vec<&str> = labels.iter().map(String::as_str).collect();
+                let mut idx = options
+                    .iter()
+                    .position(|f| *f == self.sheet.filter)
+                    .unwrap_or(0);
+                crate::ui_kit::select::select(
+                    ui,
+                    "sheet-severity",
+                    &mut idx,
+                    &names,
+                    &t!("sheet.filter.name"),
+                    &t!("sheet.filter.tip"),
+                    140.0,
+                );
+                if let Some(f) = options.get(idx) {
+                    self.sheet.filter = *f;
+                }
             }
         });
     }
@@ -295,27 +335,43 @@ impl App {
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let has = !row.objects.is_empty();
-                if ui
-                    .add_enabled(has, egui::Button::new(t!("sheet.mute")))
-                    .on_hover_text(t!("sheet.mute.tip"))
-                    .clicked()
+                use crate::ui_kit::button::{Size, ghost_button, secondary_button};
+                if ghost_button(
+                    ui,
+                    None,
+                    &t!("sheet.mute"),
+                    &t!("sheet.mute.tip"),
+                    Size::Small,
+                    has,
+                )
+                .clicked()
                 {
                     self.mute_area(&row);
                 }
-                if ui
-                    .add_enabled(has, egui::Button::new(t!("sheet.hide")))
-                    .on_hover_text(t!("sheet.hide.tip"))
-                    .clicked()
+                if ghost_button(
+                    ui,
+                    None,
+                    &t!("sheet.hide"),
+                    &t!("sheet.hide.tip"),
+                    Size::Small,
+                    has,
+                )
+                .clicked()
                 {
                     self.run(
                         "rules.exclude",
                         json!({"code": row.code, "ids": row.objects.clone()}),
                     );
                 }
-                if ui
-                    .add_enabled(has, egui::Button::new(t!("sheet.show")))
-                    .on_hover_text(t!("sheet.show.tip"))
-                    .clicked()
+                if secondary_button(
+                    ui,
+                    None,
+                    &t!("sheet.show"),
+                    &t!("sheet.show.tip"),
+                    Size::Small,
+                    has,
+                )
+                .clicked()
                 {
                     self.show_finding(&row);
                 }

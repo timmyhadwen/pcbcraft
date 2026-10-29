@@ -479,6 +479,41 @@ impl App {
         self.pours.area_keepout
     }
 
+    /// Tool bar, while the Keepout tool is active: the two keepout toggles.
+    ///
+    /// # Rules
+    /// - Drawn right to left inside the tool bar's options group, so "This layer only"
+    ///   (shown only when the keepout is on) ends up right of "Keep all copper out".
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/ui_kit/checkbox.rs
+    ///
+    /// # Do not
+    /// - Add a second copy of these flags; they live in `PourState`.
+    pub(crate) fn keepout_options(&mut self, ui: &mut egui::Ui, t: &crate::theme::Tokens) {
+        use crate::ui_kit::checkbox::checkbox;
+        let layer_text = t!("rules.rules_tab.keepout_layer_only");
+        let keep_text = t!("rules.rules_tab.keepout");
+        if self.pours.area_keepout {
+            ui.label(
+                crate::fonts::text(crate::fonts::Role::Body, layer_text.clone()).color(t.text),
+            );
+            checkbox(
+                ui,
+                &mut self.pours.keepout_layer_only,
+                &layer_text,
+                &t!("rules.rules_tab.keepout_layer_only.tip"),
+            );
+        }
+        ui.label(crate::fonts::text(crate::fonts::Role::Body, keep_text.clone()).color(t.text));
+        checkbox(
+            ui,
+            &mut self.pours.area_keepout,
+            &keep_text,
+            &t!("rules.rules_tab.keepout.tip"),
+        );
+    }
+
     /// Canvas: press-drag-release with the Keepout tool draws one rectangle,
     /// then the tool returns to Select.
     ///
