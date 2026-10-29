@@ -121,7 +121,7 @@ pub fn fmt_count_ui(tag: &str, n: u64) -> String {
     }
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(st.group);
         }
         out.push(ch);
@@ -273,8 +273,18 @@ mod tests {
     fn a_grouping_separator_or_a_second_marker_is_refused_with_the_plain_message() {
         let long = "1".repeat(65);
         for bad in [
-            "1.234,5", "1,234.5", "1,2,3", "1 234", "1\u{a0}234", "1\u{202f}234", "", "-", ",",
-            "abc", "1e5", &long,
+            "1.234,5",
+            "1,234.5",
+            "1,2,3",
+            "1 234",
+            "1\u{a0}234",
+            "1\u{202f}234",
+            "",
+            "-",
+            ",",
+            "abc",
+            "1e5",
+            &long,
         ] {
             assert_eq!(
                 parse_number(bad),
