@@ -206,7 +206,7 @@ fn a_newcomer_hardens_the_junctions_for_the_etcher() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Harden junctions")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -324,7 +324,7 @@ fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     for _ in 0..18 {
         frame(
             &ctx,
@@ -386,7 +386,7 @@ fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     for _ in 0..14 {
         frame(
             &ctx,

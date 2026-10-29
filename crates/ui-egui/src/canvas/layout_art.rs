@@ -207,7 +207,7 @@ impl App {
         painter.line_segment([top.left_bottom(), top.right_bottom()], line);
         painter.line_segment([left.right_top(), left.right_bottom()], line);
         let step = nice_step(camera.zoom, 56.0);
-        let font = FontId::monospace(10.0);
+        let font = crate::fonts::Role::Mono.font();
         let origin = camera.screen(Point::default(), rect);
         let first = ((rect.left() - origin.x) as f64 / camera.zoom as f64 / step).floor() as i64;
         let last = ((rect.right() - origin.x) as f64 / camera.zoom as f64 / step).ceil() as i64;
@@ -286,7 +286,7 @@ impl App {
         let a = camera.screen(lo, rect);
         let b = camera.screen(hi, rect);
         let stroke = Stroke::new(1.0, art.muted);
-        let font = FontId::monospace(10.0);
+        let font = crate::fonts::Role::Mono.font();
         // Width: below the board.
         let y = b.y + 44.0;
         painter.line_segment([Pos2::new(a.x, y), Pos2::new(b.x, y)], stroke);
@@ -336,7 +336,7 @@ impl App {
         painter.line_segment([x_end, x_end + Vec2::new(-5.0, 3.0)], stroke);
         painter.line_segment([y_end, y_end + Vec2::new(-3.0, 5.0)], stroke);
         painter.line_segment([y_end, y_end + Vec2::new(3.0, 5.0)], stroke);
-        let font = FontId::monospace(10.0);
+        let font = crate::fonts::Role::Mono.font();
         painter.text(
             x_end + Vec2::new(4.0, 8.0),
             Align2::LEFT_CENTER,
@@ -405,7 +405,7 @@ impl App {
                         a.lerp(b, 0.5) + Vec2::new(0.0, -7.0),
                         Align2::CENTER_BOTTOM,
                         name,
-                        FontId::monospace(10.0),
+                        crate::fonts::Role::Mono.font(),
                         art.ratsnest,
                     );
                 }

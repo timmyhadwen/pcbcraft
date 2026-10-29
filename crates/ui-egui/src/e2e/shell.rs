@@ -64,7 +64,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     app.tab = Tab::Pcb;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Assembly mark")?;
+    tap_strip(&ctx, &mut app, "button:Assembly mark")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.canvas_click(Point::new(-27.0, -17.0), 1.0);
     assert_eq!(
@@ -615,7 +615,7 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
         );
     }
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     assert!(matches!(app.tab, Tab::Rules), "the + menu reopens it");
     authoring::tests::tap(&ctx, &mut app, "Files")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;

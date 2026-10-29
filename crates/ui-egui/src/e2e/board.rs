@@ -250,7 +250,7 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     let before = app.project.board.texts.len();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 700.0)?,
         "the board panel should offer printed words: {}",
@@ -325,7 +325,7 @@ fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
     let before = app.project.board.rule_areas.len();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     for _ in 0..22 {
         frame(
             &ctx,
@@ -397,7 +397,7 @@ fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "CUT-OUT HOLE", 700.0)?,
         "the board geometry section should offer a hole: {}",
@@ -481,7 +481,7 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     app.tab = Tab::Pcb;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Mounting hole")?;
+    tap_strip(&ctx, &mut app, "button:Mounting hole")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.canvas_click(Point::new(-25.0, -17.0), 1.0);
     assert_eq!(
@@ -676,7 +676,7 @@ fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Cut hits via")?,
@@ -1552,7 +1552,7 @@ fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), S
             "{id} arms its shape on the machine layer"
         );
     }
-    tap_id(&ctx, &mut app, "button:Cutout")?;
+    tap_strip(&ctx, &mut app, "button:Cutout")?;
     assert!(
         matches!(app.tool, Tool::Cutout),
         "Cutout arms the hole tool"
@@ -1587,7 +1587,7 @@ fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), Str
 fn a_newcomer_zooms_out_and_fits_the_whole_design() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Schematic);
     let before = app.schematic.zoom;
-    tap_id(&ctx, &mut app, "button:\u{2212}")?;
+    tap_id(&ctx, &mut app, "icon:canvas-zoom-out")?;
     assert!(app.schematic.zoom < before, "the minus button zooms out");
     tap_id(&ctx, &mut app, "icon:canvas-fit")?;
     assert!(

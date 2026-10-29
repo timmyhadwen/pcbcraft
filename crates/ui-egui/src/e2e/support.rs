@@ -97,6 +97,21 @@ pub(crate) fn frame(
     modifiers: egui::Modifiers,
 ) -> egui::FullOutput {
     ctx.enable_accesskit();
+    // The first pass on a fresh context only installs the fonts and is
+    // discarded; spend it on an empty input so the caller's events land.
+    if !ctx.data(|d| {
+        d.get_temp::<bool>(egui::Id::new("design-fonts-installed"))
+            .unwrap_or(false)
+    }) {
+        let mut warm = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1440.0, 940.0))),
+                ..Default::default()
+            },
+            |ui| app.show(ui),
+        );
+        warm.textures_delta.clear();
+    }
     super::audit::record_touches(ctx, app, &events);
     events.insert(0, egui::Event::ModifiersChanged(modifiers));
     let mut output = ctx.run_ui(
@@ -214,6 +229,32 @@ fn control_center(ctx: &egui::Context, app: &mut App, id: &str) -> Result<egui::
         .ok_or_else(|| format!("{id} is not on screen, or is switched off"))
 }
 
+/// Click a tool in the strip under the tabs, scrolling the strip sideways
+/// first when the tool sits past the right edge (the strip keeps no
+/// scrollbar, so a person turns the wheel over it).
+pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
+    for _ in 0..12 {
+        if control_center(ctx, app, id).is_ok() {
+            return tap_id(ctx, app, id);
+        }
+        frame(
+            ctx,
+            app,
+            vec![
+                egui::Event::PointerMoved(egui::pos2(700.0, 83.0)),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(-120.0, 0.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
+    tap_id(ctx, app, id)
+}
+
 /// Click the control the gate calls `id`, like a person pressing it.
 pub(crate) fn tap_id(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
     let _tall = TallScope::enter();
@@ -288,6 +329,10 @@ pub(crate) fn type_into(
 /// Properties shows it: `root` for the board settings, `nets`
 /// for the connections editor.
 pub(crate) fn open_tree_row(ctx: &egui::Context, app: &mut App, key: &str) {
+    // The board's settings are edited on the layout page.
+    if key.starts_with("sec:board") && app.tab != Tab::Pcb {
+        app.change_tab(Tab::Pcb);
+    }
     app.preferences.left_tab = 0;
     app.select(None);
     app.tree.selected_key = Some(key.to_owned());
