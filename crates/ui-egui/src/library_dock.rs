@@ -1004,8 +1004,12 @@ impl App {
             painter.galley(egui::pos2(text_left, y), galley, Color32::WHITE);
             y += h + 2.0;
         }
-        let source_galley =
-            painter.layout(source, crate::fonts::Role::Caption.font(), accent, text_width);
+        let source_galley = painter.layout(
+            source,
+            crate::fonts::Role::Caption.font(),
+            accent,
+            text_width,
+        );
         let h = source_galley.size().y;
         painter.galley(egui::pos2(text_left, y), source_galley, Color32::WHITE);
         y += h + 1.0;

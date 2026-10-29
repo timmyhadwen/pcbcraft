@@ -51,6 +51,7 @@ pub(crate) struct CanvasColours {
 /// # Do not
 /// - Build one by hand outside `palette` and tests.
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub(crate) struct ThemeColours {
     pub dark: bool,
     pub accent: Color32,
@@ -214,6 +215,7 @@ pub(crate) fn canvas_colours(dark: bool) -> CanvasColours {
 ///
 /// # Do not
 /// - Touch spacing here; `App::style` owns that.
+#[allow(dead_code)]
 pub(crate) fn visuals(colours: &ThemeColours) -> egui::Visuals {
     let mut visuals = if colours.dark {
         egui::Visuals::dark()

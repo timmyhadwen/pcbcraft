@@ -435,7 +435,9 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
                     if let Some(reason) = reason {
                         ui.add(
                             egui::Label::new(
-                                egui::RichText::new(&reason).font(crate::fonts::Role::Caption.font()).color(env.muted),
+                                egui::RichText::new(&reason)
+                                    .font(crate::fonts::Role::Caption.font())
+                                    .color(env.muted),
                             )
                             .wrap(),
                         )
