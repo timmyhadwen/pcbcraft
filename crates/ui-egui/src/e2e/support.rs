@@ -331,6 +331,7 @@ pub(crate) fn type_into(
 /// Select a row of the left aside's Layers tree that is not one object, so
 /// Properties shows it: `root` for the board settings, `nets`
 /// for the connections editor.
+#[allow(dead_code)]
 pub(crate) fn open_tree_row(ctx: &egui::Context, app: &mut App, key: &str) {
     // The board's settings are edited on the layout page.
     if key.starts_with("sec:board") && app.tab != Tab::Pcb {

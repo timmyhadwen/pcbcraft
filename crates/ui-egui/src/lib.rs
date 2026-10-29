@@ -236,14 +236,6 @@ type StackShape = (
     &'static str,
     &'static [(&'static str, &'static str, f64)],
 );
-type CheckGroup = (String, Vec<(String, Vec<Id>)>);
-type AnatGroup = (
-    &'static str,
-    String,
-    String,
-    Vec<(Option<Id>, String)>,
-    String,
-);
 /// One line, in plain words, describing a figure drawn on a machine layer.
 fn art_shape_text(shape: &pcbcraft_doc::ArtShape) -> String {
     match shape {
@@ -6616,6 +6608,7 @@ impl App {
                             .tool_strip_button(
                                 ui,
                                 "tool-place-part",
+                                "part",
                                 t!("library.browser.place_part"),
                                 t!("library.browser.place_part.tip"),
                                 self.palette,

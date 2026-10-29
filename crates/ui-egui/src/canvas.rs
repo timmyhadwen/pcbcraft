@@ -2684,6 +2684,10 @@ impl App {
         }
         self.draw_user_layers(painter, rect, camera, p);
         self.paint_board_graphics(painter, rect, camera, p);
+        self.paint_board_dimensions(painter, rect, camera, p);
+        self.paint_axis_glyph(painter, rect);
+        self.paint_hover(painter, rect, camera, p);
+        self.paint_rulers(painter, rect, camera);
     }
 }
 

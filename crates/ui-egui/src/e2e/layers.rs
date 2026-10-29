@@ -12,8 +12,12 @@ fn pcb_app() -> (egui::Context, App) {
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    app.change_tab(Tab::Pcb);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    (ctx, app)
+}
+
+#[test]
+fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
     assert!(
         paints_text(&ctx, &mut app, "Layer 1 · Top")?,
         "the tree opens on the top layer: {}",

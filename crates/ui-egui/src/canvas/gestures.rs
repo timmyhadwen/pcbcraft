@@ -115,7 +115,7 @@ impl Tool {
 }
 
 impl App {
-    fn workspace(&self) -> Workspace {
+    fn modifier_workspace(&self) -> Workspace {
         if self.tab == Tab::Pcb {
             Workspace::Board
         } else {
@@ -128,7 +128,7 @@ impl App {
         tm::resolve(
             &self.preferences.modifiers,
             self.tool.kind(),
-            self.workspace(),
+            self.modifier_workspace(),
             held,
             hit.target(),
             gesture,
@@ -291,7 +291,7 @@ impl App {
             drag,
             &what,
             kind,
-            self.workspace(),
+            self.modifier_workspace(),
             held,
             bindings,
             tm::Platform::of(ui.ctx()),

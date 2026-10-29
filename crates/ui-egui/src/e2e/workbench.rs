@@ -44,6 +44,7 @@ fn centre_of(output: &egui::FullOutput, label: &str, left_of: f32) -> Option<egu
     })
 }
 
+#[allow(dead_code)]
 fn click(ctx: &egui::Context, app: &mut App, at: egui::Pos2) {
     let press = |pressed| egui::Event::PointerButton {
         pos: at,
