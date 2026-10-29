@@ -15,6 +15,7 @@
 //! - crates/text/strings/en.txt (library.dock.builtin.*)
 
 use pcbcraft_geom::Point;
+use pcbcraft_text::t;
 use pcbcraft_library::{Drill, FootprintDefinition, FootprintPad, Graphic};
 
 /// One line saying what a built-in kind is.

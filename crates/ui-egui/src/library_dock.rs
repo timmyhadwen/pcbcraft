@@ -162,6 +162,8 @@ pub(crate) enum ViewKind {
 enum Intent {
     Place { target: String, at: Point },
     Import,
+    /// Place an online part with `library.place_online`; the worker's answer is its parameters.
+    Online { target: String, at: Point },
 }
 
 /// A read of an installed part's definitions on a worker.
@@ -657,7 +659,7 @@ impl App {
                 self.dock.favourites_only = !self.dock.favourites_only;
             }
             let more = ui
-                .menu_button("\u{2026}", |ui| {
+                .menu_button(t!("library.dock.more_filters.label"), |ui| {
                     if let Some((name, _, tip, _)) = KINDS.get(3) {
                         let on = self.dock.kinds.contains(*name);
                         let label = pcbcraft_text::lookup("library.dock.kind.mechanical", &[]);
@@ -970,9 +972,17 @@ impl App {
             }
             Card::Online(p, credit) => CardFacts {
                 name: p.mpn.clone(),
-                what: format!("{} \u{b7} {}", p.manufacturer, p.description),
+                what: if p.manufacturer.is_empty() {
+                    p.description.clone()
+                } else {
+                    format!("{} \u{b7} {}", p.manufacturer, p.description)
+                },
                 source: p.source.clone(),
-                meta: sources::stock_line(p),
+                meta: if p.distributor.is_empty() && p.price_breaks.is_empty() {
+                    p.sku.clone()
+                } else {
+                    sources::stock_line(p)
+                },
                 licence: Some(if credit.is_empty() {
                     t!("library.dock.licence.online_plain", source = p.source)
                 } else {
@@ -1434,16 +1444,13 @@ impl App {
                 });
                 self.dock.placing = Some((path, name, reply));
             }
-            Card::Online(part, _) => {
-                let kind = TEMPLATES
-                    .iter()
-                    .find(|t| t.kind == part.kind)
-                    .map(|t| t.kind)
-                    .unwrap_or("resistor");
-                self.change_tab(Tab::Schematic);
-                self.tool = Tool::Place(kind.into());
-                self.pending_source = Some((**part).clone());
-                self.part_search.clear();
+            Card::Online(..) => {
+                let (target, at) = if self.tab == Tab::Pcb {
+                    ("board", self.pcb.center)
+                } else {
+                    ("schematic", self.schematic.center)
+                };
+                self.dock_place(ui.ctx(), card, target, at);
             }
         }
     }
@@ -1561,34 +1568,7 @@ impl App {
                 );
                 self.dock_after_place(target);
             }
-            Card::Online(part, _) => {
-                let kind = TEMPLATES
-                    .iter()
-                    .find(|t| t.kind == part.kind)
-                    .map(|t| t.kind)
-                    .unwrap_or("resistor");
-                self.run(
-                    "part.place",
-                    json!({"target": target, "position": at, "kind": kind}),
-                );
-                if let Some(id) = self
-                    .project
-                    .board
-                    .footprints
-                    .iter()
-                    .find(|f| Some(f.id) == self.selected)
-                    .map(|f| f.component)
-                    .or(self.selected)
-                {
-                    self.run(
-                        "part.attach_source",
-                        json!({"id": id, "manufacturer": part.manufacturer, "mpn": part.mpn,
-                               "datasheet": part.datasheet_url, "distributor": part.distributor,
-                               "sku": part.sku}),
-                    );
-                }
-                self.dock_after_place(target);
-            }
+            Card::Online(part, _) => self.dock_fetch_online(ctx, part, target, at),
             Card::Installed(i) => self.dock_fetch(
                 ctx,
                 i,
@@ -1665,6 +1645,29 @@ impl App {
         });
     }
 
+    /// Read an online part on a worker, then place it with
+    /// `library.place_online` (one undo step; a board drop also adds the
+    /// symbol to the schematic).
+    ///
+    /// # Rules
+    /// - Needs the open source switched on; otherwise says so and does nothing.
+    fn dock_fetch_online(&mut self, ctx: &egui::Context, part: &PartResult, target: &str, at: Point) {
+        let Some(source) = self.part_sources.open() else {
+            self.message = t!("library.dock.online_off");
+            return;
+        };
+        let sku = part.sku.clone();
+        let reply = spawn_read(ctx, move || library_online::import_open(&source, &sku));
+        self.dock.pending = Some(Pending {
+            intent: Intent::Online {
+                target: target.to_owned(),
+                at,
+            },
+            name: part.mpn.clone(),
+            rx: reply,
+        });
+    }
+
     /// A worker read finished: import or place the part.
     fn dock_finish(&mut self, intent: Intent, name: &str, result: Result<Value, String>) {
         let value = match result {
@@ -1674,6 +1677,14 @@ impl App {
                 return;
             }
         };
+        if let Intent::Online { target, at } = intent {
+            let mut params = value;
+            params["target"] = json!(if target == "board" { "layout" } else { "schematic" });
+            params["position"] = json!(at);
+            self.run("library.place_online", params);
+            self.dock_after_place(&target);
+            return;
+        }
         let mut params = json!({"symbol": value["symbol"], "notice": value["notice"]});
         if !value["footprint"].is_null() {
             params["footprint"] = value["footprint"].clone();
@@ -1685,6 +1696,7 @@ impl App {
                 self.run("part.place", params);
                 self.dock_after_place(&target);
             }
+            Intent::Online { .. } => {}
             Intent::Import => {
                 self.run("library.import_part", params);
                 self.message = t!("library.dock.added", name = name);

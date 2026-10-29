@@ -97,9 +97,13 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        scrolled_to_at(&ctx, &mut app, "    blinky red · built in", 150.0)?,
-        "a part row says what the part is and where it came from: {}",
+        paints_text(&ctx, &mut app, "Fixed resistor, two terminals")?,
+        "a built-in part card says what the part is: {}",
         app.message
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "COMPONENTS")?,
+        "the project's own parts are in the Layers tree, not the Library tab"
     );
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(

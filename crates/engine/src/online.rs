@@ -241,6 +241,7 @@ fn place_command(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value
             position: a.position,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads,
         });
         Some(fid)

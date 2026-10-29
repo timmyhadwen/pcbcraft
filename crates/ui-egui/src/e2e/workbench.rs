@@ -82,25 +82,24 @@ fn finding_counts_split_by_loudness() {
 }
 
 #[test]
-fn a_newcomer_toggles_the_library_dock_from_the_left_rail() -> Result<(), String> {
+fn a_newcomer_opens_the_library_tab_and_sees_described_parts() -> Result<(), String> {
     let mut app = fresh();
+    app.preferences.left_tab = 1;
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let at = centre_of(&out, "Lib", 44.0).ok_or("the rail should offer the library toggle")?;
-    assert!(
-        app.preferences.library_dock_open,
-        "the library dock starts open"
-    );
-    click(&ctx, &mut app, at);
-    assert!(
-        !app.preferences.library_dock_open,
-        "the rail toggle hides the dock"
-    );
-    click(&ctx, &mut app, at);
-    assert!(
-        app.preferences.library_dock_open,
-        "the rail toggle shows it again"
-    );
+    let words: Vec<String> = texts(&out).into_iter().map(|(w, ..)| w).collect();
+    for wanted in ["Resistor", "Fixed resistor, two terminals", "LED"] {
+        assert!(
+            words.iter().any(|w| w.contains(wanted)),
+            "the Library tab should show {wanted}"
+        );
+    }
+    for gone in ["COMPONENTS", "RENUMBER PARTS", "Lib"] {
+        assert!(
+            !words.iter().any(|w| w == gone),
+            "the old {gone} block is gone from the Library tab"
+        );
+    }
     Ok(())
 }
 

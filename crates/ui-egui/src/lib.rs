@@ -14,6 +14,7 @@ mod layers_tree;
 mod library;
 mod library_builtin;
 mod library_dock;
+mod library_online;
 mod library_quality;
 mod motion;
 mod number_entry;
