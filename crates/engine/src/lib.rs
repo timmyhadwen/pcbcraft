@@ -4,7 +4,7 @@ pub mod library;
 pub mod recents;
 mod route;
 use pcbcraft_doc::*;
-use pcbcraft_geom::{Point, positive};
+use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
@@ -1201,6 +1201,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "track.route_pair",
+            "Route both nets of a declared differential pair between two pad pairs on the chosen copper layer with coupled orthogonal L geometry at the pair gap",
+            schema(
+                json!({"from_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"from_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                &["from_p", "from_n", "to_p", "to_n"],
+            ),
+        ),
+        (
             "footprint.mirror",
             "Mirror a board footprint left-to-right or top-to-bottom about its own origin",
             schema(
@@ -2025,24 +2033,30 @@ fn custom_findings(p: &Project) -> Vec<Value> {
                     }
                 }
             }
-            "part count above" if p.components.len() as f64 > c.limit => breach(
-                vec![],
-                format!(
-                    "The board has {} parts, over the limit of {} in \"{}\"",
-                    p.components.len(),
-                    c.limit as u32,
-                    c.name
-                ),
-            ),
-            "via count above" if p.board.vias.len() as f64 > c.limit => breach(
-                vec![],
-                format!(
-                    "The board has {} vias, over the limit of {} in \"{}\"",
-                    p.board.vias.len(),
-                    c.limit as u32,
-                    c.name
-                ),
-            ),
+            "part count above"
+                if p.components.len() as f64 > c.limit => {
+                    breach(
+                        vec![],
+                        format!(
+                            "The board has {} parts, over the limit of {} in \"{}\"",
+                            p.components.len(),
+                            c.limit as u32,
+                            c.name
+                        ),
+                    )
+                }
+            "via count above"
+                if p.board.vias.len() as f64 > c.limit => {
+                    breach(
+                        vec![],
+                        format!(
+                            "The board has {} vias, over the limit of {} in \"{}\"",
+                            p.board.vias.len(),
+                            c.limit as u32,
+                            c.name
+                        ),
+                    )
+                }
             "net track count above" => {
                 for n in &p.nets {
                     let count = p.board.tracks.iter().filter(|t| t.net == n.id).count();
@@ -4194,6 +4208,18 @@ struct Route {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RoutePairParams {
+    from_p: PadRef,
+    from_n: PadRef,
+    to_p: PadRef,
+    to_n: PadRef,
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default = "front")]
+    layer: Layer,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Object {
     id: Id,
 }
@@ -4333,6 +4359,47 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .and_then(|pad| pad.net)
         .ok_or_else(|| Error::Invalid("pad has no net".into()))?;
     Ok((position, net))
+}
+fn diff_pair_for_nets(p: &Project, a: Id, b: Id) -> Option<&DiffPair> {
+    p.board
+        .diff_pairs
+        .iter()
+        .find(|pair| pair.net_p == a && pair.net_n == b || pair.net_p == b && pair.net_n == a)
+}
+fn orthogonal_route_segments(start: Point, end: Point) -> Vec<(Point, Point)> {
+    let bend = Point::new(end.x, start.y);
+    let mut segments = vec![];
+    for (from, to) in [(start, bend), (bend, end)] {
+        if from.distance(to) > 1e-6 {
+            segments.push((from, to));
+        }
+    }
+    segments
+}
+fn validate_pair_coupling(
+    p: &Project,
+    pair: &DiffPair,
+    layer: Layer,
+    width_p: f64,
+    width_n: f64,
+    segs_p: &[(Point, Point)],
+    segs_n: &[(Point, Point)],
+) -> Result<(), Error> {
+    for (a0, a1) in segs_p {
+        for (b0, b1) in segs_n {
+            let separation = segment_distance(*a0, *a1, *b0, *b1) - width_p / 2.0 - width_n / 2.0;
+            let mid_a = Point::new((a0.x + a1.x) / 2.0, (a0.y + a1.y) / 2.0);
+            let mid_b = Point::new((b0.x + b1.x) / 2.0, (b0.y + b1.y) / 2.0);
+            let required =
+                p.required_clearance_at(pair.net_p, pair.net_n, mid_a, mid_b, layer, layer);
+            if separation + 1e-6 < pair.gap.max(required) {
+                return Err(Error::Invalid(
+                    "the differential pair cannot keep its coupling gap on this path".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<Value, Error> {
     if let Some(result) = authoring::run(p, next, command, params) {
@@ -12102,6 +12169,86 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
             }
             Ok(json!({"ids":ids,"net":net,"width":width}))
+        }
+        "track.route_pair" => {
+            let a: RoutePairParams = parse(params)?;
+            let (start_p, net_p) = pad(p, &a.from_p, a.layer)?;
+            let (end_p, end_net_p) = pad(p, &a.to_p, a.layer)?;
+            let (start_n, net_n) = pad(p, &a.from_n, a.layer)?;
+            let (end_n, end_net_n) = pad(p, &a.to_n, a.layer)?;
+            if net_p != end_net_p || net_n != end_net_n {
+                return Err(Error::Invalid(
+                    "each side must stay on one net between its pads".into(),
+                ));
+            }
+            if net_p == net_n {
+                return Err(Error::Invalid(
+                    "the two sides must be different nets".into(),
+                ));
+            }
+            let (width, pair_gap, segs_p, segs_n) = {
+                let Some(pair) = diff_pair_for_nets(p, net_p, net_n) else {
+                    return Err(Error::Invalid(
+                        "those nets are not declared as a differential pair".into(),
+                    ));
+                };
+                let width = a
+                    .width
+                    .unwrap_or_else(|| class_width(p, pair.net_p).max(class_width(p, pair.net_n)));
+                if !positive(width) {
+                    return Err(Error::Invalid("route requires a valid width".into()));
+                }
+                for (start, end) in [(start_p, end_p), (start_n, end_n)] {
+                    if start.distance(end) < 1e-6 {
+                        return Err(Error::Invalid(
+                            "each side needs distinct start and end pads".into(),
+                        ));
+                    }
+                    if !start.valid() || !end.valid() {
+                        return Err(Error::Invalid("pad position is out of range".into()));
+                    }
+                }
+                let segs_p = orthogonal_route_segments(start_p, end_p);
+                let segs_n = orthogonal_route_segments(start_n, end_n);
+                validate_pair_coupling(p, pair, a.layer, width, width, &segs_p, &segs_n)?;
+                (width, pair.gap, segs_p, segs_n)
+            };
+            let mut ids_p = vec![];
+            let mut ids_n = vec![];
+            for (from, to) in segs_p {
+                let id = allocate(next)?;
+                ids_p.push(id);
+                p.board.tracks.push(Track {
+                    id,
+                    net: net_p,
+                    start: from,
+                    end: to,
+                    width,
+                    layer: a.layer,
+                    arc: None,
+                });
+            }
+            for (from, to) in segs_n {
+                let id = allocate(next)?;
+                ids_n.push(id);
+                p.board.tracks.push(Track {
+                    id,
+                    net: net_n,
+                    start: from,
+                    end: to,
+                    width,
+                    layer: a.layer,
+                    arc: None,
+                });
+            }
+            Ok(json!({
+                "ids_p": ids_p,
+                "ids_n": ids_n,
+                "net_p": net_p,
+                "net_n": net_n,
+                "gap": pair_gap,
+                "width": width,
+            }))
         }
         "footprint.mirror" => {
             let a: MirrorParams = parse(params)?;
@@ -22652,6 +22799,183 @@ mod tests {
         assert!(!codes(&mut s)?.contains(&"diffpair_skew".to_string()));
         s.undo()?;
         assert_eq!(s.project.board.diff_pairs.len(), 1);
+        Ok(())
+    }
+
+    fn pair_pitch_footprint(
+        name: &str,
+        pitch: f64,
+    ) -> Result<pcbcraft_library::FootprintDefinition, Error> {
+        let template = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))
+        .map_err(Error::Invalid)?;
+        let pad = template.pads.first().ok_or_else(missing)?.clone();
+        let mut fp = template;
+        fp.name = name.into();
+        fp.pads = ["1", "2"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, number)| {
+                let mut item = pad.clone();
+                item.number = number.into();
+                item.position = Point::new(0.0, if i == 0 { -pitch / 2.0 } else { pitch / 2.0 });
+                item
+            })
+            .collect();
+        Ok(fp)
+    }
+
+    fn drc_codes(s: &mut Session) -> Result<Vec<String>, Error> {
+        Ok(s.checks()["drc"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .filter_map(|f| f["code"].as_str().map(str::to_string))
+            .collect())
+    }
+
+    fn setup_parallel_pair_connectors(
+        s: &mut Session,
+        gap: f64,
+        width: f64,
+    ) -> Result<(Id, Id, Id, Id), Error> {
+        let pitch = gap + width;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": pair_pitch_footprint("PairConn", pitch)?}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","reference":"J1","position":{"x":10.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","reference":"J2","position":{"x":50.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute(
+            "wire.connect",
+            json!({"from":{"component":1,"pin":"1"},"to":{"component":2,"pin":"1"}}),
+            None,
+        )?;
+        let net_p = s.project.components[0].pins[0].net.ok_or_else(missing)?;
+        s.execute(
+            "wire.connect",
+            json!({"from":{"component":1,"pin":"2"},"to":{"component":2,"pin":"2"}}),
+            None,
+        )?;
+        let net_n = s.project.components[0].pins[1].net.ok_or_else(missing)?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":net_p,"net_n":net_n,"gap":gap}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        for component in [1_u64, 2] {
+            s.execute(
+                "footprint.assign_custom",
+                json!({"id":component,"name":"PairConn"}),
+                None,
+            )?;
+        }
+        let fp_j1 = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == 1)
+            .ok_or_else(missing)?
+            .id;
+        let fp_j2 = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == 2)
+            .ok_or_else(missing)?
+            .id;
+        Ok((fp_j1, fp_j2, net_p, net_n))
+    }
+
+    #[test]
+    fn route_pair_parallel_connectors_meets_gap_and_no_diffpair_gap() -> Result<(), Error> {
+        let gap = 0.3;
+        let width = 0.2;
+        let mut s = Session::default();
+        let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
+        let before = s.project.board.tracks.len();
+        s.execute(
+            "track.route_pair",
+            json!({
+                "from_p":{"footprint":fp_j1,"pad":"1"},
+                "from_n":{"footprint":fp_j1,"pad":"2"},
+                "to_p":{"footprint":fp_j2,"pad":"1"},
+                "to_n":{"footprint":fp_j2,"pad":"2"},
+                "width":width,
+            }),
+            None,
+        )?;
+        assert!(s.project.board.tracks.len() > before);
+        assert!(
+            !drc_codes(&mut s)?.contains(&"diffpair_gap".to_string()),
+            "coupled routes should satisfy the declared gap"
+        );
+        let mut min_gap = f64::INFINITY;
+        let tracks = s.project.board.tracks.clone();
+        let p_tracks: Vec<_> = tracks
+            .iter()
+            .filter(|t| t.net == s.project.board.diff_pairs[0].net_p)
+            .collect();
+        let n_tracks: Vec<_> = tracks
+            .iter()
+            .filter(|t| t.net == s.project.board.diff_pairs[0].net_n)
+            .collect();
+        for a in &p_tracks {
+            for b in &n_tracks {
+                let separation = segment_distance(a.start, a.end, b.start, b.end)
+                    - a.width / 2.0
+                    - b.width / 2.0;
+                if separation < min_gap {
+                    min_gap = separation;
+                }
+            }
+        }
+        assert!(
+            (min_gap - gap).abs() < 1e-3,
+            "minimum edge gap should match the pair gap, got {min_gap}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn route_pair_refuses_narrow_channel_and_leaves_tracks_unchanged() -> Result<(), Error> {
+        let mut s = Session::default();
+        let (fp_j1, fp_j2, net_p, net_n) = setup_parallel_pair_connectors(&mut s, 0.3, 0.2)?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":net_p,"net_n":net_n,"gap":5.0}),
+            None,
+        )?;
+        let tracks_before = s.project.board.tracks.clone();
+        assert!(
+            s.execute(
+                "track.route_pair",
+                json!({
+                    "from_p":{"footprint":fp_j1,"pad":"1"},
+                    "from_n":{"footprint":fp_j1,"pad":"2"},
+                    "to_p":{"footprint":fp_j2,"pad":"1"},
+                    "to_n":{"footprint":fp_j2,"pad":"2"},
+                    "width":0.2,
+                }),
+                None,
+            )
+            .is_err(),
+            "pad spacing cannot honour a 5 mm coupling gap"
+        );
+        assert_eq!(s.project.board.tracks, tracks_before);
         Ok(())
     }
 
