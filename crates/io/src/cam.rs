@@ -77,7 +77,9 @@ impl DrillOptions {
         !self.tools.is_empty()
             && self.tools.len() <= MAX_TOOLS
             && self.tools.iter().all(Tool::valid)
-            && self.peck_mm.is_none_or(|p| p.is_finite() && (0.2..=5.0).contains(&p))
+            && self
+                .peck_mm
+                .is_none_or(|p| p.is_finite() && (0.2..=5.0).contains(&p))
             && self.alignment_holes.iter().all(|p| p.valid())
     }
 }
@@ -339,11 +341,7 @@ impl GcodeWriter {
     }
 
     fn rapid_xy(&mut self, x: f64, y: f64) {
-        self.line(&format!(
-            "G0 X{} Y{}",
-            Self::fmt(x),
-            Self::fmt(y)
-        ));
+        self.line(&format!("G0 X{} Y{}", Self::fmt(x), Self::fmt(y)));
     }
 
     fn rapid_z(&mut self, z: f64) {
@@ -378,23 +376,14 @@ impl GcodeWriter {
             Dialect::Grbl | Dialect::LinuxCnc => {
                 self.line("M5");
                 self.rapid_z(5.0);
-                self.line(&format!(
-                    "M6 T{}",
-                    next.number
-                ));
-                self.comment(&format!(
-                    "change to {:.3} mm drill",
-                    next.diameter_mm
-                ));
+                self.line(&format!("M6 T{}", next.number));
+                self.comment(&format!("change to {:.3} mm drill", next.diameter_mm));
             }
             Dialect::Marlin => {
                 self.line("M5");
                 self.rapid_z(5.0);
                 self.line("M0");
-                self.comment(&format!(
-                    "load {:.3} mm drill",
-                    next.diameter_mm
-                ));
+                self.comment(&format!("load {:.3} mm drill", next.diameter_mm));
             }
         }
     }
@@ -410,10 +399,7 @@ fn order_hits(order: DrillOrder, hits: &mut [DrillHit]) {
             hits.sort_by(|a, b| {
                 a.x.partial_cmp(&b.x)
                     .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| {
-                        a.y.partial_cmp(&b.y)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    })
+                    .then_with(|| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
             });
         }
         DrillOrder::Nearest => {
@@ -430,12 +416,10 @@ fn order_hits(order: DrillOrder, hits: &mut [DrillHit]) {
                         da.partial_cmp(&db)
                             .unwrap_or(std::cmp::Ordering::Equal)
                             .then_with(|| {
-                                a.x.partial_cmp(&b.x)
-                                    .unwrap_or(std::cmp::Ordering::Equal)
+                                a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)
                             })
                             .then_with(|| {
-                                a.y.partial_cmp(&b.y)
-                                    .unwrap_or(std::cmp::Ordering::Equal)
+                                a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal)
                             })
                     })
                     .map(|(i, _)| i)
@@ -574,10 +558,7 @@ pub fn drill_gcode(
         for hit in group.hits {
             let dia = effective_drill_diameter(&hit, profile);
             let Some(tool) = pick_tool(dia, &options.tools) else {
-                return Err(format!(
-                    "no drill bit large enough for {:.3} mm hole",
-                    dia
-                ));
+                return Err(format!("no drill bit large enough for {:.3} mm hole", dia));
             };
             if let Some(job) = jobs.iter_mut().find(|j| j.tool.number == tool.number) {
                 job.hits.push(hit);
@@ -751,10 +732,7 @@ fn offset_ring(points: &[Point], distance: f64) -> Vec<Point> {
         } else {
             (mx / ml, my / ml)
         };
-        out.push(Point::new(
-            curr.x + nx * distance,
-            curr.y + ny * distance,
-        ));
+        out.push(Point::new(curr.x + nx * distance, curr.y + ny * distance));
     }
     if let Some(first) = out.first().copied() {
         out.push(first);
@@ -769,25 +747,17 @@ fn linearize_ring(points: &[Point]) -> Vec<Point> {
         let steps = ((len / LINEARIZE_STEP_MM).ceil() as usize).max(1);
         for s in 0..steps {
             let t = s as f64 / steps as f64;
-            dense.push(Point::new(
-                a.x + (b.x - a.x) * t,
-                a.y + (b.y - a.y) * t,
-            ));
+            dense.push(Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
         }
     }
     dense
 }
 
 fn ring_length(points: &[Point]) -> f64 {
-    polygon_edges(points)
-        .map(|(a, b)| a.distance(b))
-        .sum()
+    polygon_edges(points).map(|(a, b)| a.distance(b)).sum()
 }
 
-fn tab_intervals(
-    perimeter: f64,
-    tabs: Tabs,
-) -> Vec<(f64, f64)> {
+fn tab_intervals(perimeter: f64, tabs: Tabs) -> Vec<(f64, f64)> {
     if tabs.count == 0 || perimeter < 1e-6 {
         return Vec::new();
     }
@@ -801,12 +771,7 @@ fn tab_intervals(
         .collect()
 }
 
-fn cut_z_at(
-    dist: f64,
-    pass_z: f64,
-    tab_z: f64,
-    tabs: &[(f64, f64)],
-) -> f64 {
+fn cut_z_at(dist: f64, pass_z: f64, tab_z: f64, tabs: &[(f64, f64)]) -> f64 {
     for (start, end) in tabs {
         if dist + 1e-9 >= *start && dist <= *end + 1e-9 {
             return tab_z;
@@ -938,10 +903,7 @@ fn linearize_circle(center: Point, radius: f64) -> Vec<Point> {
     (0..=n)
         .map(|i| {
             let a = 2.0 * PI * i as f64 / n as f64;
-            Point::new(
-                center.x + radius * a.cos(),
-                center.y + radius * a.sin(),
-            )
+            Point::new(center.x + radius * a.cos(), center.y + radius * a.sin())
         })
         .collect()
 }
@@ -1051,7 +1013,11 @@ mod tests {
         let t3 = text.find("tool T3").ok_or("missing third tool group")?;
         assert!(t1 < t2, "smaller tool group should appear first");
         assert!(t2 < t3, "tool groups should ascend by bit size");
-        assert_eq!(text.matches("M0").count(), 2, "a stop between each tool group");
+        assert_eq!(
+            text.matches("M0").count(),
+            2,
+            "a stop between each tool group"
+        );
         Ok(())
     }
 
@@ -1062,10 +1028,7 @@ mod tests {
         let profile = test_profile();
         let files = drill_gcode(&p, &options, &profile)?;
         let text = &files[0].1;
-        let expected_hits: usize = drill_tools(&p)?
-            .iter()
-            .map(|g| g.hits.len())
-            .sum();
+        let expected_hits: usize = drill_tools(&p)?.iter().map(|g| g.hits.len()).sum();
         let moves = count_drill_moves(text);
         assert_eq!(
             moves, expected_hits,

@@ -15,9 +15,9 @@ pub use board_mesh::{
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use cam::{
-    drill_gcode, drill_tools, outline_gcode, CamProfile, CutDirection, Dialect, DrillHit,
-    DrillOptions, DrillOrder, DrillTool, OutlineCompensation, OutlineOptions, Tabs, Tool,
-    ToolChange,
+    CamProfile, CutDirection, Dialect, DrillHit, DrillOptions, DrillOrder, DrillTool,
+    OutlineCompensation, OutlineOptions, Tabs, Tool, ToolChange, drill_gcode, drill_tools,
+    outline_gcode,
 };
 pub use gerber::gerber_copper;
 use library_render::*;
