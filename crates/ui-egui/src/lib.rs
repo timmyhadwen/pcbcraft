@@ -3330,7 +3330,9 @@ impl App {
                     ui.label(egui::RichText::new("Library").strong());
                     if ui
                         .small_button("Hide")
-                        .on_hover_text("Close the library dock.")
+                        .on_hover_text(
+                            "Close the library dock to give the canvas more room. Open it again with the Lib toggle in the top bar.",
+                        )
                         .clicked()
                     {
                         self.preferences.library_dock_open = false;
