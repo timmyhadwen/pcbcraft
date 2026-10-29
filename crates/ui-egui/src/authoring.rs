@@ -422,11 +422,12 @@ fn dist_segment(pos: Point, a: Point, b: Point) -> f64 {
 
 impl App {
     pub(super) fn library_canvas_click(&mut self, pos: Point) {
-        let Some(draft) = self.library.editor.draft.as_mut() else {
+        let Some(mut draft) = self.library.editor.draft.take() else {
             return;
         };
         let zoom = self.library.editor.camera.zoom;
-        self.library_editor_click(draft, pos, zoom);
+        self.library_editor_click(&mut draft, pos, zoom);
+        self.library.editor.draft = Some(draft);
     }
 
     fn library_editor_click(&mut self, draft: &mut Draft, pos: Point, zoom: f32) {
@@ -618,14 +619,13 @@ impl App {
                         && best.as_ref().map(|(bd, _)| 0.0 < *bd).unwrap_or(true)
                     {
                         best = Some((0.0, LibraryPick::Pad(i)));
-                    } else {
-                        let d = dist_segment(pos, pad.position, pad.position);
-                        if pos.distance(pad.position) <= margin
-                            && best.as_ref().map(|(bd, _)| pos.distance(pad.position) < *bd)
-                                .unwrap_or(true)
-                        {
-                            best = Some((pos.distance(pad.position), LibraryPick::Pad(i)));
-                        }
+                    } else if pos.distance(pad.position) <= margin
+                        && best
+                            .as_ref()
+                            .map(|(bd, _)| pos.distance(pad.position) < *bd)
+                            .unwrap_or(true)
+                    {
+                        best = Some((pos.distance(pad.position), LibraryPick::Pad(i)));
                     }
                 }
                 for (i, g) in def.graphics.iter().enumerate().take(256) {
@@ -864,13 +864,13 @@ impl App {
             if ui.input(|i| i.key_pressed(egui::Key::Delete))
                 && let Some(pick) = self.library.editor.pick
             {
-                self.library_delete_pick(draft, pick);
+                Self::library_delete_pick(draft, pick);
                 self.library.editor.pick = None;
             }
             if ui.input(|i| i.key_pressed(egui::Key::R))
                 && let Some(pick) = self.library.editor.pick
             {
-                self.library_rotate_pick(draft, pick);
+                Self::library_rotate_pick(draft, pick);
             }
         }
         if response.drag_started_by(egui::PointerButton::Primary)
@@ -883,7 +883,7 @@ impl App {
             self.library.editor.pick = pick;
             if let Some(pick) = pick
                 && matches!(pick, LibraryPick::Pin(_) | LibraryPick::Pad(_))
-                && let Some(anchor) = self.library_pick_position(draft, pick)
+                && let Some(anchor) = Self::library_pick_position(draft, pick)
             {
                 self.library.editor.drag_anchor =
                     Some((pick, Point::new(anchor.x - pos.x, anchor.y - pos.y)));
@@ -895,7 +895,7 @@ impl App {
                 (self.library.editor.drag_anchor, cursor)
             && matches!(pick, LibraryPick::Pin(_) | LibraryPick::Pad(_))
         {
-            self.library_move_pick(draft, pick, pos.offset(offset));
+            Self::library_move_pick(draft, pick, pos.offset(offset));
         }
         if response.drag_stopped_by(egui::PointerButton::Primary) {
             self.library.editor.drag_anchor = None;
@@ -1003,19 +1003,18 @@ impl App {
                     if let Some(start) = self.library.editor.graphic_start {
                         let a = camera.screen(start, response.rect);
                         let b = camera.screen(snapped, response.rect);
-                        match self.library.editor.tool {
-                            LibraryTool::Line => painter.line_segment([a, b], stroke),
-                            LibraryTool::Rectangle => painter.rect_stroke(
+                        if self.library.editor.tool == LibraryTool::Line {
+                            painter.line_segment([a, b], stroke);
+                        } else if self.library.editor.tool == LibraryTool::Rectangle {
+                            painter.rect_stroke(
                                 egui::Rect::from_min_max(a, b),
                                 0.0,
                                 stroke,
                                 egui::StrokeKind::Inside,
-                            ),
-                            LibraryTool::Circle => {
-                                let radius = (b - a).length().max(1.0);
-                                painter.circle_stroke(a, radius, stroke);
-                            }
-                            _ => {}
+                            );
+                        } else if self.library.editor.tool == LibraryTool::Circle {
+                            let radius = (b - a).length().max(1.0);
+                            painter.circle_stroke(a, radius, stroke);
                         }
                     }
                 }

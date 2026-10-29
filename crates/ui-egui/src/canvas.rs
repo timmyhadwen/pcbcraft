@@ -214,7 +214,7 @@ impl App {
             self.load_properties();
         }
     }
-    fn paint_graphic(
+    pub(super) fn paint_graphic(
         &self,
         painter: &egui::Painter,
         rect: Rect,
