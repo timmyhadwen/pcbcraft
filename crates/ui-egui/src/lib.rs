@@ -2,6 +2,7 @@
 mod authoring;
 mod canvas;
 mod library;
+mod library_quality;
 mod plot_viewer;
 mod sources;
 mod via_covering;
@@ -6282,6 +6283,7 @@ impl App {
             }
             ui.add_space(20.0);
         }
+        self.library_checks_section(ui);
         let silenced: Vec<(String, usize)> = self
             .project
             .rule_exclusions
