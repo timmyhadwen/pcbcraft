@@ -879,7 +879,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             back.flash(back_code, x, y)?;
         }
 
-        if via_mask_opening(v, &p.board) && v.drill > 0.0 && partial_via_span(p, v).is_none() {
+        if via_mask_opening(v, &p.board) && (reaches_top || reaches_bottom) {
             let margin = DEFAULT_MASK_MARGIN_MM;
             let r = v.drill / 2.0 + margin;
             let n = 16usize;
@@ -888,12 +888,16 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                 let a = std::f64::consts::TAU * i as f64 / n as f64;
                 ring.push((v.position.x + r * a.cos(), v.position.y + r * a.sin()));
             }
-            let code_f = mask_front.code(Ap::Circle(1))?;
-            mask_front.fill(code_f, &outline_ring(&ring))?;
-            let mirrored: Vec<(f64, f64)> =
-                ring.iter().map(|(x, y)| mirror(*x, *y, true)).collect();
-            let code_b = mask_back.code(Ap::Circle(1))?;
-            mask_back.fill(code_b, &outline_ring(&mirrored))?;
+            if reaches_top {
+                let code_f = mask_front.code(Ap::Circle(1))?;
+                mask_front.fill(code_f, &outline_ring(&ring))?;
+            }
+            if reaches_bottom {
+                let mirrored: Vec<(f64, f64)> =
+                    ring.iter().map(|(x, y)| mirror(*x, *y, true)).collect();
+                let code_b = mask_back.code(Ap::Circle(1))?;
+                mask_back.fill(code_b, &outline_ring(&mirrored))?;
+            }
         }
     }
 
