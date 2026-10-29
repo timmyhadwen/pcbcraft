@@ -2012,30 +2012,24 @@ fn custom_findings(p: &Project) -> Vec<Value> {
                     }
                 }
             }
-            "part count above"
-                if p.components.len() as f64 > c.limit => {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} parts, over the limit of {} in \"{}\"",
-                            p.components.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
-            "via count above"
-                if p.board.vias.len() as f64 > c.limit => {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} vias, over the limit of {} in \"{}\"",
-                            p.board.vias.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
+            "part count above" if p.components.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} parts, over the limit of {} in \"{}\"",
+                    p.components.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
+            "via count above" if p.board.vias.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} vias, over the limit of {} in \"{}\"",
+                    p.board.vias.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
             "net track count above" => {
                 for n in &p.nets {
                     let count = p.board.tracks.iter().filter(|t| t.net == n.id).count();
