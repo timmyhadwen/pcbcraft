@@ -6807,8 +6807,7 @@ impl App {
                         }
                         Tab::Checks => {
                             egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.checks_view(ui))
-                                .inner
+                                .show(ui, |ui| Self::margined(ui, |ui| self.checks_view(ui)));
                         }
                         Tab::Settings => {
                             egui::ScrollArea::vertical()
