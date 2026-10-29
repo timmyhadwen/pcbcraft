@@ -239,7 +239,7 @@ impl App {
     }
 
     /// The name page `id` shows in tabs and Properties.
-    fn page_name(&self, id: Id) -> String {
+    pub(crate) fn page_name(&self, id: Id) -> String {
         if id == 0 {
             return t!("schematic.pages.root");
         }

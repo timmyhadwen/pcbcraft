@@ -66,6 +66,9 @@ pub(crate) enum Visibility {
     Canvas(&'static str),
     /// A machine layer the designer drew; the document stores its flag.
     Art(Id),
+    /// A fixed row of one schematic page (`symbols`, `power`, `drawing` or
+    /// `title`); the hidden list stores [`page_row_name`].
+    Page(Id, &'static str),
     /// The canvas draws nothing for this row yet; the eye is inert.
     None,
 }
@@ -115,6 +118,8 @@ pub(crate) struct Row {
     pub stack: Option<String>,
     /// The schematic page this row stands for (page 0 is Main).
     pub page: Option<Id>,
+    /// The fixed row of a page this row stands for: its page and name.
+    pub sheet_row: Option<(Id, &'static str)>,
 }
 
 /// What the tree asks the app to do; the app applies each in `lib.rs`.
@@ -174,6 +179,20 @@ pub(crate) enum Action {
     ExportBom { selection: bool },
     /// Leave a part off the bill of materials, or put it back.
     ToggleBomExclude(Id),
+    /// Show or hide one fixed row of a page (`symbols`, `power`, `drawing`, `title`).
+    SetPageRowShown {
+        page: Id,
+        row: &'static str,
+        on: bool,
+    },
+    /// Open a fixed row of a page in Properties and show that page.
+    SelectSheetRow { page: Id, row: &'static str },
+    /// Select every object of a fixed row of a page.
+    SelectAllInRow { page: Id, row: &'static str },
+    /// Switch a page's title block on or off.
+    TitleShown { page: Id, on: bool },
+    /// Place a power port on a page, tied to the first power net.
+    AddPowerPort(Id),
 }
 
 /// The read-only inputs of one frame.
@@ -191,6 +210,8 @@ pub(crate) struct Env<'a> {
     pub revision: u64,
     /// How many parts are selected, for the Export BOM for selection entry.
     pub parts_selected: usize,
+    /// Show the fixed rows of a page even when they hold nothing.
+    pub show_empty: bool,
 }
 
 /// The canvas toggles each tab's layer rows may switch.
@@ -235,6 +256,9 @@ pub(crate) struct TreeView {
     pub query: String,
     /// Layer keys the canvas may not select from or edit.
     pub locked: BTreeSet<String>,
+    /// Show the fixed rows of a page (Symbols, Power ports, Drawing, Title
+    /// block) even when they hold nothing.
+    pub show_empty: bool,
     /// Keyboard cursor row key.
     pub cursor: Option<String>,
     /// A row selected that is not one object: the board outline, a layer, a net.
@@ -288,6 +312,7 @@ impl Default for TreeView {
         Self {
             expanded,
             query: String::new(),
+            show_empty: false,
             locked: BTreeSet::new(),
             cursor: None,
             selected_key: None,
@@ -353,6 +378,7 @@ fn row(path: &str, seg: &str, kind: RowKind, label: String) -> Row {
         target: None,
         stack: None,
         page: None,
+        sheet_row: None,
     }
 }
 
@@ -1147,6 +1173,75 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
     out
 }
 
+/// The fixed rows of page `id`: Symbols, Power ports, Drawing and Title
+/// block, each with its count. Rows that hold nothing are left out unless the
+/// tree shows empty ones.
+///
+/// # Rules
+/// - The set is fixed: a page always has these four categories, so none can be
+///   removed. Title block counts 1 while the page shows it and 0 once switched off.
+/// - Keys are the row's own segment (`layer:symbols`); the caller adds the path.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` (`Project::page_settings_of`, `Project::schematic_label_page`).
+///
+/// # Do not
+/// - Build a lock key from the segment; use [`page_row_name`].
+fn sheet_rows(env: &Env, id: Id) -> Vec<Row> {
+    let project = env.project;
+    let c = env.colours;
+    let symbols = project.components.iter().filter(|c| c.sheet == id).count();
+    let power = project
+        .labels
+        .iter()
+        .filter(|l| l.kind == "power" && project.schematic_label_page(l) == id)
+        .count();
+    let drawing = if id == 0 {
+        project
+            .graphics
+            .iter()
+            .filter(|g| g.layer == "schematic")
+            .count()
+    } else {
+        0
+    };
+    let title = usize::from(!project.page_settings_of(id).title_hidden);
+    let all: [(&'static str, String, Color32, usize, bool); 4] = [
+        ("symbols", t!("tree.sch.symbols"), c.warn, symbols, true),
+        (
+            "power",
+            t!("tree.sch.power_ports"),
+            c.canvas.wire,
+            power,
+            false,
+        ),
+        ("drawing", t!("tree.sch.drawing"), c.link, drawing, false),
+        ("title", t!("tree.sch.title_block"), c.ink, title, false),
+    ];
+    all.into_iter()
+        .filter(|(_, _, _, n, _)| *n > 0 || env.show_empty)
+        .map(|(seg, label, swatch, n, open)| {
+            let mut r = layer_row(
+                "",
+                seg,
+                label,
+                swatch,
+                Visibility::Page(id, seg),
+                false,
+                n,
+                open,
+            );
+            if let Some(ctl) = r.controls.as_mut() {
+                ctl.key = page_row_name(id, seg);
+            }
+            r.expandable = open && n > 0;
+            r.dim = n == 0;
+            r.sheet_row = Some((id, seg));
+            r
+        })
+        .collect()
+}
+
 fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
     let project = env.project;
     let c = env.colours;
@@ -1157,11 +1252,9 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
             let mut sheets: Vec<(Id, String)> = vec![(0, t!("tree.sheet.first"))];
             sheets.extend(project.sheets.iter().map(|s| (s.id, s.name.clone())));
             for (id, name) in sheets {
-                let mut page = section(
-                    &crate::App::page_row_key(id),
-                    name,
-                    if id == 0 { 4 } else { 1 },
-                );
+                let n = sheet_rows(env, id).len();
+                let mut page = section(&crate::App::page_row_key(id), name, n);
+                page.expandable = n > 0;
                 page.page = Some(id);
                 out.push(page);
             }
@@ -1187,56 +1280,49 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
         }
         [sec] if sec.starts_with("sec:sheet:") => {
             let id: Id = sec[10..].parse().unwrap_or(0);
-            let comps = project.components.iter().filter(|c| c.sheet == id).count();
-            let mut l =
-                |seg: &str, label: String, sw: Color32, vis: Visibility, n: usize, open: bool| {
-                    out.push(layer_row(key, seg, label, sw, vis, false, n, open));
-                };
-            l(
-                "symbols",
-                t!("tree.sch.symbols"),
-                c.warn,
-                Visibility::Canvas("Symbols"),
-                comps,
-                true,
-            );
-            if id == 0 {
-                let power = project.labels.iter().filter(|l| l.kind == "power").count();
-                let drawing = project
-                    .graphics
-                    .iter()
-                    .filter(|g| g.layer == "schematic")
-                    .count();
-                l(
-                    "power",
-                    t!("tree.sch.power_ports"),
-                    c.canvas.wire,
-                    Visibility::None,
-                    power,
-                    false,
-                );
-                l(
-                    "drawing",
-                    t!("tree.sch.drawing"),
-                    c.link,
-                    Visibility::Canvas("Graphics"),
-                    drawing,
-                    false,
-                );
-                l(
-                    "title",
-                    t!("tree.sch.title_block"),
-                    c.ink,
-                    Visibility::None,
-                    1,
-                    false,
-                );
-            }
+            out = sheet_rows(env, id)
+                .into_iter()
+                .map(|r| {
+                    let mut r = r;
+                    r.key = segment(key, &r.key);
+                    r
+                })
+                .collect();
         }
         [sec, "layer:symbols"] if sec.starts_with("sec:sheet:") => {
             let id: Id = sec[10..].parse().unwrap_or(0);
             for comp in project.components.iter().filter(|c| c.sheet == id) {
                 out.push(component_row(key, comp));
+            }
+        }
+        [sec, "layer:power"] if sec.starts_with("sec:sheet:") => {
+            let id: Id = sec[10..].parse().unwrap_or(0);
+            for l in project
+                .labels
+                .iter()
+                .filter(|l| l.kind == "power" && project.schematic_label_page(l) == id)
+            {
+                let mut r = row(
+                    key,
+                    &format!("label:{}", l.id),
+                    RowKind::Label,
+                    project.net_name(l.net).to_owned(),
+                );
+                r.sub = format!("{:.1}, {:.1}", l.position.x, l.position.y);
+                r.select = Some(l.id);
+                out.push(r);
+            }
+        }
+        [sec, "layer:drawing"] if sec.starts_with("sec:sheet:") => {
+            for g in project.graphics.iter().filter(|g| g.layer == "schematic") {
+                let mut r = row(
+                    key,
+                    &format!("gfx:{}", g.id),
+                    RowKind::Shape,
+                    g.shape.clone(),
+                );
+                r.select = Some(g.id);
+                out.push(r);
             }
         }
         ["components"] => {
@@ -1426,6 +1512,9 @@ fn signature(env: &Env, view: &TreeView) -> u64 {
     (env.tab == TreeTab::Layout).hash(&mut h);
     view.expanded.hash(&mut h);
     view.query.hash(&mut h);
+    env.show_empty.hash(&mut h);
+    env.project.page_settings.len().hash(&mut h);
+    env.project.sheets.len().hash(&mut h);
     let b = &env.project.board;
     (
         b.tracks.len(),
@@ -1513,6 +1602,34 @@ pub(crate) fn reveal_path(env: &Env, id: Id) -> Option<(Vec<String>, String)> {
     Some((opens, target))
 }
 
+/// The stored name of the sheet row `row` (`symbols`, `power`, `drawing` or
+/// `title`) of page `page`, used both as its lock key and as its entry in the
+/// hidden list.
+///
+/// # Rules
+/// - One name per page and row, so hiding Drawing on page 2 leaves page 1 alone.
+pub(crate) fn page_row_name(page: Id, row: &str) -> String {
+    format!("page:{page}:{row}")
+}
+
+/// The page and sheet row a schematic object belongs to: symbols, power
+/// ports (labels of kind power) and drawing graphics. None for anything else.
+pub(crate) fn sheet_row_of(project: &Project, id: Id) -> Option<(Id, &'static str)> {
+    if let Some(c) = project.component(id) {
+        return Some((c.sheet, "symbols"));
+    }
+    if let Some(l) = project.labels.iter().find(|l| l.id == id)
+        && l.kind == "power"
+    {
+        return Some((project.schematic_label_page(l), "power"));
+    }
+    project
+        .graphics
+        .iter()
+        .find(|g| g.id == id && g.layer == "schematic")
+        .map(|_| (0, "drawing"))
+}
+
 /// True when the canvas may not select or edit object `id` because a layer
 /// lock covers it.
 ///
@@ -1522,6 +1639,9 @@ pub(crate) fn reveal_path(env: &Env, id: Id) -> Option<(Vec<String>, String)> {
 pub(crate) fn is_locked(project: &Project, locked: &BTreeSet<String>, id: Id) -> bool {
     if locked.is_empty() {
         return false;
+    }
+    if let Some((page, row)) = sheet_row_of(project, id) {
+        return locked.contains(&page_row_name(page, row));
     }
     let board = &project.board;
     if let Some(t) = board.tracks.iter().find(|t| t.id == id) {
@@ -1816,6 +1936,10 @@ fn visible(env: &Env, ctl: &LayerControls) -> bool {
             .iter()
             .find(|l| l.id == *id)
             .is_none_or(|l| l.visible),
+        Visibility::Page(page, row) => {
+            let name = page_row_name(*page, row);
+            !env.hidden.contains(&name)
+        }
         Visibility::None => true,
     }
 }
@@ -2133,6 +2257,16 @@ fn header(
         {
             actions.push(Action::NewArtLayer);
         }
+        if env.tab == TreeTab::Schematic {
+            let (label, tip) = if view.show_empty {
+                (t!("tree.hide_empty"), t!("tree.hide_empty.tip"))
+            } else {
+                (t!("tree.show_empty"), t!("tree.show_empty.tip"))
+            };
+            if ghost_button(ui, colours, Glyph::Layer, &label, &tip).clicked() {
+                view.show_empty = !view.show_empty;
+            }
+        }
     });
     ui.add_space(6.0);
     let (line, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
@@ -2322,6 +2456,11 @@ fn paint_row(
                 Visibility::Canvas(name) => actions.push(Action::SetShown { name, on: hidden }),
                 Visibility::Art(layer) => actions.push(Action::SetArtShown {
                     layer: *layer,
+                    on: hidden,
+                }),
+                Visibility::Page(page, row) => actions.push(Action::SetPageRowShown {
+                    page: *page,
+                    row,
                     on: hidden,
                 }),
                 Visibility::None => {}
@@ -2560,11 +2699,13 @@ fn paint_row(
         _ => r.label.clone(),
     };
     name_control(&resp, &state, Some(selected));
-    let tip = match r.kind {
-        RowKind::Section => t!("tree.section.tip"),
-        RowKind::Layer => t!("tree.layer.tip"),
-        _ => t!("tree.row.tip"),
-    };
+    let tip = Some(explain(env.tab, r))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| match r.kind {
+            RowKind::Section => t!("tree.section.tip"),
+            RowKind::Layer => t!("tree.layer.tip"),
+            _ => t!("tree.row.tip"),
+        });
     let resp = resp.on_hover_text(tip);
     let flags = (hidden, locked, focus_on);
     if let Some(act) =
@@ -2610,6 +2751,11 @@ enum RowAct {
     ToggleBomExclude,
     PageAdd,
     PageRemove,
+    SelectAll,
+    AddPowerPort,
+    TitleToggle,
+    /// Remove on a fixed row of a page; the menu always shows it disabled.
+    Remove,
 }
 
 /// The kind name capture mode uses to open the first menu of this kind.
@@ -2773,6 +2919,59 @@ fn row_menu_entries(
             )
             .icon(glyph::TRASH)
             .enabled_if(named, why),
+        );
+    }
+    if let Some((page, row)) = r.sheet_row {
+        // A fixed row of a page: Select all, the row's own action, and a
+        // Remove that is always disabled (these are categories, not user layers).
+        if row != "title" {
+            object.push(
+                row_item(
+                    RowAct::SelectAll,
+                    t!("tree.menu.select_all"),
+                    t!("tree.menu.select_all.tip"),
+                    glyph::SELECT,
+                )
+                .enabled_if(!locked, t!("tree.menu.select_all.locked"))
+                .into(),
+            );
+        }
+        match row {
+            "power" => edit.push(
+                row_item(
+                    RowAct::AddPowerPort,
+                    t!("tree.menu.add_power_port"),
+                    t!("tree.menu.add_power_port.tip"),
+                    kit::PLUS,
+                )
+                .into(),
+            ),
+            "title" => {
+                let shown = !env.project.page_settings_of(page).title_hidden;
+                let (label, tip) = if shown {
+                    (t!("tree.menu.title_off"), t!("tree.menu.title_off.tip"))
+                } else {
+                    (t!("tree.menu.title_on"), t!("tree.menu.title_on.tip"))
+                };
+                edit.push(row_item(RowAct::TitleToggle, label, tip, glyph::PROPERTIES).into());
+            }
+            _ => {}
+        }
+        destructive.push(
+            row_item(
+                RowAct::Remove,
+                t!("tree.menu.remove_fixed"),
+                String::new(),
+                glyph::TRASH,
+            )
+            .enabled_if(
+                false,
+                if row == "title" {
+                    t!("tree.menu.remove_fixed.title.tip")
+                } else {
+                    t!("tree.menu.remove_fixed.tip")
+                },
+            ),
         );
     }
     if let Some(ctl) = &r.controls {
@@ -3042,6 +3241,11 @@ fn run_row_act(
                         layer: *layer,
                         on: hidden,
                     }),
+                    Visibility::Page(page, row) => actions.push(Action::SetPageRowShown {
+                        page: *page,
+                        row,
+                        on: hidden,
+                    }),
                     Visibility::None => {}
                 }
             }
@@ -3101,7 +3305,30 @@ fn run_row_act(
                 actions.push(Action::NetClass { net, class });
             }
         }
+        RowAct::SelectAll => {
+            if let Some((page, row)) = r.sheet_row {
+                actions.push(Action::SelectAllInRow { page, row });
+            }
+        }
+        RowAct::AddPowerPort => {
+            if let Some((page, _)) = r.sheet_row {
+                actions.push(Action::AddPowerPort(page));
+            }
+        }
+        RowAct::TitleToggle => {
+            if let Some((page, _)) = r.sheet_row {
+                let shown = !env.project.page_settings_of(page).title_hidden;
+                actions.push(Action::TitleShown { page, on: !shown });
+            }
+        }
+        RowAct::Remove => {}
         RowAct::Properties => match (r.select, &r.stack) {
+            (None, None) if r.sheet_row.is_some() => {
+                if let Some((page, row)) = r.sheet_row {
+                    view.selected_key = Some(r.key.clone());
+                    actions.push(Action::SelectSheetRow { page, row });
+                }
+            }
             (_, Some(_)) => {
                 view.selected_key = Some(r.key.clone());
                 actions.push(Action::SelectKey(r.key.clone()));
@@ -3157,6 +3384,69 @@ fn toggle(view: &mut TreeView, key: &str) {
     }
 }
 
+/// Plain words for what a tree row is and what it is for, shown when the
+/// pointer rests on it. Every kind of row has one, in the string catalog.
+///
+/// # Rules
+/// - Chosen by the row's last key segment, so a net, a pad or a layer reads
+///   the same wherever it sits in the tree.
+/// - Falls back to the generic row hint only for a segment no builder makes;
+///   `every_row_kind_explains_itself` walks a full tree to prove there is none.
+///
+/// # Dependencies
+/// - `crates/text/strings/en.txt` holds the `tree.explain.*` strings.
+///
+/// # Do not
+/// - Describe the click action here; the action hints live on the controls.
+pub(crate) fn explain(tab: TreeTab, r: &Row) -> String {
+    let last = r.key.rsplit('/').next().unwrap_or("");
+    let nested = r.key.contains('/');
+    let head = last.split(':').next().unwrap_or(last);
+    if r.page.is_some() {
+        return t!("tree.explain.page");
+    }
+    match (head, last) {
+        (_, "layer:symbols") => t!("tree.explain.symbols"),
+        (_, "layer:power") => t!("tree.explain.power"),
+        (_, "layer:drawing") => t!("tree.explain.drawing"),
+        (_, "layer:title") => t!("tree.explain.title"),
+        (_, "root") => t!("tree.explain.board"),
+        ("side" | "inner", _) => t!("tree.explain.copper_layer"),
+        ("diel", _) => t!("tree.explain.dielectric"),
+        (_, "copper") => t!("tree.explain.copper"),
+        (_, "mask") => t!("tree.explain.mask"),
+        (_, "silk") => t!("tree.explain.silk"),
+        (_, "paste") => t!("tree.explain.paste"),
+        (_, "components") if tab == TreeTab::Layout && nested => t!("tree.explain.components"),
+        (_, "components") if tab == TreeTab::Schematic => t!("tree.explain.parts_sheet"),
+        (_, "components") => t!("tree.explain.parts"),
+        (_, "drills") => t!("tree.explain.drills"),
+        ("drill", _) => t!("tree.explain.drill_size"),
+        ("via", _) => t!("tree.explain.via"),
+        ("hole", _) => t!("tree.explain.hole"),
+        (_, "edge") => t!("tree.explain.edge"),
+        ("cut", _) => t!("tree.explain.cutout"),
+        (_, "user") => t!("tree.explain.user"),
+        ("art", _) => t!("tree.explain.art"),
+        ("shape", _) | ("gfx", _) => t!("tree.explain.shape"),
+        ("text", _) => t!("tree.explain.text"),
+        (_, "refs") => t!("tree.explain.refs"),
+        (_, "outlines") => t!("tree.explain.outlines"),
+        (_, "nets") => t!("tree.explain.nets"),
+        ("net", _) => t!("tree.explain.net"),
+        ("fp", _) | ("comp", _) => t!("tree.explain.part"),
+        ("pad", _) => t!("tree.explain.pad"),
+        ("pin", _) | ("npin", _) => t!("tree.explain.pin"),
+        ("track", _) => t!("tree.explain.track"),
+        ("zone", _) => t!("tree.explain.zone"),
+        ("wire", _) => t!("tree.explain.wire"),
+        ("layer", _) => t!("tree.explain.net_layer"),
+        ("label", _) if r.key.contains("layer:power") => t!("tree.explain.power_port"),
+        ("label", _) => t!("tree.explain.label"),
+        _ => String::new(),
+    }
+}
+
 /// The result of clicking or pressing Enter on a row.
 fn activate(view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
     if let Some(page) = r.page {
@@ -3168,6 +3458,14 @@ fn activate(view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
     if let Some(id) = r.select {
         view.selected_key = None;
         actions.push(Action::Select(id));
+        return;
+    }
+    if let Some((page, row)) = r.sheet_row {
+        view.selected_key = Some(r.key.clone());
+        actions.push(Action::SelectSheetRow { page, row });
+        if r.expandable {
+            toggle(view, &r.key);
+        }
         return;
     }
     if r.kind == RowKind::Section {
@@ -3241,6 +3539,13 @@ fn keyboard(ui: &mut Ui, env: &Env, view: &mut TreeView, all: &[Row], actions: &
             match ctl.visibility {
                 Visibility::Canvas(name) => actions.push(Action::SetShown { name, on: hidden }),
                 Visibility::Art(layer) => actions.push(Action::SetArtShown { layer, on: hidden }),
+                Visibility::Page(page, row) => {
+                    actions.push(Action::SetPageRowShown {
+                        page,
+                        row,
+                        on: hidden,
+                    });
+                }
                 Visibility::None => {}
             }
         }
@@ -3308,6 +3613,7 @@ impl crate::App {
                 target: self.current_target(),
                 revision: self.revision,
                 parts_selected: self.selected_part_components().len(),
+                show_empty: self.tree.show_empty,
             };
             show(ui, &env, &mut self.tree)
         };
@@ -3330,7 +3636,7 @@ impl crate::App {
                 Action::SetHidden(names) => {
                     let all = layer_names(tab);
                     let hidden = &mut self.preferences.hidden_layers;
-                    hidden.retain(|h| !all.contains(&h.as_str()));
+                    hidden.retain(|h| !all.contains(&h.as_str()) && !h.starts_with("page:"));
                     hidden.extend(names.into_iter().map(str::to_owned));
                     let ids: Vec<(Id, bool)> = self
                         .project
@@ -3434,6 +3740,15 @@ impl crate::App {
                 Action::PageRemove(id) => self.remove_page(id),
                 Action::PageRename { id, new_name } => self.rename_page(id, &new_name),
                 Action::HighlightNet(net) => self.highlight_net = net,
+                Action::SetPageRowShown { page, row, on } => {
+                    self.set_page_row_shown(page, row, on);
+                }
+                Action::SelectSheetRow { page, row } => self.select_sheet_row(page, row),
+                Action::SelectAllInRow { page, row } => self.select_all_in_row(page, row),
+                Action::TitleShown { page, on } => {
+                    self.set_page_setting(page, "title_shown", if on { "true" } else { "false" });
+                }
+                Action::AddPowerPort(page) => self.add_power_port(page),
                 Action::NewArtLayer => {
                     let name = t!(
                         "tree.new_layer_name",
@@ -3475,28 +3790,24 @@ impl crate::App {
             return;
         };
         let last = key.rsplit('/').next().unwrap_or("");
-        if let Some(page) = key.strip_prefix("sec:sheet:") {
-            egui::Frame::NONE
-                .inner_margin(egui::Margin::symmetric(0, 0))
-                .show(ui, |ui| {
-                    self.page_properties(ui, page.parse().unwrap_or(0), false)
-                });
+        if let Some((page, row)) = key
+            .strip_prefix("sec:sheet:")
+            .and_then(|rest| rest.split_once("/layer:"))
+        {
+            let page: Id = page.parse().unwrap_or(0);
+            self.sheet_row_properties(ui, page, row);
+        } else if let Some(page) = key.strip_prefix("sec:sheet:") {
+            self.page_properties(ui, page.parse().unwrap_or(0), false);
         } else if key == "root" || key.ends_with("/root") {
             self.board_root_properties(ui);
         } else if last.starts_with("side:")
             || last.starts_with("inner:")
             || last.starts_with("diel:")
         {
-            egui::Frame::NONE
-                .inner_margin(egui::Margin::symmetric(16, 12))
-                .show(ui, |ui| self.stack_properties(ui, last));
+            self.stack_properties(ui, last);
         } else if last.starts_with("net:") || key == "nets" {
-            egui::Frame::NONE
-                .inner_margin(egui::Margin::symmetric(16, 12))
-                .show(ui, |ui| {
-                    ui.label(crate::fonts::title(t!("tree.net_settings")));
-                    self.nets_tab(ui);
-                });
+            ui.label(crate::fonts::title(t!("tree.net_settings")));
+            self.nets_tab(ui);
         } else {
             let name = self
                 .tree
@@ -3636,6 +3947,7 @@ mod tests {
             target: Target::Copper(Layer::Front),
             revision: 1,
             parts_selected: 0,
+            show_empty: false,
         }
     }
 
@@ -3792,6 +4104,108 @@ mod tests {
         assert_eq!(view.selected_key.as_deref(), Some("root"));
         assert!(actions.contains(&Action::SelectKey("root".to_owned())));
         Ok(())
+    }
+
+    /// Open every expandable row, round after round, until no new row appears.
+    fn fully_open(env: &Env, view: &mut TreeView) -> Vec<Row> {
+        for _ in 0..12 {
+            let all = rows(env, view);
+            let before = view.expanded.len();
+            view.expanded
+                .extend(all.iter().filter(|r| r.expandable).map(|r| r.key.clone()));
+            if view.expanded.len() == before {
+                break;
+            }
+        }
+        rows(env, view).as_ref().clone()
+    }
+
+    #[test]
+    fn every_row_kind_explains_itself() {
+        // One of everything a row can stand for, so no builder escapes the walk.
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = crate::App::create(shared, crate::Preferences::default(), None, None);
+        app.tool_call("sample_design", serde_json::json!({}));
+        app.tool_call(
+            "graphic.add",
+            serde_json::json!({"layer":"schematic","shape":"line","points":[{"x":1.0,"y":1.0},{"x":9.0,"y":1.0}]}),
+        );
+        let gnd = app
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "GND")
+            .map_or(1, |n| n.id);
+        app.tool_call(
+            "label.place",
+            serde_json::json!({"kind":"power","net":gnd,"position":{"x":5.0,"y":5.0}}),
+        );
+        app.tool_call(
+            "board.layer_add",
+            serde_json::json!({"name":"Notes","kind":"other"}),
+        );
+        let project = app.project.clone();
+        let hidden: Vec<String> = Vec::new();
+        for tab in [TreeTab::Layout, TreeTab::Schematic] {
+            let mut env = env(&project, &hidden);
+            env.tab = tab;
+            env.show_empty = true;
+            let mut view = TreeView::default();
+            let all = fully_open(&env, &mut view);
+            assert!(all.len() > 10, "{tab:?} tree has rows to check");
+            let missing: Vec<String> = all
+                .iter()
+                .filter(|r| explain(tab, r).trim().is_empty())
+                .map(|r| format!("{} ({})", r.key, r.label))
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "rows with no explanation on {tab:?}: {missing:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_explanation_says_what_the_thing_is() {
+        let project = sample();
+        let hidden: Vec<String> = Vec::new();
+        let mut env = env(&project, &hidden);
+        env.tab = TreeTab::Layout;
+        let mut view = TreeView::default();
+        let all = fully_open(&env, &mut view);
+        let mask = all
+            .iter()
+            .find(|r| r.key.ends_with("/mask"))
+            .map(|r| explain(TreeTab::Layout, r))
+            .unwrap_or_default();
+        assert_eq!(
+            mask,
+            "The coating over the copper. Openings in it expose pads for soldering."
+        );
+    }
+
+    #[test]
+    fn empty_page_rows_hide_unless_shown() {
+        let project = Project::default();
+        let hidden: Vec<String> = Vec::new();
+        let mut env = env(&project, &hidden);
+        env.tab = TreeTab::Schematic;
+        let page = crate::App::page_row_key(0);
+        let listed: Vec<String> = children(&env, &page)
+            .iter()
+            .map(|r| r.label.clone())
+            .collect();
+        assert_eq!(
+            listed,
+            vec![t!("tree.sch.title_block")],
+            "a page with nothing on it lists only its title block"
+        );
+        env.show_empty = true;
+        let shown: Vec<String> = children(&env, &page)
+            .iter()
+            .map(|r| r.label.clone())
+            .collect();
+        assert_eq!(shown.len(), 4, "Show empty lists all four: {shown:?}");
     }
 
     #[test]

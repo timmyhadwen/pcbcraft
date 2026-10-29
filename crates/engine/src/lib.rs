@@ -675,8 +675,8 @@ pub fn commands() -> Vec<CommandSpec> {
             "graphic.add",
             "Add a free-standing schematic or board graphic: line, rect, circle, arc, polygon or text",
             schema(
-                json!({"layer":{"type":"string","enum":["schematic","board"]},"shape":{"type":"string","enum":["line","rect","circle","arc","polygon","text"]},"points":{"type":"array","items":point_schema(),"minItems":1,"maxItems":256},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"text":{"type":"string","maxLength":1024},"sublayer":{"type":"string","enum":["F.SilkS","B.SilkS","F.Mask","B.Mask"],"description":"board graphics only: the silkscreen or solder mask side the figure belongs to"}}),
-                &["layer", "shape", "points", "width"],
+                json!({"layer":{"type":"string","enum":["schematic","board"]},"shape":{"type":"string","enum":["line","rect","circle","arc","polygon","text"]},"points":{"type":"array","items":point_schema(),"minItems":1,"maxItems":256},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000,"description":"required on a board graphic; a schematic graphic that omits it takes the page's default line width"},"text":{"type":"string","maxLength":1024},"sublayer":{"type":"string","enum":["F.SilkS","B.SilkS","F.Mask","B.Mask"],"description":"board graphics only: the silkscreen or solder mask side the figure belongs to"},"color":{"type":"string","description":"stroke colour as #rrggbb; omit for the theme ink"}}),
+                &["layer", "shape", "points"],
             ),
         ),
         (
@@ -711,6 +711,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"name":{"type":"string"}}),
                 &["id", "name"],
+            ),
+        ),
+        (
+            "schematic.set_page_setting",
+            "Set one setting of a schematic page: the title block fields title, revision, date, size, company and drawn_by, title_shown (true or false), or the drawing defaults line_width (millimetres) and line_color (#rrggbb, empty for the theme ink); setting the value a field already holds is refused",
+            schema(
+                json!({"sheet":{"type":"integer","minimum":0},"field":{"type":"string","enum":["title","revision","date","size","company","drawn_by","title_shown","line_width","line_color"]},"value":{"type":"string","maxLength":256}}),
+                &["sheet", "field", "value"],
             ),
         ),
         (
@@ -3671,12 +3679,17 @@ struct GraphicParams {
     layer: String,
     shape: String,
     points: Vec<Point>,
-    width: f64,
+    /// Omitted on a schematic graphic: the page's default line width applies.
+    #[serde(default)]
+    width: Option<f64>,
     #[serde(default)]
     text: String,
     /// Fabrication sublayer of a board graphic: F.SilkS, B.SilkS, F.Mask or B.Mask.
     #[serde(default)]
     sublayer: String,
+    /// Stroke colour as `#rrggbb`; empty is the theme ink.
+    #[serde(default)]
+    color: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5162,6 +5175,17 @@ struct RenameParams {
 struct MoveToSheet {
     id: Id,
     sheet: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetPageSetting {
+    sheet: Id,
+    field: String,
+    value: String,
+}
+/// True for `#rrggbb` with hex digits only.
+fn valid_hex_colour(text: &str) -> bool {
+    text.len() == 7 && text.starts_with('#') && text[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -9416,6 +9440,7 @@ fn run_command(
                             width: stroke,
                             text: String::new(),
                             sublayer: String::new(),
+                            color: String::new(),
                         },
                         p,
                     ),
@@ -9434,6 +9459,7 @@ fn run_command(
                                 width: *radius,
                                 text: String::new(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -9465,6 +9491,7 @@ fn run_command(
                                     width: *radius,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9484,6 +9511,7 @@ fn run_command(
                                     width: *radius,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9507,6 +9535,7 @@ fn run_command(
                                     width: stroke,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9521,6 +9550,7 @@ fn run_command(
                                         width: stroke,
                                         text: String::new(),
                                         sublayer: String::new(),
+                                        color: String::new(),
                                     },
                                     p,
                                 );
@@ -9547,6 +9577,7 @@ fn run_command(
                                 width: *height,
                                 text: value.clone(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -9694,6 +9725,7 @@ fn run_command(
                             width: stroke,
                             text: String::new(),
                             sublayer: String::new(),
+                            color: String::new(),
                         },
                         p,
                     ),
@@ -9712,6 +9744,7 @@ fn run_command(
                                 width: *radius,
                                 text: String::new(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -9734,6 +9767,7 @@ fn run_command(
                                     width: stroke,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9748,6 +9782,7 @@ fn run_command(
                                         width: stroke,
                                         text: String::new(),
                                         sublayer: String::new(),
+                                        color: String::new(),
                                     },
                                     p,
                                 );
@@ -9772,6 +9807,7 @@ fn run_command(
                                 width: *height,
                                 text: value.clone(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -10094,11 +10130,29 @@ fn run_command(
             if !a.points.iter().all(|p| p.valid()) {
                 return Err(Error::Invalid("graphic vertex is out of range".into()));
             }
-            if !a.width.is_finite() || a.width <= 0.0 || a.width > 1_000.0 {
+            let defaults = p.page_settings_of(0);
+            let width = match a.width {
+                Some(w) => w,
+                None if a.layer == "schematic" => defaults.line_width,
+                None => {
+                    return Err(Error::Invalid(
+                        "a board graphic needs a width, radius or text size".into(),
+                    ));
+                }
+            };
+            if !width.is_finite() || width <= 0.0 || width > 1_000.0 {
                 return Err(Error::Invalid(
                     "graphic width, radius or text size must be within 0–1000mm".into(),
                 ));
             }
+            let a = GraphicParams {
+                color: if a.color.is_empty() && a.layer == "schematic" {
+                    defaults.line_color.clone()
+                } else {
+                    a.color
+                },
+                ..a
+            };
             if a.text.len() > 1024 {
                 return Err(Error::Invalid("graphic text is too long".into()));
             }
@@ -10113,15 +10167,19 @@ fn run_command(
                     "sublayer must be F.SilkS, B.SilkS, F.Mask or B.Mask on a board graphic".into(),
                 ));
             }
+            if !a.color.is_empty() && !valid_hex_colour(&a.color) {
+                return Err(Error::Invalid("graphic colour must be #rrggbb".into()));
+            }
             let id = allocate(next)?;
             p.graphics.push(pcbcraft_doc::Graphic {
                 id,
                 layer: a.layer,
                 shape: a.shape,
                 points: a.points,
-                width: a.width,
+                width,
                 text: a.text,
                 sublayer: a.sublayer,
+                color: a.color,
             });
             Ok(json!({"id":id}))
         }
@@ -10433,6 +10491,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 ids.push(id);
             }
@@ -10511,6 +10570,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 ids.push(id);
             }
@@ -10611,6 +10671,88 @@ fn run_command(
             sheet.name = a.name;
             Ok(json!({"id":a.id,"name":sheet.name}))
         }
+        "schematic.set_page_setting" => {
+            let a: SetPageSetting = parse(params)?;
+            if a.sheet != 0 && !p.sheets.iter().any(|s| s.id == a.sheet) {
+                return Err(missing());
+            }
+            let value = a.value.trim().to_owned();
+            if value.len() > 256 {
+                return Err(Error::Invalid("page settings fit 256 bytes".into()));
+            }
+            let mut settings = p.page_settings_of(a.sheet);
+            let mut scratch = String::new();
+            let held = match a.field.as_str() {
+                "title" => &mut settings.title,
+                "revision" => &mut settings.revision,
+                "date" => &mut settings.date,
+                "company" => &mut settings.company,
+                "drawn_by" => &mut settings.drawn_by,
+                "size" => {
+                    let upper = value.to_ascii_uppercase();
+                    if !upper.is_empty()
+                        && !["A7", "A6", "A5", "A4", "A3", "A2", "A1", "A0"]
+                            .contains(&upper.as_str())
+                    {
+                        return Err(Error::Invalid("sheet size is A7 to A0 or empty".into()));
+                    }
+                    settings.size = upper;
+                    &mut scratch
+                }
+                "title_shown" => {
+                    let shown = match value.as_str() {
+                        "true" => true,
+                        "false" => false,
+                        _ => return Err(Error::Invalid("title_shown is true or false".into())),
+                    };
+                    if settings.title_hidden == !shown {
+                        return Err(Error::Invalid(
+                            "that page setting already holds that value".into(),
+                        ));
+                    }
+                    settings.title_hidden = !shown;
+                    &mut scratch
+                }
+                "line_width" => {
+                    let width: f64 = value
+                        .parse()
+                        .map_err(|_| Error::Invalid("line_width is a number".into()))?;
+                    if !width.is_finite() || width <= 0.0 || width > 10.0 {
+                        return Err(Error::Invalid("line_width is within 0 to 10 mm".into()));
+                    }
+                    if (settings.line_width - width).abs() < 1e-9 {
+                        return Err(Error::Invalid(
+                            "that page setting already holds that value".into(),
+                        ));
+                    }
+                    settings.line_width = width;
+                    &mut scratch
+                }
+                "line_color" => {
+                    if !value.is_empty() && !valid_hex_colour(&value) {
+                        return Err(Error::Invalid("line_color is #rrggbb or empty".into()));
+                    }
+                    &mut settings.line_color
+                }
+                _ => return Err(Error::Invalid("unknown page setting".into())),
+            };
+            if matches!(
+                a.field.as_str(),
+                "title" | "revision" | "date" | "company" | "drawn_by" | "line_color"
+            ) {
+                if *held == value {
+                    return Err(Error::Invalid(
+                        "that page setting already holds that value".into(),
+                    ));
+                }
+                *held = value;
+            }
+            match p.page_settings.iter_mut().find(|s| s.sheet == a.sheet) {
+                Some(slot) => *slot = settings,
+                None => p.page_settings.push(settings),
+            }
+            Ok(json!({"sheet":a.sheet,"field":a.field}))
+        }
         "schematic.remove_sheet" => {
             let a: RemoveSheet = parse(params)?;
             if a.id == 0 {
@@ -10644,6 +10786,7 @@ fn run_command(
                 }
             }
             p.sheets.remove(index);
+            p.page_settings.retain(|s| s.sheet != a.id);
             Ok(json!({"removed":a.id,"moved":moved}))
         }
         "schematic.set_sheet_parent" => {
@@ -11253,6 +11396,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
             }
             Ok(
@@ -11401,6 +11545,7 @@ fn run_command(
                     width: w,
                     text: String::new(),
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 count += 1;
             }
@@ -11476,6 +11621,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 Ok(())
             };
@@ -20902,6 +21048,95 @@ mod tests {
         s.execute("board.sync", json!({}), None)?;
         assert_eq!(s.project.board.footprints.len(), 1);
         assert_eq!(s.project.board.footprints[0].component, id);
+        Ok(())
+    }
+
+    #[test]
+    fn page_settings_are_typed_undoable_and_follow_their_page() -> Result<(), Error> {
+        let mut s = Session::default();
+        let page = s.execute("schematic.new_sheet", json!({"name":"Power"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("page id".into()))?;
+        for (field, value) in [
+            ("title", "Sensor board"),
+            ("revision", "B"),
+            ("company", "Quasarke"),
+            ("drawn_by", "William"),
+            ("size", "a3"),
+            ("title_shown", "false"),
+            ("line_width", "0.5"),
+            ("line_color", "#ff8800"),
+        ] {
+            s.execute(
+                "schematic.set_page_setting",
+                json!({"sheet":page,"field":field,"value":value}),
+                None,
+            )?;
+        }
+        let settings = s.project.page_settings_of(page);
+        assert_eq!(settings.title, "Sensor board");
+        assert_eq!(settings.size, "A3", "sizes are stored upper case");
+        assert!(settings.title_hidden);
+        assert_eq!(settings.line_width, 0.5);
+        assert_eq!(settings.line_color, "#ff8800");
+        assert!(
+            s.project.page_settings_of(0).title.is_empty(),
+            "another page keeps its own settings"
+        );
+        for bad in [
+            json!({"sheet":page,"field":"title","value":"Sensor board"}),
+            json!({"sheet":page,"field":"size","value":"B9"}),
+            json!({"sheet":page,"field":"line_width","value":"0"}),
+            json!({"sheet":page,"field":"line_color","value":"red"}),
+            json!({"sheet":page,"field":"title_shown","value":"maybe"}),
+            json!({"sheet":999,"field":"title","value":"x"}),
+            json!({"sheet":page,"field":"nope","value":"x"}),
+        ] {
+            assert!(
+                s.execute("schematic.set_page_setting", bad.clone(), None)
+                    .is_err(),
+                "refused: {bad}"
+            );
+        }
+        s.undo()?;
+        assert_eq!(s.project.page_settings_of(page).line_color, "");
+        // A schematic graphic that names no width and colour takes the Main page defaults.
+        s.execute(
+            "schematic.set_page_setting",
+            json!({"sheet":0,"field":"line_width","value":"0.4"}),
+            None,
+        )?;
+        s.execute(
+            "schematic.set_page_setting",
+            json!({"sheet":0,"field":"line_color","value":"#00aa00"}),
+            None,
+        )?;
+        s.execute(
+            "graphic.add",
+            json!({"layer":"schematic","shape":"line","points":[{"x":0.0,"y":0.0},{"x":5.0,"y":0.0}]}),
+            None,
+        )?;
+        let g = s
+            .project
+            .graphics
+            .last()
+            .ok_or(Error::Invalid("graphic".into()))?
+            .clone();
+        assert_eq!((g.width, g.color.as_str()), (0.4, "#00aa00"));
+        assert!(
+            s.execute(
+                "graphic.add",
+                json!({"layer":"board","shape":"line","points":[{"x":0.0,"y":0.0},{"x":5.0,"y":0.0}]}),
+                None,
+            )
+            .is_err(),
+            "a board graphic still needs its width"
+        );
+        s.execute("schematic.remove_sheet", json!({"id":page}), None)?;
+        assert!(
+            s.project.page_settings.iter().all(|p| p.sheet != page),
+            "removing a page drops its settings"
+        );
         Ok(())
     }
 
