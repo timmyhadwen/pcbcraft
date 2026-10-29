@@ -3083,6 +3083,7 @@ dependencies = [
  "eframe",
  "pcbcraft-engine",
  "pcbcraft-mcp",
+ "pcbcraft-text",
  "pcbcraft-ui-egui",
  "wasm-bindgen",
  "wasm-bindgen-futures",
