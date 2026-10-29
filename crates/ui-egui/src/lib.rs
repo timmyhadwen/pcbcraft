@@ -9410,6 +9410,141 @@ mod tests {
         Ok(())
     }
 
+    fn right_click(ctx: &egui::Context, app: &mut App, screen: egui::Pos2) {
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    egui::Event::PointerMoved(screen),
+                    egui::Event::PointerButton {
+                        pos: screen,
+                        button: egui::PointerButton::Secondary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+    }
+
+    fn sample_board_app() -> App {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.change_tab(Tab::Pcb);
+        app.needs_fit = true;
+        app
+    }
+
+    #[test]
+    fn a_newcomer_presses_escape_and_the_menu_closes_without_acting() -> Result<(), String> {
+        let mut app = sample_board_app();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let screen = pcb_screen(&app, Point::new(1.0, 1.0));
+        right_click(&ctx, &mut app, screen);
+        assert!(
+            paints_text(&ctx, &mut app, "Fit view")?,
+            "right-clicking empty space opens a menu: {}",
+            app.message
+        );
+        let tracks = app.project.board.tracks.len();
+        let parts = app.project.board.footprints.len();
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            egui::Modifiers::NONE,
+        );
+        assert!(
+            !paints_text(&ctx, &mut app, "Fit view")?,
+            "Escape closes the menu"
+        );
+        assert_eq!(app.project.board.tracks.len(), tracks);
+        assert_eq!(app.project.board.footprints.len(), parts);
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_right_clicks_empty_space_and_can_fit_the_view() -> Result<(), String> {
+        let mut app = sample_board_app();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.pcb.zoom *= 4.0;
+        let zoomed = app.pcb.zoom;
+        let screen = pcb_screen(&app, Point::new(-500.0, -500.0));
+        let screen = egui::pos2(
+            screen.x.clamp(app.canvas_rect.min.x + 5.0, app.canvas_rect.max.x - 5.0),
+            screen.y.clamp(app.canvas_rect.min.y + 5.0, app.canvas_rect.max.y - 5.0),
+        );
+        right_click(&ctx, &mut app, screen);
+        authoring::tests::tap(&ctx, &mut app, "Fit view")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            (app.pcb.zoom - zoomed).abs() > f32::EPSILON,
+            "Fit view brings the whole board back into frame: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_right_clicks_a_part_to_rotate_lock_or_delete_it() -> Result<(), String> {
+        let mut app = sample_board_app();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let (id, at, turned) = app
+            .project
+            .board.footprints
+            .first()
+            .map(|f| (f.id, f.position, f.rotation))
+            .ok_or("the sample board has parts")?;
+        let screen = pcb_screen(&app, at);
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let screen = pcb_screen(&app, at);
+        right_click(&ctx, &mut app, screen);
+        authoring::tests::tap(&ctx, &mut app, "Rotate")?;
+        app.refresh();
+        let after = app.project.footprint(id).map(|f| f.rotation);
+        assert_ne!(after, Some(turned), "Rotate turns the part: {}", app.message);
+
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let screen = pcb_screen(&app, at);
+        right_click(&ctx, &mut app, screen);
+        authoring::tests::tap(&ctx, &mut app, "Lock in place")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            app.project.footprint(id).map(|f| f.locked),
+            Some(Some(true)),
+            "Lock in place freezes the part: {}",
+            app.message
+        );
+
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let screen = pcb_screen(&app, at);
+        right_click(&ctx, &mut app, screen);
+        authoring::tests::tap(&ctx, &mut app, "Delete")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert!(
+            app.project.footprint(id).is_some(),
+            "a locked part refuses to be deleted: {}",
+            app.message
+        );
+        Ok(())
+    }
+
     #[test]
     fn a_newcomer_right_clicks_a_wire_and_assigns_its_layer() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());

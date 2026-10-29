@@ -1254,11 +1254,21 @@ impl App {
                         );
                         return true;
                     }
-                    if Self::canvas_menu_button(
-                        ui,
-                        "Rotate",
-                        "Turn the selected object by 90 degrees.",
-                    ) {
+                    let part_locked = self
+                        .project
+                        .footprint(*id)
+                        .is_some_and(|fp| fp.locked == Some(true));
+                    let rotate_tip = if part_locked {
+                        "This part is locked. Unlock it first."
+                    } else {
+                        "Turn the selected object by 90 degrees."
+                    };
+                    if ui
+                        .add_enabled(!part_locked, egui::Button::new("Rotate"))
+                        .on_hover_text(rotate_tip)
+                        .on_disabled_hover_text(rotate_tip)
+                        .clicked()
+                    {
                         self.rotate();
                         return true;
                     }
@@ -1326,8 +1336,21 @@ impl App {
                     self.load_properties();
                     return true;
                 }
-                let delete_tip = command_tip("object.delete");
-                if Self::canvas_menu_button(ui, "Delete", &delete_tip) {
+                let part_locked = self
+                    .project
+                    .footprint(*id)
+                    .is_some_and(|fp| fp.locked == Some(true));
+                let delete_tip = if part_locked {
+                    "This part is locked. Unlock it first.".to_string()
+                } else {
+                    command_tip("object.delete")
+                };
+                if ui
+                    .add_enabled(!part_locked, egui::Button::new("Delete"))
+                    .on_hover_text(&delete_tip)
+                    .on_disabled_hover_text(&delete_tip)
+                    .clicked()
+                {
                     self.run("object.delete", json!({"id": *id}));
                     self.select(None);
                     return true;
