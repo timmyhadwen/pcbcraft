@@ -1,5 +1,5 @@
 use pcbcraft_library::cad::{
-    CadFile, CadKind, CadRef, CadSource, LicenseInfo, Provenance, MAX_NAME_BYTES,
+    CadFile, CadKind, CadRef, CadSource, LicenseInfo, MAX_NAME_BYTES, Provenance,
 };
 use pcbcraft_library::sources::{
     Attribution, FixtureSource, PartResult, PartSource, SetupCard, SourceError,
@@ -26,7 +26,11 @@ fn cad_ref_accepts_plain_names() -> Result<(), SourceError> {
     assert_eq!(r.name, "R");
     assert_eq!(r.revision, "7518db51e6f8");
     // Part names with spaces, dots and plus signs are real library names.
-    CadRef::new(CadKind::Footprint, "Package_SO.pretty", "SOIC-8_3.9x4.9mm_P1.27mm")?;
+    CadRef::new(
+        CadKind::Footprint,
+        "Package_SO.pretty",
+        "SOIC-8_3.9x4.9mm_P1.27mm",
+    )?;
     CadRef::new(CadKind::Symbol, "Device", "C Polarized+")?;
     Ok(())
 }
@@ -166,9 +170,7 @@ struct Both {
 
 #[test]
 fn a_cad_source_object_can_sit_beside_a_part_source() -> Result<(), SourceError> {
-    let parts = FixtureSource::from_json(
-        r#"{"name":"Sample","parts":[]}"#,
-    )?;
+    let parts = FixtureSource::from_json(r#"{"name":"Sample","parts":[]}"#)?;
     let both = Both {
         cad: Box::new(Stub),
         parts: Box::new(parts),

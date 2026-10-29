@@ -74,7 +74,10 @@ fn check_piece(what: &str, text: &str) -> Result<(), SourceError> {
             "the {what} may not contain two dots in a row"
         )));
     }
-    if text.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | '\0')) {
+    if text
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '/' | '\\' | '\0'))
+    {
         return Err(SourceError::Invalid(format!(
             "the {what} may not contain slashes or control characters"
         )));
