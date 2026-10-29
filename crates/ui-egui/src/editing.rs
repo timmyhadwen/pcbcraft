@@ -263,6 +263,12 @@ impl App {
         candidates
             .into_iter()
             .filter(|id| self.id_allowed(*id))
+            .filter(|id| !crate::layers_tree::is_locked(&self.project, &self.tree.locked, *id))
+            .filter(|id| !self.sheet_row_hidden(*id))
+            .filter(|id| {
+                self.tab != Tab::Schematic
+                    || self.project.on_schematic_page(self.schematic_page(), *id)
+            })
             .filter(|id| {
                 self.bounds_of(*id)
                     .is_some_and(|(l, h)| l.x <= hi.x && h.x >= lo.x && l.y <= hi.y && h.y >= lo.y)

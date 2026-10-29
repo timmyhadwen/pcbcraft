@@ -9932,6 +9932,7 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 13,
@@ -9941,6 +9942,7 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 14,
@@ -10069,6 +10071,7 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         let text = dxf_board(&project)?;
         let entities = dxf_entities(&text)?;
@@ -11096,6 +11099,7 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 2,
@@ -11105,6 +11109,7 @@ mod tests {
             width: 1.5,
             text: "REV B".into(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 3,
@@ -11114,6 +11119,7 @@ mod tests {
             width: 4.0,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.validate()?;
         let schematic = svg(&project, "schematic")?;

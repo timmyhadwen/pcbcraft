@@ -32,6 +32,8 @@ fn flip_each(ctx: &egui::Context, app: &mut App, pairs: &[(&str, &str)]) -> Resu
 #[test]
 fn a_newcomer_picks_each_row_of_the_schematic_tree() -> Result<(), String> {
     let (ctx, mut app) = practice(Tab::Schematic);
+    // The sample has no power ports or drawing, which the tree leaves out until asked.
+    tap_id(&ctx, &mut app, "button:Show empty")?;
     let missing = press_each(
         &ctx,
         &mut app,
@@ -68,14 +70,14 @@ fn a_newcomer_picks_each_row_of_the_schematic_tree() -> Result<(), String> {
 #[test]
 fn a_newcomer_hides_and_locks_each_schematic_layer_from_its_row() -> Result<(), String> {
     let (ctx, mut app) = practice(Tab::Schematic);
+    tap_id(&ctx, &mut app, "button:Show empty")?;
     flip_each(
         &ctx,
         &mut app,
         &[
             ("button:Hide Symbols", "button:Show Symbols"),
-            // The drawing paints no power ports or title block yet: the eye is inert.
-            ("button:Hide Power ports", "button:Hide Power ports"),
-            ("button:Hide Title block", "button:Hide Title block"),
+            ("button:Hide Power ports", "button:Show Power ports"),
+            ("button:Hide Title block", "button:Show Title block"),
             ("button:Hide Drawing", "button:Show Drawing"),
             ("button:Hide Nets", "button:Show Nets"),
             ("button:Lock Symbols", "button:Unlock Symbols"),
@@ -85,7 +87,7 @@ fn a_newcomer_hides_and_locks_each_schematic_layer_from_its_row() -> Result<(), 
         ],
     )?;
     assert!(
-        app.tree.locked.contains("symbols"),
+        app.tree.locked.contains("page:0:symbols"),
         "a locked row is remembered by the tree: {:?}",
         app.tree.locked
     );
