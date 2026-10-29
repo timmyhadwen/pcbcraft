@@ -873,6 +873,66 @@ settings.settings_tab.what_to_print.tip = The words to print on the board.
 settings.settings_tab.at = At
 # lib.rs shortcuts
 
+# lib.rs dock_frame
+
+# lib.rs workbench_tabs
+docks.workbench_tabs.files = Files
+docks.workbench_tabs.schematic = Schematic
+docks.workbench_tabs.layout = Layout
+docks.workbench_tabs.3d_view = 3D View
+docks.workbench_tabs.libraries = Libraries
+docks.workbench_tabs.rules = Rules
+docks.workbench_tabs.checks = Checks
+docks.workbench_tabs.plot_files = Plot files
+docks.workbench_tabs.settings = Settings
+docks.workbench_tabs.switch_to_the_label_view = Switch to the {label} view. Right-click to close it.
+docks.workbench_tabs.switch_to_the_label_view2 = Switch to the {label} view.
+docks.workbench_tabs.close = Close
+docks.workbench_tabs.close.tip = Hide this view; the + menu brings it back.
+docks.workbench_tabs.text = +
+docks.workbench_tabs.every_view_is_open = Every view is open
+docks.workbench_tabs.open_this_view_again.tip = Open this view again.
+docks.workbench_tabs.open_a_view_you_closed.tip = Open a view you closed.
+
+# lib.rs builds_tab
+docks.builds_tab.one_design_several_builds_each = One design, several builds: each extra build lists parts it leaves off the board.
+docks.builds_tab.new_build = New build
+docks.builds_tab.new_build.tip = Start an extra version of this board; say which parts to leave off from its row.
+docks.builds_tab.build_v0 = Build {v0}
+docks.builds_tab.len_left_off = {len} left off
+docks.builds_tab.len_left_off.tip = Parts this build skips; the bill of materials leaves them out too.
+docks.builds_tab.len_swapped = {len} swapped
+docks.builds_tab.len_swapped.tip = Parts this build fits in a different package.
+docks.builds_tab.note = Note
+docks.builds_tab.note.tip = Write a short reminder of what makes this build different.
+docks.builds_tab.remove = Remove
+docks.builds_tab.remove.tip = Delete this extra build; the design itself does not change.
+docks.builds_tab.what_this_build_changes = what this build changes
+docks.builds_tab.what_this_build_changes.tip = A sentence or two, saved with the design.
+docks.builds_tab.save_note = Save note
+docks.builds_tab.save_note.tip = Keep this reminder on the build.
+docks.builds_tab.cancel = Cancel
+docks.builds_tab.cancel.tip = Leave the build's reminder as it was.
+docks.builds_tab.text = ·
+docks.builds_tab.text2 = ×
+docks.builds_tab.text2.tip = Put this part back on for this build.
+docks.builds_tab.choose_a_part_to_leave = choose a part to leave off
+docks.builds_tab.a_part_this_build_still.tip = A part this build still populates.
+docks.builds_tab.pick_a_part_then_leave.tip = Pick a part, then Leave off: this build skips it and its parts list leaves it out.
+docks.builds_tab.leave_off = Leave off
+docks.builds_tab.leave_off.tip = This build skips the chosen part; nothing is deleted.
+docks.builds_tab.every_part_in_this_design = Every part in this design is left off.
+docks.builds_tab.reference_fits_footprint = {reference} fits {footprint}
+docks.builds_tab.text22.tip = Fit this part in its original package again.
+docks.builds_tab.choose_a_part_to_swap = choose a part to swap
+docks.builds_tab.a_part_in_this_design.tip = A part in this design.
+docks.builds_tab.pick_a_part_name_its.tip = Pick a part, name its other package, then Swap package.
+docks.builds_tab.package_name = package name
+docks.builds_tab.package_name.tip = The package this build uses instead, for example a smaller size.
+docks.builds_tab.swap_package = Swap package
+docks.builds_tab.swap_package.tip = This build fits the chosen part in that package; the design keeps its own.
+docks.builds_tab.no_extra_builds_this_board = No extra builds; this board is built exactly as designed.
+
 unit.mm15.tip = How tall the letters are.
 settings.settings_tab.side = Side
 settings.settings_tab.add_label = Add label
@@ -1177,6 +1237,44 @@ checks.measure.track_length_above = A wire longer than
 checks.measure.part_count_above = More parts than
 checks.measure.via_count_above = More vias than
 checks.measure.net_track_count_above = More wires on one net than
+
+# keyboard shortcut list
+shortcut.undo_the_last_action = Undo the last action
+shortcut.context.anywhere = anywhere
+shortcut.redo_an_undone_action = Redo an undone action
+shortcut.save_the_design_to_its = Save the design to its file
+shortcut.open_the_command_palette = Open the command palette
+shortcut.move_the_highlight_through_the = Move the highlight through the command list
+shortcut.context.command_palette = command palette
+shortcut.keys.up_down = Up/Down
+shortcut.load_the_highlighted_command_then = Load the highlighted command, then run it from the parameters box
+shortcut.show_or_hide_this_shortcut = Show or hide this shortcut list
+shortcut.copy_the_selected_objects_as = Copy the selected objects as text
+shortcut.context.canvas = canvas
+shortcut.paste_the_copied_objects_ready = Paste the copied objects, ready to move
+shortcut.select_every_object_the_pick = Select every object the pick chips allow
+shortcut.add_an_object_to_the = Add an object to the selection or take it out
+shortcut.keys.shift_click = Shift+click
+shortcut.draw_a_box_and_select = Draw a box and select what it touches
+shortcut.keys.drag_on_empty_canvas = Drag on empty canvas
+shortcut.measure_tool_click_two_points = Measure tool: click two points to read the distance
+shortcut.open_the_symbol_palette = Open the symbol palette
+shortcut.context.schematic_tab = schematic tab
+shortcut.wire_tool_click_two_pins = Wire tool: click two pins to connect them
+shortcut.route_tool_click_two_pads = Route tool: click two pads to start a track
+shortcut.context.pcb_tab = pcb tab
+shortcut.move_tool_drop_the_selection = Move tool: drop the selection at the cursor
+shortcut.rotate_the_hovered_or_selected = Rotate the hovered or selected object by 90 degrees
+shortcut.load_the_hovered_or_selected = Load the hovered or selected object into the inspector
+shortcut.zoom_the_view_so_the = Zoom the view so the whole design fits
+shortcut.delete_every_selected_object = Delete every selected object
+shortcut.return_to_the_select_tool = Return to the select tool and close open palettes
+shortcut.pan_the_view = Pan the view
+shortcut.keys.middle_drag = Middle-drag
+shortcut.zoom_the_view = Zoom the view
+shortcut.keys.scroll = Scroll
+
+command.unmapped.tip = This control runs an engine command.
 
 unit.mm = mm
 unit.mil = mil

@@ -64,85 +64,133 @@ fn field_help(ui: &mut egui::Ui, key: &str, muted: egui::Color32) {
 /// the canvas mouse gestures, with where each one applies. The overlay and
 /// the tests read this one table, so the list can never claim a key the
 /// handler does not install.
-fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
+fn shortcut_rows() -> Vec<(String, String, String)> {
     vec![
-        ("Ctrl+Z", "Undo the last action", "anywhere"),
-        ("Ctrl+Shift+Z", "Redo an undone action", "anywhere"),
-        ("Ctrl+Y", "Redo an undone action", "anywhere"),
-        ("Ctrl+S", "Save the design to its file", "anywhere"),
-        ("Ctrl+K", "Open the command palette", "anywhere"),
         (
-            "Up/Down",
-            "Move the highlight through the command list",
-            "command palette",
+            "Ctrl+Z".to_string(),
+            t!("shortcut.undo_the_last_action"),
+            t!("shortcut.context.anywhere"),
         ),
         (
-            "Enter",
-            "Load the highlighted command, then run it from the parameters box",
-            "command palette",
-        ),
-        ("?", "Show or hide this shortcut list", "anywhere"),
-        ("Ctrl+C", "Copy the selected objects as text", "canvas"),
-        (
-            "Ctrl+V",
-            "Paste the copied objects, ready to move",
-            "canvas",
+            "Ctrl+Shift+Z".to_string(),
+            t!("shortcut.redo_an_undone_action"),
+            t!("shortcut.context.anywhere"),
         ),
         (
-            "Ctrl+A",
-            "Select every object the pick chips allow",
-            "canvas",
+            "Ctrl+Y".to_string(),
+            t!("shortcut.redo_an_undone_action"),
+            t!("shortcut.context.anywhere"),
         ),
         (
-            "Shift+click",
-            "Add an object to the selection or take it out",
-            "canvas",
+            "Ctrl+S".to_string(),
+            t!("shortcut.save_the_design_to_its"),
+            t!("shortcut.context.anywhere"),
         ),
         (
-            "Drag on empty canvas",
-            "Draw a box and select what it touches",
-            "canvas",
+            "Ctrl+K".to_string(),
+            t!("shortcut.open_the_command_palette"),
+            t!("shortcut.context.anywhere"),
         ),
         (
-            "U",
-            "Measure tool: click two points to read the distance",
-            "canvas",
-        ),
-        ("A", "Open the symbol palette", "schematic tab"),
-        (
-            "W",
-            "Wire tool: click two pins to connect them",
-            "schematic tab",
+            t!("shortcut.keys.up_down"),
+            t!("shortcut.move_the_highlight_through_the"),
+            t!("shortcut.context.command_palette"),
         ),
         (
-            "X",
-            "Route tool: click two pads to start a track",
-            "pcb tab",
+            "Enter".to_string(),
+            t!("shortcut.load_the_highlighted_command_then"),
+            t!("shortcut.context.command_palette"),
         ),
         (
-            "M",
-            "Move tool: drop the selection at the cursor",
-            "anywhere",
+            "?".to_string(),
+            t!("shortcut.show_or_hide_this_shortcut"),
+            t!("shortcut.context.anywhere"),
         ),
         (
-            "R",
-            "Rotate the hovered or selected object by 90 degrees",
-            "anywhere",
+            "Ctrl+C".to_string(),
+            t!("shortcut.copy_the_selected_objects_as"),
+            t!("shortcut.context.canvas"),
         ),
         (
-            "E",
-            "Load the hovered or selected object into the inspector",
-            "anywhere",
+            "Ctrl+V".to_string(),
+            t!("shortcut.paste_the_copied_objects_ready"),
+            t!("shortcut.context.canvas"),
         ),
-        ("Home", "Zoom the view so the whole design fits", "anywhere"),
-        ("Delete", "Delete every selected object", "anywhere"),
         (
-            "Esc",
-            "Return to the select tool and close open palettes",
-            "anywhere",
+            "Ctrl+A".to_string(),
+            t!("shortcut.select_every_object_the_pick"),
+            t!("shortcut.context.canvas"),
         ),
-        ("Middle-drag", "Pan the view", "canvas"),
-        ("Scroll", "Zoom the view", "canvas"),
+        (
+            t!("shortcut.keys.shift_click"),
+            t!("shortcut.add_an_object_to_the"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
+            t!("shortcut.keys.drag_on_empty_canvas"),
+            t!("shortcut.draw_a_box_and_select"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
+            "U".to_string(),
+            t!("shortcut.measure_tool_click_two_points"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
+            "A".to_string(),
+            t!("shortcut.open_the_symbol_palette"),
+            t!("shortcut.context.schematic_tab"),
+        ),
+        (
+            "W".to_string(),
+            t!("shortcut.wire_tool_click_two_pins"),
+            t!("shortcut.context.schematic_tab"),
+        ),
+        (
+            "X".to_string(),
+            t!("shortcut.route_tool_click_two_pads"),
+            t!("shortcut.context.pcb_tab"),
+        ),
+        (
+            "M".to_string(),
+            t!("shortcut.move_tool_drop_the_selection"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            "R".to_string(),
+            t!("shortcut.rotate_the_hovered_or_selected"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            "E".to_string(),
+            t!("shortcut.load_the_hovered_or_selected"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            "Home".to_string(),
+            t!("shortcut.zoom_the_view_so_the"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            "Delete".to_string(),
+            t!("shortcut.delete_every_selected_object"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            "Esc".to_string(),
+            t!("shortcut.return_to_the_select_tool"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            t!("shortcut.keys.middle_drag"),
+            t!("shortcut.pan_the_view"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
+            t!("shortcut.keys.scroll"),
+            t!("shortcut.zoom_the_view"),
+            t!("shortcut.context.canvas"),
+        ),
     ]
 }
 
@@ -502,12 +550,18 @@ fn sample_value(schema: &Value) -> Value {
 /// Hover text for a control that runs an engine command: the command
 /// registry description is the single source of truth for what the control
 /// does, so the UI explanation and the command documentation never drift.
+/// A `command.<id>.tip` line in the catalog overrides it per language.
 fn command_tip(id: &str) -> String {
+    let key = format!("command.{id}.tip");
+    let translated = pcbcraft_text::lookup(&key, &[]);
+    if translated != key {
+        return translated;
+    }
     pcbcraft_engine::commands()
         .into_iter()
         .find(|spec| spec.id == id)
         .map_or_else(
-            || "This control runs an engine command.".into(),
+            || t!("command.unmapped.tip"),
             |spec| spec.description.to_string(),
         )
 }
@@ -3009,20 +3063,20 @@ impl App {
     }
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
         let optional = [Tab::Rules, Tab::Checks, Tab::Settings];
-        let mut shown: Vec<(Tab, &str)> = vec![
-            (Tab::Files, "Files"),
-            (Tab::Schematic, "Schematic"),
-            (Tab::Pcb, "Layout"),
-            (Tab::Board3d, "3D View"),
+        let mut shown: Vec<(Tab, String)> = vec![
+            (Tab::Files, t!("docks.workbench_tabs.files")),
+            (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
+            (Tab::Pcb, t!("docks.workbench_tabs.layout")),
+            (Tab::Board3d, t!("docks.workbench_tabs.3d_view")),
         ];
         if self.tab == Tab::Libraries {
-            shown.push((Tab::Libraries, "Libraries"));
+            shown.push((Tab::Libraries, t!("docks.workbench_tabs.libraries")));
         }
         for (tab, label) in [
-            (Tab::Rules, "Rules"),
-            (Tab::Checks, "Checks"),
-            (Tab::PlotFiles, "Plot files"),
-            (Tab::Settings, "Settings"),
+            (Tab::Rules, t!("docks.workbench_tabs.rules")),
+            (Tab::Checks, t!("docks.workbench_tabs.checks")),
+            (Tab::PlotFiles, t!("docks.workbench_tabs.plot_files")),
+            (Tab::Settings, t!("docks.workbench_tabs.settings")),
         ] {
             if !self.closed_tabs.contains(&tab) {
                 shown.push((tab, label));
@@ -3032,13 +3086,19 @@ impl App {
         let mut close = None;
         ui.horizontal(|ui| {
             ui.add_space(((ui.available_width() - used) / 2.0).max(8.0));
-            for (tab, label) in shown.iter().copied() {
+            for (tab, label) in shown.iter().cloned() {
                 let selected = self.tab == tab;
-                let response = ui.selectable_label(selected, label).on_hover_text(
+                let response = ui.selectable_label(selected, label.clone()).on_hover_text(
                     if optional.contains(&tab) {
-                        format!("Switch to the {label} view. Right-click to close it.")
+                        t!(
+                            "docks.workbench_tabs.switch_to_the_label_view",
+                            label = label
+                        )
                     } else {
-                        format!("Switch to the {label} view.")
+                        t!(
+                            "docks.workbench_tabs.switch_to_the_label_view2",
+                            label = label
+                        )
                     },
                 );
                 if response.clicked() {
@@ -3047,8 +3107,8 @@ impl App {
                 if optional.contains(&tab) {
                     response.context_menu(|ui| {
                         if ui
-                            .button("Close")
-                            .on_hover_text("Hide this view; the + menu brings it back.")
+                            .button(t!("docks.workbench_tabs.close"))
+                            .on_hover_text(t!("docks.workbench_tabs.close.tip"))
                             .clicked()
                         {
                             close = Some(tab);
@@ -3058,19 +3118,22 @@ impl App {
                 }
             }
             let closed = self.closed_tabs.clone();
-            ui.menu_button("+", |ui| {
+            ui.menu_button(t!("docks.workbench_tabs.text"), |ui| {
                 if closed.is_empty() {
-                    ui.add_enabled(false, egui::Label::new("Every view is open"));
+                    ui.add_enabled(
+                        false,
+                        egui::Label::new(t!("docks.workbench_tabs.every_view_is_open")),
+                    );
                 }
                 for tab in closed {
                     let name = match tab {
-                        Tab::Rules => "Rules",
-                        Tab::Checks => "Checks",
-                        _ => "Settings",
+                        Tab::Rules => t!("docks.workbench_tabs.rules"),
+                        Tab::Checks => t!("docks.workbench_tabs.checks"),
+                        _ => t!("docks.workbench_tabs.settings"),
                     };
                     if ui
                         .button(name)
-                        .on_hover_text("Open this view again.")
+                        .on_hover_text(t!("docks.workbench_tabs.open_this_view_again.tip"))
                         .clicked()
                     {
                         self.change_tab(tab);
@@ -3079,7 +3142,7 @@ impl App {
                 }
             })
             .response
-            .on_hover_text("Open a view you closed.");
+            .on_hover_text(t!("docks.workbench_tabs.open_a_view_you_closed.tip"));
         });
         if let Some(tab) = close {
             self.closed_tabs.push(tab);
@@ -5593,20 +5656,19 @@ impl App {
             self.swap_pick = None;
         }
         ui.label(
-            egui::RichText::new(
-                "One design, several builds: each extra build lists parts it leaves off the board.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("docks.builds_tab.one_design_several_builds_each"))
+                .small()
+                .color(self.muted()),
         );
         if ui
-            .button("New build")
-            .on_hover_text(
-                "Start an extra version of this board; say which parts to leave off from its row.",
-            )
+            .button(t!("docks.builds_tab.new_build"))
+            .on_hover_text(t!("docks.builds_tab.new_build.tip"))
             .clicked()
         {
-            let name = format!("Build {}", self.project.variants.len() + 1);
+            let name = t!(
+                "docks.builds_tab.build_v0",
+                v0 = self.project.variants.len() + 1
+            );
             self.run("variant.create", json!({"name": name}));
         }
         ui.add_space(4.0);
@@ -5618,19 +5680,19 @@ impl App {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&variant.name).strong());
-                    ui.label(format!("{} left off", variant.dnp.len())).on_hover_text(
-                        "Parts this build skips; the bill of materials leaves them out too.",
+                    ui.label(t!("docks.builds_tab.len_left_off", len = variant.dnp.len())).on_hover_text(
+                        t!("docks.builds_tab.len_left_off.tip"),
                     );
                     if !variant.footprints.is_empty() {
-                        ui.label(format!("{} swapped", variant.footprints.len())).on_hover_text(
-                            "Parts this build fits in a different package.",
+                        ui.label(t!("docks.builds_tab.len_swapped", len = variant.footprints.len())).on_hover_text(
+                            t!("docks.builds_tab.len_swapped.tip"),
                         );
                     }
                     if !editing {
                         if ui
-                            .small_button("Note")
+                            .small_button(t!("docks.builds_tab.note"))
                             .on_hover_text(
-                                "Write a short reminder of what makes this build different.",
+                                t!("docks.builds_tab.note.tip"),
                             )
                             .clicked()
                         {
@@ -5638,9 +5700,9 @@ impl App {
                                 Some((variant.name.clone(), variant.note.clone().unwrap_or_default()));
                         }
                         if ui
-                            .small_button("Remove")
+                            .small_button(t!("docks.builds_tab.remove"))
                             .on_hover_text(
-                                "Delete this extra build; the design itself does not change.",
+                                t!("docks.builds_tab.remove.tip"),
                             )
                             .clicked()
                         {
@@ -5664,16 +5726,16 @@ impl App {
                     ui.add(
                         egui::TextEdit::multiline(&mut text)
                             .desired_width(200.0)
-                            .hint_text("what this build changes"),
+                            .hint_text(t!("docks.builds_tab.what_this_build_changes")),
                     )
-                    .on_hover_text("A sentence or two, saved with the design.");
+                    .on_hover_text(t!("docks.builds_tab.what_this_build_changes.tip"));
                     let save = ui
-                        .button("Save note")
-                        .on_hover_text("Keep this reminder on the build.")
+                        .button(t!("docks.builds_tab.save_note"))
+                        .on_hover_text(t!("docks.builds_tab.save_note.tip"))
                         .clicked();
                     let cancel = ui
-                        .small_button("Cancel")
-                        .on_hover_text("Leave the build's reminder as it was.")
+                        .small_button(t!("docks.builds_tab.cancel"))
+                        .on_hover_text(t!("docks.builds_tab.cancel.tip"))
                         .clicked();
                     if save {
                         self.build_note = None;
@@ -5700,12 +5762,12 @@ impl App {
                             continue;
                         };
                         ui.horizontal(|ui| {
-                            ui.label("· ");
+                            ui.label(format!("{} ", t!("docks.builds_tab.text")));
                             ui.label(&reference);
                             if ui
-                                .small_button("\u{d7}")
+                                .small_button(t!("docks.builds_tab.text2"))
                                 .on_hover_text(
-                                    "Put this part back on for this build.",
+                                    t!("docks.builds_tab.text2.tip"),
                                 )
                                 .clicked()
                             {
@@ -5727,7 +5789,7 @@ impl App {
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt(("build-pick", variant.name.clone()))
                             .selected_text(if pick.is_empty() {
-                                "choose a part to leave off".to_owned()
+                                t!("docks.builds_tab.choose_a_part_to_leave")
                             } else {
                                 pick.clone()
                             })
@@ -5735,7 +5797,7 @@ impl App {
                                 for reference in &free {
                                     if ui
                                         .selectable_label(&pick == reference, reference)
-                                        .on_hover_text("A part this build still populates.")
+                                        .on_hover_text(t!("docks.builds_tab.a_part_this_build_still.tip"))
                                         .clicked()
                                     {
                                         pick = reference.clone();
@@ -5745,12 +5807,12 @@ impl App {
                             })
                             .response
                             .on_hover_text(
-                                "Pick a part, then Leave off: this build skips it and its parts list leaves it out.",
+                                t!("docks.builds_tab.pick_a_part_then_leave.tip"),
                             );
                         if ui
-                            .add_enabled(!pick.is_empty(), egui::Button::new("Leave off"))
+                            .add_enabled(!pick.is_empty(), egui::Button::new(t!("docks.builds_tab.leave_off")))
                             .on_hover_text(
-                                "This build skips the chosen part; nothing is deleted.",
+                                t!("docks.builds_tab.leave_off.tip"),
                             )
                             .clicked()
                             && let Some(component) = self
@@ -5775,7 +5837,7 @@ impl App {
                     };
                     if free.is_empty() {
                         ui.label(
-                            egui::RichText::new("Every part in this design is left off.")
+                            egui::RichText::new(t!("docks.builds_tab.every_part_in_this_design"))
                                 .small()
                                 .color(self.muted()),
                         );
@@ -5791,11 +5853,11 @@ impl App {
                             continue;
                         };
                         ui.horizontal(|ui| {
-                            ui.label("· ");
-                            ui.label(format!("{reference} fits {}", swap.footprint));
+                            ui.label(format!("{} ", t!("docks.builds_tab.text")));
+                            ui.label(t!("docks.builds_tab.reference_fits_footprint", reference = reference, footprint = swap.footprint));
                             if ui
-                                .small_button("\u{d7}")
-                                .on_hover_text("Fit this part in its original package again.")
+                                .small_button(t!("docks.builds_tab.text2"))
+                                .on_hover_text(t!("docks.builds_tab.text22.tip"))
                                 .clicked()
                             {
                                 self.run(
@@ -5809,7 +5871,7 @@ impl App {
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt(("build-swap", variant.name.clone()))
                             .selected_text(if swap.is_empty() {
-                                "choose a part to swap".to_owned()
+                                t!("docks.builds_tab.choose_a_part_to_swap")
                             } else {
                                 swap.clone()
                             })
@@ -5817,7 +5879,7 @@ impl App {
                                 for c in &self.project.components {
                                     if ui
                                         .selectable_label(swap == c.reference, &c.reference)
-                                        .on_hover_text("A part in this design.")
+                                        .on_hover_text(t!("docks.builds_tab.a_part_in_this_design.tip"))
                                         .clicked()
                                     {
                                         swap = c.reference.clone();
@@ -5827,23 +5889,23 @@ impl App {
                             })
                             .response
                             .on_hover_text(
-                                "Pick a part, name its other package, then Swap package.",
+                                t!("docks.builds_tab.pick_a_part_name_its.tip"),
                             );
                         ui.add(
                             egui::TextEdit::singleline(&mut self.swap_name)
                                 .desired_width(80.0)
-                                .hint_text("package name"),
+                                .hint_text(t!("docks.builds_tab.package_name")),
                         )
                         .on_hover_text(
-                            "The package this build uses instead, for example a smaller size.",
+                            t!("docks.builds_tab.package_name.tip"),
                         );
                         if ui
                             .add_enabled(
                                 !swap.is_empty() && !self.swap_name.trim().is_empty(),
-                                egui::Button::new("Swap package"),
+                                egui::Button::new(t!("docks.builds_tab.swap_package")),
                             )
                             .on_hover_text(
-                                "This build fits the chosen part in that package; the design keeps its own.",
+                                t!("docks.builds_tab.swap_package.tip"),
                             )
                             .clicked()
                             && let Some(component) = self
@@ -5873,7 +5935,7 @@ impl App {
         }
         if self.project.variants.is_empty() {
             ui.label(
-                egui::RichText::new("No extra builds; this board is built exactly as designed.")
+                egui::RichText::new(t!("docks.builds_tab.no_extra_builds_this_board"))
                     .small()
                     .color(self.muted()),
             );
@@ -7005,7 +7067,9 @@ impl App {
         tip: String,
         selected: bool,
     ) -> egui::Response {
-        let response = ui.selectable_label(selected, label).on_hover_text(tip);
+        let response = ui
+            .selectable_label(selected, label.clone())
+            .on_hover_text(tip);
         self.record_icon(id, response.rect);
         response
     }
@@ -8364,7 +8428,7 @@ mod tests {
     #[test]
     fn shortcut_list_documents_every_binding_the_app_installs() {
         let rows = shortcut_rows();
-        let keys: Vec<&str> = rows.iter().map(|(keys, _, _)| *keys).collect();
+        let keys: Vec<&str> = rows.iter().map(|(keys, _, _)| keys.as_str()).collect();
         for wanted in ["Ctrl+Z", "Ctrl+K", "?", "W", "X", "Delete", "Esc"] {
             assert!(
                 keys.contains(&wanted),
@@ -8389,7 +8453,7 @@ mod tests {
                     "canvas",
                     "command palette",
                 ]
-                .contains(context),
+                .contains(&context.as_str()),
                 "{keys} claims an unknown context {context}"
             );
         }

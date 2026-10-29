@@ -675,4 +675,15 @@ mod area_tests {
     fn every_key_used_by_settings_exists() -> Result<(), String> {
         keys_exist(&[("lib.rs", "settings_tab"), ("lib.rs", "shortcuts")])
     }
+
+    #[test]
+    fn every_key_used_by_docks_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "dock_frame"),
+            ("lib.rs", "workbench_tabs"),
+            ("lib.rs", "builds_tab"),
+            ("lib.rs", "shortcut_rows"),
+            ("lib.rs", "command_tip"),
+        ])
+    }
 }
