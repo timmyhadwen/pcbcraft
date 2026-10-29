@@ -7181,7 +7181,7 @@ mod tests {
         app.refresh();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
+        authoring::tests::open_page(&ctx, &mut app, "Settings")?;
         assert!(
             scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 700.0)?,
             "the board's edge lives in its own plain-language section"
@@ -7409,7 +7409,7 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
+        authoring::tests::open_page(&ctx, &mut app, "Settings")?;
         assert!(
             scrolled_to_at(&ctx, &mut app, "MAKE FILES", 700.0)?,
             "the settings page should offer the factory files"

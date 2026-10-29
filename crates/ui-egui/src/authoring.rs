@@ -2034,6 +2034,20 @@ pub(crate) mod tests {
         Err(format!("{label} never appeared on screen"))
     }
 
+    /// Open one of the pages that live in menus now: "Settings" (Edit >
+    /// Preferences), "Rules" or "Checks" (View menu). Any other label is a
+    /// plain tab and is tapped directly.
+    pub(crate) fn open_page(ctx: &egui::Context, app: &mut App, page: &str) -> Result<(), String> {
+        let (menu, item) = match page {
+            "Settings" => ("Edit", "Preferences"),
+            "Rules" => ("View", "Rules"),
+            "Checks" => ("View", "Checks"),
+            other => return tap(ctx, app, other),
+        };
+        tap(ctx, app, menu)?;
+        tap(ctx, app, item)
+    }
+
     /// Click a tool-strip icon registered under `id` on the last painted frame.
     pub(crate) fn tap_icon(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
         frame(ctx, app, vec![]);

@@ -616,7 +616,7 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
         );
     }
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     assert!(matches!(app.tab, Tab::Rules), "the + menu reopens it");
     authoring::tests::tap(&ctx, &mut app, "Files")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;

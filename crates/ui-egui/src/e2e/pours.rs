@@ -369,7 +369,7 @@ fn a_newcomer_ticks_keep_all_copper_out_and_loses_the_gap_field() -> Result<(), 
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     let ctx = egui::Context::default();
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     settle(&ctx, &mut app);
     assert!(
         scrolled_to_at(&ctx, &mut app, "Copper stays apart", 700.0)?,
