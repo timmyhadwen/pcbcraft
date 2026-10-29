@@ -29,7 +29,7 @@ pub fn localized<'a>(drag: egui::DragValue<'a>, tag: &str, places: usize) -> egu
         let max = places.max(*range.end());
         trim_zeros(&tag, fmt_ui(&tag, value, max), *range.start())
     })
-    .custom_parser(|text| parse_number(text).ok())
+    .custom_parser(|text| parse_box(text).ok())
 }
 
 /// [`localized`] with the tag of the language now showing.
@@ -98,11 +98,9 @@ mod tests {
         let mut value = 0.25_f64;
         let ctx = egui::Context::default();
         let mut shown = String::new();
-        let _ = ctx.run(egui::RawInput::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                ui.add(localized(egui::DragValue::new(&mut value), "de", 3));
-                shown = fmt_ui("de", value, 3);
-            });
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.add(localized(egui::DragValue::new(&mut value), "de", 3));
+            shown = fmt_ui("de", value, 3);
         });
         assert_eq!(value, 0.25, "an untouched box keeps its value");
         assert_eq!(shown, "0,250");

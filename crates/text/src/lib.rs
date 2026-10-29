@@ -182,6 +182,7 @@ fn language_text(tag: &str) -> Option<&'static str> {
         "fr" => Some(FIXTURE_FR),
         #[cfg(feature = "fixture")]
         "de" => Some(FIXTURE_DE),
+        #[cfg(feature = "fixture")]
         FIXTURE_RTL_TAG => Some(FIXTURE_RTL),
         _ => None,
     }
