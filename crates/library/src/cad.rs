@@ -26,8 +26,11 @@ const NOTICE_FIELD_CLIP: usize = 96;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CadKind {
+    /// A symbol library file.
     Symbol,
+    /// A footprint file.
     Footprint,
+    /// A 3D model file.
     Model,
 }
 
@@ -55,8 +58,11 @@ impl CadKind {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CadRef {
+    /// Which kind of file this names.
     pub kind: CadKind,
+    /// Library (folder) the file lives in, without any folder suffix.
     pub library: String,
+    /// Part name, without a file extension.
     pub name: String,
     /// Upstream revision of this one file (a content id); empty when unknown.
     #[serde(default)]
@@ -125,6 +131,7 @@ impl CadRef {
 pub struct LicenseInfo {
     /// Short name such as "CC-BY-SA 4.0".
     pub name: String,
+    /// Link to the licence text.
     pub url: String,
     /// One plain sentence on what the licence asks of a person who keeps the
     /// files, for example the design-output exception.
@@ -137,8 +144,11 @@ pub struct LicenseInfo {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Provenance {
+    /// Stable identifier of the source.
     pub source_id: String,
+    /// Name of the source as shown to people.
     pub source_name: String,
+    /// Which kind of file this was.
     pub kind: CadKind,
     /// Path of the file inside the upstream repository.
     pub upstream_path: String,
@@ -146,7 +156,9 @@ pub struct Provenance {
     pub blob_id: String,
     /// Upstream repository revision the answer was read at; empty when unknown.
     pub commit_id: String,
+    /// Short licence name.
     pub license_name: String,
+    /// Link to the licence text.
     pub license_url: String,
     /// Credit line, for example the author group.
     pub attribution: String,
@@ -200,8 +212,11 @@ impl Provenance {
 /// One fetched file: its bytes and where they came from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CadFile {
+    /// The reference that was fetched, with its upstream revision filled in.
     pub cad_ref: CadRef,
+    /// The file's bytes.
     pub bytes: Vec<u8>,
+    /// Where the file came from.
     pub provenance: Provenance,
 }
 
@@ -217,10 +232,9 @@ impl CadFile {
 ///
 /// # Rules
 /// - A source never writes to the project; it only lists and returns files.
-/// - It validates every [`CadRef`] with [`CadRef::check`] before building a path or URL from it.
+/// - It calls [`CadRef::check`] before building a path or URL from a reference.
 /// - A file over [`MAX_FILE_BYTES`] is refused with [`SourceError::Invalid`].
-/// - With no connection a source answers from its own cache when it can and
-///   otherwise returns [`SourceError::Unavailable`] in plain words.
+/// - Offline, it answers from its own cache, else [`SourceError::Unavailable`].
 ///
 /// # Dependencies
 /// - crates/library/src/sources.rs
@@ -228,12 +242,17 @@ impl CadFile {
 /// # Do not
 /// - Add a method that needs the network to the default implementations.
 /// - Put keys or account data in a reference or a provenance record.
+///
+/// # Implementations
+/// - none yet
 pub trait CadSource: Send + Sync {
     /// Short stable identifier used in cache keys and notices.
     fn id(&self) -> &str;
     /// Name shown on cards.
     fn name(&self) -> &str;
+    /// The licence this source's files come under.
     fn license(&self) -> LicenseInfo;
+    /// The credit the licence asks to see next to the data.
     fn attribution(&self) -> Attribution;
     /// Names of the libraries (folders) that hold files of this kind.
     fn list_libraries(&self, kind: CadKind) -> Result<Vec<String>, SourceError>;
