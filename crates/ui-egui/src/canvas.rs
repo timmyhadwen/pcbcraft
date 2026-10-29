@@ -486,6 +486,7 @@ impl App {
             Tool::Move => t!("board.canvas.move_click_to_place_selection"),
             Tool::Cutout => t!("board.canvas.cutout_click_to_place"),
             Tool::Hole => t!("board.canvas.mounting_hole_click_to_drill"),
+            Tool::Keepout => t!("board.canvas.keepout_pick_corner"),
             Tool::NoConnect => t!("board.canvas.no_connect_click_a_pin"),
             Tool::Fiducial => t!("board.canvas.assembly_mark_click_a_clear"),
             Tool::DrawLayer => t!("board.canvas.draw_shape_pick_the_layer"),
@@ -556,6 +557,7 @@ impl App {
                         Stroke::new(1.5, self.accent()),
                     );
                 }
+                Tool::Keepout => self.paint_keepout_ghost(&painter, rect, camera, snapped),
                 Tool::Hole => {
                     painter.circle_stroke(
                         camera.screen(snapped, rect),
@@ -676,6 +678,7 @@ impl App {
                 self.drag = Some((id, original));
             }
         }
+        self.keepout_drag(&response, cursor);
         if response.dragged_by(egui::PointerButton::Primary)
             && self.edit.box_from.is_some()
             && let Some(pos) = cursor
@@ -1734,6 +1737,7 @@ impl App {
                     }
                 }
             }
+            Tool::Keepout => {}
             Tool::Hole => self.run(
                 "board.hole_place",
                 json!({"position":snap(pos),"diameter":self.hole_diameter}),
