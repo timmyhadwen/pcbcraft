@@ -6,6 +6,7 @@
 | [capabilities.md](capabilities.md) | What the app does today |
 | [architecture.md](architecture.md) | Crate layers and mutation rules |
 | [mcp.md](mcp.md) | MCP client config |
+| [assistant-backends.md](assistant-backends.md) | Assistant wire formats checked against each API, with gaps |
 | [ci.md](ci.md) | GitHub Actions jobs |
 | [validation.md](validation.md) | How the first subset was verified |
 | [kicad-libraries.md](kicad-libraries.md) | Library formats, limits, fixture licenses |
