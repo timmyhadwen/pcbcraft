@@ -2298,17 +2298,28 @@ impl App {
             self.delete_selection();
         }
     }
+    /// Installs the design fonts once per context, then applies the design
+    /// tokens (colours, type scale, spacing) for the chosen theme.
+    ///
+    /// # Rules
+    /// - Control size stays at `MIN_TARGET` so every control passes the target-size gate.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/theme.rs, crates/ui-egui/src/fonts.rs
+    ///
+    /// # Do not
+    /// - Set colours or text sizes here; add them to the tokens.
     fn style(&self, ctx: &egui::Context) {
-        let visuals = palette::visuals(&self.colours());
-        ctx.set_visuals(visuals);
+        let fonts_key = egui::Id::new("design-fonts-installed");
+        if !ctx.data(|d| d.get_temp::<bool>(fonts_key).unwrap_or(false)) {
+            fonts::install(ctx);
+            ctx.data_mut(|d| d.insert_temp(fonts_key, true));
+        }
+        theme::apply(ctx, &theme::Tokens::for_dark(self.preferences.dark));
         let reduced = self.preferences.reduced_motion;
         ctx.style_mut_of(ctx.theme(), |s| {
-            s.spacing.item_spacing = Vec2::new(8.0, 8.0);
-            s.spacing.button_padding = Vec2::new(10.0, 6.0);
             s.spacing.interact_size = Vec2::new(40.0, Self::MIN_TARGET);
             s.animation_time = if reduced { 0.0 } else { 1.0 / 12.0 };
-            s.spacing.window_margin = egui::Margin::same(12);
-            s.spacing.menu_margin = egui::Margin::same(12);
         });
     }
     fn dock_frame(style: &egui::Style) -> egui::Frame {

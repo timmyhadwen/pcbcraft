@@ -1594,7 +1594,7 @@ pub(crate) fn aside_tabs(
     let mut clicked = None;
     let mut x = rect.left() + PAD + 4.0;
     for (i, (g, label, tip)) in tabs.iter().enumerate() {
-        let font = FontId::proportional(13.0);
+        let font = crate::fonts::Role::Body.font();
         let galley = ui
             .painter()
             .layout_no_wrap(label.clone(), font, colours.ink);
@@ -1661,7 +1661,7 @@ fn ghost_button(
 ) -> egui::Response {
     let galley =
         ui.painter()
-            .layout_no_wrap(label.to_owned(), FontId::proportional(13.0), colours.ink);
+            .layout_no_wrap(label.to_owned(), crate::fonts::Role::Body.font(), colours.ink);
     let w = galley.size().x + 14.0 + 6.0 + 16.0;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 28.0), Sense::hover());
     let resp = ui.interact(rect, ui.id().with(("ghost", label)), Sense::click());
@@ -1744,7 +1744,7 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
         ui.add_space(8.0);
         ui.label(
             egui::RichText::new(t!("tree.no_match", query = view.query.trim()))
-                .small()
+                .font(crate::fonts::Role::Caption.font())
                 .color(colours.muted),
         );
     }
@@ -2109,7 +2109,7 @@ fn paint_row(
     } else {
         right = eye_cell.left() - 8.0;
     }
-    let mono = FontId::monospace(12.0);
+    let mono = crate::fonts::Role::Mono.font();
     let mut label_right = right;
     if !r.count.is_empty() {
         let count_col = if is_section {
@@ -2134,7 +2134,7 @@ fn paint_row(
     if active {
         let badge = painter.layout_no_wrap(
             t!("tree.active"),
-            FontId::proportional(11.0),
+            crate::fonts::Role::Caption.font(),
             colours.accent,
         );
         let w = badge.size().x + 12.0;
@@ -2189,11 +2189,11 @@ fn paint_row(
         colours.muted.gamma_multiply(dim.max(0.7))
     };
     let font = if is_section {
-        FontId::proportional(11.0)
+        crate::fonts::Role::Caption.font()
     } else if r.mono {
-        FontId::monospace(12.0)
+        crate::fonts::Role::Mono.font()
     } else {
-        FontId::proportional(13.0)
+        crate::fonts::Role::Body.font()
     };
     let text = if is_section {
         r.label.to_uppercase()
@@ -2214,7 +2214,7 @@ fn paint_row(
                 Pos2::new(dx, cy),
                 Align2::LEFT_CENTER,
                 &r.sub,
-                FontId::monospace(12.0),
+                crate::fonts::Role::Mono.font(),
                 colours.muted.gamma_multiply(dim),
             );
         }
@@ -2470,10 +2470,10 @@ impl crate::App {
         };
         let last = key.rsplit('/').next().unwrap_or("");
         if key.ends_with("/root") && self.tab == crate::Tab::Pcb {
-            ui.heading(t!("tree.board_settings"));
+            ui.label(crate::fonts::title(t!("tree.board_settings")));
             ui.label(
                 egui::RichText::new(t!("tree.board_settings.help"))
-                    .small()
+                    .font(crate::fonts::Role::Caption.font())
                     .color(self.muted()),
             );
             ui.add_space(8.0);
@@ -2484,7 +2484,7 @@ impl crate::App {
             self.fiducials_section(ui);
             self.via_spans_section(ui);
         } else if last.starts_with("net:") || key == "sec:nets" {
-            ui.heading(t!("tree.net_settings"));
+            ui.label(crate::fonts::title(t!("tree.net_settings")));
             self.nets_tab(ui);
         } else {
             let name = self
@@ -2494,10 +2494,10 @@ impl crate::App {
                 .and_then(|k| k.rsplit('/').next())
                 .map(|s| s.rsplit(':').next().unwrap_or(s).to_owned())
                 .unwrap_or_default();
-            ui.heading(name);
+            ui.label(crate::fonts::title(name));
             ui.label(
                 egui::RichText::new(t!("tree.row_properties.help"))
-                    .small()
+                    .font(crate::fonts::Role::Caption.font())
                     .color(self.muted()),
             );
         }

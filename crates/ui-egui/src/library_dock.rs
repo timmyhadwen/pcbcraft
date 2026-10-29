@@ -468,13 +468,13 @@ impl App {
         if want_installed && !self.dock.inflight.is_empty() {
             ui.label(
                 egui::RichText::new(t!("library.dock.searching"))
-                    .small()
+                    .font(crate::fonts::Role::Caption.font())
                     .color(self.muted()),
             );
         } else if !self.dock.error.is_empty() {
             ui.label(
                 egui::RichText::new(self.dock.error.clone())
-                    .small()
+                    .font(crate::fonts::Role::Caption.font())
                     .color(self.muted()),
             );
         } else if self.dock.total > self.dock.items.len() && want_installed {
@@ -484,13 +484,13 @@ impl App {
                     shown = self.dock.items.len(),
                     total = self.dock.total
                 ))
-                .small()
+                .font(crate::fonts::Role::Caption.font())
                 .color(self.muted()),
             );
         } else if !want_installed && !self.dock.hide_installed {
             ui.label(
                 egui::RichText::new(t!("library.dock.type_for_installed"))
-                    .small()
+                    .font(crate::fonts::Role::Caption.font())
                     .color(self.muted()),
             );
         }
@@ -500,7 +500,7 @@ impl App {
                     "library.browser.nothing_here_matches_trim_yet",
                     trim = self.part_search.trim()
                 ))
-                .small()
+                .font(crate::fonts::Role::Caption.font())
                 .color(self.muted()),
             );
         }
@@ -972,7 +972,7 @@ impl App {
                         .unwrap_or('?')
                         .to_uppercase()
                         .to_string(),
-                    egui::FontId::proportional(22.0),
+                    crate::fonts::Role::Display.font(),
                     self.muted(),
                 );
             }
@@ -982,7 +982,7 @@ impl App {
         let mut y = rect.top() + 8.0;
         let title = painter.layout(
             name.clone(),
-            egui::FontId::proportional(13.0),
+            crate::fonts::Role::Body.font(),
             ui.visuals().strong_text_color(),
             text_width,
         );
@@ -992,7 +992,7 @@ impl App {
         if !what.is_empty() {
             let mut job = egui::text::LayoutJob::simple(
                 what,
-                egui::FontId::proportional(12.0),
+                crate::fonts::Role::Body.font(),
                 self.muted(),
                 text_width,
             );
@@ -1005,14 +1005,14 @@ impl App {
             y += h + 2.0;
         }
         let source_galley =
-            painter.layout(source, egui::FontId::proportional(11.0), accent, text_width);
+            painter.layout(source, crate::fonts::Role::Caption.font(), accent, text_width);
         let h = source_galley.size().y;
         painter.galley(egui::pos2(text_left, y), source_galley, Color32::WHITE);
         y += h + 1.0;
         if !meta.is_empty() && y + 12.0 < rect.bottom() {
             let galley = painter.layout(
                 meta,
-                egui::FontId::proportional(11.0),
+                crate::fonts::Role::Caption.font(),
                 self.muted(),
                 text_width,
             );

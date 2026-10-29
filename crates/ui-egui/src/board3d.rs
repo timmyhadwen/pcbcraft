@@ -413,7 +413,7 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
             ui.add_space(8.0);
             ui.label(
                 egui::RichText::new(t!("board.board3d.parts"))
-                    .size(10.0)
+                    .font(crate::fonts::Role::Caption.font())
                     .color(env.muted),
             );
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -435,7 +435,7 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
                     if let Some(reason) = reason {
                         ui.add(
                             egui::Label::new(
-                                egui::RichText::new(&reason).size(10.0).color(env.muted),
+                                egui::RichText::new(&reason).font(crate::fonts::Role::Caption.font()).color(env.muted),
                             )
                             .wrap(),
                         )
@@ -468,7 +468,7 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
         }
         ui.label(
             egui::RichText::new(t!("board.board3d.drag_to_turn_the_board"))
-                .size(11.0)
+                .font(crate::fonts::Role::Caption.font())
                 .color(env.muted),
         );
     });
@@ -516,7 +516,7 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
         } else {
             t!("board.board3d.part_bodies_are_default_boxes")
         })
-        .size(11.0)
+        .font(crate::fonts::Role::Caption.font())
         .color(env.muted),
     );
     picked
