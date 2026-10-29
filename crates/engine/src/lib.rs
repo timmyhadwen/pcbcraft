@@ -17146,7 +17146,7 @@ mod tests {
             .clone();
         assert_eq!(set["drill_origin"]["x"], 20.0);
         assert_eq!(set["drill_origin"]["y"], 10.0);
-        let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Drill.drl"].clone();
+        let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Plated.drl"].clone();
         assert!(
             drill.contains("X10.000Y10.000\n"),
             "the recorded origin moves drill coordinates"
@@ -26046,11 +26046,15 @@ mod tests {
         assert_eq!(
             out["files"],
             json!([
+                "README-fabrication.txt",
                 "pcb-B.Cu.gbr",
-                "pcb-Drill.drl",
+                "pcb-B.Mask.gbr",
+                "pcb-B.Paste.gbr",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cu.gbr",
+                "pcb-F.Mask.gbr",
+                "pcb-F.Paste.gbr",
                 "pcb-NPTH.drl",
                 "pcb-Plated.drl",
                 "pcb.dxf"
@@ -26059,11 +26063,13 @@ mod tests {
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
-            "pcb-Drill.drl",
+            "pcb-Plated.drl",
             "pcb-DrillMap.gbr",
             "pcb-Edge.gbr",
+            "pcb-F.Mask.gbr",
             "pcb-NPTH.drl",
             "pcb-Plated.drl",
+            "README-fabrication.txt",
             "pcb.dxf",
         ] {
             assert!(
@@ -26114,7 +26120,7 @@ mod tests {
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
-            "pcb-Drill.drl",
+            "pcb-Plated.drl",
             "pcb-Edge.gbr",
             "pcb-NPTH.drl",
             "pcb-Plated.drl",
