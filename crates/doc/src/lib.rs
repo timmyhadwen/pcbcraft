@@ -1,6 +1,11 @@
 //! Canonical project data. No UI or protocol dependencies.
 mod machine_profile;
+mod outline;
 pub use machine_profile::*;
+pub use outline::{
+    MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_sagitta, flatten_outline, outline_extent,
+    segment_arc, validate_outline_arcs,
+};
 mod panel;
 pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
@@ -2303,6 +2308,23 @@ impl MachiningNotes {
                 .is_none_or(|t| t.is_finite() && (0.0..=1.0).contains(&t))
     }
 }
+impl Board {
+    /// The outline as a plain polygon with arcs cut into chords that stay
+    /// within `max_chord_error` millimetres of the true edge; empty when the
+    /// board has no traced outline.
+    ///
+    /// # Dependencies
+    /// - crates/doc/src/outline.rs#flatten_outline
+    ///
+    /// # Do not
+    /// - Do not use the vertex list directly in a reader: it draws arcs as chords.
+    pub fn edge_ring(&self, max_chord_error: f64) -> Vec<Point> {
+        match &self.outline {
+            Some(points) => flatten_outline(points, &self.outline_arcs, max_chord_error),
+            None => Vec::new(),
+        }
+    }
+}
 fn is_open_covering(c: &ViaCovering) -> bool {
     *c == ViaCovering::Open
 }
@@ -2356,6 +2378,11 @@ pub struct Board {
     /// perimeter and implicitly closed. Absent means the plain rectangle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outline: Option<Vec<Point>>,
+    /// Arc midpoints for the outline, one entry per segment (vertex i to
+    /// vertex i + 1, the last closing to vertex 0). `None` is a straight
+    /// segment. Empty means the whole outline is straight.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outline_arcs: Vec<Option<Point>>,
     pub footprints: Vec<Footprint>,
     pub tracks: Vec<Track>,
     /// Plated through-hole vias joining front and back copper.
@@ -2982,6 +3009,7 @@ impl Default for Project {
                 rule_areas: vec![],
                 user_layers: vec![],
                 outline: None,
+                outline_arcs: vec![],
                 footprints: vec![],
                 tracks: vec![],
                 vias: vec![],
@@ -3672,7 +3700,10 @@ impl Project {
     /// True when the point lies inside the board outline or rectangle.
     pub fn board_contains(&self, point: Point) -> bool {
         match &self.board.outline {
-            Some(ring) => pcbcraft_geom::point_in_polygon(point, ring),
+            Some(_) => pcbcraft_geom::point_in_polygon(
+                point,
+                &self.board.edge_ring(VALIDATION_CHORD_ERROR),
+            ),
             None => {
                 point.x >= 0.0
                     && point.y >= 0.0
@@ -4692,9 +4723,12 @@ impl Project {
                 .iter()
                 .map(|p| (p.x.to_bits(), p.y.to_bits()))
                 .collect();
-            let inside = points.iter().all(|p| {
-                p.valid() && p.x >= 0.0 && p.x <= b.width && p.y >= 0.0 && p.y <= b.height
-            });
+            let (lo, hi) = outline_extent(points, &b.outline_arcs).unwrap_or_default();
+            let inside = points.iter().all(|p| p.valid())
+                && lo.x >= -1e-6
+                && hi.x <= b.width + 1e-6
+                && lo.y >= -1e-6
+                && hi.y <= b.height + 1e-6;
             if points.len() < 3
                 || points.len() > 64
                 || distinct.len() != points.len()
@@ -4705,6 +4739,9 @@ impl Project {
                     "a board outline needs 3 to 64 distinct vertices inside the board".into(),
                 );
             }
+            validate_outline_arcs(points, &b.outline_arcs)?;
+        } else if !b.outline_arcs.is_empty() {
+            return Err("outline arcs need an outline".into());
         }
         let mut placed = BTreeSet::new();
         for f in &b.footprints {
