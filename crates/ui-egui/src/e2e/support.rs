@@ -88,6 +88,8 @@ pub(crate) fn frame(
     mut events: Vec<egui::Event>,
     modifiers: egui::Modifiers,
 ) -> egui::FullOutput {
+    ctx.enable_accesskit();
+    super::audit::record_touches(ctx, app, &events);
     events.insert(0, egui::Event::ModifiersChanged(modifiers));
     let mut output = ctx.run_ui(
         egui::RawInput {
@@ -100,6 +102,7 @@ pub(crate) fn frame(
         },
         |ui| app.show(ui),
     );
+    super::audit::remember_labels(&output);
     // This input test has no GPU renderer; intentionally discard texture uploads.
     output.textures_delta.clear();
     output

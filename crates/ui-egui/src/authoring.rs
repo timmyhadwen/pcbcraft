@@ -827,19 +827,7 @@ impl App {
 pub(crate) mod tests {
     use super::*;
     fn frame(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) -> egui::FullOutput {
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    Vec2::new(1440.0, 940.0),
-                )),
-                events,
-                ..Default::default()
-            },
-            |ui| app.show(ui),
-        );
-        output.textures_delta.clear();
-        output
+        crate::e2e::support::frame(ctx, app, events, egui::Modifiers::NONE)
     }
     #[test]
     fn editor_button_commits_one_undoable_edit_and_retains_original_nodes() -> Result<(), String> {
