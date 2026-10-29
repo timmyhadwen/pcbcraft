@@ -480,3 +480,177 @@ fn format_tick(v: f64) -> String {
         format!("{v}")
     }
 }
+
+/// Hit outline of one drawn board object, in screen space.
+///
+/// Why: hover feedback and, later, the shared `hover_affordance` API need one
+/// description of "where this object is" that does not depend on how it is
+/// painted.
+pub(super) enum HitShape {
+    Polygon(Vec<Pos2>),
+    /// A track: the centre line and half of its drawn width.
+    Segment(Pos2, Pos2, f32),
+    Circle(Pos2, f32),
+}
+
+/// Smallest pointer reach in points, so thin objects stay hoverable.
+const HOVER_REACH: f32 = 4.0;
+
+impl HitShape {
+    fn contains(&self, at: Pos2) -> bool {
+        match self {
+            Self::Circle(c, r) => c.distance(at) <= r.max(HOVER_REACH),
+            Self::Segment(a, b, half) => {
+                let ab = *b - *a;
+                let len2 = ab.length_sq();
+                let t = if len2 <= f32::EPSILON {
+                    0.0
+                } else {
+                    (((at - *a).dot(ab)) / len2).clamp(0.0, 1.0)
+                };
+                (*a + ab * t).distance(at) <= half.max(HOVER_REACH)
+            }
+            Self::Polygon(pts) => {
+                let mut inside = false;
+                let mut j = pts.len().saturating_sub(1);
+                for i in 0..pts.len() {
+                    let (pi, pj) = (pts[i], pts[j]);
+                    if (pi.y > at.y) != (pj.y > at.y)
+                        && at.x < (pj.x - pi.x) * (at.y - pi.y) / (pj.y - pi.y) + pi.x
+                    {
+                        inside = !inside;
+                    }
+                    j = i;
+                }
+                inside
+            }
+        }
+    }
+
+    /// The outline as a closed screen polygon (circles are sampled).
+    fn ring(&self) -> Vec<Pos2> {
+        match self {
+            Self::Polygon(pts) => pts.clone(),
+            Self::Circle(c, r) => (0..32)
+                .map(|i| {
+                    let t = i as f32 / 32.0 * std::f32::consts::TAU;
+                    *c + Vec2::new(t.cos(), t.sin()) * (r.max(HOVER_REACH) + 2.0)
+                })
+                .collect(),
+            Self::Segment(a, b, half) => {
+                let dir = (*b - *a).normalized();
+                let dir = if dir.x.is_nan() { Vec2::X } else { dir };
+                let side = Vec2::new(-dir.y, dir.x) * (half.max(HOVER_REACH / 2.0) + 2.0);
+                let ext = dir * 2.0;
+                vec![*a - ext + side, *b + ext + side, *b + ext - side, *a - ext - side]
+            }
+        }
+    }
+}
+
+impl App {
+    /// Every hoverable object of the board with its hit outline, topmost
+    /// first: pads, vias, tracks, holes, parts, then zones.
+    ///
+    /// # Rules
+    /// - The single source of object outlines for hover; the `hover_affordance`
+    ///   API reads this list instead of re-deriving shapes.
+    pub(super) fn hit_shapes(&self, rect: Rect, camera: Camera, p: &Project) -> Vec<HitShape> {
+        let shown = |name: &str| self.layer_shown(name);
+        let mut out = Vec::new();
+        for f in &p.board.footprints {
+            for pad in f.pads.iter().filter(|_| shown("Pads")) {
+                out.push(HitShape::Polygon(
+                    pad.outline_points()
+                        .into_iter()
+                        .map(|q| camera.screen(f.position.offset(q.rotate(-f.rotation)), rect))
+                        .collect(),
+                ));
+            }
+        }
+        for v in p.board.vias.iter().filter(|_| shown("Vias")) {
+            out.push(HitShape::Circle(
+                camera.screen(v.position, rect),
+                v.diameter as f32 / 2.0 * camera.zoom,
+            ));
+        }
+        for t in p.board.tracks.iter() {
+            out.push(HitShape::Segment(
+                camera.screen(t.start, rect),
+                camera.screen(t.end, rect),
+                t.width as f32 * camera.zoom / 2.0,
+            ));
+        }
+        for h in p.board.holes.iter().filter(|h| !h.is_slot()) {
+            out.push(HitShape::Circle(
+                camera.screen(h.position, rect),
+                h.diameter as f32 / 2.0 * camera.zoom,
+            ));
+        }
+        for c in p.board.cutouts.iter().filter(|_| shown("Cutouts")) {
+            out.push(HitShape::Circle(
+                camera.screen(c.center, rect),
+                c.radius as f32 * camera.zoom,
+            ));
+        }
+        for f in &p.board.footprints {
+            if let Some((_, courtyard)) = Self::footprint_boxes(f, rect, camera) {
+                out.push(HitShape::Polygon(courtyard));
+            }
+        }
+        for z in p.board.zones.iter().filter(|_| shown("Copper zones")) {
+            out.push(HitShape::Polygon(
+                z.outline.iter().map(|q| camera.screen(*q, rect)).collect(),
+            ));
+        }
+        out
+    }
+
+    /// Animated outline on the object under the pointer.
+    ///
+    /// Why: owner rule, anything actionable shows a pulsing highlight on hover.
+    /// Drawn here until the shared `hover_affordance` API lands; swapping it in
+    /// replaces the two `painter.add` calls below.
+    ///
+    /// # Rules
+    /// - Asks for a repaint only while something is hovered.
+    pub(super) fn paint_hover(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        camera: Camera,
+        p: &Project,
+    ) {
+        let Some(cursor) = self.cursor else {
+            return;
+        };
+        let at = camera.screen(cursor, rect);
+        if !rect.contains(at) {
+            return;
+        }
+        let Some(shape) = self
+            .hit_shapes(rect, camera, p)
+            .into_iter()
+            .find(|s| s.contains(at))
+        else {
+            return;
+        };
+        let art = self.art();
+        let ctx = painter.ctx();
+        let pulse = if self.preferences.reduced_motion {
+            0.8
+        } else {
+            ctx.request_repaint();
+            0.55 + 0.45 * (ctx.input(|i| i.time) as f32 * 5.0).sin().abs()
+        };
+        let ring = shape.ring();
+        painter.add(egui::Shape::closed_line(
+            ring.clone(),
+            Stroke::new(5.0, art.selection.gamma_multiply(0.25 * pulse)),
+        ));
+        painter.add(egui::Shape::closed_line(
+            ring,
+            Stroke::new(1.75, art.selection.gamma_multiply(pulse)),
+        ));
+    }
+}
