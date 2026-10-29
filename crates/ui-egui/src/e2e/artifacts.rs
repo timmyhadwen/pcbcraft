@@ -385,7 +385,10 @@ fn outputs_in(tag: &str) -> Result<std::collections::BTreeMap<String, Vec<u8>>, 
     app.refresh();
     app.set_language(tag);
     app.tool_call("sample_design", json!({}));
-    let folder = std::env::temp_dir().join(format!("pcbcraft-lang-{tag}-{}", std::process::id()));
+    static RUN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let run = RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let folder =
+        std::env::temp_dir().join(format!("pcbcraft-lang-{tag}-{}-{run}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let path = folder.to_string_lossy().into_owned();
