@@ -93,6 +93,9 @@ impl SymbolPin {
         let angle = self.angle.to_radians();
         Point::new(angle.sin(), angle.cos())
     }
+    fn mul(v: Point, scale: f64) -> Point {
+        Point::new(v.x * scale, v.y * scale)
+    }
     const DECO_RADIUS: f64 = 0.635;
     pub fn circle_points(center: Point, radius: f64) -> Vec<Point> {
         (0..16)
@@ -105,7 +108,7 @@ impl SymbolPin {
     fn bubble(&self) -> (Point, f64) {
         let inward = self.inward();
         (
-            self.position.offset(inward.scale(Self::DECO_RADIUS)),
+            self.position.offset(Self::mul(inward, Self::DECO_RADIUS)),
             Self::DECO_RADIUS,
         )
     }
@@ -113,18 +116,21 @@ impl SymbolPin {
         let inward = self.inward();
         let perp = self.perpendicular();
         let half = Self::DECO_RADIUS;
-        let base_a = self.position.offset(perp.scale(-half));
-        let base_b = self.position.offset(perp.scale(half));
-        let tip = self.position.offset(inward.scale(depth));
+        let base_a = self.position.offset(Self::mul(perp, -half));
+        let base_b = self.position.offset(Self::mul(perp, half));
+        let tip = self.position.offset(Self::mul(inward, depth));
         vec![base_a, base_b, tip]
     }
     fn active_low_tick(&self) -> Vec<Point> {
         let perp = self.perpendicular();
         let half = Self::DECO_RADIUS * 0.9;
-        let at = self.position.offset(self.inward().scale(Self::DECO_RADIUS * 1.6));
+        let at = self.position.offset(Self::mul(
+            self.inward(),
+            Self::DECO_RADIUS * 1.6,
+        ));
         vec![
-            at.offset(perp.scale(-half)),
-            at.offset(perp.scale(half)),
+            at.offset(Self::mul(perp, -half)),
+            at.offset(Self::mul(perp, half)),
         ]
     }
     fn non_logic_diamond(&self) -> Vec<Point> {
@@ -132,10 +138,10 @@ impl SymbolPin {
         let perp = self.perpendicular();
         let r = Self::DECO_RADIUS * 0.75;
         vec![
-            self.position.offset(inward.scale(r)),
-            self.position.offset(perp.scale(r)),
-            self.position.offset(inward.scale(-r)),
-            self.position.offset(perp.scale(-r)),
+            self.position.offset(Self::mul(inward, r)),
+            self.position.offset(Self::mul(perp, r)),
+            self.position.offset(Self::mul(inward, -r)),
+            self.position.offset(Self::mul(perp, -r)),
         ]
     }
     /// Filled outline circles for bubble-style decorations at the connection.
