@@ -130,7 +130,8 @@ fn a_newcomer_allows_and_removes_a_buried_via_span() -> Result<(), String> {
     let (mut app, ctx) = four_layer_app()?;
     app.select(None);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    app.change_tab(Tab::Pcb);
+    open_tree_row(&ctx, &mut app, "root");
     scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?;
     assert!(
         scrolled_to(&ctx, &mut app, "VIA SPANS")?,
