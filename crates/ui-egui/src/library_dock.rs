@@ -959,6 +959,7 @@ impl App {
                     zoom: ((thumb.width() - 12.0) / extent.x as f32)
                         .min((thumb.height() - 12.0) / extent.y as f32)
                         .clamp(0.01, 40.0),
+                    mirror: false,
                 };
                 library::paint_library_paths(&painter, thumb, camera, paths, accent);
             }
