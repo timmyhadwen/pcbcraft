@@ -7350,15 +7350,16 @@ mod tests {
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
         app.change_tab(Tab::Schematic);
+        // The Nets row of the schematic tree carries the eye for the wires.
         assert!(
-            scrolled_to(&ctx, &mut app, "Wires")?,
-            "the layers page lists wires as its own row"
+            paints_text(&ctx, &mut app, "Nets")?,
+            "the layers tree lists the connections as a row"
         );
-        authoring::tests::tap(&ctx, &mut app, "Wires")?;
+        e2e::support::tap_id(&ctx, &mut app, "button:Hide Nets")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.preferences.hidden_layers.iter().any(|h| h == "Wires"),
-            "unticking the row hides the wires layer"
+            "the eye on the row hides the wires layer"
         );
         let after = wire_count(&mut app, &ctx)?;
         assert!(

@@ -9,11 +9,7 @@ fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "Tool: Pick")?,
-        "the status strip should say what a click does: {}",
-        app.message
-    );
+    // The "Tool: Pick" text left the status strip with the developer wording.
     let pct = (app.schematic.zoom / 15.0 * 100.0).round() as i32;
     let zoom_label = format!("{pct}%");
     assert!(
@@ -96,7 +92,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Pcb);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "1.00 mm on Top")?,
@@ -162,11 +158,9 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
     );
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "Mounting hole")?,
-        "board tools sit in the strip under the tabs: {}",
-        app.message
-    );
+    // The strip scrolls sideways, so reach the tool the way a hand does.
+    tap_strip(&ctx, &mut app, "button:Mounting hole")
+        .map_err(|e| format!("board tools sit in the strip under the tabs: {e}"))?;
     Ok(())
 }
 
@@ -579,10 +573,13 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
     for word in [
-        "Select", "Move", "Route", "Line", "Box", "Circle", "Outline", "Text",
+        "Select", "Move", "Route", "Line", "Box", "Circle", "Outline",
     ] {
         assert!(paints_text(&ctx, &mut app, word)?, "the strip says {word}");
     }
+    // Text sits past the edge until the strip is turned sideways.
+    tap_strip(&ctx, &mut app, "icon:tool-words")?;
+    assert!(paints_text(&ctx, &mut app, "Text")?, "the strip says Text");
     for cryptic in ["Sel", "Mv", "Rt", "Ln", "Bx", "Cr", "Pl", "Tx"] {
         assert!(text_row(&ctx, &mut app, cryptic).is_none(), "no {cryptic}");
     }

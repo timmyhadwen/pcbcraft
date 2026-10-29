@@ -256,7 +256,8 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
     app.refresh();
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let (rail, dock) = (44.0, 44.0 + 260.0);
+    // No rail any more: the left aside runs from the window edge, 320 wide.
+    let (rail, dock) = (0.0, 320.0);
     // The aside may grow past its 280 px minimum, so find its edge from
     // the panel's own heading, which sits one 16 px margin inside it.
     let aside = texts(&out)
