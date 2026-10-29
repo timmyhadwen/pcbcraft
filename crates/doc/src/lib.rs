@@ -49,6 +49,80 @@ pub struct SymbolUnitPlacement {
 fn passive() -> String {
     "passive".into()
 }
+/// Pin electrical types recognised by ERC and schematic validation.
+pub const PIN_ELECTRICAL_TYPES: [&str; 12] = [
+    "bidirectional",
+    "free",
+    "input",
+    "no_connect",
+    "open_collector",
+    "open_emitter",
+    "output",
+    "passive",
+    "power_in",
+    "power_out",
+    "tri_state",
+    "unspecified",
+];
+/// Sorted pair key for one cell of the pin-type connection matrix.
+pub fn pin_matrix_key(type_a: &str, type_b: &str) -> String {
+    if type_a <= type_b {
+        format!("{type_a}|{type_b}")
+    } else {
+        format!("{type_b}|{type_a}")
+    }
+}
+/// Default ERC level for a pin-type pair: `"ok"`, `"warning"`, or `"error"`.
+pub fn default_pin_matrix_level(type_a: &str, type_b: &str) -> &'static str {
+    let (a, b) = if type_a <= type_b {
+        (type_a, type_b)
+    } else {
+        (type_b, type_a)
+    };
+    if a == "no_connect" || b == "no_connect" {
+        return "error";
+    }
+    match (a, b) {
+        ("output", "output") => "error",
+        ("output", "power_out") => "error",
+        ("power_out", "power_out") => "error",
+        ("open_emitter", "power_out") => "error",
+        ("input", "input") => "warning",
+        ("output", "tri_state") => "warning",
+        ("open_collector", "power_out") => "warning",
+        ("bidirectional", "power_out") => "warning",
+        _ => "ok",
+    }
+}
+/// Default matrix cells whose level is not `"ok"`, for display beside overrides.
+pub const DEFAULT_PIN_MATRIX_OVERRIDES: &[(&str, &str, &str)] = &[
+    ("bidirectional", "no_connect", "error"),
+    ("bidirectional", "power_out", "warning"),
+    ("free", "no_connect", "error"),
+    ("input", "input", "warning"),
+    ("input", "no_connect", "error"),
+    ("no_connect", "no_connect", "error"),
+    ("no_connect", "open_collector", "error"),
+    ("no_connect", "open_emitter", "error"),
+    ("no_connect", "output", "error"),
+    ("no_connect", "passive", "error"),
+    ("no_connect", "power_in", "error"),
+    ("no_connect", "power_out", "error"),
+    ("no_connect", "tri_state", "error"),
+    ("no_connect", "unspecified", "error"),
+    ("open_collector", "power_out", "warning"),
+    ("open_emitter", "power_out", "error"),
+    ("output", "no_connect", "error"),
+    ("output", "output", "error"),
+    ("output", "power_out", "error"),
+    ("output", "tri_state", "warning"),
+    ("passive", "no_connect", "error"),
+    ("power_in", "no_connect", "error"),
+    ("power_out", "no_connect", "error"),
+    ("power_out", "power_out", "error"),
+    ("tri_state", "no_connect", "error"),
+    ("unspecified", "no_connect", "error"),
+];
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LibrarySymbol {
     pub library: String,
@@ -94,6 +168,12 @@ fn is_root_sheet(id: &Id) -> bool {
 pub struct Sheet {
     pub id: Id,
     pub name: String,
+    /// Parent page in the hierarchy, when this page is shown as a child box.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Id>,
+    /// Where the child page box sits on the parent page, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<Point>,
 }
 /// One named property on a component. A blank value is still a real property:
 /// it says the key applies to this component and has not been filled in.
@@ -965,9 +1045,77 @@ pub struct Footprint {
     /// to move it. Absent means unlocked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locked: Option<bool>,
+    /// Which board side the footprint is soldered on. Absent means the top.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Board side the part is mounted on; absent means the top. Pad copper and
+    /// the silk, mask and paste layers are derived from it, never stored per pad.
+    pub side: Option<Layer>,
     pub pads: Vec<Pad>,
 }
+/// Swap `F.` and `B.` layer name prefixes; other names are unchanged.
+/// A library pad as it sits when its part is mounted on the bottom: x offset,
+/// rotation and drill offset turned about the part's local vertical axis.
+///
+/// # Rules
+/// - Layer names stay as authored; `Footprint::pad_geometry_layers` swaps them.
+///
+/// # Do not
+/// - Write the result back to the library; packages stay authored on the top.
+pub fn mirrored_pad_for_bottom(
+    source: &pcbcraft_library::FootprintPad,
+) -> pcbcraft_library::FootprintPad {
+    let mut pad = source.clone();
+    pad.position = Point::new(-pad.position.x, pad.position.y);
+    pad.rotation = -pad.rotation;
+    if let Some(drill) = &mut pad.drill {
+        drill.offset = Point::new(-drill.offset.x, drill.offset.y);
+    }
+    pad
+}
+/// Swap the `F.` and `B.` prefix of a board layer name; other names such as
+/// `*.Cu` pass through unchanged.
+pub fn swap_board_side_layer(name: &str) -> String {
+    if let Some(rest) = name.strip_prefix("F.") {
+        return format!("B.{rest}");
+    }
+    if let Some(rest) = name.strip_prefix("B.") {
+        return format!("F.{rest}");
+    }
+    name.to_string()
+}
 impl Footprint {
+    /// The copper side the part is mounted on: the top unless `side` is set.
+    pub fn board_side(&self) -> Layer {
+        self.side.unwrap_or(Layer::Front)
+    }
+    /// Copper layer for a surface-mount pad; through-hole pads are handled on
+    /// both layers by callers that iterate copper.
+    ///
+    /// # Rules
+    /// - Derived from `board_side`; pads carry no side of their own.
+    pub fn pad_layer(&self, _pad: &Pad) -> Layer {
+        self.board_side()
+    }
+    /// Whether the pad has copper on `layer`: through-hole pads on both outer
+    /// layers, surface pads only on the part's own side.
+    pub fn pad_on_copper(&self, pad: &Pad, layer: Layer) -> bool {
+        match pad.geometry.as_ref() {
+            None => layer == Layer::Front,
+            Some(g) if g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu") => true,
+            Some(_) => self.board_side() == layer,
+        }
+    }
+    /// The pad's geometry layer names as placed: as authored on the top, with
+    /// the `F.` and `B.` prefixes swapped on the bottom.
+    pub fn pad_geometry_layers(&self, pad: &Pad) -> Vec<String> {
+        let Some(g) = pad.geometry.as_ref() else {
+            return vec!["F.Cu".into(), "F.Mask".into()];
+        };
+        if self.board_side() == Layer::Front {
+            return g.layers.clone();
+        }
+        g.layers.iter().map(|l| swap_board_side_layer(l)).collect()
+    }
     pub fn drawing_points(&self, project: &Project) -> Vec<Point> {
         let mut points: Vec<Point> = self.pads.iter().flat_map(|p| p.outline_points()).collect();
         if let Some(library) = project
@@ -2649,6 +2797,10 @@ pub struct Project {
     /// Checks the designer wrote themselves, in the order they were made.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_checks: Vec<CustomCheck>,
+    /// Pin-type connection matrix overrides keyed `"<type_a>|<type_b>"` with
+    /// sorted types; values are `"ok"`, `"warning"` or `"error"`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pin_matrix: BTreeMap<String, String>,
     /// Free-form project metadata such as title, revision, company or notes,
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -2797,6 +2949,7 @@ impl Default for Project {
             output_jobs: vec![],
             panel: PanelSettings::default(),
             custom_checks: vec![],
+            pin_matrix: BTreeMap::new(),
             files: vec![],
             variants: vec![],
             graphic_groups: vec![],
@@ -3372,6 +3525,131 @@ impl Project {
             None
         }
     }
+    /// Schematic pages that carry a net through a component pin or a hierarchy port.
+    pub fn net_pages(&self, net: Id) -> Vec<Id> {
+        if !self.nets.iter().any(|n| n.id == net) {
+            return vec![];
+        }
+        let mut pages = BTreeSet::new();
+        for component in &self.components {
+            if component
+                .pins
+                .iter()
+                .any(|pin| pin.net.is_some_and(|n| n == net))
+            {
+                pages.insert(component.sheet);
+            }
+        }
+        for port in &self.ports {
+            if port.net == net {
+                pages.insert(port.sheet);
+            }
+        }
+        pages.into_iter().collect()
+    }
+    fn schematic_wire_page(&self, wire: &Wire) -> Option<Id> {
+        let from = self.component(wire.from.component)?.sheet;
+        let to = self.component(wire.to.component)?.sheet;
+        if from == to { Some(from) } else { None }
+    }
+    fn schematic_label_page(&self, label: &Label) -> Id {
+        if label.kind == "junction" {
+            for wire in &self.wires {
+                if wire.net != label.net {
+                    continue;
+                }
+                if let Some(path) = self.wire_path(wire)
+                    && path
+                        .iter()
+                        .any(|point| point.distance(label.position) < 0.05)
+                    && let Some(page) = self.schematic_wire_page(wire)
+                {
+                    return page;
+                }
+            }
+        }
+        let mut best = (f64::INFINITY, 0);
+        for component in &self.components {
+            for pin in &component.pins {
+                if pin.net.is_some_and(|n| n == label.net)
+                    && let Some(position) = component.pin_position(&pin.number)
+                {
+                    let reach = position.distance(label.position);
+                    if reach < best.0 {
+                        best = (reach, component.sheet);
+                    }
+                }
+            }
+        }
+        for port in &self.ports {
+            if port.net == label.net {
+                let reach = port.position.distance(label.position);
+                if reach < best.0 {
+                    best = (reach, port.sheet);
+                }
+            }
+        }
+        best.1
+    }
+    fn schematic_drawn_wire_page(&self, wire: &DrawnWire) -> Id {
+        let Some(net) = wire.net else {
+            return 0;
+        };
+        let mut best = (f64::INFINITY, 0);
+        for anchor in [wire.points.first(), wire.points.last()]
+            .into_iter()
+            .flatten()
+        {
+            for component in &self.components {
+                for pin in &component.pins {
+                    if pin.net.is_some_and(|n| n == net)
+                        && let Some(position) = component.pin_position(&pin.number)
+                    {
+                        let reach = position.distance(*anchor);
+                        if reach < best.0 {
+                            best = (reach, component.sheet);
+                        }
+                    }
+                }
+            }
+            for port in &self.ports {
+                if port.net == net {
+                    let reach = port.position.distance(*anchor);
+                    if reach < best.0 {
+                        best = (reach, port.sheet);
+                    }
+                }
+            }
+        }
+        best.1
+    }
+    /// True when a schematic object should appear on the given page.
+    pub fn on_schematic_page(&self, page: Id, object: Id) -> bool {
+        if let Some(component) = self.components.iter().find(|c| c.id == object) {
+            return component.sheet == page;
+        }
+        if let Some(port) = self.ports.iter().find(|p| p.id == object) {
+            return port.sheet == page;
+        }
+        if let Some(wire) = self.wires.iter().find(|w| w.id == object) {
+            return self.schematic_wire_page(wire) == Some(page);
+        }
+        if let Some(wire) = self.drawn_wires.iter().find(|w| w.id == object) {
+            return self.schematic_drawn_wire_page(wire) == page;
+        }
+        if let Some(label) = self.labels.iter().find(|l| l.id == object) {
+            return self.schematic_label_page(label) == page;
+        }
+        if let Some(flag) = self.no_connects.iter().find(|f| f.id == object) {
+            return self
+                .component(flag.pin.component)
+                .is_some_and(|c| c.sheet == page);
+        }
+        if let Some(graphic) = self.graphics.iter().find(|g| g.id == object) {
+            return graphic.layer == "schematic" && page == 0;
+        }
+        false
+    }
     /// The net class a net belongs to, if it belongs to one.
     pub fn net_class(&self, net: Id) -> Option<&NetClass> {
         self.net_classes.iter().find(|c| c.nets.contains(&net))
@@ -3391,6 +3669,17 @@ impl Project {
     /// True when a check code has been silenced for this design.
     pub fn rule_disabled(&self, code: &str) -> bool {
         self.rule_severity.get(code).is_some_and(|s| s == "off")
+    }
+    pub fn pin_electrical_type_valid(type_name: &str) -> bool {
+        PIN_ELECTRICAL_TYPES.contains(&type_name)
+    }
+    /// ERC level for a pin-type pair, including project overrides.
+    pub fn pin_matrix_level(&self, type_a: &str, type_b: &str) -> String {
+        let key = pin_matrix_key(type_a, type_b);
+        self.pin_matrix
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| default_pin_matrix_level(type_a, type_b).to_string())
     }
     /// True when a finding for `code` naming exactly these objects has been
     /// excluded: every named object must sit on that code's exclusion list.
@@ -3694,6 +3983,40 @@ impl Project {
             }
             if !sheet_names.insert(&s.name) {
                 return Err("duplicate sheet name".into());
+            }
+            if let Some(parent) = s.parent {
+                if parent == s.id {
+                    return Err("a sheet cannot be its own parent".into());
+                }
+                if parent != 0 && !self.sheets.iter().any(|other| other.id == parent) {
+                    return Err("sheet parent does not exist".into());
+                }
+                let mut depth = 0usize;
+                let mut walk = parent;
+                for _ in 0..=8 {
+                    if walk == 0 {
+                        break;
+                    }
+                    depth += 1;
+                    if depth > 8 {
+                        return Err("sheet hierarchy is too deep".into());
+                    }
+                    let Some(node) = self.sheets.iter().find(|other| other.id == walk) else {
+                        return Err("sheet parent does not exist".into());
+                    };
+                    if node.id == s.id {
+                        return Err("sheet hierarchy would cycle".into());
+                    }
+                    walk = node.parent.unwrap_or(0);
+                }
+            }
+            if s.entry.is_some() && s.parent.is_none() {
+                return Err("sheet entry needs a parent page".into());
+            }
+            if let Some(entry) = s.entry
+                && !entry.valid()
+            {
+                return Err("sheet entry position is out of range".into());
             }
         }
         if self.ids().count() > MAX_ITEMS {
@@ -4042,6 +4365,23 @@ impl Project {
                 );
             }
         }
+        if self.pin_matrix.len() > 78 {
+            return Err("pin matrix overrides cover at most 78 cells".into());
+        }
+        for (key, level) in &self.pin_matrix {
+            let Some((a, b)) = key.split_once('|') else {
+                return Err("pin matrix key must name two types".into());
+            };
+            if a > b || !Self::pin_electrical_type_valid(a) || !Self::pin_electrical_type_valid(b) {
+                return Err("pin matrix key must be two sorted recognised types".into());
+            }
+            if !matches!(level.as_str(), "ok" | "warning" | "error") {
+                return Err("pin matrix level must be ok, warning or error".into());
+            }
+            if level == default_pin_matrix_level(a, b) {
+                return Err("pin matrix entry matches the default table".into());
+            }
+        }
         if self.rule_severity.len() > 64 {
             return Err("severity overrides cover at most 64 check codes".into());
         }
@@ -4196,6 +4536,7 @@ impl Project {
                     || p.direction
                         .is_some_and(|angle| !angle.is_finite() || angle.abs() > 360_000.0)
                     || p.electrical_type.len() > 64
+                    || !Self::pin_electrical_type_valid(&p.electrical_type)
                     || p.net.is_some_and(|n| !nets.contains(&n))
                 {
                     return Err("invalid pin or net reference".into());
@@ -4496,12 +4837,11 @@ impl Project {
                         .component(f.component)
                         .and_then(|c| c.library_footprint.as_ref())
                         .ok_or("pad geometry requires an embedded footprint definition")?;
-                    if !definition
-                        .definition
-                        .pads
-                        .iter()
-                        .any(|source| source == geometry)
-                    {
+                    if !definition.definition.pads.iter().any(|source| {
+                        source == geometry
+                            || (f.board_side() == Layer::Back
+                                && geometry == &mirrored_pad_for_bottom(source))
+                    }) {
                         return Err("pad geometry is not present in embedded definition".into());
                     }
                 }
@@ -5166,6 +5506,32 @@ mod drill_tests {
     }
 
     #[test]
+    fn default_pin_matrix_is_symmetric_and_covers_the_vocabulary() -> Result<(), String> {
+        for a in PIN_ELECTRICAL_TYPES {
+            for b in PIN_ELECTRICAL_TYPES {
+                assert_eq!(
+                    default_pin_matrix_level(a, b),
+                    default_pin_matrix_level(b, a),
+                    "{a}|{b} must be symmetric"
+                );
+            }
+        }
+        for &(a, b, level) in DEFAULT_PIN_MATRIX_OVERRIDES {
+            assert_eq!(
+                default_pin_matrix_level(a, b),
+                level,
+                "override slice must match default_pin_matrix_level for {a}|{b}"
+            );
+        }
+        for a in PIN_ELECTRICAL_TYPES {
+            for b in PIN_ELECTRICAL_TYPES {
+                let _ = default_pin_matrix_level(a, b);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn checks_written_by_the_designer_survive_a_save_and_reload() -> Result<(), String> {
         let mut p = Project::default();
         p.custom_checks.push(CustomCheck {
@@ -5493,6 +5859,7 @@ mod drill_tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![
                 Pad {
                     number: "1".into(),
