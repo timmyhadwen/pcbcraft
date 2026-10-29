@@ -15,6 +15,7 @@ mod checks;
 mod compare;
 mod context_menus;
 mod editing;
+mod export;
 mod images;
 mod keymap;
 mod layers;

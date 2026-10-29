@@ -5,6 +5,7 @@ mod assistant;
 mod authoring;
 mod board3d;
 mod board_side;
+mod bom_export;
 mod bottom_sheet;
 pub mod brand;
 mod browser;
@@ -13,6 +14,7 @@ mod contrast;
 mod datums;
 mod draw_target;
 mod editing;
+mod file_dialogs;
 pub mod fonts;
 mod footprint_wizard;
 mod hover_affordance;
@@ -673,6 +675,9 @@ struct Preferences {
     /// Language tag of the text catalog, or `system` to follow the computer.
     #[serde(default = "default_language")]
     language: String,
+    /// The last exports and imports with the options they used, newest first.
+    #[serde(default)]
+    recent_files: file_dialogs::Recents,
     /// Turn off fades, collapses and glided zoom. Dragging is unaffected.
     #[serde(default)]
     reduced_motion: bool,
@@ -751,6 +756,7 @@ impl Default for Preferences {
             library_favourites: Vec::new(),
             layouts: std::collections::BTreeMap::new(),
             language: default_language(),
+            recent_files: Default::default(),
             reduced_motion: motion::os_prefers_reduced_motion(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
@@ -3103,7 +3109,7 @@ impl App {
         }
     }
     fn file_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button(t!("menu.file"), |ui| {
+        let file = ui.menu_button(t!("menu.file"), |ui| {
             if ui
                 .button(t!("menu.file.new"))
                 .on_hover_text(t!("menu.file.new.tip"))
@@ -3126,7 +3132,6 @@ impl App {
             {
                 self.tool_call("save", json!({"path":self.path}));
             }
-            ui.separator();
             if ui
                 .button(t!("menu.file.compare"))
                 .on_hover_text(t!("menu.file.compare.tip"))
@@ -3135,16 +3140,16 @@ impl App {
                 self.compare_open = true;
             }
             if ui
-                .button(t!("menu.file.export"))
-                .on_hover_text(t!("menu.file.export.tip"))
+                .button(t!("menu.file.save_as"))
+                .on_hover_text(t!("menu.file.save_as.tip"))
                 .clicked()
             {
-                let path = std::path::Path::new(&self.path)
-                    .with_extension("kicad_pcb")
-                    .to_string_lossy()
-                    .into_owned();
-                self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
+                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                ui.close();
             }
+            ui.separator();
+            self.import_submenu(ui);
+            self.export_submenu(ui);
             if ui
                 .button(t!("menu.file.copy_picture"))
                 .on_hover_text(t!("menu.file.copy_picture.tip"))
@@ -3153,9 +3158,15 @@ impl App {
                 let ctx = ui.ctx().clone();
                 self.copy_plot_to_clipboard(&ctx);
             }
-        })
-        .response
-        .on_hover_text(t!("menu.file.tip"));
+        });
+        if self.capture.is_some() {
+            self.edit
+                .dialog
+                .script
+                .rects
+                .insert("File", file.response.rect.center());
+        }
+        file.response.on_hover_text(t!("menu.file.tip"));
     }
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.edit"), |ui| {
@@ -6709,6 +6720,7 @@ impl App {
         let about_muted = self.muted();
         brand::about_window(ui, &mut self.about_open, about_muted);
         self.array_window(ui.ctx());
+        self.file_dialog_window(ui.ctx());
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))
@@ -6864,13 +6876,21 @@ impl App {
                 self.canvas_menu = Some((at, canvas::CanvasMenuKind::Object(id)));
             }
         }
+        if self.frames == 3 {
+            self.capture_scene();
+        }
         ui_kit::menu::request_capture(ctx, self.capture_menu_tag.as_deref());
         let library_ready = self.tab != Tab::Libraries
             || self.library.editor.mode != 0
             || (self.library.catalog.is_some()
                 && (self.library.results.is_some() || self.library.path.is_empty())
                 && self.library.pending.is_none());
-        if self.capture.is_some() && self.frames >= 5 && library_ready && self.online_settled() {
+        if self.capture.is_some()
+            && self.frames >= 5
+            && library_ready
+            && self.online_settled()
+            && self.edit.dialog.script.ready()
+        {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
         if let Some(path) = self.capture.clone() {
@@ -7156,6 +7176,9 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
         self.show(ui);
+    }
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.capture_inputs(raw_input);
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);
