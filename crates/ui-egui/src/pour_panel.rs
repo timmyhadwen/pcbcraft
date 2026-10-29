@@ -433,7 +433,7 @@ impl App {
             } else {
                 muted
             };
-            ui.label(egui::RichText::new(text).small().color(colour));
+            ui.label(crate::fonts::caption(text).color(colour));
         }
     }
 

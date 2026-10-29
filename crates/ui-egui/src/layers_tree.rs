@@ -2561,6 +2561,8 @@ mod tests {
     fn only_expanded_branches_are_built() {
         let project = sample();
         let mut view = TreeView::default();
+        // The default view opens Parts, so close it to count the closed tree.
+        view.expanded.remove("sec:parts");
         let closed = rows(&env(&project, &[]), &mut view).len();
         view.expanded.insert("sec:parts".to_owned());
         let open = rows(&env(&project, &[]), &mut view).len();

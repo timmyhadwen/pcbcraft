@@ -2314,9 +2314,12 @@ impl App {
     ///
     /// # Do not
     /// - Set colours or text sizes here; add them to the tokens.
-    fn style(&self, ctx: &egui::Context) {
+    /// Returns true on the pass that installed the fonts: the caller must
+    /// discard that pass, because the new families are not bound until the next.
+    fn style(&self, ctx: &egui::Context) -> bool {
         let fonts_key = egui::Id::new("design-fonts-installed");
-        if !ctx.data(|d| d.get_temp::<bool>(fonts_key).unwrap_or(false)) {
+        let fresh = !ctx.data(|d| d.get_temp::<bool>(fonts_key).unwrap_or(false));
+        if fresh {
             fonts::install(ctx);
             ctx.data_mut(|d| d.insert_temp(fonts_key, true));
         }
@@ -2326,6 +2329,7 @@ impl App {
             s.spacing.interact_size = Vec2::new(40.0, Self::MIN_TARGET);
             s.animation_time = if reduced { 0.0 } else { 1.0 / 12.0 };
         });
+        fresh
     }
     fn dock_frame(style: &egui::Style) -> egui::Frame {
         egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(16, 12))
@@ -6790,7 +6794,13 @@ impl App {
         icons::install(&ctx);
         a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
         self.assistant_frame(&ctx);
-        self.style(&ctx);
+        if self.style(&ctx) {
+            // The font set takes effect on the next pass; painting now would
+            // ask for a family that is not bound yet.
+            ctx.request_discard("fonts installed");
+            ctx.request_repaint();
+            return;
+        }
         self.shortcuts(&ctx);
         self.edit_events(&ctx);
         self.header(ui);

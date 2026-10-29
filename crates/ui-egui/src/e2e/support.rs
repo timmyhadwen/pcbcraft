@@ -288,6 +288,11 @@ pub(crate) fn type_into(
 /// Properties shows it: `sec:board/root` for the board settings, `sec:nets`
 /// for the connections editor.
 pub(crate) fn open_tree_row(ctx: &egui::Context, app: &mut App, key: &str) {
+    // Board rows are edited on the layout page; stay on the schematic page
+    // when the caller is already there.
+    if !matches!(app.tab, Tab::Pcb | Tab::Schematic) {
+        app.change_tab(Tab::Pcb);
+    }
     app.preferences.left_tab = 0;
     app.select(None);
     app.tree.selected_key = Some(key.to_owned());

@@ -2565,7 +2565,7 @@ impl App {
                                     center,
                                     Align2::CENTER_CENTER,
                                     label,
-                                    FontId::monospace(11.0),
+                                    crate::fonts::Role::Mono.font(),
                                     art.on_copper,
                                 );
                             }
