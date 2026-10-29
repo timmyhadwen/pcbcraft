@@ -83,4 +83,3 @@ lib.rs copy_plot_to_clipboard
 lib.rs refusal_text
 authoring.rs pad_shape_controls
 authoring.rs pad_shape_label
-lib.rs finding_row

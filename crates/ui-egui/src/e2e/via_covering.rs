@@ -70,6 +70,7 @@ fn a_newcomer_tents_every_via_from_the_board_notes() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Pcb);
     authoring::tests::tap(&ctx, &mut app, "Layers")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(

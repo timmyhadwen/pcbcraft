@@ -408,10 +408,9 @@ fn a_newcomer_changes_how_the_app_looks() -> Result<(), String> {
 fn a_newcomer_jumps_from_settings_to_the_list_of_findings() -> Result<(), String> {
     let (mut app, ctx) = sample_in_settings()?;
     tap_id(&ctx, &mut app, "button:# electrical · # board >")?;
-    assert_eq!(
-        app.tab,
-        Tab::Checks,
-        "the findings button opens the checks tab"
+    assert!(
+        app.region().bottom_open,
+        "the findings button opens the bottom sheet on Findings"
     );
     Ok(())
 }

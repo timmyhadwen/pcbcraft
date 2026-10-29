@@ -12,6 +12,7 @@ fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), S
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Pcb);
     authoring::tests::tap(&ctx, &mut app, "Layers")?;
     assert!(
         scrolled_to(&ctx, &mut app, "New net")?,
@@ -206,7 +207,7 @@ fn a_newcomer_hardens_the_junctions_for_the_etcher() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Harden junctions")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -324,7 +325,7 @@ fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     for _ in 0..18 {
         frame(
             &ctx,
@@ -386,7 +387,7 @@ fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     for _ in 0..14 {
         frame(
             &ctx,
@@ -577,6 +578,10 @@ fn a_newcomer_renumbers_a_messy_pile_of_parts_in_one_step() -> Result<(), String
         json!({"kind":"resistor","reference":"R9","value":"10 k","position":{"x":10.0,"y":40.0}}),
     );
     let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Edit")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Renumber parts")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Preview")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
