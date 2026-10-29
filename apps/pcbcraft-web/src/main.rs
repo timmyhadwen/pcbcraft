@@ -36,7 +36,7 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
         .get_element_by_id("pcbcraft")
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("missing pcbcraft canvas"))?
         .dyn_into::<web_sys::HtmlCanvasElement>()?;
-    let session = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let session = pcbcraft_mcp::shared(demo_session());
     eframe::WebRunner::new()
         .start(
             canvas,
@@ -77,14 +77,45 @@ fn show_start_failure() {
     }
 }
 
+/// The session the demo opens with: the built-in sample board.
+///
+/// The desktop app's `--sample` flag builds the same project, so checks and
+/// tabs behave identically. If the sample cannot be built the demo starts
+/// empty rather than failing.
+///
+/// # Rules
+/// - Never panic; fall back to an empty session.
+///
+/// # Dependencies
+/// - `../../crates/engine/src/lib.rs` (`Session::sample`)
+///
+/// # Do not
+/// - Read files; the browser has none.
+#[cfg(any(target_arch = "wasm32", test))]
+fn demo_session() -> pcbcraft_engine::Session {
+    pcbcraft_engine::Session::sample().unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
+    /// The demo opens on a board with parts and nets.
+    #[test]
+    fn the_demo_starts_with_a_sample() {
+        let session = super::demo_session();
+        assert!(!session.project.components.is_empty(), "no parts");
+        assert!(!session.project.nets.is_empty(), "no nets");
+    }
+
     /// The paragraph in index.html says what the catalog says.
     #[test]
     fn the_page_message_matches_the_catalog() {
         let html = include_str!("../index.html");
         let catalog = pcbcraft_text::Catalog::english();
-        for key in ["web.needs_webgpu", "web.download_desktop", "web.download_desktop.tip"] {
+        for key in [
+            "web.needs_webgpu",
+            "web.download_desktop",
+            "web.download_desktop.tip",
+        ] {
             assert!(catalog.defines(key), "{key} missing from the catalog");
             assert!(
                 html.contains(&catalog.get(key)),
