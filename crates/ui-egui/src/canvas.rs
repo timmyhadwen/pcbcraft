@@ -177,11 +177,21 @@ enum CanvasIcon {
 impl App {
     /// One square icon button over the canvas. Its rectangle is published for
     /// the tests under `id`.
-    fn canvas_icon(&mut self, ui: &mut egui::Ui, id: &str, icon: CanvasIcon, tip: &str) -> egui::Response {
+    fn canvas_icon(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: &str,
+        icon: CanvasIcon,
+        tip: &str,
+    ) -> egui::Response {
         let (rect, response) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
         let response = response.on_hover_text(tip);
         self.record_icon(id, rect);
-        let ink = if response.hovered() { self.accent() } else { self.ink() };
+        let ink = if response.hovered() {
+            self.accent()
+        } else {
+            self.ink()
+        };
         let fill = if self.preferences.dark {
             Color32::from_rgb(28, 40, 56)
         } else {
@@ -212,7 +222,8 @@ impl App {
                 painter.line_segment([at(0.0, -7.0), at(0.0, 7.0)], stroke);
                 for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
                     let tip = at(dx * 7.0, dy * 7.0);
-                    let back = |a: f32, b: f32| at(dx * (7.0 - a) + dy * b, dy * (7.0 - a) + dx * b);
+                    let back =
+                        |a: f32, b: f32| at(dx * (7.0 - a) + dy * b, dy * (7.0 - a) + dx * b);
                     painter.line_segment([tip, back(3.0, 2.5)], stroke);
                     painter.line_segment([tip, back(3.0, -2.5)], stroke);
                 }
@@ -688,7 +699,12 @@ impl App {
             .show(ui.ctx(), |ui| {
                 ui.horizontal(|ui| {
                     if self
-                        .canvas_icon(ui, "canvas-fit", CanvasIcon::Fit, "Fit: zoom the view so the whole design fits.")
+                        .canvas_icon(
+                            ui,
+                            "canvas-fit",
+                            CanvasIcon::Fit,
+                            "Fit: zoom the view so the whole design fits.",
+                        )
                         .clicked()
                     {
                         self.needs_fit = true;
