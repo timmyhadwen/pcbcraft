@@ -1946,7 +1946,7 @@ sheet.hide.tip = You have looked at this and it is fine: hide just this finding.
 sheet.mute = Mute
 sheet.mute.tip = This corner of the board is the way you want it: the check leaves everything in a box around these items alone. Clear the box below.
 sheet.output_summary = Last run: {errors} errors, {warnings} warnings, {notes} notes.
-sheet.console_revision = Design revision {revision}
+sheet.console_revision = Design version {revision}
 
 # workspace.rs
 workspace.tab_properties = Properties

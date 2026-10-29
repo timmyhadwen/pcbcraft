@@ -552,7 +552,7 @@ fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Draw shape")?;
+    tap_strip(&ctx, &mut app, "button:Draw shape")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "New layer")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -1548,7 +1548,7 @@ fn a_newcomer_hides_and_shows_each_kind_of_thing_on_the_board() -> Result<(), St
 #[test]
 fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Pcb);
-    tap_id(&ctx, &mut app, "icon:tool-route")?;
+    tap_strip(&ctx, &mut app, "icon:tool-route")?;
     assert!(
         matches!(app.tool, Tool::Route(_)),
         "Route arms the track tool"
@@ -1576,7 +1576,7 @@ fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), S
 #[test]
 fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Schematic);
-    tap_id(&ctx, &mut app, "icon:tool-wire")?;
+    tap_strip(&ctx, &mut app, "icon:tool-wire")?;
     assert!(matches!(app.tool, Tool::Wire(_)), "Wire arms the wire tool");
     for (id, read) in [
         (

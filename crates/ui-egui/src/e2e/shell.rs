@@ -491,7 +491,7 @@ fn a_newcomer_picks_the_move_tool_from_the_strip_icons() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    authoring::tests::tap_icon(&ctx, &mut app, "tool-move")?;
+    tap_strip(&ctx, &mut app, "icon:tool-move")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         matches!(app.tool, Tool::Move),
@@ -609,7 +609,7 @@ fn a_newcomer_draws_from_the_tool_strip() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    authoring::tests::tap_icon(&ctx, &mut app, "tool-line")?;
+    tap_strip(&ctx, &mut app, "icon:tool-line")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         matches!(app.tool, Tool::DrawLayer) && app.art_shape == DrawShape::Line,

@@ -251,7 +251,7 @@ fn a_newcomer_draws_silkscreen_by_picking_the_silkscreen_layer() -> Result<(), S
         Target::Copper(pcbcraft_doc::Layer::Front)
     );
     app.highlight_net = app.project.nets.first().map(|n| n.id);
-    authoring::tests::tap_icon(&ctx, &mut app, "tool-line")?;
+    tap_strip(&ctx, &mut app, "icon:tool-line")?;
     let before = drawn(&app);
     app.canvas_click(Point::new(30.0, 10.0), 10.0);
     app.canvas_click(Point::new(40.0, 10.0), 10.0);
@@ -263,7 +263,7 @@ fn a_newcomer_draws_silkscreen_by_picking_the_silkscreen_layer() -> Result<(), S
     );
     // Text on the silkscreen is board text on the top side.
     app.set_target(Target::Silk(Side::Top));
-    authoring::tests::tap_icon(&ctx, &mut app, "tool-words")?;
+    tap_strip(&ctx, &mut app, "icon:tool-words")?;
     app.art_text = "REV A".into();
     app.canvas_click(Point::new(12.0, 20.0), 10.0);
     assert!(
@@ -295,7 +295,7 @@ fn a_newcomer_draws_the_board_edge_from_the_tree() -> Result<(), String> {
         "clicking Board edge makes it the target: {}",
         app.message
     );
-    authoring::tests::tap_icon(&ctx, &mut app, "tool-box")?;
+    tap_strip(&ctx, &mut app, "icon:tool-box")?;
     app.canvas_click(Point::new(1.0, 1.0), 10.0);
     app.canvas_click(Point::new(59.0, 39.0), 10.0);
     let outline = app
@@ -308,7 +308,7 @@ fn a_newcomer_draws_the_board_edge_from_the_tree() -> Result<(), String> {
     assert!((app.project.board.width - 58.0).abs() < 0.01);
     assert!((app.project.board.height - 38.0).abs() < 0.01);
     // Line on the board edge chains corners until Enter closes the outline.
-    authoring::tests::tap_icon(&ctx, &mut app, "tool-line")?;
+    tap_strip(&ctx, &mut app, "icon:tool-line")?;
     for (x, y) in [(1.0, 1.0), (59.0, 1.0), (59.0, 39.0), (1.0, 39.0)] {
         app.canvas_click(Point::new(x, y), 10.0);
     }
@@ -412,7 +412,7 @@ fn a_four_layer_board_lists_every_layer_in_the_tree() -> Result<(), String> {
 fn a_silkscreen_line_drawn_on_the_layout_is_kept_for_the_capture() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
     press_on(&ctx, &mut app, "side:top/silk", egui::Key::Enter);
-    authoring::tests::tap_icon(&ctx, &mut app, "tool-line")?;
+    tap_strip(&ctx, &mut app, "icon:tool-line")?;
     app.canvas_click(Point::new(8.0, 4.0), 10.0);
     app.canvas_click(Point::new(30.0, 4.0), 10.0);
     assert!(
