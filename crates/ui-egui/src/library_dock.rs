@@ -137,6 +137,9 @@ pub(crate) struct Dock {
     inflight: Vec<(u64, Reply)>,
     drawings: BTreeMap<String, Vec<Vec<Point>>>,
     drawing_request: Option<(String, Reply)>,
+    /// Online parts read for their thumbnail: symbol and footprint by sku; `None` when unreadable.
+    online: BTreeMap<String, Option<(SymbolDefinition, Option<FootprintDefinition>)>>,
+    online_request: Option<(String, Reply)>,
     placing: Option<(String, String, Reply)>,
     /// Installed footprints by package text; `None` when none was found.
     footprints: BTreeMap<String, Option<FootprintDefinition>>,
@@ -204,6 +207,8 @@ impl Default for Dock {
             inflight: Vec::new(),
             drawings: BTreeMap::new(),
             drawing_request: None,
+            online: BTreeMap::new(),
+            online_request: None,
             placing: None,
             footprints: BTreeMap::new(),
             footprint_request: None,
@@ -455,10 +460,7 @@ impl App {
                 }
             }
         }
-        if !self.dock.hide_online
-            && self.dock.tag.is_none()
-            && self.dock.view != ViewKind::Footprints
-        {
+        if !self.dock.hide_online && self.dock.tag.is_none() {
             for (part, credit) in self.online_parts(ui) {
                 cards.push(Card::Online(Box::new(part), credit));
             }
@@ -472,7 +474,7 @@ impl App {
                 Card::BuiltIn(..) => true,
                 Card::Project(d) => !d.footprint.trim().is_empty(),
                 Card::Installed(i) => !i.package.trim().is_empty(),
-                Card::Online(..) => false,
+                Card::Online(..) => true,
             });
         }
         self.dock_sets(ui, &sets);
@@ -849,6 +851,37 @@ impl App {
                 }
             }
         }
+        if let Some((sku, rx)) = &self.dock.online_request {
+            let sku = sku.clone();
+            match rx.try_recv() {
+                Ok(result) => {
+                    let found = result.ok().and_then(|v| {
+                        let symbol =
+                            serde_json::from_value::<SymbolDefinition>(v.get("symbol")?.clone())
+                                .ok()?;
+                        let footprint = v.get("footprint").and_then(|f| {
+                            serde_json::from_value::<FootprintDefinition>(f.clone()).ok()
+                        });
+                        Some((symbol, footprint))
+                    });
+                    if let Some((symbol, _)) = &found {
+                        self.dock.drawings.insert(
+                            format!("online/{sku}"),
+                            library::library_geometry_paths(Some(symbol), None, 1),
+                        );
+                    }
+                    self.dock.online.insert(sku, found);
+                    self.dock.online_request = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.dock.online.insert(sku, None);
+                    self.dock.online_request = None;
+                }
+            }
+        }
         if let Some((package, rx)) = &self.dock.footprint_request {
             let package = package.clone();
             match rx.try_recv() {
@@ -977,28 +1010,65 @@ impl App {
                     symbol: Some(key),
                 }
             }
-            Card::Online(p, credit) => CardFacts {
-                name: p.mpn.clone(),
-                what: if p.manufacturer.is_empty() {
-                    p.description.clone()
-                } else {
-                    format!("{} \u{b7} {}", p.manufacturer, p.description)
-                },
-                source: p.source.clone(),
-                meta: if p.distributor.is_empty() && p.price_breaks.is_empty() {
+            Card::Online(p, credit) => {
+                if !self.dock.online.contains_key(&p.sku)
+                    && self.dock.online_request.is_none()
+                    && let Some(source) = self.part_sources.open()
+                {
+                    let sku = p.sku.clone();
+                    let reply = spawn_read(ui.ctx(), {
+                        let sku = sku.clone();
+                        move || library_online::peek_open(&source, &sku)
+                    });
+                    self.dock.online_request = Some((sku, reply));
+                }
+                let def = self.dock.online.get(&p.sku).and_then(Option::as_ref);
+                let own = def
+                    .map(|(d, _)| {
+                        let words = d.keywords.trim();
+                        match (d.description.trim(), words.is_empty()) {
+                            ("", true) => String::new(),
+                            ("", false) => words.to_owned(),
+                            (text, true) => text.to_owned(),
+                            (text, false) => format!("{text} \u{b7} {words}"),
+                        }
+                    })
+                    .filter(|t| !t.is_empty());
+                let mut meta = if p.distributor.is_empty() && p.price_breaks.is_empty() {
                     p.sku.clone()
                 } else {
                     sources::stock_line(p)
-                },
-                licence: Some(if credit.is_empty() {
-                    t!("library.dock.licence.online_plain", source = p.source)
-                } else {
-                    t!("library.dock.licence.online", credit = credit)
-                }),
-                outside: true,
-                armed: false,
-                symbol: None,
-            },
+                };
+                if let Some((d, _)) = def {
+                    let extra = if d.footprint.trim().is_empty() {
+                        t!("library.dock.pins", count = d.pins.len())
+                    } else {
+                        d.footprint.trim().to_owned()
+                    };
+                    meta = format!("{meta} \u{b7} {extra}");
+                }
+                let licence_name = credit.split(". ").next().unwrap_or_default();
+                CardFacts {
+                    name: p.mpn.clone(),
+                    what: own.unwrap_or_else(|| {
+                        if def.is_some() || self.dock.online.contains_key(&p.sku) {
+                            String::new()
+                        } else {
+                            t!("library.dock.loading")
+                        }
+                    }),
+                    source: if licence_name.is_empty() {
+                        p.source.clone()
+                    } else {
+                        format!("{} \u{b7} {licence_name}", p.source)
+                    },
+                    meta,
+                    licence: None,
+                    outside: true,
+                    armed: false,
+                    symbol: def.map(|_| format!("online/{}", p.sku)),
+                }
+            }
         }
     }
 
@@ -1050,6 +1120,15 @@ impl App {
                     return None;
                 }
             }
+            Card::Online(p, _) => {
+                let def = self
+                    .dock
+                    .online
+                    .get(&p.sku)
+                    .and_then(Option::as_ref)
+                    .and_then(|(_, f)| f.clone())?;
+                (format!("online/{}", p.sku), Some(def))
+            }
             Card::BuiltIn(kind, _) => {
                 (format!("built-in/{kind}"), library_builtin::footprint(kind))
             }
@@ -1092,7 +1171,14 @@ impl App {
                 label.clone(),
             )
         });
-        let response = response.on_hover_text(t!("library.dock.pick.tip"));
+        let response = match card {
+            Card::Online(_, credit) if !credit.is_empty() => response.on_hover_text(format!(
+                "{}\n{}",
+                t!("library.dock.pick.tip"),
+                t!("library.dock.licence.online", credit = credit)
+            )),
+            _ => response.on_hover_text(t!("library.dock.pick.tip")),
+        };
         let hovered = ui.rect_contains_pointer(rect);
         let accent = self.accent();
         let painter = ui.painter_at(rect);
@@ -1212,14 +1298,43 @@ impl App {
                     );
                 }
                 None => {
-                    icons::icon_at(
-                        ui,
-                        Rect::from_center_size(spot.center(), spot.size() * 0.45),
-                        "footprint",
-                        self.muted(),
-                    );
+                    // A part with no footprint of its own shows its symbol,
+                    // never the generic chip.
+                    let symbol = facts
+                        .symbol
+                        .as_ref()
+                        .and_then(|k| self.dock.drawings.get(k))
+                        .filter(|p| !p.is_empty())
+                        .cloned();
+                    if let (Card::Online(..), Some(paths)) = (card, symbol) {
+                        let (center, extent) = library::library_paths_extent(&paths);
+                        let camera = Camera {
+                            center,
+                            zoom: ((spot.width() - 12.0) / extent.x as f32)
+                                .min((spot.height() - 12.0) / extent.y as f32)
+                                .clamp(0.01, 40.0),
+                        };
+                        library::paint_library_paths(&painter, spot, camera, &paths, accent);
+                    } else {
+                        icons::icon_at(
+                            ui,
+                            Rect::from_center_size(spot.center(), spot.size() * 0.45),
+                            "footprint",
+                            self.muted(),
+                        );
+                    }
                 }
             }
+        }
+        if let Card::Online(p, _) = card
+            && !self.dock.online.contains_key(&p.sku)
+        {
+            let spot = Rect::from_center_size(
+                thumb.right_bottom() - egui::vec2(10.0, 10.0),
+                egui::Vec2::splat(12.0),
+            );
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(spot));
+            child.add(egui::Spinner::new().size(12.0).color(self.muted()));
         }
         let text_left = thumb.right() + 12.0;
         let text_width = (rect.right() - 12.0 - text_left).max(40.0);
@@ -1285,12 +1400,16 @@ impl App {
             .filter(|l| !l.is_empty())
         {
             if y + 12.0 < rect.bottom() {
-                let galley = painter.layout(
+                let mut job = egui::text::LayoutJob::simple(
                     line,
                     egui::FontId::proportional(10.5),
                     self.muted(),
                     text_width,
                 );
+                job.wrap.max_rows = 1;
+                job.wrap.break_anywhere = true;
+                job.wrap.overflow_character = Some('\u{2026}');
+                let galley = painter.layout_job(job);
                 let h = galley.size().y;
                 painter.galley(egui::pos2(text_left, y), galley, Color32::WHITE);
                 y += h + 1.0;
@@ -1683,6 +1802,12 @@ impl App {
             name: part.mpn.clone(),
             rx: reply,
         });
+    }
+
+    /// True when enough online cards have been read for a capture image, or
+    /// the wait has gone on long enough.
+    pub(crate) fn dock_online_read(&self) -> bool {
+        self.dock.online.len() >= 8 || self.frames >= 900
     }
 
     /// Test hook: place an online part the way a card pick does.
