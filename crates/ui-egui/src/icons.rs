@@ -188,9 +188,21 @@ pub(crate) fn icon_at(ui: &mut Ui, rect: egui::Rect, name: &str, color: Color32)
 /// An icon-only button. The tip is required: it is the hover text and the
 /// screen-reader name.
 pub(crate) fn icon_button(ui: &mut Ui, name: &str, tip: &str, selected: bool) -> Response {
+    icon_button_sized(ui, name, tip, selected, 26.0)
+}
+
+/// An icon-only button of a given side, for dense rows of toggles. The side
+/// must stay at least `targets::MIN_TARGET`.
+pub(crate) fn icon_button_sized(
+    ui: &mut Ui,
+    name: &str,
+    tip: &str,
+    selected: bool,
+    side: f32,
+) -> Response {
     let button = egui::Button::image(image(ui, name, ICON_SIZE, selected))
         .selected(selected)
-        .min_size(Vec2::splat(26.0));
+        .min_size(Vec2::splat(side.max(crate::targets::MIN_TARGET)));
     let response = ui.add(button).on_hover_text(tip);
     crate::a11y::name_control(&response, tip, Some(selected));
     response

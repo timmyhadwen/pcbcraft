@@ -29,6 +29,7 @@
 //! - crates/text/strings/en.txt
 
 use super::*;
+use crate::library_builtin;
 use pcbcraft_library::sources::PartResult;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 use std::collections::{BTreeMap, BTreeSet};
@@ -87,7 +88,7 @@ const KINDS: [(&str, &str, &str, &[&str]); 4] = [
 ];
 
 /// Height of one card row, thumbnail included.
-const ROW_HEIGHT: f32 = 108.0;
+const ROW_HEIGHT: f32 = 96.0;
 /// Side of the thumbnail on a card.
 const THUMB: f32 = 72.0;
 
@@ -489,22 +490,6 @@ impl App {
                 .small()
                 .color(self.muted()),
             );
-        } else if !want_installed && !self.dock.hide_installed {
-            ui.label(
-                egui::RichText::new(t!("library.dock.type_for_installed"))
-                    .small()
-                    .color(self.muted()),
-            );
-        }
-        if cards.is_empty() {
-            ui.label(
-                egui::RichText::new(t!(
-                    "library.browser.nothing_here_matches_trim_yet",
-                    trim = self.part_search.trim()
-                ))
-                .small()
-                .color(self.muted()),
-            );
         }
         let top = ui.cursor().min.y - ui.min_rect().min.y;
         let first =
@@ -518,13 +503,39 @@ impl App {
         }
         ui.add_space((cards.len() - last) as f32 * ROW_HEIGHT);
         ui.spacing_mut().item_spacing.y = 4.0;
+        let hint = if cards.is_empty() {
+            Some(t!(
+                "library.browser.nothing_here_matches_trim_yet",
+                trim = self.part_search.trim()
+            ))
+        } else if !want_installed && !self.dock.hide_installed {
+            Some(t!("library.dock.type_for_installed"))
+        } else {
+            None
+        };
+        if let Some(text) = hint {
+            self.dock_empty_state(ui, &text);
+        }
+        ui.add_space(6.0);
         if ui
-            .button(t!("library.browser.browse_component_libraries"))
+            .link(t!("library.browser.browse_component_libraries"))
             .on_hover_text(t!("library.browser.browse_component_libraries.tip"))
             .clicked()
         {
             self.change_tab(Tab::Settings);
         }
+    }
+
+    /// The message under or instead of the list: centred, wrapped, in the
+    /// list area with real padding so it reads as the state of the list.
+    fn dock_empty_state(&self, ui: &mut egui::Ui, text: &str) {
+        ui.add_space(14.0);
+        ui.vertical_centered(|ui| {
+            ui.add(
+                egui::Label::new(egui::RichText::new(text).size(12.0).color(self.muted())).wrap(),
+            );
+        });
+        ui.add_space(8.0);
     }
 
     /// True when no kind toggle is on, or this listing category is in one.
@@ -586,10 +597,13 @@ impl App {
         });
     }
 
-    /// One row of icon toggles: sources, kinds, favourites.
+    /// One row of small icon toggles: four sources, three kinds, favourites,
+    /// and a "..." menu for the rest (mechanical parts, clear all).
     fn dock_chips(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
+        const SIDE: f32 = 24.0;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            ui.spacing_mut().button_padding = egui::vec2(2.0, 2.0);
             let sources = [
                 ("box", self.dock.hide_built_in, "library.dock.built_in.tip"),
                 ("folder", self.dock.hide_project, "library.dock.project.tip"),
@@ -601,7 +615,14 @@ impl App {
                 ("globe", self.dock.hide_online, "library.dock.online.tip"),
             ];
             for (i, (icon, hidden, tip)) in sources.into_iter().enumerate() {
-                if icons::icon_button(ui, icon, &pcbcraft_text::lookup(tip, &[]), !hidden).clicked()
+                if icons::icon_button_sized(
+                    ui,
+                    icon,
+                    &pcbcraft_text::lookup(tip, &[]),
+                    !hidden,
+                    SIDE,
+                )
+                .clicked()
                 {
                     match i {
                         0 => self.dock.hide_built_in = !hidden,
@@ -611,11 +632,12 @@ impl App {
                     }
                 }
             }
-            ui.add_space(8.0);
             let icon_names = ["omega", "cpu", "plug", "settings"];
-            for ((name, _, tip, _), icon) in KINDS.iter().zip(icon_names) {
+            for ((name, _, tip, _), icon) in KINDS.iter().zip(icon_names).take(3) {
                 let on = self.dock.kinds.contains(*name);
-                if icons::icon_button(ui, icon, &pcbcraft_text::lookup(tip, &[]), on).clicked() {
+                if icons::icon_button_sized(ui, icon, &pcbcraft_text::lookup(tip, &[]), on, SIDE)
+                    .clicked()
+                {
                     if on {
                         self.dock.kinds.remove(*name);
                     } else {
@@ -623,17 +645,53 @@ impl App {
                     }
                 }
             }
-            ui.add_space(8.0);
-            if icons::icon_button(
+            if icons::icon_button_sized(
                 ui,
                 "star",
                 &pcbcraft_text::lookup("library.dock.favourites.tip", &[]),
                 self.dock.favourites_only,
+                SIDE,
             )
             .clicked()
             {
                 self.dock.favourites_only = !self.dock.favourites_only;
             }
+            let more = ui
+                .menu_button("\u{2026}", |ui| {
+                    if let Some((name, _, tip, _)) = KINDS.get(3) {
+                        let on = self.dock.kinds.contains(*name);
+                        let label = pcbcraft_text::lookup("library.dock.kind.mechanical", &[]);
+                        if ui
+                            .selectable_label(on, label)
+                            .on_hover_text(pcbcraft_text::lookup(tip, &[]))
+                            .clicked()
+                        {
+                            if on {
+                                self.dock.kinds.remove(*name);
+                            } else {
+                                self.dock.kinds.insert((*name).to_owned());
+                            }
+                            ui.close();
+                        }
+                    }
+                    if ui
+                        .button(t!("library.dock.clear_filters"))
+                        .on_hover_text(t!("library.dock.clear_filters.tip"))
+                        .clicked()
+                    {
+                        self.dock.kinds.clear();
+                        self.dock.favourites_only = false;
+                        self.dock.tag = None;
+                        self.dock.hide_built_in = false;
+                        self.dock.hide_project = false;
+                        self.dock.hide_installed = false;
+                        self.dock.hide_online = false;
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text(t!("library.dock.more_filters.tip"));
+            crate::a11y::name_control(&more, &t!("library.dock.more_filters"), None);
         });
     }
 
@@ -840,9 +898,12 @@ impl App {
         match card {
             Card::BuiltIn(kind, label) => CardFacts {
                 name: (*label).to_owned(),
-                what: String::new(),
-                source: t!("library.dock.note.built_in"),
-                meta: String::new(),
+                what: library_builtin::describe(kind),
+                source: t!(
+                    "library.dock.note.built_in_licence",
+                    licence = env!("CARGO_PKG_LICENSE")
+                ),
+                meta: t!("library.dock.builtin.meta"),
                 licence: None,
                 outside: false,
                 armed: matches!(&self.tool, Tool::Place(k) if k == kind),
@@ -972,6 +1033,10 @@ impl App {
                     return None;
                 }
             }
+            Card::BuiltIn(kind, _) => (
+                format!("built-in/{kind}"),
+                library_builtin::footprint(kind),
+            ),
             _ => return None,
         };
         if let Some(texture) = self.dock.thumbs.get(&key) {
@@ -1030,7 +1095,7 @@ impl App {
             rect.bottom(),
             Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
         );
-        let thumb = Rect::from_min_size(rect.min + egui::vec2(12.0, 8.0), egui::Vec2::splat(THUMB));
+        let thumb = Rect::from_min_size(rect.min + egui::vec2(12.0, (ROW_HEIGHT - THUMB) / 2.0), egui::Vec2::splat(THUMB));
         painter.rect_filled(thumb, 6.0, self.surface());
         let want_symbol = self.dock.view != ViewKind::Footprints;
         let want_footprint = self.dock.view != ViewKind::Symbols;
@@ -1137,10 +1202,10 @@ impl App {
         }
         let text_left = thumb.right() + 12.0;
         let text_width = (rect.right() - 12.0 - text_left).max(40.0);
-        let mut y = rect.top() + 8.0;
+        let mut y = rect.top() + 9.0;
         let title = painter.layout(
             facts.name.clone(),
-            egui::FontId::proportional(13.0),
+            egui::FontId::proportional(14.0),
             ui.visuals().strong_text_color(),
             (text_width - 26.0).max(40.0),
         );
