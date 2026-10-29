@@ -52,13 +52,12 @@ pub(crate) fn name_control(response: &Response, name: &str, selected: Option<boo
 /// - Does nothing while no screen reader is attached.
 ///
 /// # Dependencies
-/// - `lib.rs` status panel (`App::update`) is the only caller.
+/// - `crates/ui-egui/src/lib.rs` status panel is the only caller.
 ///
 /// # Do not
 /// - Use `Live::Assertive`; status messages must never interrupt speech.
 pub(crate) fn announce_status(ctx: &Context, response: &Response, text: &str) {
     ctx.accesskit_node_builder(response.id, |node| {
-        node.set_role(egui::accesskit::Role::Status);
         node.set_live(egui::accesskit::Live::Polite);
         node.set_label(text);
     });
