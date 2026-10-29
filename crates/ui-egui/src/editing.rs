@@ -78,6 +78,16 @@ pub(super) struct EditState {
     pub clip_origin: Option<Point>,
     /// Where the right-click menu was opened, in world millimetres.
     pub menu_at: Option<Point>,
+    /// A press that is turning into a drag; see `canvas/gestures.rs`.
+    pub press: Option<crate::canvas::gestures::Press>,
+    /// What the pointer hovers and what a click there will do.
+    pub hover: Option<crate::canvas::gestures::Hover>,
+    /// Modifier actions held this frame for the active tool.
+    pub live: crate::tool_modifiers::ActionSet,
+    /// The status hint for the hovered target and held keys.
+    pub hint: String,
+    /// The rename-a-net prompt, open after a double-click on a net label.
+    pub rename: Option<crate::canvas::gestures::Rename>,
 }
 
 /// Distance, dx, dy and angle between two points, as one plain sentence.

@@ -17,6 +17,7 @@ mod images;
 mod layers;
 mod layout;
 mod library;
+mod modifiers;
 mod nets;
 mod pairs;
 mod pours;

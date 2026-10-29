@@ -486,7 +486,8 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     let response = response.on_hover_text(t!("board.board3d.3d_board_drag_to_turn.tip"));
     let (shift, secondary, scroll) = ui.input(|i| {
         (
-            i.modifiers.shift,
+            crate::tool_modifiers::Held::new(i.modifiers, crate::tool_modifiers::Platform::host())
+                .shift,
             i.pointer.button_down(egui::PointerButton::Secondary)
                 || i.pointer.button_down(egui::PointerButton::Middle),
             i.smooth_scroll_delta.y,

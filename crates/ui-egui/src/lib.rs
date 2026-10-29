@@ -11,11 +11,13 @@ mod editing;
 pub mod fonts;
 mod footprint_wizard;
 mod icons;
+mod hover_affordance;
 mod impedance_panel;
 mod layers_tree;
 mod library;
 mod library_dock;
 mod library_quality;
+mod modifier_ui;
 mod motion;
 mod number_entry;
 mod pages;
@@ -30,6 +32,7 @@ mod target_size;
 mod targets;
 pub mod theme;
 pub mod ui_kit;
+mod tool_modifiers;
 mod via_covering;
 mod via_span;
 use crate::a11y::Named;
@@ -388,6 +391,7 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Measure => {
             t!("board.tool_hint.lmb_click_two_points_to", common = common)
         }
+        Tool::Via => t!("board.tool_hint.lmb_via", common = common),
     }
 }
 
@@ -681,6 +685,9 @@ struct Preferences {
     /// Changes one message may make before the model is told to stop.
     #[serde(default = "default_turn_limit")]
     assistant_turn_limit: u32,
+    /// Remapped tool modifiers and tool hotkeys; empty means classic defaults.
+    #[serde(default)]
+    modifiers: tool_modifiers::Bindings,
 }
 fn default_language() -> String {
     pcbcraft_text::SYSTEM.into()
@@ -722,6 +729,7 @@ impl Default for Preferences {
             assistant_modes: Default::default(),
             assistant_always_allow: Default::default(),
             assistant_turn_limit: default_turn_limit(),
+            modifiers: Default::default(),
         }
     }
 }
@@ -821,6 +829,7 @@ enum Tool {
     Fiducial,
     DrawLayer,
     Measure,
+    Via,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -2251,12 +2260,13 @@ impl App {
         }
         let mut delete_now = false;
         ctx.input(|i| {
+            let held = tool_modifiers::Held::new(i.modifiers, tool_modifiers::Platform::host());
             if i.modifiers.command {
                 if i.key_pressed(egui::Key::F) {
                     self.needs_fit = true;
                 }
                 if i.key_pressed(egui::Key::Z) {
-                    self.tool_call(if i.modifiers.shift { "redo" } else { "undo" }, json!({}));
+                    self.tool_call(if held.shift { "redo" } else { "undo" }, json!({}));
                 }
                 if i.key_pressed(egui::Key::Y) {
                     self.tool_call("redo", json!({}));
@@ -2264,7 +2274,7 @@ impl App {
                 if i.key_pressed(egui::Key::S) {
                     self.tool_call("save", json!({"path":self.path}));
                 }
-                if i.modifiers.shift && i.key_pressed(egui::Key::A) {
+                if held.shift && i.key_pressed(egui::Key::A) {
                     self.assistant_toggle();
                 }
                 if i.key_pressed(egui::Key::K) {
@@ -2279,11 +2289,20 @@ impl App {
                 self.part_search_focus = true;
                 self.preferences.library_dock_open = true;
             }
-            if i.key_pressed(egui::Key::W) && self.tab == Tab::Schematic {
-                self.tool = Tool::Wire(None);
-            }
-            if i.key_pressed(egui::Key::X) && self.tab == Tab::Pcb {
-                self.tool = Tool::Route(None);
+            let workspace = if self.tab == Tab::Pcb {
+                tool_modifiers::Workspace::Board
+            } else {
+                tool_modifiers::Workspace::Schematic
+            };
+            if matches!(self.tab, Tab::Schematic | Tab::Pcb) {
+                for hotkey in tool_modifiers::Hotkey::ALL {
+                    if hotkey != tool_modifiers::Hotkey::Select
+                        && hotkey.workspace().is_none_or(|w| w == workspace)
+                        && i.key_pressed(self.preferences.modifiers.key_for(hotkey))
+                    {
+                        self.arm_hotkey(hotkey);
+                    }
+                }
             }
             if i.key_pressed(egui::Key::M) {
                 self.select_hover();
@@ -2300,7 +2319,11 @@ impl App {
             if i.key_pressed(egui::Key::Home) {
                 self.needs_fit = true;
             }
-            if i.key_pressed(egui::Key::Escape) {
+            if i.key_pressed(
+                self.preferences
+                    .modifiers
+                    .key_for(tool_modifiers::Hotkey::Select),
+            ) {
                 self.tool = Tool::Select;
                 self.drag = None;
                 self.palette = false;
@@ -3545,6 +3568,7 @@ impl App {
         )
         .on_hover_text(t!("settings.settings_tab.chamfer_corners.tip"));
         route_drag::shove_checkbox(self, ui);
+        modifier_ui::keys_section(self, ui);
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new(t!("settings.settings_tab.board_geometry"))
@@ -5805,6 +5829,14 @@ impl App {
                             .color(self.muted()),
                     );
                     a11y::announce_status(ui.ctx(), &status, &self.message);
+                    if !self.edit.hint.is_empty() {
+                        ui.label(
+                            egui::RichText::new(&self.edit.hint)
+                                .small()
+                                .color(self.accent()),
+                        )
+                        .on_hover_text(t!("modifier.status.tip"));
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if let Some(reading) = self.measure_readout() {
                             ui.label(egui::RichText::new(reading).small().strong())
@@ -5924,8 +5956,7 @@ impl App {
                             self.params = params_template(spec);
                             fields.request_focus();
                         } else if enter
-                            && ((ui.input(|i| i.modifiers.ctrl || i.modifiers.command)
-                                && fields.has_focus())
+                            && ((tool_modifiers::held_now(ui.ctx()).primary && fields.has_focus())
                                 || fields.lost_focus())
                         {
                             self.execute_palette_params();
@@ -6413,6 +6444,21 @@ impl App {
         self.icon_rects.insert(_id.to_owned(), _rect);
     }
 
+    /// A toolbar tooltip with the tool's hotkey and modifier lines added.
+    fn tool_tip(
+        &self,
+        base: String,
+        tool: tool_modifiers::ToolKind,
+        hotkey: Option<tool_modifiers::Hotkey>,
+    ) -> String {
+        modifier_ui::tip(
+            base,
+            tool,
+            hotkey,
+            &self.preferences.modifiers,
+            tool_modifiers::Platform::host(),
+        )
+    }
     fn tool_strip_button(
         &mut self,
         ui: &mut egui::Ui,
@@ -6570,7 +6616,11 @@ impl App {
                             "tool-select",
                             "select",
                             t!("board.tool_strip.select"),
-                            t!("board.tool_strip.select_objects_on_the_drawing"),
+                            self.tool_self.tool_tip(tip, tool_modifiers::ToolKind::DrawLayer, hotkey)(
+                        t!("board.tool_strip.select_objects_on_the_drawing"),
+                        tool_modifiers::ToolKind::Select,
+                        Some(tool_modifiers::Hotkey::Select),
+                    ),
                             matches!(self.tool, Tool::Select),
                         )
                         .clicked()
@@ -6583,7 +6633,11 @@ impl App {
                             "tool-move",
                             "move",
                             t!("board.tool_strip.move"),
-                            t!("board.tool_strip.move_tool_drop_the_selection"),
+                            self.tool_tip(
+                        t!("board.tool_strip.move_tool_drop_the_selection"),
+                        tool_modifiers::ToolKind::Move,
+                        None,
+                    ),
                             matches!(self.tool, Tool::Move),
                         )
                         .clicked()
@@ -6598,7 +6652,11 @@ impl App {
                                 "tool-wire",
                                 "wire",
                                 t!("board.tool_strip.wire"),
-                                t!("board.tool_strip.wire_tool_click_two_pins"),
+                                self.tool_tip(
+                            t!("board.tool_strip.wire_tool_click_two_pins"),
+                            tool_modifiers::ToolKind::Wire,
+                            Some(tool_modifiers::Hotkey::Wire),
+                        ),
                                 matches!(self.tool, Tool::Wire(_)),
                             )
                             .clicked()
@@ -6611,7 +6669,11 @@ impl App {
                                 "tool-noconnect",
                                 "no-connect",
                                 t!("board.tool_strip.no_connect"),
-                                t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
+                                self.tool_tip(
+                            t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
+                            tool_modifiers::ToolKind::NoConnect,
+                            None,
+                        ),
                                 matches!(self.tool, Tool::NoConnect),
                             )
                             .clicked()
@@ -6626,7 +6688,11 @@ impl App {
                                 "tool-route",
                                 "route",
                                 t!("board.tool_strip.route"),
-                                t!("board.tool_strip.route_tool_click_two_pads"),
+                                self.tool_tip(
+                            t!("board.tool_strip.route_tool_click_two_pads"),
+                            tool_modifiers::ToolKind::Route,
+                            Some(tool_modifiers::Hotkey::Route),
+                        ),
                                 matches!(self.tool, Tool::Route(_)),
                             )
                             .clicked()
@@ -6702,7 +6768,11 @@ impl App {
                             ui,
                             "cutout",
                             &t!("board.tool_strip.cutout"),
-                            &command_tip("board.cutout.add"),
+                            &self.tool_tip(
+                        command_tip("board.cutout.add"),
+                        tool_modifiers::ToolKind::Cutout,
+                        None,
+                    ),
                             matches!(self.tool, Tool::Cutout),
                         )
                         .clicked()
@@ -6713,7 +6783,11 @@ impl App {
                             ui,
                             "mounting-hole",
                             &t!("board.tool_strip.mounting_hole"),
-                            &t!("board.tool_strip.mounting_hole.tip"),
+                            &self.tool_tip(
+                        t!("board.tool_strip.mounting_hole.tip"),
+                        tool_modifiers::ToolKind::Hole,
+                        None,
+                    ),
                             matches!(self.tool, Tool::Hole),
                         )
                         .clicked()
@@ -6724,7 +6798,11 @@ impl App {
                             ui,
                             "focus",
                             &t!("board.tool_strip.assembly_mark"),
-                            &t!("board.tool_strip.assembly_mark.tip"),
+                            &self.tool_tip(
+                        t!("board.tool_strip.assembly_mark.tip"),
+                        tool_modifiers::ToolKind::Fiducial,
+                        None,
+                    ),
                             matches!(self.tool, Tool::Fiducial),
                         )
                         .clicked()

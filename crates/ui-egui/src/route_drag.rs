@@ -83,7 +83,7 @@ impl App {
     /// # Do not
     /// - Pick the mode here from anything but `route_mode`.
     pub(super) fn finish_route(&mut self, from: Id, from_pad: &str, id: Id, pad: &str) {
-        let mode = route_mode(&self.preferences);
+        let mode = self.route_mode();
         if let Some((mate_from, mate_to)) = self.pair_mates(from, from_pad, id, pad) {
             self.run(
                 "track.route_pair",
