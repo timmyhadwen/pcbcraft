@@ -5804,10 +5804,7 @@ enum CopperNode {
 ///
 /// # Do not
 /// - Mutate the project; selection is a read-only query.
-fn select_connected_copper(
-    p: &Project,
-    seed: Id,
-) -> Result<(Vec<Id>, Vec<Value>, bool), Error> {
+fn select_connected_copper(p: &Project, seed: Id) -> Result<(Vec<Id>, Vec<Value>, bool), Error> {
     let start = if let Some(i) = p.board.tracks.iter().position(|t| t.id == seed) {
         CopperNode::Track(i)
     } else if let Some(i) = p.board.vias.iter().position(|v| v.id == seed) {
@@ -5855,9 +5852,9 @@ fn select_connected_copper(
             (Track(x), Track(y)) => {
                 let (s, t) = (&p.board.tracks[x], &p.board.tracks[y]);
                 s.layer == t.layer
-                    && [s.start, s.end]
-                        .iter()
-                        .any(|e| track_endpoints_near(*e, t.start) || track_endpoints_near(*e, t.end))
+                    && [s.start, s.end].iter().any(|e| {
+                        track_endpoints_near(*e, t.start) || track_endpoints_near(*e, t.end)
+                    })
             }
             (Track(x), Via(y)) | (Via(y), Track(x)) => {
                 let (t, v) = (&p.board.tracks[x], &p.board.vias[y]);
@@ -5881,7 +5878,8 @@ fn select_connected_copper(
             }
             (Via(x), Via(y)) => {
                 let (u, v) = (&p.board.vias[x], &p.board.vias[y]);
-                u.position.distance(v.position) <= (u.diameter + v.diameter) / 2.0 + TRACK_ENDPOINT_EPS
+                u.position.distance(v.position)
+                    <= (u.diameter + v.diameter) / 2.0 + TRACK_ENDPOINT_EPS
             }
             (Pad(..), Pad(..)) => false,
         }
@@ -24473,7 +24471,11 @@ mod tests {
         s.execute("board.sync", json!({}), None)?;
         let (fp, anchor) = {
             let f = s.project.board.footprints.first_mut().ok_or_else(missing)?;
-            let pad = f.pads.iter_mut().find(|q| q.number == "1").ok_or_else(missing)?;
+            let pad = f
+                .pads
+                .iter_mut()
+                .find(|q| q.number == "1")
+                .ok_or_else(missing)?;
             pad.geometry = None;
             let id = f.id;
             (id, f.pad_position("1").ok_or_else(missing)?)
@@ -24520,7 +24522,8 @@ mod tests {
         assert_eq!(out["truncated"], false);
         let after = serde_json::to_value(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
         assert_eq!(before, after, "selection does not change the project");
-        let from_via = s.execute("board.select_connected", json!({"id":via}), None)?["result"].clone();
+        let from_via =
+            s.execute("board.select_connected", json!({"id":via}), None)?["result"].clone();
         assert_eq!(from_via["ids"].as_array().ok_or_else(missing)?.len(), 3);
         Ok(())
     }
@@ -24528,10 +24531,22 @@ mod tests {
     fn board_select_connected_rejects_missing_and_wrong_kind() -> Result<(), Error> {
         let mut s = Session::default();
         let net = id_of(&s.execute("net.create", json!({"name":"SIG"}), None)?)?;
-        assert!(s.execute("board.select_connected", json!({"id":9999}), None).is_err());
-        assert!(s.execute("board.select_connected", json!({"id":net}), None).is_err());
-        assert!(s.execute("board.select_connected", json!({}), None).is_err());
-        assert!(s.execute("board.select_net", json!({"net":9999}), None).is_err());
+        assert!(
+            s.execute("board.select_connected", json!({"id":9999}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("board.select_connected", json!({"id":net}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("board.select_connected", json!({}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("board.select_net", json!({"net":9999}), None)
+                .is_err()
+        );
         Ok(())
     }
     #[test]
