@@ -23622,20 +23622,23 @@ mod tests {
         let mut s = Session::default();
         let net = id_of(&s.execute("net.create", json!({"name":"SIG"}), None)?)?;
         let other = id_of(&s.execute("net.create", json!({"name":"OTHER"}), None)?)?;
-        s.execute(
+        let comp = id_of(&s.execute(
             "component.add",
-            json!({"kind":"connector","position":[10,10],"reference":"J1","value":"x"}),
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?)?;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":comp,"pin":"1"}]}),
             None,
         )?;
         s.execute("board.sync", json!({}), None)?;
         let (fp, anchor) = {
             let f = s.project.board.footprints.first_mut().ok_or_else(missing)?;
-            let pad = f.pads.first_mut().ok_or_else(missing)?;
-            pad.net = Some(net);
+            let pad = f.pads.iter_mut().find(|q| q.number == "1").ok_or_else(missing)?;
             pad.geometry = None;
-            let number = pad.number.clone();
             let id = f.id;
-            (id, f.pad_position(&number).ok_or_else(missing)?)
+            (id, f.pad_position("1").ok_or_else(missing)?)
         };
         let far = Point::new(anchor.x + 8.0, anchor.y);
         let mid = Point::new(anchor.x + 4.0, anchor.y);
