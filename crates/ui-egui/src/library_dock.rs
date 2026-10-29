@@ -29,6 +29,7 @@
 //! - crates/text/strings/en.txt
 
 use super::*;
+use crate::library_builtin;
 use pcbcraft_library::sources::PartResult;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 use std::collections::{BTreeMap, BTreeSet};
@@ -87,11 +88,11 @@ const KINDS: [(&str, &str, &str, &[&str]); 4] = [
 ];
 
 /// Height of one card row, thumbnail included.
-const ROW_HEIGHT: f32 = 108.0;
+const ROW_HEIGHT: f32 = 96.0;
 /// Side of the thumbnail on a card.
 const THUMB: f32 = 72.0;
 
-type Reply = Receiver<Result<Value, String>>;
+pub(crate) type Reply = Receiver<Result<Value, String>>;
 
 /// One installed part as the listing reports it.
 #[derive(Clone, Debug, PartialEq)]
@@ -159,8 +160,16 @@ pub(crate) enum ViewKind {
 /// What to do with a part once its definitions are read.
 #[derive(Clone)]
 enum Intent {
-    Place { target: String, at: Point },
+    Place {
+        target: String,
+        at: Point,
+    },
     Import,
+    /// Place an online part with `library.place_online`; the worker's answer is its parameters.
+    Online {
+        target: String,
+        at: Point,
+    },
 }
 
 /// A read of an installed part's definitions on a worker.
@@ -247,7 +256,7 @@ enum CardAction {
 
 /// Run `work` off the frame and hand back where its answer will arrive. In
 /// the browser build there are no threads, so it runs at once.
-fn spawn_read(
+pub(crate) fn spawn_read(
     ctx: &egui::Context,
     work: impl FnOnce() -> Result<Value, String> + Send + 'static,
 ) -> Reply {
@@ -489,22 +498,6 @@ impl App {
                 .font(crate::fonts::Role::Caption.font())
                 .color(self.muted()),
             );
-        } else if !want_installed && !self.dock.hide_installed {
-            ui.label(
-                egui::RichText::new(t!("library.dock.type_for_installed"))
-                    .font(crate::fonts::Role::Caption.font())
-                    .color(self.muted()),
-            );
-        }
-        if cards.is_empty() {
-            ui.label(
-                egui::RichText::new(t!(
-                    "library.browser.nothing_here_matches_trim_yet",
-                    trim = self.part_search.trim()
-                ))
-                .font(crate::fonts::Role::Caption.font())
-                .color(self.muted()),
-            );
         }
         let top = ui.cursor().min.y - ui.min_rect().min.y;
         let first =
@@ -518,13 +511,39 @@ impl App {
         }
         ui.add_space((cards.len() - last) as f32 * ROW_HEIGHT);
         ui.spacing_mut().item_spacing.y = 4.0;
+        let hint = if cards.is_empty() {
+            Some(t!(
+                "library.browser.nothing_here_matches_trim_yet",
+                trim = self.part_search.trim()
+            ))
+        } else if !want_installed && !self.dock.hide_installed {
+            Some(t!("library.dock.type_for_installed"))
+        } else {
+            None
+        };
+        if let Some(text) = hint {
+            self.dock_empty_state(ui, &text);
+        }
+        ui.add_space(6.0);
         if ui
-            .button(t!("library.browser.browse_component_libraries"))
+            .link(t!("library.browser.browse_component_libraries"))
             .on_hover_text(t!("library.browser.browse_component_libraries.tip"))
             .clicked()
         {
             self.change_tab(Tab::Settings);
         }
+    }
+
+    /// The message under or instead of the list: centred, wrapped, in the
+    /// list area with real padding so it reads as the state of the list.
+    fn dock_empty_state(&self, ui: &mut egui::Ui, text: &str) {
+        ui.add_space(14.0);
+        ui.vertical_centered(|ui| {
+            ui.add(
+                egui::Label::new(egui::RichText::new(text).size(12.0).color(self.muted())).wrap(),
+            );
+        });
+        ui.add_space(8.0);
     }
 
     /// True when no kind toggle is on, or this listing category is in one.
@@ -586,10 +605,13 @@ impl App {
         });
     }
 
-    /// One row of icon toggles: sources, kinds, favourites.
+    /// One row of small icon toggles: four sources, three kinds, favourites,
+    /// and a "..." menu for the rest (mechanical parts, clear all).
     fn dock_chips(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
+        const SIDE: f32 = 24.0;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            ui.spacing_mut().button_padding = egui::vec2(2.0, 2.0);
             let sources = [
                 ("box", self.dock.hide_built_in, "library.dock.built_in.tip"),
                 ("folder", self.dock.hide_project, "library.dock.project.tip"),
@@ -601,7 +623,14 @@ impl App {
                 ("globe", self.dock.hide_online, "library.dock.online.tip"),
             ];
             for (i, (icon, hidden, tip)) in sources.into_iter().enumerate() {
-                if icons::icon_button(ui, icon, &pcbcraft_text::lookup(tip, &[]), !hidden).clicked()
+                if icons::icon_button_sized(
+                    ui,
+                    icon,
+                    &pcbcraft_text::lookup(tip, &[]),
+                    !hidden,
+                    SIDE,
+                )
+                .clicked()
                 {
                     match i {
                         0 => self.dock.hide_built_in = !hidden,
@@ -611,11 +640,12 @@ impl App {
                     }
                 }
             }
-            ui.add_space(8.0);
             let icon_names = ["omega", "cpu", "plug", "settings"];
-            for ((name, _, tip, _), icon) in KINDS.iter().zip(icon_names) {
+            for ((name, _, tip, _), icon) in KINDS.iter().zip(icon_names).take(3) {
                 let on = self.dock.kinds.contains(*name);
-                if icons::icon_button(ui, icon, &pcbcraft_text::lookup(tip, &[]), on).clicked() {
+                if icons::icon_button_sized(ui, icon, &pcbcraft_text::lookup(tip, &[]), on, SIDE)
+                    .clicked()
+                {
                     if on {
                         self.dock.kinds.remove(*name);
                     } else {
@@ -623,17 +653,54 @@ impl App {
                     }
                 }
             }
-            ui.add_space(8.0);
-            if icons::icon_button(
+            if icons::icon_button_sized(
                 ui,
                 "star",
                 &pcbcraft_text::lookup("library.dock.favourites.tip", &[]),
                 self.dock.favourites_only,
+                SIDE,
             )
             .clicked()
             {
                 self.dock.favourites_only = !self.dock.favourites_only;
             }
+            let more = ui
+                .menu_button(t!("library.dock.more_filters.label"), |ui| {
+                    if let Some((name, _, tip, _)) = KINDS.get(3) {
+                        let on = self.dock.kinds.contains(*name);
+                        let label = pcbcraft_text::lookup("library.dock.kind.mechanical", &[]);
+                        if ui
+                            .selectable_label(on, label)
+                            .on_hover_text(pcbcraft_text::lookup(tip, &[]))
+                            .clicked()
+                        {
+                            if on {
+                                self.dock.kinds.remove(*name);
+                            } else {
+                                self.dock.kinds.insert((*name).to_owned());
+                            }
+                            ui.close();
+                        }
+                    }
+                    self.online_menu(ui);
+                    if ui
+                        .button(t!("library.dock.clear_filters"))
+                        .on_hover_text(t!("library.dock.clear_filters.tip"))
+                        .clicked()
+                    {
+                        self.dock.kinds.clear();
+                        self.dock.favourites_only = false;
+                        self.dock.tag = None;
+                        self.dock.hide_built_in = false;
+                        self.dock.hide_project = false;
+                        self.dock.hide_installed = false;
+                        self.dock.hide_online = false;
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text(t!("library.dock.more_filters.tip"));
+            crate::a11y::name_control(&more, &t!("library.dock.more_filters"), None);
         });
     }
 
@@ -840,9 +907,12 @@ impl App {
         match card {
             Card::BuiltIn(kind, label) => CardFacts {
                 name: (*label).to_owned(),
-                what: String::new(),
-                source: t!("library.dock.note.built_in"),
-                meta: String::new(),
+                what: library_builtin::describe(kind),
+                source: t!(
+                    "library.dock.note.built_in_licence",
+                    licence = env!("CARGO_PKG_LICENSE")
+                ),
+                meta: t!("library.dock.builtin.meta"),
                 licence: None,
                 outside: false,
                 armed: matches!(&self.tool, Tool::Place(k) if k == kind),
@@ -909,9 +979,17 @@ impl App {
             }
             Card::Online(p, credit) => CardFacts {
                 name: p.mpn.clone(),
-                what: format!("{} \u{b7} {}", p.manufacturer, p.description),
+                what: if p.manufacturer.is_empty() {
+                    p.description.clone()
+                } else {
+                    format!("{} \u{b7} {}", p.manufacturer, p.description)
+                },
                 source: p.source.clone(),
-                meta: sources::stock_line(p),
+                meta: if p.distributor.is_empty() && p.price_breaks.is_empty() {
+                    p.sku.clone()
+                } else {
+                    sources::stock_line(p)
+                },
                 licence: Some(if credit.is_empty() {
                     t!("library.dock.licence.online_plain", source = p.source)
                 } else {
@@ -972,6 +1050,9 @@ impl App {
                     return None;
                 }
             }
+            Card::BuiltIn(kind, _) => {
+                (format!("built-in/{kind}"), library_builtin::footprint(kind))
+            }
             _ => return None,
         };
         if let Some(texture) = self.dock.thumbs.get(&key) {
@@ -1030,7 +1111,10 @@ impl App {
             rect.bottom(),
             Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
         );
-        let thumb = Rect::from_min_size(rect.min + egui::vec2(12.0, 8.0), egui::Vec2::splat(THUMB));
+        let thumb = Rect::from_min_size(
+            rect.min + egui::vec2(12.0, (ROW_HEIGHT - THUMB) / 2.0),
+            egui::Vec2::splat(THUMB),
+        );
         painter.rect_filled(thumb, 6.0, self.surface());
         let want_symbol = self.dock.view != ViewKind::Footprints;
         let want_footprint = self.dock.view != ViewKind::Symbols;
@@ -1139,7 +1223,7 @@ impl App {
         }
         let text_left = thumb.right() + 12.0;
         let text_width = (rect.right() - 12.0 - text_left).max(40.0);
-        let mut y = rect.top() + 8.0;
+        let mut y = rect.top() + 9.0;
         let title = painter.layout(
             facts.name.clone(),
             crate::fonts::Role::Body.font(),
@@ -1371,16 +1455,13 @@ impl App {
                 });
                 self.dock.placing = Some((path, name, reply));
             }
-            Card::Online(part, _) => {
-                let kind = TEMPLATES
-                    .iter()
-                    .find(|t| t.kind == part.kind)
-                    .map(|t| t.kind)
-                    .unwrap_or("resistor");
-                self.change_tab(Tab::Schematic);
-                self.tool = Tool::Place(kind.into());
-                self.pending_source = Some((**part).clone());
-                self.part_search.clear();
+            Card::Online(..) => {
+                let (target, at) = if self.tab == Tab::Pcb {
+                    ("board", self.pcb.center)
+                } else {
+                    ("schematic", self.schematic.center)
+                };
+                self.dock_place(ui.ctx(), card, target, at);
             }
         }
     }
@@ -1498,34 +1579,7 @@ impl App {
                 );
                 self.dock_after_place(target);
             }
-            Card::Online(part, _) => {
-                let kind = TEMPLATES
-                    .iter()
-                    .find(|t| t.kind == part.kind)
-                    .map(|t| t.kind)
-                    .unwrap_or("resistor");
-                self.run(
-                    "part.place",
-                    json!({"target": target, "position": at, "kind": kind}),
-                );
-                if let Some(id) = self
-                    .project
-                    .board
-                    .footprints
-                    .iter()
-                    .find(|f| Some(f.id) == self.selected)
-                    .map(|f| f.component)
-                    .or(self.selected)
-                {
-                    self.run(
-                        "part.attach_source",
-                        json!({"id": id, "manufacturer": part.manufacturer, "mpn": part.mpn,
-                               "datasheet": part.datasheet_url, "distributor": part.distributor,
-                               "sku": part.sku}),
-                    );
-                }
-                self.dock_after_place(target);
-            }
+            Card::Online(part, _) => self.dock_fetch_online(ctx, part, target, at),
             Card::Installed(i) => self.dock_fetch(
                 ctx,
                 i,
@@ -1602,6 +1656,47 @@ impl App {
         });
     }
 
+    /// Read an online part on a worker, then place it with
+    /// `library.place_online` (one undo step; a board drop also adds the
+    /// symbol to the schematic).
+    ///
+    /// # Rules
+    /// - Needs the open source switched on; otherwise says so and does nothing.
+    fn dock_fetch_online(
+        &mut self,
+        ctx: &egui::Context,
+        part: &PartResult,
+        target: &str,
+        at: Point,
+    ) {
+        let Some(source) = self.part_sources.open() else {
+            self.message = t!("library.dock.online_off");
+            return;
+        };
+        let sku = part.sku.clone();
+        let reply = spawn_read(ctx, move || library_online::import_open(&source, &sku));
+        self.dock.pending = Some(Pending {
+            intent: Intent::Online {
+                target: target.to_owned(),
+                at,
+            },
+            name: part.mpn.clone(),
+            rx: reply,
+        });
+    }
+
+    /// Test hook: place an online part the way a card pick does.
+    #[cfg(test)]
+    pub(crate) fn place_online_for_test(
+        &mut self,
+        ctx: &egui::Context,
+        part: &PartResult,
+        target: &str,
+        at: Point,
+    ) {
+        self.dock_fetch_online(ctx, part, target, at);
+    }
+
     /// A worker read finished: import or place the part.
     fn dock_finish(&mut self, intent: Intent, name: &str, result: Result<Value, String>) {
         let value = match result {
@@ -1611,6 +1706,18 @@ impl App {
                 return;
             }
         };
+        if let Intent::Online { target, at } = intent {
+            let mut params = value;
+            params["target"] = json!(if target == "board" {
+                "layout"
+            } else {
+                "schematic"
+            });
+            params["position"] = json!(at);
+            self.run("library.place_online", params);
+            self.dock_after_place(&target);
+            return;
+        }
         let mut params = json!({"symbol": value["symbol"], "notice": value["notice"]});
         if !value["footprint"].is_null() {
             params["footprint"] = value["footprint"].clone();
@@ -1622,6 +1729,7 @@ impl App {
                 self.run("part.place", params);
                 self.dock_after_place(&target);
             }
+            Intent::Online { .. } => {}
             Intent::Import => {
                 self.run("library.import_part", params);
                 self.message = t!("library.dock.added", name = name);

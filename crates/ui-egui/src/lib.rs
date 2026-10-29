@@ -17,7 +17,9 @@ mod icons;
 mod impedance_panel;
 mod layers_tree;
 mod library;
+mod library_builtin;
 mod library_dock;
+mod library_online;
 mod library_quality;
 mod modifier_ui;
 mod motion;
@@ -646,8 +648,6 @@ struct Preferences {
     /// Left aside tab: 0 = Layers tree, 1 = Library.
     #[serde(default)]
     left_tab: u8,
-    #[serde(default = "default_true")]
-    library_dock_open: bool,
     /// Library cards the person starred, by card key.
     #[serde(default)]
     library_favourites: Vec<String>,
@@ -722,7 +722,6 @@ impl Default for Preferences {
             hidden_layers: Vec::new(),
             aside_split: default_aside_split(),
             aside_lower_tab: 0,
-            library_dock_open: true,
             left_tab: 0,
             library_favourites: Vec::new(),
             layouts: std::collections::BTreeMap::new(),
@@ -1297,6 +1296,15 @@ impl App {
     /// Capture option: start with the bottom sheet open. Ignored outside capture mode.
     pub fn with_capture_sheet(mut self, open: bool) -> Self {
         self.capture_sheet = open;
+        self
+    }
+    /// Fill the Library tab's search box and open that tab, so a `--capture`
+    /// image can show a search result.
+    pub fn with_capture_search(mut self, query: Option<String>) -> Self {
+        if let Some(q) = query {
+            self.part_search = q;
+            self.preferences.left_tab = 1;
+        }
         self
     }
     /// Open the left aside on its Library tab (`library`) or its Layers tab
@@ -3004,7 +3012,6 @@ impl App {
     }
     /// Opens the Library tab with the part search focused.
     fn open_part_search(&mut self) {
-        self.preferences.library_dock_open = true;
         self.region().left_tab = "library".to_owned();
         self.palette = true;
         self.part_search_focus = true;
@@ -3203,174 +3210,13 @@ impl App {
             });
         self.renumber_open = open;
     }
-    /// The Library tab: add a part, common and saved parts, components, renumber.
+    /// The Library tab: the part browser only. The project's parts are in
+    /// the Layers tree under Parts; Renumber parts is in the Edit menu.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/library_dock.rs
     fn library_body(&mut self, ui: &mut egui::Ui, viewport: egui::Rect) {
         self.library_dock_body(ui, viewport);
-        ui.add_space(12.0);
-        ui.label(
-            egui::RichText::new(t!("library.browser.components"))
-                .size(10.0)
-                .color(self.muted()),
-        );
-        for c in self.project.components.clone() {
-            let id = if self.tab == Tab::Pcb {
-                self.project
-                    .board
-                    .footprints
-                    .iter()
-                    .find(|f| f.component == c.id)
-                    .map(|f| f.id)
-                    .unwrap_or(c.id)
-            } else {
-                c.id
-            };
-            if ui
-                .selectable_label(
-                    self.selected == Some(id),
-                    t!(
-                        "library.browser.reference_value",
-                        reference = c.reference,
-                        value = c.value
-                    ),
-                )
-                .on_hover_text(t!("library.browser.reference_value.tip"))
-                .clicked()
-            {
-                self.select(Some(id));
-            }
-            let what = c
-                .field(&t!("library.browser.description"))
-                .map(str::to_owned)
-                .or_else(|| {
-                    c.library_symbol
-                        .as_ref()
-                        .map(|ls| ls.definition.description.clone())
-                })
-                .map(|d| d.trim().to_owned())
-                .filter(|d| !d.is_empty());
-            let origin = c.library_symbol.as_ref().map_or_else(
-                || t!("library.browser.built_in"),
-                |ls| t!("library.browser.from_name", name = ls.definition.name),
-            );
-            let note = what.map_or_else(
-                || origin.clone(),
-                |d| t!("library.browser.item_origin", item = d, origin = origin),
-            );
-            ui.label(
-                egui::RichText::new(format!("    {note}"))
-                    .small()
-                    .color(self.muted()),
-            );
-        }
-        if self.project.components.len() >= 2 {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new(t!("library.browser.renumber_parts"))
-                    .size(10.0)
-                    .color(self.muted()),
-            );
-            let mut prefixes: Vec<String> = self
-                .project
-                .components
-                .iter()
-                .map(|c| {
-                    c.reference
-                        .chars()
-                        .take_while(char::is_ascii_alphabetic)
-                        .collect::<String>()
-                })
-                .filter(|p| !p.is_empty())
-                .collect();
-            prefixes.sort();
-            prefixes.dedup();
-            let mut pick = self
-                .renumber_plan
-                .clone()
-                .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
-            ui.horizontal(|ui| {
-                egui::ComboBox::from_id_salt("renumber-prefix")
-                    .selected_text(
-                        pick.clone()
-                            .unwrap_or_else(|| t!("library.browser.all_letters")),
-                    )
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(pick.is_none(), t!("library.browser.all_letters"))
-                            .on_hover_text(t!("library.browser.all_letters.tip"))
-                            .clicked()
-                        {
-                            pick = None;
-                            ui.close();
-                        }
-                        for prefix in &prefixes {
-                            if ui
-                                .selectable_label(pick.as_deref() == Some(prefix.as_str()), prefix)
-                                .on_hover_text(t!(
-                                    "library.browser.only_renumber_the_parts_that.tip"
-                                ))
-                                .clicked()
-                            {
-                                pick = Some(prefix.clone());
-                                ui.close();
-                            }
-                        }
-                    })
-                    .response
-                    .named("Renumber prefix")
-                    .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
-                if ui
-                    .button(t!("library.browser.preview"))
-                    .on_hover_text(t!("library.browser.preview.tip"))
-                    .clicked()
-                {
-                    let out = self.run_and_keep(
-                        "components.reannotate",
-                        json!({"dry_run": true, "prefix": pick}),
-                    );
-                    self.renumber_plan = out.get("renamed").and_then(Value::as_array).map(|rows| {
-                        (
-                            pick.clone(),
-                            rows.iter()
-                                .filter_map(|row| {
-                                    let from = row.get("from")?.as_str()?.to_owned();
-                                    let to = row.get("to")?.as_str()?.to_owned();
-                                    Some((from, to))
-                                })
-                                .collect(),
-                        )
-                    });
-                }
-            });
-            if self.renumber_plan.is_none() {
-                self.renumber_prefix = pick.clone();
-            }
-            if let Some((_, plan)) = self.renumber_plan.clone() {
-                for (from, to) in plan.iter().take(12) {
-                    ui.label(
-                        egui::RichText::new(t!("library.browser.from_to", from = from, to = to))
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-                ui.horizontal(|ui| {
-                    if ui
-                        .button(t!("library.browser.renumber"))
-                        .on_hover_text(t!("library.browser.renumber.tip"))
-                        .clicked()
-                    {
-                        self.renumber_plan = None;
-                        self.run("components.reannotate", json!({"prefix": pick}));
-                    }
-                    if ui
-                        .button(t!("library.browser.cancel"))
-                        .on_hover_text(t!("library.browser.cancel.tip"))
-                        .clicked()
-                    {
-                        self.renumber_plan = None;
-                    }
-                });
-            }
-        }
     }
     /// The Nets tab of the left dock: add, spotlight and rename connections.
     fn nets_tab(&mut self, ui: &mut egui::Ui) {
@@ -6389,7 +6235,7 @@ impl App {
             || (self.library.catalog.is_some()
                 && (self.library.results.is_some() || self.library.path.is_empty())
                 && self.library.pending.is_none());
-        if self.capture.is_some() && self.frames >= 5 && library_ready {
+        if self.capture.is_some() && self.frames >= 5 && library_ready && self.online_settled() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
         if let Some(path) = self.capture.clone() {
@@ -7363,7 +7209,7 @@ mod tests {
         app.change_tab(Tab::Schematic);
         authoring::tests::tap(&ctx, &mut app, "Layers")?;
         assert!(
-            scrolled_to(&ctx, &mut app, "Wires")?,
+            scrolled_to_left(&ctx, &mut app, "Wires")?,
             "the layers page lists wires as its own row"
         );
         authoring::tests::tap(&ctx, &mut app, "Wires")?;
@@ -7410,8 +7256,8 @@ mod tests {
             .copied()
             .ok_or("a floating Fit icon sits in the work area")?;
         assert!(
-            fit.max.x <= 1440.0 - 280.0 && fit.min.y > 60.0,
-            "the Fit icon stays inside the canvas, left of the right aside: {fit:?}"
+            fit.max.x <= 1440.0 - 280.0 && fit.min.x >= LEFT_ASIDE && fit.min.y > 60.0,
+            "the Fit icon stays inside the canvas between the asides: {fit:?}"
         );
         let first = app.project.components[0].id;
         let before = app.project.components[0].rotation;
@@ -7424,7 +7270,7 @@ mod tests {
             .copied()
             .ok_or("a selected part grows a Rotate handle beside it")?;
         assert!(
-            handle.max.x <= 1440.0 - 280.0,
+            handle.max.x <= 1440.0 - 280.0 && handle.min.x >= LEFT_ASIDE,
             "the handle stays inside the canvas: {handle:?}"
         );
         authoring::tests::tap_icon(&ctx, &mut app, "handle-rotate")?;

@@ -2922,9 +2922,11 @@ dependencies = [
  "pcbcraft-assistant",
  "pcbcraft-engine",
  "pcbcraft-io",
+ "pcbcraft-library",
  "pcbcraft-mcp",
  "pcbcraft-ui-egui",
  "serde_json",
+ "tempfile",
  "ureq",
 ]
 
@@ -3013,6 +3015,7 @@ dependencies = [
  "pcbcraft-geom",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -3068,6 +3071,7 @@ dependencies = [
  "pcbcraft-text",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

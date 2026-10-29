@@ -1,7 +1,7 @@
 //! Stories for the left aside, the workspace layouts, the library dock, the datasheet action and the
 //! breathing room around every dock and tab body.
 use super::super::*;
-use super::support::{frame, paints_text, scrolled_to};
+use super::support::{LEFT_ASIDE, frame, paints_text, scrolled_to};
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 
@@ -151,7 +151,7 @@ fn a_newcomer_finds_no_board_statistics_in_the_library_dock() -> Result<(), Stri
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
     for (words, left, _, _) in texts(&out) {
-        if left > 44.0 && left < 304.0 {
+        if left > 8.0 && left < LEFT_ASIDE {
             let lower = words.to_lowercase();
             for banned in ["board size", "dimensions", "layer count", "parts placed"] {
                 assert!(
@@ -254,7 +254,7 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
     app.refresh();
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let (rail, dock) = (44.0, 44.0 + 260.0);
+    let dock_right = LEFT_ASIDE;
     // The aside may grow past its 280 px minimum, so find its edge from
     // the panel's own heading, which sits one 16 px margin inside it.
     let aside = texts(&out)
@@ -271,10 +271,10 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
         if words.trim().is_empty() || top < 80.0 || top > 900.0 {
             continue;
         }
-        if left > rail && left < dock {
+        if left > 8.0 && left < dock_right {
             assert!(
-                left >= rail + 12.0,
-                "left dock text hugs the edge: {words} at {left}"
+                left >= 20.0,
+                "left aside text hugs the edge: {words} at {left}"
             );
         }
         if left > aside {
@@ -295,10 +295,10 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
             if words.trim().is_empty() || top < 110.0 || top > 900.0 {
                 continue;
             }
-            if left > dock && left < SCREEN.x - 280.0 - 40.0 {
+            if left > dock_right && left < SCREEN.x - 280.0 - 40.0 {
                 assert!(
-                    left >= dock + 12.0,
-                    "{tab:?} body text hugs the dock edge: {words} at {left},{top}"
+                    left >= dock_right + 12.0,
+                    "{tab:?} body text hugs the left aside edge: {words} at {left},{top}"
                 );
             }
         }

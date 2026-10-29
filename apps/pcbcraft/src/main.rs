@@ -1,4 +1,8 @@
 mod host;
+// The transport behind the Library tab's Online source. Its background read and
+// cache purge helpers are for the settings page and are not called yet.
+#[allow(dead_code)]
+mod online_http;
 fn main() -> eframe::Result {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let option = |key: &str| {
@@ -68,6 +72,10 @@ fn main() -> eframe::Result {
     let context_menu = args.iter().any(|a| a == "--context-menu");
     let sheet = args.iter().any(|a| a == "--sheet");
     let target = option("--target");
+    let search = option("--search");
+    let offline = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+        args.iter().any(|a| a == "--offline"),
+    ));
     let options = eframe::NativeOptions {
         viewport: egui_viewport(option("--size").as_deref()),
         ..Default::default()
@@ -84,6 +92,14 @@ fn main() -> eframe::Result {
                     .with_capture_view(context_menu)
                     .with_capture_sheet(sheet)
                     .with_capture_target(target)
+                    .with_capture_search(search)
+                    .with_online_fetcher(
+                        Box::new(online_http::HttpFetcher::new(
+                            online_http::Policy::default(),
+                            offline.clone(),
+                        )),
+                        offline,
+                    )
                     .with_host(host::host()),
             ))
         }),
