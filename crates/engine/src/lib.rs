@@ -1,5 +1,6 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
+mod images;
 pub mod library;
 pub mod profiles;
 pub mod recents;
@@ -2005,6 +2006,7 @@ pub fn commands() -> Vec<CommandSpec> {
             input_schema,
         })
         .chain(authoring::commands())
+        .chain(images::commands())
         .chain(tuning::commands())
         .collect()
 }
@@ -5701,6 +5703,9 @@ fn run_command(
     if let Some(result) = tuning::run(p, next, command, params) {
         return result;
     }
+    if let Some(result) = images::run(p, next, command, params) {
+        return result;
+    }
     match command {
         "project.rename" => {
             let a: Name = parse(params)?;
@@ -7851,6 +7856,7 @@ fn run_command(
                             points: vec![shift(*start)?, shift(*end)?],
                             width: stroke,
                             text: String::new(),
+                            sublayer: String::new(),
                         },
                         p,
                     ),
@@ -7868,6 +7874,7 @@ fn run_command(
                                 points: vec![shift(*center)?],
                                 width: *radius,
                                 text: String::new(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -7898,6 +7905,7 @@ fn run_command(
                                     points: vec![c],
                                     width: *radius,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -7916,6 +7924,7 @@ fn run_command(
                                     points,
                                     width: *radius,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -7938,6 +7947,7 @@ fn run_command(
                                     points: vertices?,
                                     width: stroke,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -7951,6 +7961,7 @@ fn run_command(
                                         points: vec![shift(pair[0])?, shift(pair[1])?],
                                         width: stroke,
                                         text: String::new(),
+                                        sublayer: String::new(),
                                     },
                                     p,
                                 );
@@ -7976,6 +7987,7 @@ fn run_command(
                                 points: vec![shift(*at)?],
                                 width: *height,
                                 text: value.clone(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8121,6 +8133,7 @@ fn run_command(
                             points: vec![shift(*start)?, shift(*end)?],
                             width: stroke,
                             text: String::new(),
+                            sublayer: String::new(),
                         },
                         p,
                     ),
@@ -8138,6 +8151,7 @@ fn run_command(
                                 points: vec![shift(*center)?],
                                 width: *radius,
                                 text: String::new(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8159,6 +8173,7 @@ fn run_command(
                                     points: vertices?,
                                     width: stroke,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -8172,6 +8187,7 @@ fn run_command(
                                         points: vec![shift(pair[0])?, shift(pair[1])?],
                                         width: stroke,
                                         text: String::new(),
+                                        sublayer: String::new(),
                                     },
                                     p,
                                 );
@@ -8195,6 +8211,7 @@ fn run_command(
                                 points: vec![shift(*at)?],
                                 width: *height,
                                 text: value.clone(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8536,6 +8553,7 @@ fn run_command(
                 points: a.points,
                 width: a.width,
                 text: a.text,
+                sublayer: String::new(),
             });
             Ok(json!({"id":id}))
         }
@@ -8758,6 +8776,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 ids.push(id);
             }
@@ -8835,6 +8854,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 ids.push(id);
             }
@@ -9488,6 +9508,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
             }
             Ok(
@@ -9635,6 +9656,7 @@ fn run_command(
                     ],
                     width: w,
                     text: String::new(),
+                    sublayer: String::new(),
                 });
                 count += 1;
             }
@@ -9709,6 +9731,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 Ok(())
             };
@@ -13027,6 +13050,7 @@ fn run_command(
             let files = &mut p.files;
             if let Some(existing) = files.iter_mut().find(|f| f.name == name) {
                 existing.data = a.data;
+                existing.encoding = String::new();
             } else {
                 if files.len() >= 32 {
                     return Err(Error::Invalid("a project attaches at most 32 files".into()));
@@ -13034,6 +13058,7 @@ fn run_command(
                 files.push(pcbcraft_doc::EmbeddedFile {
                     name: name.clone(),
                     data: a.data,
+                    encoding: String::new(),
                 });
                 files.sort_by(|x, y| x.name.cmp(&y.name));
             }
@@ -13042,6 +13067,11 @@ fn run_command(
         "file.remove" => {
             let a: FileParams = parse(params)?;
             let name = a.name.trim();
+            if p.reference_images.iter().any(|r| r.file == name) {
+                return Err(Error::Invalid(
+                    "a reference image still shows this file; remove it first".into(),
+                ));
+            }
             let files = &mut p.files;
             let Some(index) = files.iter().position(|f| f.name == name) else {
                 return Err(Error::Invalid(format!("no attached file named {name}")));
