@@ -1475,7 +1475,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "board.layer_add",
             "Add a layer the designer draws for their own machines: a named cut line, perforation, silk screen, solder mask or reference layer that a laser, mill or UV printer follows beside the copper",
             schema(
-                json!({"name":{"type":"string","maxLength":64},"kind":{"type":"string","enum":["cut","perforation","silk","mask","other"],"description":"what this layer tells a machine to do; defaults to other"}}),
+                json!({"name":{"type":"string","maxLength":64},"kind":{"type":"string","enum":["cut","perforation","silk","mask","other"],"description":"what this layer tells a machine to do; defaults to other"},"dot_pitch":{"type":"number","minimum":0.1,"maximum":20,"description":"centre-to-centre distance between the dots of a dotted layer, in millimetres; defaults to 1.0"},"dot_size":{"type":"number","minimum":0.05,"maximum":10,"description":"diameter of each dot of a dotted layer, in millimetres; defaults to 0.5"}}),
                 &["name"],
             ),
         ),
@@ -1620,7 +1620,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.add",
             "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics) that can be re-run after any edit",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":pcbcraft_doc::OUTPUT_KINDS.to_vec()},"minItems":1,"maxItems":pcbcraft_doc::MAX_OUTPUT_KINDS}}),
                 &["name", "kinds"],
             ),
         ),
@@ -3195,6 +3195,12 @@ struct LayerAddParams {
     name: String,
     #[serde(default)]
     kind: Option<String>,
+    /// Centre-to-centre dot pitch for a dotted layer, in millimetres.
+    #[serde(default)]
+    dot_pitch: Option<f64>,
+    /// Dot diameter for a dotted layer, in millimetres.
+    #[serde(default)]
+    dot_size: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10584,12 +10590,24 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "a board carries at most 32 drawn layers".into(),
                 ));
             }
+            if a.dot_pitch.is_some_and(|v| !(0.1..=20.0).contains(&v)) {
+                return Err(Error::Invalid(
+                    "a dot pitch must be 0.1 to 20 millimetres".into(),
+                ));
+            }
+            if a.dot_size.is_some_and(|v| !(0.05..=10.0).contains(&v)) {
+                return Err(Error::Invalid(
+                    "a dot size must be 0.05 to 10 millimetres".into(),
+                ));
+            }
             let id = allocate(next)?;
             p.board.user_layers.push(pcbcraft_doc::ArtLayer {
                 id,
                 name: a.name,
                 kind,
                 dotted: kind == pcbcraft_doc::ArtKind::Perforation,
+                dot_pitch: a.dot_pitch.unwrap_or(1.0),
+                dot_size: a.dot_size.unwrap_or(0.5),
                 visible: true,
                 shapes: vec![],
             });
@@ -11070,36 +11088,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "an output job name must be 1 to 64 bytes".into(),
                 ));
             }
-            if a.kinds.len() > 24
-                || a.kinds.iter().any(|k| {
-                    !matches!(
-                        k.as_str(),
-                        "gerbers"
-                            | "netlist"
-                            | "bom"
-                            | "placement"
-                            | "dxf"
-                            | "cmp"
-                            | "idf"
-                            | "vrml"
-                            | "step"
-                            | "pdf"
-                            | "svg"
-                            | "ipc2581"
-                            | "dsn"
-                            | "ipc356"
-                            | "gencad"
-                            | "hyperlynx"
-                            | "plot"
-                            | "report"
-                            | "ps"
-                            | "odb"
-                            | "hpgl"
-                            | "stackup"
-                            | "drill_chart"
-                            | "stats"
-                    )
-                })
+            if a.kinds.len() > pcbcraft_doc::MAX_OUTPUT_KINDS
+                || a.kinds
+                    .iter()
+                    .any(|k| !pcbcraft_doc::OUTPUT_KINDS.contains(&k.as_str()))
             {
                 return Err(Error::Invalid("output jobs list known export kinds".into()));
             }
@@ -11138,6 +11130,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             let directory = std::path::Path::new(&a.directory);
             let mut written: Vec<String> = vec![];
+            let mut skipped: Vec<String> = vec![];
             for kind in &job.kinds {
                 match kind.as_str() {
                     "gerbers" => {
@@ -11322,13 +11315,26 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         .map_err(Error::Invalid)?;
                         written.push("panel-placement.txt".into());
                     }
+                    "layer_plots" => {
+                        let plots = pcbcraft_io::drawn_layer_plots(p)?;
+                        for (name, text) in &plots.files {
+                            pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
+                                .map_err(Error::Invalid)?;
+                            written.push(name.clone());
+                        }
+                        skipped.extend(plots.skipped);
+                    }
                     other => {
                         return Err(Error::Invalid(format!("unknown export kind {other}")));
                     }
                 }
             }
             written.sort();
-            Ok(json!({"job":a.name,"directory":a.directory,"files":written}))
+            if skipped.is_empty() {
+                Ok(json!({"job":a.name,"directory":a.directory,"files":written}))
+            } else {
+                Ok(json!({"job":a.name,"directory":a.directory,"files":written,"skipped":skipped}))
+            }
         }
         "variant.create" => {
             let a: VariantCreateParams = parse(params)?;
@@ -28186,6 +28192,169 @@ mod tests {
                 .any(|p| p.geometry.as_ref().is_some_and(|g| g.polygon.len() == 3))
         );
         s.project.validate()?;
+        Ok(())
+    }
+    #[test]
+    fn output_job_with_drawn_layers_round_trips_through_save_and_open() -> Result<(), Error> {
+        let mut s = Session::default();
+        let cut = s.execute(
+            "board.layer_add",
+            json!({"name":"Card Outline","kind":"cut","dot_pitch":1.5,"dot_size":0.6}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "board.layer_line_add",
+            json!({"layer":cut,"x1":5.0,"y1":5.0,"x2":50.0,"y2":5.0}),
+            None,
+        )?;
+        s.execute(
+            "board.layer_add",
+            json!({"name":"Panel Silk","kind":"silk"}),
+            None,
+        )?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"laser","kinds":["layer_plots","dxf","gerbers"]}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "output_job.add",
+                json!({"name":"everything","kinds":pcbcraft_doc::OUTPUT_KINDS.to_vec()}),
+                None,
+            )
+            .is_ok(),
+            "one job still holds every export kind, now that plots are one more"
+        );
+        assert!(
+            s.execute(
+                "board.layer_add",
+                json!({"name":"Bad Pitch","kind":"cut","dot_pitch":0.0}),
+                None,
+            )
+            .is_err(),
+            "a dot pitch below a tenth of a millimetre is refused"
+        );
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let back: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(back, s.project);
+        assert_eq!(back.output_jobs.len(), 2);
+        assert!(
+            back.output_jobs
+                .iter()
+                .any(|j| j.name == "laser" && j.kinds.iter().any(|k| k == "layer_plots")),
+            "the plot kind survives the round trip"
+        );
+        let layer = back
+            .board
+            .user_layers
+            .iter()
+            .find(|l| l.name == "Card Outline")
+            .ok_or_else(missing)?;
+        assert!((layer.dot_pitch - 1.5).abs() < 1e-9);
+        assert!((layer.dot_size - 0.6).abs() < 1e-9);
+        let silk = back
+            .board
+            .user_layers
+            .iter()
+            .find(|l| l.name == "Panel Silk")
+            .ok_or_else(missing)?;
+        assert!(
+            (silk.dot_pitch - 1.0).abs() < 1e-9 && (silk.dot_size - 0.5).abs() < 1e-9,
+            "a layer that never set a pitch keeps the physical default"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn output_job_run_writes_drawn_layer_files() -> Result<(), Error> {
+        let mut s = Session::default();
+        let cut = s.execute(
+            "board.layer_add",
+            json!({"name":"Card Outline","kind":"cut"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "board.layer_rect_add",
+            json!({"layer":cut,"x":10.0,"y":10.0,"width":40.0,"height":30.0}),
+            None,
+        )?;
+        s.execute(
+            "board.layer_text_add",
+            json!({"layer":cut,"x":12.0,"y":20.0,"text":"A1","size":1.5}),
+            None,
+        )?;
+        let silk = s.execute(
+            "board.layer_add",
+            json!({"name":"Panel Silk","kind":"silk"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "board.layer_line_add",
+            json!({"layer":silk,"x1":12.0,"y1":12.0,"x2":48.0,"y2":12.0}),
+            None,
+        )?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"laser","kinds":["layer_plots"]}),
+            None,
+        )?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-layer-plots-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let out = s.execute(
+            "output_job.run",
+            json!({"name":"laser","directory":directory.to_string_lossy()}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(
+            out["files"],
+            json!([
+                "card-outline.dxf",
+                "card-outline.hpg",
+                "card-outline.svg",
+                "panel-silk.dxf",
+                "panel-silk.gbr"
+            ]),
+            "one file per layer per machine"
+        );
+        let skipped = out["skipped"].as_array().cloned().unwrap_or_default();
+        assert!(
+            skipped.iter().any(|s| s
+                .as_str()
+                .is_some_and(|s| s.contains("text \"A1\" on layer Card Outline"))),
+            "the job result names the figures no machine file carries"
+        );
+        for name in [
+            "card-outline.dxf",
+            "card-outline.hpg",
+            "card-outline.svg",
+            "panel-silk.dxf",
+            "panel-silk.gbr",
+        ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let text = std::fs::read_to_string(directory.join("card-outline.dxf"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let entities = pcbcraft_io::dxf_entities(&text)?;
+        assert_eq!(
+            entities.len(),
+            2,
+            "the outline and the label read back from the mill path"
+        );
+        let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }
 }
