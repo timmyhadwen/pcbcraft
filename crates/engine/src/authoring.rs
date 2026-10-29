@@ -15,6 +15,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.import_symbol_file","Read the symbols from a symbol library text file on disk and add or replace them in the project library as one undoable transaction",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_footprint_dir","Read every footprint library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
         ("library.import_symbol_dir","Read every symbol library text file in a library folder on disk and add or replace them in the project library as one undoable transaction, so a whole vendor symbol folder arrives in one step",schema(json!({"path":{"type":"string","minLength":1,"maxLength":1024}}),&["path"])),
+        ("library.import_part","Copy a part's symbol and, when it has one, its footprint into the project library as one undoable step, keeping the licence notice; the symbol is linked to the footprint by name",schema(json!({"symbol":{"type":"object","description":"a symbol definition as library readers emit it"},"footprint":{"type":"object","description":"a footprint definition as library readers emit it"},"notice":{"type":"string","description":"licence or attribution line kept with the project library"}}),&["symbol"])),
+        ("part.place","Import a part if it is not in the project library yet and place it as one undoable step. On the schematic the symbol goes at the position; on the board the footprint goes at the position and the part joins the schematic parked below the drawing, not yet wired",schema(json!({"target":{"type":"string","enum":["schematic","board"]},"position":point_schema(),"name":{"type":"string","description":"a symbol already in the project library"},"symbol":{"type":"object"},"footprint":{"type":"object"},"notice":{"type":"string"},"reference":{"type":"string"},"value":{"type":"string"}}),&["target","position"])),
         ("component.place_custom","Place a symbol from the editable project library, optionally turned to a starting rotation",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
@@ -71,6 +73,25 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.adopt","Copy a placed component's embedded footprint into the project library under a chosen name as one undoable step, so a package that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the package under"}}),&["id","name"])),
         ("library.symbol.adopt","Copy a placed component's embedded symbol into the project library under a chosen name as one undoable step, so a symbol that arrived on a part becomes editable and reusable; adopting the same name again replaces that library entry",schema(json!({"id":id_schema(),"name":{"type":"string","description":"name to store the symbol under"}}),&["id","name"])),
     ].into_iter().map(|(id,description,input_schema)|CommandSpec {id,description,input_schema}).collect()
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImportPartParams {
+    symbol: SymbolDefinition,
+    footprint: Option<FootprintDefinition>,
+    notice: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlacePartParams {
+    target: String,
+    position: Point,
+    name: Option<String>,
+    symbol: Option<SymbolDefinition>,
+    footprint: Option<FootprintDefinition>,
+    notice: Option<String>,
+    reference: Option<String>,
+    value: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2420,6 +2441,69 @@ pub(super) fn run(
             p.validate()?;
             Ok(json!({"name": name, "pads": counts.0, "graphics": counts.1}))
         }
+        "library.import_part" => {
+            let a: ImportPartParams = parse(params)?;
+            let (symbol, footprint) = import_part(p, a.symbol, a.footprint, a.notice)?;
+            Ok(json!({"symbol":symbol,"footprint":footprint}))
+        }
+        "part.place" => {
+            let a: PlacePartParams = parse(params)?;
+            if a.target != "schematic" && a.target != "board" {
+                return Err(Error::Invalid("target must be schematic or board".into()));
+            }
+            let name = match a.symbol {
+                Some(symbol) => import_part(p, symbol, a.footprint, a.notice)?.0,
+                None => a.name.ok_or_else(|| {
+                    Error::Invalid("give a symbol definition or the name of one in the project library".into())
+                })?,
+            };
+            let def = p
+                .library
+                .symbols
+                .iter()
+                .find(|s| s.name == name)
+                .cloned()
+                .ok_or_else(missing)?;
+            let footprint = p
+                .library
+                .footprints
+                .iter()
+                .find(|f| f.name == def.footprint)
+                .cloned();
+            let at = if a.target == "board" {
+                parked_position(p)
+            } else {
+                a.position
+            };
+            let placed = place_definition(p, next, "project".into(), def, at, a.reference, a.value)?;
+            let id = placed["id"].as_u64().ok_or_else(missing)?;
+            if let Some(footprint) = footprint
+                && let Some(c) = p.components.iter_mut().find(|c| c.id == id)
+            {
+                // A part whose pins and pads disagree stays without a library footprint.
+                let _ = assign_to(c, "project".into(), &footprint);
+            }
+            let mut out = json!({"id":id});
+            if a.target == "board" {
+                let pads = p
+                    .components
+                    .iter()
+                    .find(|c| c.id == id)
+                    .map(component_pads)
+                    .ok_or_else(missing)?;
+                let footprint_id = allocate(next)?;
+                p.board.footprints.push(Footprint {
+                    id: footprint_id,
+                    component: id,
+                    position: a.position,
+                    rotation: 0.0,
+                    locked: None,
+                    pads,
+                });
+                out["footprint"] = json!(footprint_id);
+            }
+            Ok(out)
+        }
         "component.place_custom" => {
             let a: Place = parse(params)?;
             let def = p
@@ -2453,6 +2537,53 @@ pub(super) fn run(
         }
         _ => Err(Error::Invalid("unknown library authoring command".into())),
     })())
+}
+
+/// Put a part's symbol, and its footprint when it has one, into the project
+/// library; the symbol names the footprint it was imported with. Returns the
+/// symbol name and the footprint name when there is one.
+fn import_part(
+    p: &mut Project,
+    mut symbol: SymbolDefinition,
+    footprint: Option<FootprintDefinition>,
+    notice: Option<String>,
+) -> Result<(String, Option<String>), Error> {
+    symbol
+        .validate()
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+    let footprint_name = match footprint {
+        Some(footprint) => {
+            footprint
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let name = footprint.name.clone();
+            symbol.footprint.clone_from(&name);
+            import_footprint(p, footprint);
+            Some(name)
+        }
+        None => None,
+    };
+    if let Some(notice) = notice
+        && !notice.is_empty()
+        && !p.library.notices.contains(&notice)
+    {
+        p.library.notices.push(notice);
+    }
+    let name = symbol.name.clone();
+    import_symbol(p, symbol);
+    p.library.validate()?;
+    Ok((name, footprint_name))
+}
+
+/// Where a part added from the board waits on the schematic: left edge,
+/// below everything already drawn, stepping down so parked parts do not stack.
+fn parked_position(p: &Project) -> Point {
+    let bottom = p
+        .components
+        .iter()
+        .map(|c| c.position.y)
+        .fold(0.0_f64, f64::max);
+    Point::new(0.0, bottom + 20.0)
 }
 
 fn import_footprint(p: &mut Project, def: pcbcraft_library::FootprintDefinition) {
