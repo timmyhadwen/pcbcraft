@@ -136,10 +136,7 @@ pub fn trace_width(a: TraceWidth) -> Result<TraceWidthOut, Error> {
         });
     }
     let k = if external { 0.048 } else { 0.024 };
-    let a_mil2 = finite(
-        "cross_section",
-        (i / (k * dt.powf(0.44))).powf(1.0 / 0.725),
-    )?;
+    let a_mil2 = finite("cross_section", (i / (k * dt.powf(0.44))).powf(1.0 / 0.725))?;
     let w_mil = finite("width_mil", a_mil2 / t_mil)?;
     Ok(TraceWidthOut {
         width_mm: w_mil * MIL_MM,
@@ -211,8 +208,10 @@ pub fn via_current_resistance(a: ViaCurrent) -> Result<ViaCurrentOut, Error> {
         "barrel_area",
         std::f64::consts::FRAC_PI_4 * (d_out * d_out - drill * drill),
     )?;
-    let current =
-        finite("current", 0.024 * dt.powf(0.44) * (area / MIL_MM.powi(2)).powf(0.725))?;
+    let current = finite(
+        "current",
+        0.024 * dt.powf(0.44) * (area / MIL_MM.powi(2)).powf(0.725),
+    )?;
     let resistance = finite("resistance", RHO_CU * (length / 1000.0) / (area * 1.0e-6))?;
     Ok(ViaCurrentOut {
         barrel_area: area,
@@ -276,7 +275,10 @@ pub fn trace_resistance_drop(a: TraceResistance) -> Result<TraceResistanceOut, E
     let i = num("current", a.current, 0.0, 100.0)?;
     let t = num("temperature", a.temperature, -55.0, 200.0)?;
     let thickness = oz * OZ_UM / 1000.0;
-    let r20 = finite("resistance", RHO_CU * (l / 1000.0) / ((w * thickness) * 1.0e-6))?;
+    let r20 = finite(
+        "resistance",
+        RHO_CU * (l / 1000.0) / ((w * thickness) * 1.0e-6),
+    )?;
     let r = r20 * (1.0 + ALPHA_CU * (t - 20.0));
     Ok(TraceResistanceOut {
         resistance: r,

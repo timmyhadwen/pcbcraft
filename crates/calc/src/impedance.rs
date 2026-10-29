@@ -31,8 +31,7 @@ fn hj(w: f64, h: f64, er: f64, t: f64) -> (f64, f64) {
     let (u1, ur) = if t > 0.0 {
         let tn = t / h;
         let th = (6.517 * u).sqrt().tanh();
-        let du1 = tn / std::f64::consts::PI
-            * (1.0 + 4.0 * std::f64::consts::E / tn * th * th).ln();
+        let du1 = tn / std::f64::consts::PI * (1.0 + 4.0 * std::f64::consts::E / tn * th * th).ln();
         let dur = du1 * (1.0 + 1.0 / (er - 1.0).sqrt().cosh()) / 2.0;
         (u + du1, u + dur)
     } else {
@@ -271,8 +270,7 @@ pub fn stripline(a: Stripline) -> Result<StriplineOut, Error> {
 fn kk(k: f64) -> f64 {
     let kp = (1.0 - k * k).sqrt();
     if k <= std::f64::consts::FRAC_1_SQRT_2 {
-        std::f64::consts::PI
-            / (2.0 * (1.0 + kp.sqrt()) / (1.0 - kp.sqrt())).ln()
+        std::f64::consts::PI / (2.0 * (1.0 + kp.sqrt()) / (1.0 - kp.sqrt())).ln()
     } else {
         (2.0 * (1.0 + k.sqrt()) / (1.0 - k.sqrt())).ln() / std::f64::consts::PI
     }
@@ -312,7 +310,7 @@ pub struct CoplanarWaveguideOut {
 /// - Ground-backed mode uses the tanh ratio k3 and adds its weight q
 ///   to the permittivity; ungrounded mode uses the sinh ratio k2.
 /// # Dependencies
-/// - [`kk`] (Hilberg ratio), [`delay_ps_mm`], `crate::num`.
+/// - `kk` (Hilberg ratio), `delay_ps_mm`, `crate::num`.
 /// # Do not
 /// - Assume narrow side grounds; the formula needs grounds much wider
 ///   than w + 2s.
@@ -460,7 +458,7 @@ pub struct PropagationDelayOut {
 ///   the 25.4 mm definition.
 /// - `length` and `skew_budget` are independent extras; give neither.
 /// # Dependencies
-/// - `crate::consts` (C0), [`delay_ps_mm`], `crate::opt_num`.
+/// - `crate::consts` (C0), `delay_ps_mm`, `crate::opt_num`.
 /// # Do not
 /// - Reuse a stripline eeff for a microstrip of the same stackup;
 ///   take eeff from the matching impedance calculator.
@@ -473,7 +471,9 @@ pub fn propagation_delay(a: PropagationDelay) -> Result<PropagationDelayOut, Err
         delay: tpd,
         delay_inch: tpd * 25.4,
         total_delay: len.map(|l| finite("total_delay", tpd * l)).transpose()?,
-        allowed_mismatch: skew.map(|s| finite("allowed_mismatch", s / tpd)).transpose()?,
+        allowed_mismatch: skew
+            .map(|s| finite("allowed_mismatch", s / tpd))
+            .transpose()?,
     })
 }
 

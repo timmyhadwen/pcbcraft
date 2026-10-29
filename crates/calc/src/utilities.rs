@@ -94,7 +94,7 @@ pub struct UnitConvertOut {
 ///   (1 oz = 34.79 um) and converts only to and from length units.
 /// - Same-unit input returns the value unchanged.
 /// # Dependencies
-/// - `crate::consts` (MIL_MM, OZ_UM), [`LengthUnit::to_mm`].
+/// - `crate::consts` (MIL_MM, OZ_UM), `LengthUnit::to_mm`.
 /// # Do not
 /// - Convert oz to a mass or a sheet area; this table only knows the
 ///   equivalent copper thickness.

@@ -1800,6 +1800,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pcbcraft-calc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "pcbcraft-cli"
 version = "0.1.0"
 dependencies = [

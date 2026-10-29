@@ -94,13 +94,11 @@ pub struct ConductorSpacingOut {
 ///   above 500 V use spacing = voltage times the column's slope.
 /// - Table values are the standard's own, reproduced by three sources.
 /// # Dependencies
-/// - [`SPACING_ROWS`], [`SPACING_SLOPES`], [`column`], `crate::num`.
+/// - `SPACING_ROWS`, `SPACING_SLOPES`, `column`, `crate::num`.
 /// # Do not
 /// - Treat this as a safety answer; mains and touchable circuits use
 ///   [`creepage_clearance_iec60664`].
-pub fn conductor_spacing_ipc2221(
-    a: ConductorSpacing,
-) -> Result<ConductorSpacingOut, Error> {
+pub fn conductor_spacing_ipc2221(a: ConductorSpacing) -> Result<ConductorSpacingOut, Error> {
     let v = num("voltage", a.voltage, 0.0, 100_000.0)?;
     let col = column(a.location);
     let mut spacing = v * SPACING_SLOPES[col];
@@ -325,14 +323,12 @@ pub struct CreepageClearanceOut {
 /// - Final creepage is max(table creepage, reinforced doubling,
 ///   clearance); creepage is never below clearance.
 /// # Dependencies
-/// - [`IMPULSE_ROWS`], [`CLEARANCE_TABLE`], [`CREEPAGE_ROWS`],
-///   [`altitude_factor`], [`creepage_column`], `crate::num`.
+/// - `IMPULSE_ROWS`, `CLEARANCE_TABLE`, `CREEPAGE_ROWS`,
+///   `altitude_factor`, `creepage_column`, `crate::num`.
 /// # Do not
 /// - Use for anything a product safety standard (IEC 62368-1 class of
 ///   protection) governs without checking that standard's tables.
-pub fn creepage_clearance_iec60664(
-    a: CreepageClearance,
-) -> Result<CreepageClearanceOut, Error> {
+pub fn creepage_clearance_iec60664(a: CreepageClearance) -> Result<CreepageClearanceOut, Error> {
     let vw = num("working_voltage", a.working_voltage, 10.0, 1000.0)?;
     let vm = num("mains_voltage", a.mains_voltage, 50.0, 1000.0)?;
     let alt = num("altitude", a.altitude, 0.0, 5000.0)?;

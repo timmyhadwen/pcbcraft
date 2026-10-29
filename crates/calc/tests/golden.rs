@@ -154,7 +154,9 @@ fn close(name: &str, got: f64, want: f64, tol: f64) -> Result<(), String> {
     if got.is_finite() && (got - want).abs() <= margin {
         Ok(())
     } else {
-        Err(format!("{name}: got {got}, expected {want} (margin {margin})"))
+        Err(format!(
+            "{name}: got {got}, expected {want} (margin {margin})"
+        ))
     }
 }
 
@@ -750,8 +752,14 @@ golden_test!(coplanar_waveguide_vectors, "coplanar_waveguide");
 golden_test!(differential_pair_vectors, "differential_pair");
 golden_test!(propagation_delay_vectors, "propagation_delay");
 golden_test!(crosstalk_vectors, "crosstalk");
-golden_test!(conductor_spacing_ipc2221_vectors, "conductor_spacing_ipc2221");
-golden_test!(creepage_clearance_iec60664_vectors, "creepage_clearance_iec60664");
+golden_test!(
+    conductor_spacing_ipc2221_vectors,
+    "conductor_spacing_ipc2221"
+);
+golden_test!(
+    creepage_clearance_iec60664_vectors,
+    "creepage_clearance_iec60664"
+);
 golden_test!(decoupling_capacitor_vectors, "decoupling_capacitor");
 golden_test!(i2c_pullup_vectors, "i2c_pullup");
 golden_test!(crystal_load_capacitors_vectors, "crystal_load_capacitors");

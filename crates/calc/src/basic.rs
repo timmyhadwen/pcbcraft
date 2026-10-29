@@ -380,7 +380,12 @@ pub fn lc_resonance(a: LcResonance) -> Result<LcResonanceOut, Error> {
     let (l, c, f, z0) = match (l, c, f) {
         (Some(l), Some(c), None) => {
             let f = finite("frequency", 1.0 / (pi2 * (l * c).sqrt()))?;
-            (l, c, f, Some(finite("characteristic_impedance", (l / c).sqrt())?))
+            (
+                l,
+                c,
+                f,
+                Some(finite("characteristic_impedance", (l / c).sqrt())?),
+            )
         }
         (Some(l), None, Some(f)) => {
             let c = finite("capacitance", 1.0 / (pi2 * f * (pi2 * f) * l))?;

@@ -201,7 +201,7 @@ pub struct ESeriesOut {
 ///   up, both by log distance like [`nearest_e_series`].
 /// - An exact member returns itself for all three and error 0.
 /// # Dependencies
-/// - [`e_series_values`], [`nearest_from`], `crate::num`.
+/// - [`e_series_values`], `nearest_from`, `crate::num`.
 /// # Do not
 /// - Mix series between the three outputs; one series per call.
 pub fn e_series(a: ESeriesInput) -> Result<ESeriesOut, Error> {
@@ -307,7 +307,12 @@ pub fn decoupling_capacitor(a: Decoupling) -> Result<DecouplingOut, Error> {
     let esl = num("esl", a.esl, 1.0e-12, 1.0e-6)?;
     let c = opt_num("capacitance", a.capacitance, 1.0e-12, 1.0)?;
     let srf = c
-        .map(|c| finite("self_resonance", 1.0 / (2.0 * std::f64::consts::PI * (esl * c).sqrt())))
+        .map(|c| {
+            finite(
+                "self_resonance",
+                1.0 / (2.0 * std::f64::consts::PI * (esl * c).sqrt()),
+            )
+        })
         .transpose()?;
     Ok(DecouplingOut {
         capacitance_needed: finite("capacitance_needed", i * dt / dv)?,
@@ -820,7 +825,7 @@ pub struct WireGaugeOut {
 /// - For a current, scan gauges 30 up to 10 and take the first whose
 ///   tabulated ampacity at the rating reaches it.
 /// # Dependencies
-/// - `crate::consts` (RHO_CU), [`AMPACITY`], `crate::num`,
+/// - `crate::consts` (RHO_CU), `AMPACITY`, `crate::num`,
 ///   `crate::int_num`.
 /// # Do not
 /// - Treat the ampacity as a PCB trace limit; these are building-wire
@@ -850,14 +855,14 @@ pub fn wire_gauge(a: WireGauge) -> Result<WireGaugeOut, Error> {
                 None => {
                     return Err(Error::Invalid(format!(
                         "no tabulated gauge to 30 carries {goal} A at this rating"
-                    )))
+                    )));
                 }
             }
         }
         (None, None) => {
             return Err(Error::Invalid(
                 "give an awg size or a current to carry".to_string(),
-            ))
+            ));
         }
     };
     let d = 0.127 * 92.0f64.powf((36.0 - n as f64) / 39.0);
@@ -977,7 +982,7 @@ fn decode_smd(code: &str) -> Result<f64, Error> {
                 None => {
                     return Err(Error::Invalid(format!(
                         "smd_code {code}: unknown EIA-96 multiplier letter"
-                    )))
+                    )));
                 }
             };
             let idx = (as_digit_lossy(bytes[0]) * 10 + as_digit_lossy(bytes[1])) as usize;
@@ -1000,9 +1005,11 @@ fn decode_smd(code: &str) -> Result<f64, Error> {
     if r_count == 1 {
         let pos = match bytes.iter().position(|c| *c == 'R' || *c == 'r') {
             Some(p) => p,
-            None => return Err(Error::Invalid(format!(
-                "smd_code {code}: expected 3 or 4 digits, R notation like 4R7, or EIA-96 like 68X"
-            ))),
+            None => {
+                return Err(Error::Invalid(format!(
+                    "smd_code {code}: expected 3 or 4 digits, R notation like 4R7, or EIA-96 like 68X"
+                )));
+            }
         };
         let before: String = bytes[..pos].iter().collect();
         let after: String = bytes[pos + 1..].iter().collect();
@@ -1013,7 +1020,9 @@ fn decode_smd(code: &str) -> Result<f64, Error> {
         let frac: f64 = after.parse().unwrap_or(0.0);
         return Ok(whole + frac / 10f64.powi(after.len() as i32));
     }
-    if bytes[bytes.len() - 1].is_ascii_digit() && bytes[..bytes.len() - 1].iter().all(|c| c.is_ascii_digit()) {
+    if bytes[bytes.len() - 1].is_ascii_digit()
+        && bytes[..bytes.len() - 1].iter().all(|c| c.is_ascii_digit())
+    {
         let exp = as_digit_lossy(bytes[bytes.len() - 1]);
         let mantissa: String = bytes[..bytes.len() - 1].iter().collect();
         let base: f64 = match mantissa.parse() {
@@ -1119,18 +1128,14 @@ fn encode_resistor(value: f64) -> (String, String) {
 /// - Encode mode rounds to E24 and emits the 3-digit and EIA-96
 ///   markings.
 /// # Dependencies
-/// - [`colour_digit`], [`decode_smd`], [`encode_resistor`],
-///   [`e_series_values`], [`nearest_from`].
+/// - `colour_digit`, `decode_smd`, `encode_resistor`,
+///   [`e_series_values`], `nearest_from`.
 /// # Do not
 /// - Accept band counts other than 4, 5 or 6; 3-band parts are not a
 ///   standard code.
 pub fn resistor_code(a: ResistorCode) -> Result<ResistorCodeOut, Error> {
     if !a.bands.is_empty() {
-        let bands: Vec<String> = a
-            .bands
-            .iter()
-            .map(|b| b.trim().to_lowercase())
-            .collect();
+        let bands: Vec<String> = a.bands.iter().map(|b| b.trim().to_lowercase()).collect();
         let n = bands.len();
         if !(4..=6).contains(&n) {
             return Err(Error::Invalid(format!(
@@ -1144,9 +1149,7 @@ pub fn resistor_code(a: ResistorCode) -> Result<ResistorCodeOut, Error> {
                 + match colour_digit(b) {
                     Some(d) => d as i64,
                     None => {
-                        return Err(Error::Invalid(format!(
-                            "bands: {b} is not a digit colour"
-                        )))
+                        return Err(Error::Invalid(format!("bands: {b} is not a digit colour")));
                     }
                 };
         }
@@ -1156,7 +1159,7 @@ pub fn resistor_code(a: ResistorCode) -> Result<ResistorCodeOut, Error> {
             None => {
                 return Err(Error::Invalid(format!(
                     "bands: {mult_name} is not a multiplier colour"
-                )))
+                )));
             }
         };
         let tol_name = &bands[n - if n == 6 { 2 } else { 1 }];
@@ -1165,7 +1168,7 @@ pub fn resistor_code(a: ResistorCode) -> Result<ResistorCodeOut, Error> {
             None => {
                 return Err(Error::Invalid(format!(
                     "bands: {tol_name} is not a tolerance colour"
-                )))
+                )));
             }
         };
         let mut warning = None;
@@ -1181,7 +1184,7 @@ pub fn resistor_code(a: ResistorCode) -> Result<ResistorCodeOut, Error> {
                     return Err(Error::Invalid(format!(
                         "bands: {} is not a tempco colour",
                         bands[n - 1]
-                    )))
+                    )));
                 }
             }
         } else {

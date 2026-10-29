@@ -29,22 +29,50 @@ pub struct InputMeta {
 impl InputMeta {
     /// Numeric input with a closed range.
     const fn num(name: &'static str, unit: &'static str, min: f64, max: f64) -> Self {
-        Self { name, unit, min: Some(min), max: Some(max), optional: false, values: &[] }
+        Self {
+            name,
+            unit,
+            min: Some(min),
+            max: Some(max),
+            optional: false,
+            values: &[],
+        }
     }
 
     /// Optional numeric input with a closed range.
     const fn opt(name: &'static str, unit: &'static str, min: f64, max: f64) -> Self {
-        Self { name, unit, min: Some(min), max: Some(max), optional: true, values: &[] }
+        Self {
+            name,
+            unit,
+            min: Some(min),
+            max: Some(max),
+            optional: true,
+            values: &[],
+        }
     }
 
     /// Choice input (enum or boolean) with labels and no numeric range.
     const fn choice(name: &'static str, values: &'static [&'static str]) -> Self {
-        Self { name, unit: "enum", min: None, max: None, optional: false, values }
+        Self {
+            name,
+            unit: "enum",
+            min: None,
+            max: None,
+            optional: false,
+            values,
+        }
     }
 
     /// Free-form text input that may be omitted.
     const fn text(name: &'static str, unit: &'static str) -> Self {
-        Self { name, unit, min: None, max: None, optional: true, values: &[] }
+        Self {
+            name,
+            unit,
+            min: None,
+            max: None,
+            optional: true,
+            values: &[],
+        }
     }
 }
 
@@ -190,7 +218,10 @@ pub static CALCULATORS: [CalculatorMeta; 32] = [
         validity: "Voltage form assumes equal source and load impedance.",
         accuracy: "exact",
         inputs: &[
-            InputMeta::choice("mode", &["power_ratio", "voltage_ratio", "dbm_to_w", "w_to_dbm"]),
+            InputMeta::choice(
+                "mode",
+                &["power_ratio", "voltage_ratio", "dbm_to_w", "w_to_dbm"],
+            ),
             InputMeta::num("value", "ratio | dB | dBm | W", -300.0, 1000000000000.0),
         ],
     },
