@@ -156,7 +156,10 @@ fn the_turn_stops_after_twenty_four_requests_and_tells_the_model() -> Result<(),
     assert!(events.iter().any(|e| matches!(e, Event::Note(n) if n == "request 24 of 24")));
     // The next message carries the stop note, so the model reports instead of carrying on.
     say(&mut b, "again");
-    run_until(&mut b, |e| matches!(e, Event::Note(_)))?;
+    let end = Instant::now() + Duration::from_secs(10);
+    while posts(&log).len() < 25 && Instant::now() < end {
+        std::thread::sleep(Duration::from_millis(5));
+    }
     let sent = posts(&log);
     let last = sent.last().ok_or("no request")?.to_string();
     assert!(last.contains("Stop calling tools now"));
