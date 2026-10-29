@@ -17795,7 +17795,7 @@ mod tests {
                 "density": "B",
                 "name": "QFN50P500X500X100-33N",
                 "pitch": 0.5,
-                "pin_count": 33,
+                "pin_count": 32,
                 "body_x": 5.0,
                 "body_y": 5.0,
                 "body_z": 1.0,
@@ -17808,7 +17808,7 @@ mod tests {
             s.project.library.footprints[0].name,
             "QFN50P500X500X100-33N"
         );
-        assert_eq!(s.project.library.footprints[0].pads.len(), 33);
+        assert_eq!(s.project.library.footprints[0].pads.len(), 32);
         assert!(
             commands()
                 .iter()
@@ -17844,7 +17844,7 @@ mod tests {
                     "family": "qfn",
                     "name": "Q",
                     "pitch": 5.0,
-                    "pin_count": 33,
+                    "pin_count": 32,
                     "body_x": 5.0,
                     "body_y": 5.0,
                     "thermal": true
