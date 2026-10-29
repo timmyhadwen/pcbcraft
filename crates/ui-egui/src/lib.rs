@@ -1820,7 +1820,7 @@ impl App {
                             })
                             .response
                             .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"))
-    .named("Layer kind");
+                            .named("Layer kind");
                         ui.add(
                             egui::DragValue::new(thickness)
                                 .speed(0.01)
@@ -1828,7 +1828,7 @@ impl App {
                                 .suffix(format!(" {}", t!("unit.mm"))),
                         )
                         .on_hover_text(t!("unit.mm.tip"))
-    .named("Layer thickness");
+                        .named("Layer thickness");
                     });
                     let apply = ui
                         .button(t!("board.stackup_section.apply"))
@@ -1894,7 +1894,7 @@ impl App {
                 })
                 .response
                 .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"))
-    .named("New layer kind");
+                .named("New layer kind");
             ui.add(
                 egui::DragValue::new(&mut self.stack_thickness)
                     .speed(0.01)
@@ -1902,7 +1902,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .on_hover_text(t!("unit.mm.tip"))
-    .named("New layer thickness");
+            .named("New layer thickness");
             if ui
                 .add_enabled(
                     !self.stack_name.trim().is_empty(),
@@ -1964,7 +1964,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .on_hover_text(t!("unit.mm2.tip"))
-    .named("Thickness");
+            .named("Thickness");
             if ui
                 .button(t!("board.stackup_section.set_thickness"))
                 .on_hover_text(t!("board.stackup_section.set_thickness.tip"))
@@ -2123,7 +2123,7 @@ impl App {
                             .suffix(format!(" {}", t!("unit.mm"))),
                     )
                     .on_hover_text(t!("unit.mm4.tip"))
-    .named("Assembly mark size");
+                    .named("Assembly mark size");
                     if ui
                         .selectable_label(front, t!("board.fiducials_section.top"))
                         .on_hover_text(t!("board.fiducials_section.top.tip"))
@@ -4619,7 +4619,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .on_hover_text(t!("unit.mm15.tip"))
-    .named("Text size");
+            .named("Text size");
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.side"));
@@ -4919,7 +4919,7 @@ impl App {
                     .speed(1.0),
             )
             .on_hover_text(t!("settings.settings_tab.across.tip"))
-    .named("Copies across");
+            .named("Copies across");
             ui.add(
                 egui::DragValue::new(&mut self.panel_rows)
                     .range(1..=32)
@@ -4927,7 +4927,7 @@ impl App {
                     .speed(1.0),
             )
             .on_hover_text(t!("settings.settings_tab.down.tip"))
-    .named("Copies down");
+            .named("Copies down");
         });
         ui.horizontal(|ui| {
             ui.add(
@@ -4937,7 +4937,7 @@ impl App {
                     .suffix(format!(" {}", t!("settings.settings_tab.mm_gap"))),
             )
             .on_hover_text(t!("settings.settings_tab.mm_gap.tip"))
-    .named("Gap between copies");
+            .named("Gap between copies");
             ui.add(
                 egui::DragValue::new(&mut self.panel_rail)
                     .range(0.0..=25.0)
@@ -4945,7 +4945,7 @@ impl App {
                     .suffix(format!(" {}", t!("settings.settings_tab.mm_rail"))),
             )
             .on_hover_text(t!("settings.settings_tab.mm_rail.tip"))
-    .named("Rail width");
+            .named("Rail width");
         });
         if ui
             .button(t!("settings.settings_tab.preview_panel"))
@@ -5272,11 +5272,13 @@ impl App {
         }
         if self.project.custom_checks.len() < 32 {
             ui.horizontal(|ui| {
-                let response = ui.add(
-                    crate::targets::text_field(&mut self.custom_name)
-                        .hint_text(t!("rules.rules_tab.what_this_check_means_in"))
-                        .desired_width(150.0),
-                ).named(&t!("rules.rules_tab.what_this_check_means_in"));
+                let response = ui
+                    .add(
+                        crate::targets::text_field(&mut self.custom_name)
+                            .hint_text(t!("rules.rules_tab.what_this_check_means_in"))
+                            .desired_width(150.0),
+                    )
+                    .named(&t!("rules.rules_tab.what_this_check_means_in"));
                 response.on_hover_text(t!("rules.rules_tab.the_name_this_check_reports.tip"));
                 egui::ComboBox::from_id_salt("custom-measure")
                     .selected_text(pcbcraft_text::lookup(
@@ -5440,7 +5442,8 @@ impl App {
                                 .on_hover_text(t!("rules.rules_tab.pick_the_first_net_of.tip"));
                         }
                     })
-    .named("First net of the pair");
+                    .response
+                    .named("First net of the pair");
                 ui.label(t!("rules.rules_tab.away_from"));
                 egui::ComboBox::from_id_salt("pair_b")
                     .selected_text(name_of(self.pair_b))
@@ -5462,7 +5465,7 @@ impl App {
                         .suffix(format!(" {}", t!("unit.mm"))),
                 )
                 .on_hover_text(t!("unit.mm12.tip"))
-    .named("Keep apart by");
+                .named("Keep apart by");
             });
             if ui
                 .button(t!("rules.rules_tab.set_spacing"))
@@ -5547,7 +5550,8 @@ impl App {
                                 .on_hover_text(t!("rules.rules_tab.pick_the_net_that_carries.tip"));
                         }
                     })
-    .named("Positive net");
+                    .response
+                    .named("Positive net");
                 ui.label(t!("rules.rules_tab.text3"));
                 egui::ComboBox::from_id_salt("dp_n")
                     .selected_text(name_of(self.dp_n))
@@ -5666,7 +5670,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .on_hover_text(t!("unit.mm14.tip"))
-    .named("Copper stays apart by");
+            .named("Copper stays apart by");
         });
         ui.horizontal(|ui| {
             ui.checkbox(
@@ -6702,11 +6706,15 @@ impl App {
                                 .small()
                                 .color(self.accent()),
                         );
-                        let search = ui.add(
-                            crate::targets::text_field(&mut self.command_query)
-                                .hint_text(t!("board.footer.filter_command_names_and_descriptions"))
-                                .desired_width(300.0),
-                        ).named("filter command names and descriptions");
+                        let search = ui
+                            .add(
+                                crate::targets::text_field(&mut self.command_query)
+                                    .hint_text(t!(
+                                        "board.footer.filter_command_names_and_descriptions"
+                                    ))
+                                    .desired_width(300.0),
+                            )
+                            .named("filter command names and descriptions");
                         if self.command_focus {
                             search.request_focus();
                             self.command_focus = false;
@@ -7302,7 +7310,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .on_hover_text(t!("unit.mm5.tip"))
-    .named("Mounting hole size");
+            .named("Mounting hole size");
             ui.separator();
         }
         if matches!(self.tool, Tool::Fiducial) {
@@ -7314,7 +7322,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .on_hover_text(t!("unit.mm6.tip"))
-    .named("Assembly mark size");
+            .named("Assembly mark size");
             ui.separator();
         }
     }

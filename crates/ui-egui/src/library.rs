@@ -308,7 +308,9 @@ impl App {
                                 .changed();
                         }
                     }
-                }).response.named("Library source");
+                })
+                .response
+                .named("Library source");
             ui.horizontal(|ui| {
                 ui.label(t!("library.collection_browser.library_path"));
                 ui.add(crate::targets::text_field(&mut self.library.path).desired_width(480.0))
@@ -375,13 +377,15 @@ impl App {
                 }
             });
             ui.horizontal(|ui| {
-                let response = ui.add(
-                    crate::targets::text_field(&mut self.library.query)
-                        .hint_text(t!(
-                            "library.collection_browser.search_names_descriptions_keywords"
-                        ))
-                        .desired_width(360.0),
-                ).named("Search names, descriptions, keywords");
+                let response = ui
+                    .add(
+                        crate::targets::text_field(&mut self.library.query)
+                            .hint_text(t!(
+                                "library.collection_browser.search_names_descriptions_keywords"
+                            ))
+                            .desired_width(360.0),
+                    )
+                    .named("Search names, descriptions, keywords");
                 if ui
                     .button(t!("library.collection_browser.search"))
                     .on_hover_text(t!("library.collection_browser.search.tip"))

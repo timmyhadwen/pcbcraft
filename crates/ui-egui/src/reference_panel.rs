@@ -84,7 +84,8 @@ impl App {
             crate::targets::text_field(&mut form.path)
                 .hint_text("PNG file path")
                 .desired_width(180.0),
-        ).named("PNG file path")
+        )
+        .named("PNG file path")
         .on_hover_text("The path of a PNG picture on this computer, up to 4096 pixels on a side.");
         if ui
             .button("Attach PNG")

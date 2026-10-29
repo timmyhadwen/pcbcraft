@@ -206,7 +206,7 @@ fn body(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(text::limit());
         ui.add(egui::DragValue::new(&mut app.preferences.assistant_turn_limit).range(1..=200))
-            .named(text::limit())
+            .named(&text::limit())
             .on_hover_text(text::limit_tip());
     });
     if ui
