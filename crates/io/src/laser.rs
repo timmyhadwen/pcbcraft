@@ -1,5 +1,5 @@
 //! Galvo laser job writers (SVG and LaserCraft `.lcproj`).
-use pcbcraft_doc::{Fiducial, Footprint, Layer, Pad, Project};
+use pcbcraft_doc::{Footprint, Layer, Pad, Project};
 use pcbcraft_geom::{Point, hull, polygon_is_simple};
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -162,12 +162,69 @@ pub fn commarker_b6_mopa_profile() -> LaserGalvoProfile {
         pulse_width_ns_min: 2.0,
         pulse_width_ns_max: 350.0,
         operations: vec![
-            mk(row("fiducials", false, 750.0, 100.0, 25.0, 200.0, 2, 0.0, 0.0, 0.0)),
-            mk(row("isolation-cut", false, 750.0, 100.0, 25.0, 200.0, 2, 0.0, 0.0, 0.0)),
-            mk(row("copper-rubout", true, 750.0, 100.0, 25.0, 200.0, 2, 0.025, 45.0, 0.0)),
-            mk(row("mask-open", true, 1500.0, 30.0, 60.0, 50.0, 1, 0.03, 0.0, 0.0)),
-            mk(row("legend", true, 1500.0, 35.0, 60.0, 50.0, 1, 0.03, 0.0, 0.0)),
-            mk(row("stencil-cut", false, 300.0, 100.0, 30.0, 350.0, 10, 0.0, 0.0, 0.02)),
+            mk(row(
+                "fiducials",
+                false,
+                750.0,
+                100.0,
+                25.0,
+                200.0,
+                2,
+                0.0,
+                0.0,
+                0.0,
+            )),
+            mk(row(
+                "isolation-cut",
+                false,
+                750.0,
+                100.0,
+                25.0,
+                200.0,
+                2,
+                0.0,
+                0.0,
+                0.0,
+            )),
+            mk(row(
+                "copper-rubout",
+                true,
+                750.0,
+                100.0,
+                25.0,
+                200.0,
+                2,
+                0.025,
+                45.0,
+                0.0,
+            )),
+            mk(row(
+                "mask-open",
+                true,
+                1500.0,
+                30.0,
+                60.0,
+                50.0,
+                1,
+                0.03,
+                0.0,
+                0.0,
+            )),
+            mk(row(
+                "legend", true, 1500.0, 35.0, 60.0, 50.0, 1, 0.03, 0.0, 0.0,
+            )),
+            mk(row(
+                "stencil-cut",
+                false,
+                300.0,
+                100.0,
+                30.0,
+                350.0,
+                10,
+                0.0,
+                0.0,
+                0.02,
+            )),
         ],
     }
 }
@@ -494,9 +551,10 @@ fn mask_open_rings(p: &Project, side: Layer) -> Result<Vec<Vec<Point>>, String> 
 }
 
 fn legend_rings(p: &Project, side: Layer) -> Result<Vec<Vec<Point>>, String> {
-    let silk = match side {
-        Layer::Front => "F.SilkS",
-        Layer::Back => "B.SilkS",
+    let silk = if side == Layer::Back {
+        "B.SilkS"
+    } else {
+        "F.SilkS"
     };
     let mut rings = Vec::new();
     for text in p.board.texts.iter().filter(|t| t.layer == side) {
@@ -620,8 +678,8 @@ fn board_content_bounds(p: &Project) -> (Point, Point) {
 
 fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
     let segments = 32;
-    let mut ring = Vec::with_capacity(segments + 1);
-    for i in 0..=segments {
+    let mut ring = Vec::with_capacity(segments);
+    for i in 0..segments {
         let angle = i as f64 / segments as f64 * std::f64::consts::TAU;
         ring.push(Point::new(
             center.x + radius * angle.cos(),
@@ -638,15 +696,10 @@ fn rect_ring(anchor: Point, width: f64, height: f64, rotation_deg: f64) -> Vec<P
         Point::new(width, height),
         Point::new(0.0, height),
     ];
-    let mut ring = Vec::with_capacity(5);
-    for c in corners {
-        let p = anchor.offset(c.rotate(-rotation_deg));
-        ring.push(p);
-    }
-    if let Some(first) = ring.first().copied() {
-        ring.push(first);
-    }
-    ring
+    corners
+        .iter()
+        .map(|c| anchor.offset(c.rotate(-rotation_deg)))
+        .collect()
 }
 
 fn path_for_ring(ring: &[Point], frame: &JobFrame) -> String {
@@ -809,8 +862,7 @@ struct LcWobble {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use pcbcraft_doc::{Component, Footprint, Id, Net, Pad, Track};
-    use pcbcraft_library::FootprintPad;
+    use pcbcraft_doc::{Component, Fiducial, Footprint, Id, Net, Pad, Pin, Track};
     use std::fs;
 
     fn sample_component(id: Id, reference: &str) -> Component {
@@ -818,10 +870,18 @@ pub mod tests {
             id,
             reference: reference.into(),
             value: reference.into(),
-            kind: "passive".into(),
+            kind: "resistor".into(),
             position: Point::default(),
             rotation: 0.0,
-            pins: vec![],
+            pins: vec![Pin {
+                number: "1".into(),
+                name: "1".into(),
+                offset: Point::default(),
+                net: Some(401),
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+            }],
             units: vec![],
             library_symbol: None,
             library_footprint: None,
@@ -831,22 +891,10 @@ pub mod tests {
     }
 
     pub fn laser_job_two_pad_one_track_project() -> Project {
-        let pad_geom = FootprintPad {
-            number: "1".into(),
-            pad_type: "smd".into(),
-            shape: "rect".into(),
-            position: Point::default(),
-            rotation: 0.0,
-            size: Point::new(1.6, 1.6),
-            layers: vec!["F.Cu".into()],
-            drill: None,
-            roundrect_ratio: None,
-            chamfer: None,
-            polygon: vec![],
-            raw_source: String::new(),
+        let mut project = Project {
+            name: "laser-fixture".into(),
+            ..Project::default()
         };
-        let mut project = Project::default();
-        project.name = "laser-fixture".into();
         project.board.width = 20.0;
         project.board.height = 15.0;
         const FP_A: Id = 101;
@@ -868,7 +916,7 @@ pub mod tests {
                     diameter: 1.6,
                     net: Some(NET),
                     castellated: None,
-                    geometry: Some(pad_geom.clone()),
+                    geometry: None,
                 }],
             },
             Footprint {
@@ -883,7 +931,7 @@ pub mod tests {
                     diameter: 1.6,
                     net: Some(NET),
                     castellated: None,
-                    geometry: Some(pad_geom),
+                    geometry: None,
                 }],
             },
         ];
@@ -971,7 +1019,9 @@ pub mod tests {
         let golden = fs::read_to_string(&path)
             .map_err(|e| format!("golden fixture {name} is missing: {e}"))?;
         if golden != actual {
-            return Err(format!("laser export differs from the golden fixture {name}"));
+            return Err(format!(
+                "laser export differs from the golden fixture {name}"
+            ));
         }
         Ok(())
     }
@@ -988,7 +1038,12 @@ pub mod tests {
                 .split_whitespace()
                 .filter_map(|t| t.parse().ok())
                 .collect();
-            let ring: Vec<Point> = nums.chunks_exact(2).map(|c| Point::new(c[0], c[1])).collect();
+            let ring: Vec<Point> = nums
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| Point::new(c[0], c[1]))
+                .collect();
             if ring.len() < 3 || !data.trim_end().ends_with('Z') {
                 return Err("path is not a closed ring".into());
             }
@@ -1086,6 +1141,8 @@ pub mod tests {
 
     #[test]
     fn laser_job_bottom_side_mirrors_fiducials_onto_top() -> Result<(), String> {
+        // Board is 20 mm wide: a back mark at x = 17 mirrors about x = 10 onto
+        // the front mark at x = 3, so both sides share one registration spot.
         let mut project = laser_job_two_pad_one_track_project();
         project.board.fiducials.push(Fiducial {
             id: 9001,
@@ -1095,7 +1152,7 @@ pub mod tests {
         });
         project.board.fiducials.push(Fiducial {
             id: 9002,
-            position: Point::new(3.0, 4.0),
+            position: Point::new(17.0, 4.0),
             diameter: 1.0,
             layer: Layer::Back,
         });
@@ -1119,7 +1176,9 @@ pub mod tests {
         if (front_center.x - back_center.x).abs() > 1e-3
             || (front_center.y - back_center.y).abs() > 1e-3
         {
-            return Err("back fiducial did not mirror onto the top position".into());
+            return Err(format!(
+                "back fiducial did not mirror onto the top position: front {front_center:?} back {back_center:?}"
+            ));
         }
         Ok(())
     }
@@ -1131,16 +1190,24 @@ pub mod tests {
             .ok_or_else(|| "fiducials group missing".to_string())?;
         let section = &svg[start..];
         let path = section
-            .find("M ")
+            .find(" d=\"")
             .ok_or_else(|| "fiducial path missing".to_string())?;
-        let coords: Vec<f64> = section[path + 2..]
+        let data = section[path + 4..].split('"').next().unwrap_or_default();
+        let nums: Vec<f64> = data
             .split_whitespace()
-            .take(2)
             .filter_map(|token| token.parse().ok())
             .collect();
-        if coords.len() < 2 {
+        let count = nums.len() / 2;
+        if count < 3 {
             return Err("fiducial path coordinates missing".to_string());
         }
-        Ok(Point::new(coords[0], coords[1]))
+        // The ring starts at a different angle after a mirror, so compare the
+        // centre of the ring, not its first point.
+        let (mut cx, mut cy) = (0.0, 0.0);
+        for pair in nums.as_chunks::<2>().0.iter() {
+            cx += pair[0];
+            cy += pair[1];
+        }
+        Ok(Point::new(cx / count as f64, cy / count as f64))
     }
 }

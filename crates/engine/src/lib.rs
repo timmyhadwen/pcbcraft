@@ -2157,7 +2157,8 @@ fn render_kind(
                 rubout: true,
                 stencil_reduction_pct: 10.0,
             };
-            let text = pcbcraft_io::laser_job_svg(p, pcbcraft_doc::Layer::Front, &profile, &options)?;
+            let text =
+                pcbcraft_io::laser_job_svg(p, pcbcraft_doc::Layer::Front, &profile, &options)?;
             out.push(("laser-job.svg".into(), text.into_bytes()));
         }
         other => {

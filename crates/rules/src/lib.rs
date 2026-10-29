@@ -319,12 +319,11 @@ fn track_capsule_outline(start: Point, end: Point, half_width: f64) -> Vec<Point
 }
 
 fn open_ring(mut ring: Vec<Point>) -> Vec<Point> {
-    if ring.len() >= 2 {
-        if let (Some(first), Some(last)) = (ring.first(), ring.last()) {
-            if first.distance(*last) < 1e-9 {
-                ring.pop();
-            }
-        }
+    if ring.len() >= 2
+        && let (Some(first), Some(last)) = (ring.first(), ring.last())
+        && first.distance(*last) < 1e-9
+    {
+        ring.pop();
     }
     ring
 }
