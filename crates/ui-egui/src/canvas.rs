@@ -823,10 +823,10 @@ impl App {
                 }
             }
         }
-        if let Some((screen, kind)) = self.canvas_menu {
+        if let Some((screen, kind)) = self.canvas_menu.as_ref() {
             let mut close = false;
             egui::Area::new(egui::Id::new("canvas-context-menu"))
-                .fixed_pos(screen)
+                .fixed_pos(*screen)
                 .order(egui::Order::Foreground)
                 .show(ui.ctx(), |ui| {
                     ui.set_min_width(140.0);
@@ -1237,7 +1237,6 @@ impl App {
                     "Properties",
                     "Load this pin's part into the inspector.",
                 ) {
-                    self.appearance = false;
                     self.load_properties();
                     return true;
                 }
@@ -1256,7 +1255,6 @@ impl App {
                     "Properties",
                     "Load this pad's package into the inspector.",
                 ) {
-                    self.appearance = false;
                     self.load_properties();
                     return true;
                 }
@@ -1295,11 +1293,11 @@ impl App {
                     "Properties",
                     "Load this wire into the inspector.",
                 ) {
-                    self.appearance = false;
                     self.load_properties();
                     return true;
                 }
-                if Self::canvas_menu_button(ui, "Delete", command_tip("object.delete")) {
+                let delete_tip = command_tip("object.delete");
+                if Self::canvas_menu_button(ui, "Delete", &delete_tip) {
                     self.run("object.delete", json!({"id": *id}));
                     self.select(None);
                     return true;
@@ -1389,11 +1387,11 @@ impl App {
                     "Properties",
                     "Load this object into the inspector.",
                 ) {
-                    self.appearance = false;
                     self.load_properties();
                     return true;
                 }
-                if Self::canvas_menu_button(ui, "Delete", command_tip("object.delete")) {
+                let delete_tip = command_tip("object.delete");
+                if Self::canvas_menu_button(ui, "Delete", &delete_tip) {
                     self.run("object.delete", json!({"id": *id}));
                     self.select(None);
                     return true;
