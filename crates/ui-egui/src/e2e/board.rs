@@ -789,6 +789,10 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
     );
     app.datum_ui.add_name = "MH1".into();
     app.datum_ui.add_hole = Some(hole);
+    assert!(
+        scrolled_to(&ctx, &mut app, "Add datum")?,
+        "the add button is on screen"
+    );
     authoring::tests::tap(&ctx, &mut app, "Add datum")?;
     app.refresh();
     let datum = app
