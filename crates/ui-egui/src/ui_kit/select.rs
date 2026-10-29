@@ -16,6 +16,9 @@ use crate::fonts;
 use crate::theme;
 use egui::{ComboBox, Response, Ui, WidgetInfo, WidgetType};
 
+/// Tallest the drop-down list gets before it scrolls.
+const POPUP_HEIGHT: f32 = 320.0;
+
 /// A dropdown over `options`; `selected` is the index in use and `changed()` reports a pick.
 ///
 /// Why: a long list of exclusive choices (footprint, layer, net class) in one 28 high box.
@@ -47,7 +50,8 @@ pub fn select(
     let shown = options.get(*selected).copied().unwrap_or("");
     let out = ComboBox::from_id_salt(salt)
         .width(width)
-        .height(theme::CONTROL_HEIGHT)
+        // The list drops down at most this tall; the box itself is as high as a control.
+        .height(POPUP_HEIGHT)
         .selected_text(fonts::text(fonts::Role::Body, shown).color(t.text))
         .icon(move |ui, rect, visuals, _open| {
             let c = visuals.fg_stroke.color;

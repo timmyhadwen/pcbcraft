@@ -381,6 +381,36 @@ pub(crate) fn tap_properties(ctx: &egui::Context, app: &mut App, id: &str) -> Re
     tap_at(ctx, app, pos)
 }
 
+/// True when the control the gate calls `id` is on screen and switched on.
+pub(crate) fn on_screen(ctx: &egui::Context, app: &mut App, id: &str) -> bool {
+    let _tall = TallScope::enter();
+    control_center(ctx, app, id).is_ok()
+}
+
+/// Press each control in turn, like a person working down a list, and
+/// return the ones that were not there to press.
+pub(crate) fn press_each(ctx: &egui::Context, app: &mut App, ids: &[&str]) -> Vec<String> {
+    ids.iter()
+        .filter(|id| tap_id(ctx, app, id).is_err())
+        .map(|id| (*id).to_owned())
+        .collect()
+}
+
+/// Press `from`, then check that `to` is what the same control reads now.
+pub(crate) fn flips_to(
+    ctx: &egui::Context,
+    app: &mut App,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    tap_id(ctx, app, from)?;
+    if on_screen(ctx, app, to) {
+        Ok(())
+    } else {
+        Err(format!("after {from} the control should read {to}"))
+    }
+}
+
 /// Screen column right of which the Properties dock sits.
 const PROPERTIES_LEFT: f32 = 1000.0;
 
@@ -392,7 +422,7 @@ pub(crate) fn tap_id(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(),
 }
 
 /// Press and release at `pos`, like a hand.
-fn tap_at(ctx: &egui::Context, app: &mut App, pos: egui::Pos2) -> Result<(), String> {
+pub(crate) fn tap_at(ctx: &egui::Context, app: &mut App, pos: egui::Pos2) -> Result<(), String> {
     // Rest the pointer on it first, as a hand does, before pressing.
     frame(
         ctx,

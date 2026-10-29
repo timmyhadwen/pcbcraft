@@ -462,3 +462,21 @@ fn a_newcomer_decides_how_much_the_assistant_may_change() -> Result<(), String> 
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_opens_the_keys_section_to_pick_tool_keys() -> Result<(), String> {
+    let mut app = fresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Settings);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Keys", 700.0)?,
+        "the settings page has a Keys section"
+    );
+    tap_id(&ctx, &mut app, "button:Keys")?;
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Reset keys", 700.0)?,
+        "the section opens onto the tool keys and a way back to the defaults"
+    );
+    Ok(())
+}
