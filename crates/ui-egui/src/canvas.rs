@@ -1758,10 +1758,7 @@ impl App {
                 {
                     let pos = f.pad_world_position(pad);
                     let center = camera.screen(pos, rect);
-                    let mechanical = pad
-                        .geometry
-                        .as_ref()
-                        .is_some_and(|g| g.pad_type == "unplated");
+                    let mechanical = is_mechanical_pad(pad);
                     if !mechanical {
                         let outline: Vec<Pos2> = pad
                             .outline_points()
@@ -2130,4 +2127,11 @@ fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
     let along = ((point.x - from.x) * dx + (point.y - from.y) * dy) / span;
     let along = along.clamp(0.0, 1.0);
     point.distance(Point::new(from.x + dx * along, from.y + dy * along))
+}
+
+/// True for a bare drilled hole inside a footprint: no copper, no net.
+pub(crate) fn is_mechanical_pad(pad: &pcbcraft_doc::Pad) -> bool {
+    pad.geometry
+        .as_ref()
+        .is_some_and(|g| g.pad_type == "unplated")
 }
