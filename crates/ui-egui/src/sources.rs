@@ -225,6 +225,9 @@ impl App {
     /// True when no online search is wanted or the one wanted has answered;
     /// a `--capture` image waits for it.
     pub(super) fn online_settled(&self) -> bool {
+        if self.dock_capture_placing() && self.frames < 900 {
+            return false;
+        }
         let query = self.part_search.trim();
         self.part_sources.source.is_none()
             || query.chars().count() < 2
