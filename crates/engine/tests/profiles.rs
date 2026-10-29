@@ -134,7 +134,12 @@ fn applying_twice_updates_values_without_duplicating_classes() -> Result<(), Err
 fn every_built_in_profile_toml_parses() {
     for builtin in pcbcraft_engine::profiles::BUILT_INS {
         let parsed = toml::from_str::<toml::Value>(builtin.toml);
-        assert!(parsed.is_ok(), "{} must parse: {:?}", builtin.id, parsed.err());
+        assert!(
+            parsed.is_ok(),
+            "{} must parse: {:?}",
+            builtin.id,
+            parsed.err()
+        );
         let doc = parsed.unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
         assert_eq!(doc["schema"].as_integer(), Some(1));
         assert_eq!(doc["profile"]["id"].as_str(), Some(builtin.id));
