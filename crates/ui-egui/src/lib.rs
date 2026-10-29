@@ -2337,6 +2337,9 @@ impl App {
         if !ctx.data(|d| d.get_temp::<bool>(fonts_key).unwrap_or(false)) {
             fonts::install(ctx);
             ctx.data_mut(|d| d.insert_temp(fonts_key, true));
+            // Fonts bind on the next pass; naming their families before that panics.
+            ctx.request_repaint();
+            return;
         }
         theme::apply(ctx, &theme::Tokens::for_dark(self.preferences.dark));
         let reduced = self.preferences.reduced_motion;
