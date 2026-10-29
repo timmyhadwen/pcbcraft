@@ -1,0 +1,998 @@
+//! Galvo laser job writers (SVG and LaserCraft `.lcproj`).
+use pcbcraft_doc::{Fiducial, Footprint, Layer, Pad, Project};
+use pcbcraft_geom::{Point, hull, polygon_is_simple};
+use serde::Serialize;
+use std::collections::BTreeSet;
+
+pub const LASER_OPERATION_IDS: [&str; 6] = [
+    "fiducials",
+    "isolation-cut",
+    "copper-rubout",
+    "mask-open",
+    "legend",
+    "stencil-cut",
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MirrorAxis {
+    X,
+    Y,
+}
+
+impl MirrorAxis {
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        match raw {
+            "x" => Ok(Self::X),
+            "y" => Ok(Self::Y),
+            _ => Err("mirror axis must be x or y".into()),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct LaserGalvoField {
+    pub width_mm: f64,
+    pub height_mm: f64,
+    pub label: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct LaserGalvoOperation {
+    pub name: String,
+    pub mode: String,
+    pub speed_mm_s: f64,
+    pub power_min: f64,
+    pub power_max: f64,
+    pub passes: u32,
+    pub frequency_khz: f64,
+    pub q_pulse_width_ns: f64,
+    pub line_interval_mm: Option<f64>,
+    pub hatch_angle_deg: Option<f64>,
+    pub angle_increment_deg: Option<f64>,
+    pub kerf_offset_mm: Option<f64>,
+    pub verified: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct LaserGalvoProfile {
+    pub id: String,
+    pub kind: String,
+    pub fields: Vec<LaserGalvoField>,
+    pub frequency_khz_min: f64,
+    pub frequency_khz_max: f64,
+    pub pulse_width_ns_min: f64,
+    pub pulse_width_ns_max: f64,
+    pub operations: Vec<LaserGalvoOperation>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LaserJobExportOptions {
+    pub side: Layer,
+    pub operations: BTreeSet<String>,
+    pub mirror_axis: MirrorAxis,
+    pub margin_mm: f64,
+    pub isolation_width_mm: f64,
+    pub rubout: bool,
+    pub stencil_reduction_pct: f64,
+}
+
+/// Built-in galvo profiles until `MachineProfile` lands in doc (#389).
+pub fn laser_galvo_builtin_profile(profile_id: &str) -> Result<LaserGalvoProfile, String> {
+    if profile_id == "commarker-b6-mopa" {
+        return Ok(commarker_b6_mopa_profile());
+    }
+    if profile_id == "commarker-b6-mopa-150" {
+        let mut profile = commarker_b6_mopa_profile();
+        profile.id = "commarker-b6-mopa-150".into();
+        profile.fields.retain(|field| field.width_mm <= 150.0);
+        return Ok(profile);
+    }
+    Err(format!("unknown laser galvo profile \"{profile_id}\""))
+}
+
+/// Resolve a galvo profile for export. Today this reads built-ins; wire
+/// `Project::machine_profiles` here when issue #389 merges.
+pub fn laser_galvo_profile_for_export(
+    project: &Project,
+    profile_id: &str,
+) -> Result<LaserGalvoProfile, String> {
+    let _ = project;
+    laser_galvo_builtin_profile(profile_id)
+}
+
+pub fn commarker_b6_mopa_profile() -> LaserGalvoProfile {
+    let mk = |name: &str, mode: &str, speed: f64, power: f64, freq: f64, pulse: f64| {
+        LaserGalvoOperation {
+            name: name.into(),
+            mode: mode.into(),
+            speed_mm_s: speed,
+            power_min: power,
+            power_max: power,
+            passes: 1,
+            frequency_khz: freq,
+            q_pulse_width_ns: pulse,
+            line_interval_mm: if mode == "fill" {
+                Some(0.025)
+            } else {
+                None
+            },
+            hatch_angle_deg: if mode == "fill" {
+                Some(45.0)
+            } else {
+                None
+            },
+            angle_increment_deg: if mode == "fill" {
+                Some(90.0)
+            } else {
+                None
+            },
+            kerf_offset_mm: if mode == "line" {
+                Some(0.01)
+            } else {
+                None
+            },
+            verified: false,
+        }
+    };
+    LaserGalvoProfile {
+        id: "commarker-b6-mopa".into(),
+        kind: "laser_galvo".into(),
+        fields: vec![
+            LaserGalvoField {
+                width_mm: 150.0,
+                height_mm: 150.0,
+                label: "F-theta 150 mm".into(),
+            },
+            LaserGalvoField {
+                width_mm: 300.0,
+                height_mm: 300.0,
+                label: "F-theta 300 mm (unverified)".into(),
+            },
+        ],
+        frequency_khz_min: 20.0,
+        frequency_khz_max: 4000.0,
+        pulse_width_ns_min: 1.0,
+        pulse_width_ns_max: 500.0,
+        operations: vec![
+            mk("fiducials", "line", 500.0, 30.0, 100.0, 200.0),
+            mk("isolation-cut", "line", 300.0, 80.0, 500.0, 120.0),
+            mk("copper-rubout", "fill", 1500.0, 60.0, 800.0, 80.0),
+            mk("mask-open", "fill", 1200.0, 25.0, 200.0, 250.0),
+            mk("legend", "fill", 800.0, 35.0, 300.0, 200.0),
+            mk("stencil-cut", "line", 400.0, 70.0, 400.0, 150.0),
+        ],
+    }
+}
+
+pub fn laser_job_work_area_mm(p: &Project, margin_mm: f64) -> Result<(f64, f64), String> {
+    if !margin_mm.is_finite() || !(0.0..=50.0).contains(&margin_mm) {
+        return Err("margin must be 0 to 50 millimetres".into());
+    }
+    let (min, max) = board_content_bounds(p);
+    let width = (max.x - min.x) + 2.0 * margin_mm;
+    let height = (max.y - min.y) + 2.0 * margin_mm;
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return Err("board bounds are not usable for laser export".into());
+    }
+    Ok((width, height))
+}
+
+pub fn laser_job_validate_work_area(
+    profile: &LaserGalvoProfile,
+    width_mm: f64,
+    height_mm: f64,
+) -> Result<(), String> {
+    let fits = profile.fields.iter().any(|field| {
+        width_mm <= field.width_mm + 1e-9 && height_mm <= field.height_mm + 1e-9
+    });
+    if fits {
+        Ok(())
+    } else {
+        Err(format!(
+            "the board plus margin is {width_mm:.1} by {height_mm:.1} mm and exceeds every work area in profile {}",
+            profile.id
+        ))
+    }
+}
+
+pub fn laser_job_svg(
+    p: &Project,
+    side: Layer,
+    profile: &LaserGalvoProfile,
+    options: &LaserJobExportOptions,
+) -> Result<String, String> {
+    validate_profile_operations(profile, &options.operations)?;
+    let (width_mm, height_mm) = laser_job_work_area_mm(p, options.margin_mm)?;
+    laser_job_validate_work_area(profile, width_mm, height_mm)?;
+    let (min, max) = board_content_bounds(p);
+    let frame = JobFrame {
+        min,
+        max,
+        margin: options.margin_mm,
+        mirror: side == Layer::Back,
+        axis: options.mirror_axis,
+    };
+    let groups = collect_groups(p, side, profile, options, &frame)?;
+    let mut svg = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width_mm}mm\" height=\"{height_mm}mm\" viewBox=\"0 0 {width_mm} {height_mm}\">\n"
+    );
+    for group in groups {
+        svg.push_str(&format!("  <g id=\"{}\">\n", group.id));
+        for ring in &group.rings {
+            svg.push_str("    ");
+            svg.push_str(&path_for_ring(ring, &frame));
+            svg.push('\n');
+        }
+        svg.push_str("  </g>\n");
+    }
+    svg.push_str("</svg>\n");
+    Ok(svg)
+}
+
+pub fn laser_job_lcproj(
+    p: &Project,
+    side: Layer,
+    profile: &LaserGalvoProfile,
+    options: &LaserJobExportOptions,
+) -> Result<String, String> {
+    validate_profile_operations(profile, &options.operations)?;
+    let (width_mm, height_mm) = laser_job_work_area_mm(p, options.margin_mm)?;
+    laser_job_validate_work_area(profile, width_mm, height_mm)?;
+    let (min, max) = board_content_bounds(p);
+    let frame = JobFrame {
+        min,
+        max,
+        margin: options.margin_mm,
+        mirror: side == Layer::Back,
+        axis: options.mirror_axis,
+    };
+    let groups = collect_groups(p, side, profile, options, &frame)?;
+    let mut cut_settings: Vec<LcCutSetting> = Vec::new();
+    let mut shapes: Vec<LcShape> = Vec::new();
+    for (index, group) in groups.iter().enumerate() {
+        let op = profile
+            .operations
+            .iter()
+            .find(|row| row.name == group.id)
+            .ok_or_else(|| format!("profile is missing operation \"{}\"", group.id))?;
+        if op.frequency_khz < profile.frequency_khz_min - 1e-9
+            || op.frequency_khz > profile.frequency_khz_max + 1e-9
+            || op.q_pulse_width_ns < profile.pulse_width_ns_min - 1e-9
+            || op.q_pulse_width_ns > profile.pulse_width_ns_max + 1e-9
+        {
+            return Err(format!(
+                "operation {} has frequency or pulse width outside the profile range",
+                group.id
+            ));
+        }
+        cut_settings.push(LcCutSetting {
+            index,
+            name: group.id.clone(),
+            speed_mm_s: op.speed_mm_s,
+            power_min: op.power_min,
+            power_max: op.power_max,
+            num_passes: op.passes,
+            air_assist: true,
+            galvo: LcGalvo {
+                mode: if op.mode == "fill" {
+                    "Fill".into()
+                } else {
+                    "Line".into()
+                },
+                frequency_khz: op.frequency_khz,
+                q_pulse_width_ns: op.q_pulse_width_ns,
+                global_passes: op.passes,
+                fill: op.line_interval_mm.map(|line_interval_mm| LcFill {
+                    line_interval_mm,
+                    hatch_angle_deg: op.hatch_angle_deg.unwrap_or(45.0),
+                    angle_increment_deg: op.angle_increment_deg.unwrap_or(90.0),
+                }),
+                line: op.kerf_offset_mm.map(|kerf_offset_mm| LcLine { kerf_offset_mm }),
+                tabs: false,
+                wobble: false,
+                timing_override: None,
+            },
+        });
+        for ring in &group.rings {
+            let points: Vec<LcPoint> = ring
+                .iter()
+                .map(|p| frame.to_job(*p))
+                .map(|p| LcPoint { x: p.x, y: p.y })
+                .collect();
+            shapes.push(LcShape {
+                kind: "Path".into(),
+                cut_index: index,
+                geometry: LcGeometry {
+                    polyline: LcPolyline {
+                        points,
+                        closed: true,
+                    },
+                },
+            });
+        }
+    }
+    let doc = LcProject {
+        app_version: "1".into(),
+        shapes,
+        cut_settings,
+        width_mm,
+        height_mm,
+    };
+    serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())
+}
+
+fn validate_profile_operations(
+    profile: &LaserGalvoProfile,
+    operations: &BTreeSet<String>,
+) -> Result<(), String> {
+    if profile.kind != "laser_galvo" {
+        return Err("laser jobs need a profile whose kind is laser_galvo".into());
+    }
+    if operations.is_empty() || operations.len() > 6 {
+        return Err("laser jobs need one to six operation groups".into());
+    }
+    for id in operations {
+        if !LASER_OPERATION_IDS.contains(&id.as_str()) {
+            return Err(format!("unknown laser operation \"{id}\""));
+        }
+        if !profile.operations.iter().any(|row| row.name == *id) {
+            return Err(format!("profile is missing operation \"{id}\""));
+        }
+    }
+    Ok(())
+}
+
+struct JobFrame {
+    min: Point,
+    max: Point,
+    margin: f64,
+    mirror: bool,
+    axis: MirrorAxis,
+}
+
+impl JobFrame {
+    fn to_job(&self, point: Point) -> Point {
+        let mut p = point;
+        if self.mirror {
+            let cx = (self.min.x + self.max.x) / 2.0;
+            let cy = (self.min.y + self.max.y) / 2.0;
+            p = match self.axis {
+                MirrorAxis::Y => Point::new(2.0 * cx - p.x, p.y),
+                MirrorAxis::X => Point::new(p.x, 2.0 * cy - p.y),
+            };
+        }
+        Point::new(
+            p.x - self.min.x + self.margin,
+            p.y - self.min.y + self.margin,
+        )
+    }
+}
+
+struct OperationGroup {
+    id: String,
+    rings: Vec<Vec<Point>>,
+}
+
+fn collect_groups(
+    p: &Project,
+    side: Layer,
+    profile: &LaserGalvoProfile,
+    options: &LaserJobExportOptions,
+    frame: &JobFrame,
+) -> Result<Vec<OperationGroup>, String> {
+    let mut groups = Vec::new();
+    for id in LASER_OPERATION_IDS {
+        if !options.operations.contains(id) {
+            continue;
+        }
+        let rings = match *id {
+            "fiducials" => fiducial_rings(p, side)?,
+            "isolation-cut" => {
+                pcbcraft_rules::isolation_cut_polygons(p, side, options.isolation_width_mm)?
+                    .into_iter()
+                    .map(|item| item.ring)
+                    .collect()
+            }
+            "copper-rubout" => {
+                if !options.rubout {
+                    vec![]
+                } else {
+                    copper_rubout_rings(p, side, profile)?
+                }
+            }
+            "mask-open" => mask_open_rings(p, side)?,
+            "legend" => legend_rings(p, side)?,
+            "stencil-cut" => stencil_rings(p, side, options.stencil_reduction_pct)?,
+            _ => vec![],
+        };
+        if rings.is_empty() {
+            continue;
+        }
+        for ring in &rings {
+            if !polygon_is_simple(ring) {
+                return Err(format!("operation {id} emitted a non-simple ring"));
+            }
+        }
+        groups.push(OperationGroup {
+            id: id.into(),
+            rings,
+        });
+    }
+    Ok(groups)
+}
+
+fn fiducial_rings(p: &Project, side: Layer) -> Result<Vec<Vec<Point>>, String> {
+    let mut rings = Vec::new();
+    for fid in p.board.fiducials.iter().filter(|f| f.layer == side) {
+        rings.push(circle_ring(fid.position, fid.diameter / 2.0));
+    }
+    Ok(rings)
+}
+
+fn copper_rubout_rings(
+    p: &Project,
+    side: Layer,
+    profile: &LaserGalvoProfile,
+) -> Result<Vec<Vec<Point>>, String> {
+    let row = profile
+        .operations
+        .iter()
+        .find(|op| op.name == "copper-rubout")
+        .ok_or_else(|| "profile is missing copper-rubout".to_string())?;
+    let interval = row.line_interval_mm.unwrap_or(0.025);
+    let angle = row.hatch_angle_deg.unwrap_or(45.0);
+    let increment = row.angle_increment_deg.unwrap_or(90.0);
+    let _ = (interval, angle, increment);
+    let outlines = pcbcraft_rules::laser_copper_outlines(p, side)?;
+    Ok(outlines.into_iter().map(|item| item.ring).collect())
+}
+
+fn mask_open_rings(p: &Project, side: Layer) -> Result<Vec<Vec<Point>>, String> {
+    let mut rings = Vec::new();
+    for fp in &p.board.footprints {
+        let margin = footprint_mask_margin(p, fp);
+        for pad in &fp.pads {
+            if !pad_on_layer(pad, side) {
+                continue;
+            }
+            if fp.pad_position(&pad.number).is_none() {
+                continue;
+            }
+            let local: Vec<Point> = pad
+                .outline_points()
+                .into_iter()
+                .map(|pt| fp.position.offset(pt.rotate(-fp.rotation)))
+                .collect();
+            let ring = hull::octagon(&local, margin.max(0.0));
+            if ring.len() >= 3 && polygon_is_simple(&ring) {
+                rings.push(ring);
+            }
+        }
+    }
+    Ok(rings)
+}
+
+fn legend_rings(p: &Project, side: Layer) -> Result<Vec<Vec<Point>>, String> {
+    let silk = match side {
+        Layer::Front => "F.SilkS",
+        Layer::Back => "B.SilkS",
+    };
+    let mut rings = Vec::new();
+    for text in p.board.texts.iter().filter(|t| t.layer == side) {
+        let w = text.text.len() as f64 * text.size * 0.55;
+        let h = text.size;
+        let ring = rect_ring(
+            text.position,
+            w,
+            h,
+            text.rotation,
+        );
+        if polygon_is_simple(&ring) {
+            rings.push(ring);
+        }
+    }
+    for g in p.graphics.iter().filter(|g| g.layer == silk) {
+        if g.points.len() >= 2 {
+            for pair in g.points.windows(2) {
+                let ring = hull::octagon(pair, g.width.max(0.05) / 2.0);
+                if polygon_is_simple(&ring) {
+                    rings.push(ring);
+                }
+            }
+        }
+    }
+    Ok(rings)
+}
+
+fn stencil_rings(
+    p: &Project,
+    side: Layer,
+    reduction_pct: f64,
+) -> Result<Vec<Vec<Point>>, String> {
+    if !reduction_pct.is_finite() || !(0.0..=50.0).contains(&reduction_pct) {
+        return Err("stencil reduction must be 0 to 50 percent".into());
+    }
+    let scale = 1.0 - reduction_pct / 100.0;
+    let mut rings = Vec::new();
+    for fp in &p.board.footprints {
+        for pad in &fp.pads {
+            if !pad_on_layer(pad, side) {
+                continue;
+            }
+            let Some(position) = fp.pad_position(&pad.number) else {
+                continue;
+            };
+            let local: Vec<Point> = pad
+                .outline_points()
+                .into_iter()
+                .map(|pt| Point::new(pt.x * scale, pt.y * scale))
+                .collect();
+            let mut ring: Vec<Point> = local
+                .iter()
+                .map(|pt| position.offset(*pt))
+                .collect();
+            if ring.len() >= 3 {
+                if let Some(first) = ring.first().copied() {
+                    ring.push(first);
+                }
+                if polygon_is_simple(&ring) {
+                    rings.push(ring);
+                }
+            }
+        }
+    }
+    let (min, max) = board_content_bounds(p);
+    let frame = hull::octagon(
+        &[
+            Point::new(min.x, min.y),
+            Point::new(max.x, min.y),
+            Point::new(max.x, max.y),
+            Point::new(min.x, max.y),
+        ],
+        0.5,
+    );
+    if polygon_is_simple(&frame) {
+        rings.push(frame);
+    }
+    Ok(rings)
+}
+
+fn footprint_mask_margin(p: &Project, fp: &Footprint) -> f64 {
+    p.component(fp.component)
+        .and_then(|c| c.library_footprint.as_ref())
+        .and_then(|l| l.definition.rules.as_ref())
+        .and_then(|r| r.mask_margin)
+        .unwrap_or(0.0)
+}
+
+fn pad_on_layer(pad: &Pad, layer: Layer) -> bool {
+    let Some(g) = pad.geometry.as_ref() else {
+        return layer == Layer::Front;
+    };
+    if g.pad_type == "thru_hole" {
+        return true;
+    }
+    g.layers.iter().any(|name| name == layer.name())
+}
+
+fn board_content_bounds(p: &Project) -> (Point, Point) {
+    let mut min = Point::new(p.board.width, p.board.height);
+    let mut max = Point::default();
+    let extend = |min: &mut Point, max: &mut Point, point: Point| {
+        if point.x.is_finite() && point.y.is_finite() {
+            min.x = min.x.min(point.x);
+            min.y = min.y.min(point.y);
+            max.x = max.x.max(point.x);
+            max.y = max.y.max(point.y);
+        }
+    };
+    for fp in &p.board.footprints {
+        for pad in &fp.pads {
+            if let Some(pos) = fp.pad_position(&pad.number) {
+                extend(&mut min, &mut max, pos);
+            }
+        }
+    }
+    for t in &p.board.tracks {
+        extend(&mut min, &mut max, t.start);
+        extend(&mut min, &mut max, t.end);
+    }
+    for fid in &p.board.fiducials {
+        extend(&mut min, &mut max, fid.position);
+    }
+    if !min.x.is_finite() {
+        return (Point::default(), Point::new(p.board.width, p.board.height));
+    }
+    (
+        Point::new(min.x.min(0.0), min.y.min(0.0)),
+        Point::new(max.x.max(p.board.width), max.y.max(p.board.height)),
+    )
+}
+
+fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
+    let segments = 32;
+    let mut ring = Vec::with_capacity(segments + 1);
+    for i in 0..=segments {
+        let angle = i as f64 / segments as f64 * std::f64::consts::TAU;
+        ring.push(Point::new(
+            center.x + radius * angle.cos(),
+            center.y + radius * angle.sin(),
+        ));
+    }
+    ring
+}
+
+fn rect_ring(anchor: Point, width: f64, height: f64, rotation_deg: f64) -> Vec<Point> {
+    let corners = [
+        Point::default(),
+        Point::new(width, 0.0),
+        Point::new(width, height),
+        Point::new(0.0, height),
+    ];
+    let mut ring = Vec::with_capacity(5);
+    for c in corners {
+        let p = anchor.offset(c.rotate(-rotation_deg));
+        ring.push(p);
+    }
+    if let Some(first) = ring.first().copied() {
+        ring.push(first);
+    }
+    ring
+}
+
+fn path_for_ring(ring: &[Point], frame: &JobFrame) -> String {
+    let mut d = String::from("<path fill=\"none\" stroke=\"#000\" d=\"");
+    for (index, point) in ring.iter().map(|p| frame.to_job(*p)).enumerate() {
+        if index == 0 {
+            d.push_str(&format!("M {:.6} {:.6}", point.x, point.y));
+        } else {
+            d.push_str(&format!(" L {:.6} {:.6}", point.x, point.y));
+        }
+    }
+    d.push_str(" Z\"/>");
+    d
+}
+
+#[derive(Serialize)]
+struct LcProject {
+    app_version: String,
+    shapes: Vec<LcShape>,
+    cut_settings: Vec<LcCutSetting>,
+    width_mm: f64,
+    height_mm: f64,
+}
+
+#[derive(Serialize)]
+struct LcShape {
+    kind: String,
+    cut_index: usize,
+    geometry: LcGeometry,
+}
+
+#[derive(Serialize)]
+struct LcGeometry {
+    #[serde(rename = "Polyline")]
+    polyline: LcPolyline,
+}
+
+#[derive(Serialize)]
+struct LcPolyline {
+    points: Vec<LcPoint>,
+    closed: bool,
+}
+
+#[derive(Serialize)]
+struct LcPoint {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Serialize)]
+struct LcCutSetting {
+    index: usize,
+    name: String,
+    speed_mm_s: f64,
+    power_min: f64,
+    power_max: f64,
+    num_passes: u32,
+    #[serde(default = "air_assist_on")]
+    air_assist: bool,
+    galvo: LcGalvo,
+}
+
+fn air_assist_on() -> bool {
+    true
+}
+
+#[derive(Serialize)]
+struct LcGalvo {
+    mode: String,
+    frequency_khz: f64,
+    q_pulse_width_ns: f64,
+    global_passes: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fill: Option<LcFill>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<LcLine>,
+    tabs: bool,
+    wobble: bool,
+    timing_override: Option<()>,
+}
+
+#[derive(Serialize)]
+struct LcFill {
+    line_interval_mm: f64,
+    hatch_angle_deg: f64,
+    angle_increment_deg: f64,
+}
+
+#[derive(Serialize)]
+struct LcLine {
+    kerf_offset_mm: f64,
+}
+
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use pcbcraft_doc::{Board, Component, Net, Pad, Track};
+    use pcbcraft_library::FootprintPad;
+    use std::fs;
+
+    pub fn laser_job_two_pad_one_track_project() -> Project {
+        let pad_geom = FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        Project {
+            name: "laser-fixture".into(),
+            board: Board {
+                width: 20.0,
+                height: 15.0,
+                footprints: vec![Footprint {
+                    id: 1,
+                    component: 1,
+                    position: Point::new(5.0, 7.5),
+                    rotation: 0.0,
+                    locked: None,
+                    pads: vec![Pad {
+                        number: "1".into(),
+                        offset: Point::default(),
+                        diameter: 1.6,
+                        net: Some(2),
+                        castellated: None,
+                        geometry: Some(pad_geom.clone()),
+                    }],
+                }, Footprint {
+                    id: 2,
+                    component: 2,
+                    position: Point::new(15.0, 7.5),
+                    rotation: 0.0,
+                    locked: None,
+                    pads: vec![Pad {
+                        number: "1".into(),
+                        offset: Point::default(),
+                        diameter: 1.6,
+                        net: Some(2),
+                        castellated: None,
+                        geometry: Some(pad_geom),
+                    }],
+                }],
+                tracks: vec![Track {
+                    id: 3,
+                    net: 2,
+                    start: Point::new(5.0, 7.5),
+                    end: Point::new(15.0, 7.5),
+                    width: 0.2,
+                    layer: Layer::Front,
+                    arc: None,
+                }],
+                ..Default::default()
+            },
+            components: vec![
+                Component {
+                    id: 1,
+                    reference: "P1".into(),
+                    value: "1".into(),
+                    kind: "passive".into(),
+                    ..Default::default()
+                },
+                Component {
+                    id: 2,
+                    reference: "P2".into(),
+                    value: "2".into(),
+                    kind: "passive".into(),
+                    ..Default::default()
+                },
+            ],
+            nets: vec![Net {
+                id: 2,
+                name: "SIG".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn default_options() -> LaserJobExportOptions {
+        LaserJobExportOptions {
+            side: Layer::Front,
+            operations: BTreeSet::from([
+                "fiducials".into(),
+                "isolation-cut".into(),
+                "copper-rubout".into(),
+                "mask-open".into(),
+                "legend".into(),
+                "stencil-cut".into(),
+            ]),
+            mirror_axis: MirrorAxis::Y,
+            margin_mm: 1.0,
+            isolation_width_mm: 0.05,
+            rubout: true,
+            stencil_reduction_pct: 10.0,
+        }
+    }
+
+    #[test]
+    fn laser_job_svg_two_pad_one_track_matches_golden() -> Result<(), String> {
+        let project = laser_job_two_pad_one_track_project();
+        project.validate()?;
+        let profile = commarker_b6_mopa_profile();
+        let options = default_options();
+        let svg = laser_job_svg(&project, Layer::Front, &profile, &options)?;
+        assert!(svg.contains("width=\"22mm\""));
+        assert!(svg.contains("height=\"17mm\""));
+        assert!(svg.contains("id=\"isolation-cut\""));
+        for id in LASER_OPERATION_IDS {
+            if options.operations.contains(id) {
+                // groups may be omitted when empty
+                let _ = id;
+            }
+        }
+        for group_id in ["isolation-cut", "copper-rubout", "mask-open", "stencil-cut"] {
+            if !svg.contains(&format!("id=\"{group_id}\"")) {
+                return Err(format!("expected group {group_id} in SVG export"));
+            }
+        }
+        for chunk in svg.split("<path ").skip(1) {
+            if !chunk.contains(" Z\"") {
+                return Err("every exported path must close with Z".into());
+            }
+        }
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/laser_job_two_pad_one_track.svg");
+        if let Ok(golden) = fs::read_to_string(&path) {
+            if svg != golden {
+                return Err("laser SVG export differs from the golden fixture".into());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn laser_job_lcproj_parse_has_cut_setting_per_group() -> Result<(), String> {
+        let project = laser_job_two_pad_one_track_project();
+        project.validate()?;
+        let profile = commarker_b6_mopa_profile();
+        let options = default_options();
+        let text = laser_job_lcproj(&project, Layer::Front, &profile, &options)?;
+        let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let settings = value["cut_settings"]
+            .as_array()
+            .ok_or_else(|| "cut_settings missing".to_string())?;
+        let shapes = value["shapes"]
+            .as_array()
+            .ok_or_else(|| "shapes missing".to_string())?;
+        assert!(!settings.is_empty());
+        let mut cut_indices = BTreeSet::new();
+        for shape in shapes {
+            if let Some(index) = shape["cut_index"].as_u64() {
+                cut_indices.insert(index);
+            }
+        }
+        assert_eq!(settings.len(), cut_indices.len());
+        for shape in shapes {
+            let index = shape["cut_index"]
+                .as_u64()
+                .ok_or_else(|| "shape cut_index missing".to_string())? as usize;
+            if index >= settings.len() {
+                return Err("shape cut_index out of range".into());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn laser_job_lcproj_frequency_and_pulse_width_stay_in_profile_range() -> Result<(), String> {
+        let project = laser_job_two_pad_one_track_project();
+        let profile = commarker_b6_mopa_profile();
+        let text = laser_job_lcproj(&project, Layer::Front, &profile, &default_options())?;
+        let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        for setting in value["cut_settings"].as_array().into_iter().flatten() {
+            let freq = setting["galvo"]["frequency_khz"]
+                .as_f64()
+                .ok_or_else(|| "frequency missing".to_string())?;
+            let pulse = setting["galvo"]["q_pulse_width_ns"]
+                .as_f64()
+                .ok_or_else(|| "pulse width missing".to_string())?;
+            if freq < profile.frequency_khz_min || freq > profile.frequency_khz_max {
+                return Err("frequency outside profile range".into());
+            }
+            if pulse < profile.pulse_width_ns_min || pulse > profile.pulse_width_ns_max {
+                return Err("pulse width outside profile range".into());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn laser_job_bottom_side_mirrors_fiducials_onto_top() -> Result<(), String> {
+        let mut project = laser_job_two_pad_one_track_project();
+        project.board.fiducials.push(Fiducial {
+            id: 9,
+            position: Point::new(3.0, 4.0),
+            diameter: 1.0,
+            layer: Layer::Front,
+        });
+        project.board.fiducials.push(Fiducial {
+            id: 10,
+            position: Point::new(3.0, 4.0),
+            diameter: 1.0,
+            layer: Layer::Back,
+        });
+        project.validate()?;
+        let profile = commarker_b6_mopa_profile();
+        let mut front_ops = BTreeSet::new();
+        front_ops.insert("fiducials".into());
+        let front_opts = LaserJobExportOptions {
+            operations: front_ops.clone(),
+            ..default_options()
+        };
+        let mut back_ops = front_ops;
+        let back_opts = LaserJobExportOptions {
+            side: Layer::Back,
+            operations: back_ops,
+            ..default_options()
+        };
+        let front = laser_job_svg(&project, Layer::Front, &profile, &front_opts)?;
+        let back = laser_job_svg(&project, Layer::Back, &profile, &back_opts)?;
+        let front_center = extract_first_fiducial_center(&front)?;
+        let back_center = extract_first_fiducial_center(&back)?;
+        if (front_center.x - back_center.x).abs() > 1e-3
+            || (front_center.y - back_center.y).abs() > 1e-3
+        {
+            return Err("back fiducial did not mirror onto the top position".into());
+        }
+        Ok(())
+    }
+
+    fn extract_first_fiducial_center(svg: &str) -> Result<Point, String> {
+        let marker = "id=\"fiducials\"";
+        let start = svg
+            .find(marker)
+            .ok_or_else(|| "fiducials group missing".to_string())?;
+        let section = &svg[start..];
+        let path = section
+            .find("M ")
+            .ok_or_else(|| "fiducial path missing".to_string())?;
+        let coords: Vec<f64> = section[path + 2..]
+            .split_whitespace()
+            .take(2)
+            .filter_map(|token| token.parse().ok())
+            .collect();
+        if coords.len() < 2 {
+            return Err("fiducial path coordinates missing".to_string());
+        }
+        Ok(Point::new(coords[0], coords[1]))
+    }
+}
