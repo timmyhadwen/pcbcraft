@@ -686,6 +686,5 @@ impl App {
                 *flag = !*flag;
             }
         }
-        ui.separator();
     }
 }
