@@ -287,3 +287,59 @@ fn a_newcomer_sees_pegs_drawn_as_holes_and_not_as_copper() -> Result<(), String>
     }
     Ok(())
 }
+
+#[test]
+fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    let ctx = egui::Context::default();
+    let none = egui::Modifiers::NONE;
+    frame(&ctx, &mut app, vec![], none);
+    authoring::tests::tap(&ctx, &mut app, "Add part")?;
+    frame(&ctx, &mut app, vec![], none);
+    authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
+    for letter in "resistor".chars() {
+        frame(&ctx, &mut app, vec![egui::Event::Text(letter.into())], none);
+    }
+    assert!(
+        paints_text(&ctx, &mut app, "Part sources are off")?,
+        "with no source the list says sources are off"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "SAMPLE-R-10K")?,
+        "no remote parts appear while sources are off"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Try sample source")?;
+    app.part_search = "SAMPLE-R-10K".into();
+    frame(&ctx, &mut app, vec![], none);
+    assert!(
+        paints_text(&ctx, &mut app, "12500 in stock")?,
+        "the card shows stock"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "0.10 USD each")?,
+        "the card shows a price"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Sample data, not a real catalogue")?,
+        "the card shows the source's credit"
+    );
+    authoring::tests::tap(&ctx, &mut app, "SAMPLE-R-10K")?;
+    frame(&ctx, &mut app, vec![], none);
+    assert!(matches!(&app.tool, Tool::Place(k) if k == "resistor"));
+    // A click on the sheet runs exactly this command.
+    app.run(
+        "component.add",
+        json!({"kind":"resistor","position":{"x":20.0,"y":20.0}}),
+    );
+    let session = shared.lock().map_err(|_| "session")?;
+    let part = session
+        .project
+        .components
+        .last()
+        .ok_or("no part was placed")?;
+    assert_eq!(part.field("MPN"), Some("SAMPLE-R-10K"));
+    assert_eq!(part.field("Manufacturer"), Some("Example Components"));
+    Ok(())
+}
