@@ -244,8 +244,10 @@ first run, fork CI proof, and doc map).
   collapsed into one row export the same way, alongside an ASCII DXF drawing
   of copper, pads, zones, graphics and labels on named layers and a
   pick-and-place centroid file that lists every placed part by reference with
-  position, rotation, side and package. Negative soldermask, paste and
-  silkscreen layers generated from pad geometry are not written yet.
+  position, rotation, side and package. Solder mask and paste layers, split
+  plated and unplated Excellon drill files, a drill map with a per-tool legend,
+  and a fabrication readme ship in the same bundle. Silkscreen layers are not
+  generated yet.
 - Net chain tracing: start at any pin and follow the series path through
   two-pin parts, reporting each hop's component, reference, pin and net, and
   why the walk stopped - an open end, a branching net, a many-pin part or a
