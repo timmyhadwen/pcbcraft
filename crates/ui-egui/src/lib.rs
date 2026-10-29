@@ -24,6 +24,8 @@ mod sources;
 #[cfg(test)]
 mod target_size;
 mod targets;
+pub mod theme;
+pub mod ui_kit;
 mod via_covering;
 mod via_span;
 use crate::a11y::Named;
