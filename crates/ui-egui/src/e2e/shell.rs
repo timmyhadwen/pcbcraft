@@ -312,3 +312,62 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_draws_from_the_tool_strip() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Layout")?;
+    authoring::tests::tap_icon(&ctx, &mut app, "tool-line")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        matches!(app.tool, Tool::DrawLayer) && app.art_shape == DrawShape::Line,
+        "tapping Line in the strip arms the line tool"
+    );
+    assert!(
+        scrolled_to(&ctx, &mut app, "DRAW ON LAYER")?,
+        "the layer picker appears in Properties: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_narrows_the_window_and_the_canvas_buttons_stay_inside() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.select(Some(app.project.components[0].id));
+    for width in [1440.0_f32, 1000.0, 800.0] {
+        let ctx = egui::Context::default();
+        for _ in 0..4 {
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        Vec2::new(width, 940.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| app.show(ui),
+            );
+        }
+        for id in ["canvas-fit", "handle-rotate"] {
+            let rect = app
+                .icon_rects
+                .get(id)
+                .copied()
+                .ok_or_else(|| format!("{id} was not drawn at width {width}"))?;
+            assert!(
+                rect.min.x >= 0.0 && rect.max.x <= width - 280.0,
+                "{id} stays left of the right aside at width {width}: {rect:?}"
+            );
+        }
+    }
+    Ok(())
+}
