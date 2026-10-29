@@ -13,7 +13,7 @@ pub(crate) const MIN_TARGET: f32 = 24.0;
 /// Buttons that are small in look but never small to hit.
 ///
 /// # Implementations
-/// - `egui::Ui` below.
+/// - `crates/ui-egui/src/targets.rs` `impl TapButton for egui::Ui`.
 pub(crate) trait TapButton {
     /// A compact text button at least 24 by 24 pixels.
     ///

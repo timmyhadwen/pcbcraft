@@ -46,7 +46,8 @@ const LINE_SCROLL_POINTS: f32 = 40.0;
 /// - Same units and sign as `smooth_scroll_delta`.
 ///
 /// # Dependencies
-/// - `crates/ui-egui/src/canvas.rs`, `crates/ui-egui/src/authoring.rs` zoom handlers.
+/// - `crates/ui-egui/src/canvas.rs` board zoom.
+/// - `crates/ui-egui/src/authoring.rs` library editor zoom.
 ///
 /// # Do not
 /// - Use it for dragging or panning; those follow the pointer anyway.

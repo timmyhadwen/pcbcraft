@@ -38,7 +38,7 @@ pub(crate) fn undersized_targets(rects: &[(String, Rect)], minimum: f32) -> Vec<
 /// - A line is `control id = reason`; a missing reason is an error.
 ///
 /// # Dependencies
-/// - `crates/ui-egui/target-size-exemptions.txt`.
+/// - `crates/ui-egui/target-size-exemptions.txt` holds the list.
 ///
 /// # Do not
 /// - Match by prefix; an exemption names one control.
