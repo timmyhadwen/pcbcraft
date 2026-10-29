@@ -1601,9 +1601,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "output_job.add",
-            "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics) that can be re-run after any edit",
+            "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics, uv_print for silkscreen artwork for a UV printer) that can be re-run after any edit",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats","uv_print"]},"minItems":1,"maxItems":25}}),
                 &["name", "kinds"],
             ),
         ),
@@ -1619,7 +1619,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.run",
             "Run an output job: write every file of its recipe (fabrication layers, netlist, bill of materials, placement, drawing) into a directory in one step",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"directory":{"type":"string","minLength":1}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"directory":{"type":"string","minLength":1},"uv_print":{"type":"object","description":"Settings for a uv_print kind: silkscreen artwork for a UV printer. Defaults to the top side at 720 DPI with 0.3 mm bleed.","properties":{"side":{"type":"string","enum":["top","bottom"]},"dpi":{"type":"integer","enum":[720,1440]},"gloss":{"type":"boolean"},"bleed_mm":{"type":"number","minimum":0,"maximum":5},"include_outline":{"type":"boolean"},"include_fiducials":{"type":"boolean"}},"additionalProperties":false}}),
                 &["name", "directory"],
             ),
         ),
