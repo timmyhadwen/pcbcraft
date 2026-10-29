@@ -80,6 +80,12 @@ fn is_root_sheet(id: &Id) -> bool {
 pub struct Sheet {
     pub id: Id,
     pub name: String,
+    /// Parent page in the hierarchy, when this page is shown as a child box.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Id>,
+    /// Where the child page box sits on the parent page, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<Point>,
 }
 /// One named property on a component. A blank value is still a real property:
 /// it says the key applies to this component and has not been filled in.
@@ -1697,6 +1703,137 @@ impl Project {
             .map(|n| n.name.as_str())
             .unwrap_or("unassigned")
     }
+    /// Schematic pages that carry a net through a component pin or a hierarchy port.
+    pub fn net_pages(&self, net: Id) -> Vec<Id> {
+        if !self.nets.iter().any(|n| n.id == net) {
+            return vec![];
+        }
+        let mut pages = BTreeSet::new();
+        for component in &self.components {
+            if component
+                .pins
+                .iter()
+                .any(|pin| pin.net.is_some_and(|n| n == net))
+            {
+                pages.insert(component.sheet);
+            }
+        }
+        for port in &self.ports {
+            if port.net == net {
+                pages.insert(port.sheet);
+            }
+        }
+        pages.into_iter().collect()
+    }
+    fn schematic_wire_page(&self, wire: &Wire) -> Option<Id> {
+        let from = self.component(wire.from.component)?.sheet;
+        let to = self.component(wire.to.component)?.sheet;
+        if from == to {
+            Some(from)
+        } else {
+            None
+        }
+    }
+    fn schematic_label_page(&self, label: &Label) -> Id {
+        if label.kind == "junction" {
+            for wire in &self.wires {
+                if wire.net != label.net {
+                    continue;
+                }
+                if let Some(path) = self.wire_path(wire) {
+                    if path
+                        .iter()
+                        .any(|point| point.distance(label.position) < 0.05)
+                    {
+                        if let Some(page) = self.schematic_wire_page(wire) {
+                            return page;
+                        }
+                    }
+                }
+            }
+        }
+        let mut best = (f64::INFINITY, 0);
+        for component in &self.components {
+            for pin in &component.pins {
+                if pin.net.is_some_and(|n| n == label.net) {
+                    if let Some(position) = component.pin_position(&pin.number) {
+                        let reach = position.distance(label.position);
+                        if reach < best.0 {
+                            best = (reach, component.sheet);
+                        }
+                    }
+                }
+            }
+        }
+        for port in &self.ports {
+            if port.net == label.net {
+                let reach = port.position.distance(label.position);
+                if reach < best.0 {
+                    best = (reach, port.sheet);
+                }
+            }
+        }
+        best.1
+    }
+    fn schematic_drawn_wire_page(&self, wire: &DrawnWire) -> Id {
+        let Some(net) = wire.net else {
+            return 0;
+        };
+        let mut best = (f64::INFINITY, 0);
+        for anchor in [wire.points.first(), wire.points.last()]
+            .into_iter()
+            .flatten()
+        {
+            for component in &self.components {
+                for pin in &component.pins {
+                    if pin.net.is_some_and(|n| n == net) {
+                        if let Some(position) = component.pin_position(&pin.number) {
+                            let reach = position.distance(*anchor);
+                            if reach < best.0 {
+                                best = (reach, component.sheet);
+                            }
+                        }
+                    }
+                }
+            }
+            for port in &self.ports {
+                if port.net == net {
+                    let reach = port.position.distance(*anchor);
+                    if reach < best.0 {
+                        best = (reach, port.sheet);
+                    }
+                }
+            }
+        }
+        best.1
+    }
+    /// True when a schematic object should appear on the given page.
+    pub fn on_schematic_page(&self, page: Id, object: Id) -> bool {
+        if let Some(component) = self.components.iter().find(|c| c.id == object) {
+            return component.sheet == page;
+        }
+        if let Some(port) = self.ports.iter().find(|p| p.id == object) {
+            return port.sheet == page;
+        }
+        if let Some(wire) = self.wires.iter().find(|w| w.id == object) {
+            return self.schematic_wire_page(wire) == Some(page);
+        }
+        if let Some(wire) = self.drawn_wires.iter().find(|w| w.id == object) {
+            return self.schematic_drawn_wire_page(wire) == page;
+        }
+        if let Some(label) = self.labels.iter().find(|l| l.id == object) {
+            return self.schematic_label_page(label) == page;
+        }
+        if let Some(flag) = self.no_connects.iter().find(|f| f.id == object) {
+            return self
+                .component(flag.pin.component)
+                .is_some_and(|c| c.sheet == page);
+        }
+        if let Some(graphic) = self.graphics.iter().find(|g| g.id == object) {
+            return graphic.layer == "schematic" && page == 0;
+        }
+        false
+    }
     /// The net class a net belongs to, if it belongs to one.
     pub fn net_class(&self, net: Id) -> Option<&NetClass> {
         self.net_classes.iter().find(|c| c.nets.contains(&net))
@@ -1963,6 +2100,40 @@ impl Project {
             }
             if !sheet_names.insert(&s.name) {
                 return Err("duplicate sheet name".into());
+            }
+            if let Some(parent) = s.parent {
+                if parent == s.id {
+                    return Err("a sheet cannot be its own parent".into());
+                }
+                if parent != 0 && !self.sheets.iter().any(|other| other.id == parent) {
+                    return Err("sheet parent does not exist".into());
+                }
+                let mut depth = 0usize;
+                let mut walk = parent;
+                for _ in 0..=8 {
+                    if walk == 0 {
+                        break;
+                    }
+                    depth += 1;
+                    if depth > 8 {
+                        return Err("sheet hierarchy is too deep".into());
+                    }
+                    let Some(node) = self.sheets.iter().find(|other| other.id == walk) else {
+                        return Err("sheet parent does not exist".into());
+                    };
+                    if node.id == s.id {
+                        return Err("sheet hierarchy would cycle".into());
+                    }
+                    walk = node.parent.unwrap_or(0);
+                }
+            }
+            if s.entry.is_some() && s.parent.is_none() {
+                return Err("sheet entry needs a parent page".into());
+            }
+            if let Some(entry) = s.entry {
+                if !entry.valid() {
+                    return Err("sheet entry position is out of range".into());
+                }
             }
         }
         if self.ids().count() > MAX_ITEMS {
