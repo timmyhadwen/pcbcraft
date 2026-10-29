@@ -23,7 +23,10 @@ pub(super) struct Quality {
 impl Quality {
     #[cfg(test)]
     pub(super) fn findings_for(&self, name: &str) -> Vec<&QualityFinding> {
-        self.findings.iter().filter(|f| f.footprint == name).collect()
+        self.findings
+            .iter()
+            .filter(|f| f.footprint == name)
+            .collect()
     }
 }
 
@@ -81,9 +84,12 @@ impl App {
             .findings
             .iter()
             .filter(|f| f.footprint == name)
-            .fold((0, 0), |(e, w), f| {
-                if f.error { (e + 1, w) } else { (e, w + 1) }
-            });
+            .fold(
+                (0, 0),
+                |(e, w), f| {
+                    if f.error { (e + 1, w) } else { (e, w + 1) }
+                },
+            );
         let (text, colour, tip) = if errors > 0 {
             (
                 format!("{errors} to fix"),
@@ -121,7 +127,9 @@ impl App {
         );
         let findings = self.library.quality.findings.clone();
         if findings.is_empty() {
-            ui.label(egui::RichText::new("No findings in the implemented checks").color(self.accent()));
+            ui.label(
+                egui::RichText::new("No findings in the implemented checks").color(self.accent()),
+            );
         }
         let mut groups: Vec<(String, Vec<QualityFinding>)> = Vec::new();
         for f in findings {

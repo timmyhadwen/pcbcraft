@@ -8271,7 +8271,12 @@ mod tests {
     /// project library the way an import would.
     fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, Some("footprint-editor"));
+        let mut app = App::create(
+            shared,
+            Preferences::default(),
+            None,
+            Some("footprint-editor"),
+        );
         app.refresh();
         let Some(authoring::Draft::Footprint(mut def)) = app.library.editor.draft.clone() else {
             return Err("the footprint editor should start with a draft".to_string());
@@ -8369,7 +8374,10 @@ mod tests {
                 }
             }
         }
-        assert!(shown, "the project footprint list should show a badge reading \"to fix\"");
+        assert!(
+            shown,
+            "the project footprint list should show a badge reading \"to fix\""
+        );
         Ok(())
     }
 
