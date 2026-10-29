@@ -37,11 +37,23 @@ fn fake(reply: impl Fn(usize) -> (u16, Value) + Send + Sync + 'static) -> (HttpF
 }
 
 fn posts(log: &Log) -> Vec<Value> {
-    lock(log).iter().filter(|r| r.method == "POST").map(|r| serde_json::from_slice(r.body.as_deref().unwrap_or(b"null")).unwrap_or(Value::Null)).collect()
+    lock(log)
+        .iter()
+        .filter(|r| r.method == "POST")
+        .map(|r| {
+            serde_json::from_slice(r.body.as_deref().unwrap_or(b"null")).unwrap_or(Value::Null)
+        })
+        .collect()
 }
 
 fn cfg(protocol: Protocol) -> ApiConfig {
-    ApiConfig { protocol, base_url: "http://127.0.0.1:1/v1".into(), model: "m".into(), key: None, system_note: String::new() }
+    ApiConfig {
+        protocol,
+        base_url: "http://127.0.0.1:1/v1".into(),
+        model: "m".into(),
+        key: None,
+        system_note: String::new(),
+    }
 }
 
 /// A host that answers every tool call with `text`; the names it was asked are kept.
@@ -52,10 +64,18 @@ fn host(text: &'static str) -> (StartContext, Arc<Mutex<Vec<String>>>) {
     std::thread::spawn(move || {
         for r in rx {
             lock(&kept).push(r.name.clone());
-            let _ = r.reply.send(json!({"content": [{"type": "text", "text": text}], "isError": false}));
+            let _ = r
+                .reply
+                .send(json!({"content": [{"type": "text", "text": text}], "isError": false}));
         }
     });
-    (StartContext { work_dir: std::path::PathBuf::new(), tools: Some(tx) }, names)
+    (
+        StartContext {
+            work_dir: std::path::PathBuf::new(),
+            tools: Some(tx),
+        },
+        names,
+    )
 }
 
 /// Poll until `done` matches an event, giving up after ten seconds.
@@ -89,7 +109,10 @@ fn openai_text(t: &str) -> Value {
 
 fn first_tool_name() -> Result<String, String> {
     let list = pcbcraft_mcp::tool_list();
-    list["tools"][0]["name"].as_str().map(str::to_string).ok_or_else(|| "no tools".to_string())
+    list["tools"][0]["name"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "no tools".to_string())
 }
 
 fn openai_call_of(name: &str, n: usize) -> Value {
@@ -99,10 +122,20 @@ fn openai_call_of(name: &str, n: usize) -> Value {
 }
 
 #[test]
-fn an_openai_reply_with_two_tool_calls_runs_both_through_the_tools_channel_and_sends_their_results_back() -> Result<(), String> {
+fn an_openai_reply_with_two_tool_calls_runs_both_through_the_tools_channel_and_sends_their_results_back()
+-> Result<(), String> {
     let name = first_tool_name()?;
     let n2 = name.clone();
-    let (http, log) = fake(move |n| (200, if n == 1 { openai_call_of(&n2, 2) } else { openai_text("done") }));
+    let (http, log) = fake(move |n| {
+        (
+            200,
+            if n == 1 {
+                openai_call_of(&n2, 2)
+            } else {
+                openai_text("done")
+            },
+        )
+    });
     let (ctx, names) = host("ok");
     let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
     say(&mut b, "look");
@@ -110,7 +143,12 @@ fn an_openai_reply_with_two_tool_calls_runs_both_through_the_tools_channel_and_s
     assert_eq!(*lock(&names), vec![name.clone(), name]);
     let sent = posts(&log);
     assert_eq!(sent.len(), 2);
-    let tool_msgs = sent[1]["messages"].as_array().ok_or("no messages")?.iter().filter(|m| m["role"] == "tool").count();
+    let tool_msgs = sent[1]["messages"]
+        .as_array()
+        .ok_or("no messages")?
+        .iter()
+        .filter(|m| m["role"] == "tool")
+        .count();
     assert_eq!(tool_msgs, 2);
     assert_eq!(sent[0]["messages"][0]["role"], "system");
     Ok(())
@@ -122,9 +160,12 @@ fn an_anthropic_reply_sends_all_tool_results_in_one_user_message() -> Result<(),
     let n2 = name.clone();
     let (http, log) = fake(move |n| {
         if n == 1 {
-            (200, json!({"content": [
+            (
+                200,
+                json!({"content": [
                 {"type": "tool_use", "id": "a", "name": n2, "input": {}},
-                {"type": "tool_use", "id": "b", "name": n2, "input": {}}]}))
+                {"type": "tool_use", "id": "b", "name": n2, "input": {}}]}),
+            )
         } else {
             (200, json!({"content": [{"type": "text", "text": "done"}]}))
         }
@@ -134,11 +175,26 @@ fn an_anthropic_reply_sends_all_tool_results_in_one_user_message() -> Result<(),
     say(&mut b, "look");
     run_until(&mut b, ended)?;
     let sent = posts(&log);
-    let results = sent[1]["messages"].as_array().ok_or("no messages")?.iter().filter(|m| m["role"] == "user" && m["content"].is_array()).count();
+    let results = sent[1]["messages"]
+        .as_array()
+        .ok_or("no messages")?
+        .iter()
+        .filter(|m| m["role"] == "user" && m["content"].is_array())
+        .count();
     assert_eq!(results, 1);
-    assert_eq!(sent[1]["messages"][2]["content"].as_array().map(Vec::len), Some(2));
-    assert_eq!(sent[0]["system"].as_str().map(|s| s.contains("PCBCraft")), Some(true));
-    let versioned = lock(&log).iter().filter(|r| r.method == "POST").all(|r| r.headers.iter().any(|(k, v)| k == "anthropic-version" && v == "2023-06-01"));
+    assert_eq!(
+        sent[1]["messages"][2]["content"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        sent[0]["system"].as_str().map(|s| s.contains("PCBCraft")),
+        Some(true)
+    );
+    let versioned = lock(&log).iter().filter(|r| r.method == "POST").all(|r| {
+        r.headers
+            .iter()
+            .any(|(k, v)| k == "anthropic-version" && v == "2023-06-01")
+    });
     assert!(versioned);
     Ok(())
 }
@@ -152,8 +208,14 @@ fn the_turn_stops_after_twenty_four_requests_and_tells_the_model() -> Result<(),
     say(&mut b, "loop");
     let events = run_until(&mut b, ended)?;
     assert_eq!(posts(&log).len(), 24);
-    assert!(matches!(events.last(), Some(Event::TurnEnded { reason }) if reason == "max_turn_requests"));
-    assert!(events.iter().any(|e| matches!(e, Event::Note(n) if n == "request 24 of 24")));
+    assert!(
+        matches!(events.last(), Some(Event::TurnEnded { reason }) if reason == "max_turn_requests")
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Note(n) if n == "request 24 of 24"))
+    );
     // The next message carries the stop note, so the model reports instead of carrying on.
     say(&mut b, "again");
     let end = Instant::now() + Duration::from_secs(10);
@@ -169,7 +231,8 @@ fn the_turn_stops_after_twenty_four_requests_and_tells_the_model() -> Result<(),
 #[test]
 fn a_tool_result_longer_than_the_cap_is_clipped_with_a_note() {
     let long = "x".repeat(MAX_TOOL_TEXT + 500);
-    let (text, failed) = tool_text(&json!({"content": [{"type": "text", "text": long}], "isError": false}));
+    let (text, failed) =
+        tool_text(&json!({"content": [{"type": "text", "text": long}], "isError": false}));
     assert!(!failed);
     assert!(text.len() < MAX_TOOL_TEXT + 20);
     assert!(text.ends_with("(cut)"));
@@ -185,13 +248,20 @@ fn cancel_between_requests_ends_the_turn_with_reason_cancelled() -> Result<(), S
         for r in rx {
             let _ = seen_tx.send(());
             std::thread::sleep(Duration::from_millis(150));
-            let _ = r.reply.send(json!({"content": [{"type": "text", "text": "late"}], "isError": false}));
+            let _ = r
+                .reply
+                .send(json!({"content": [{"type": "text", "text": "late"}], "isError": false}));
         }
     });
-    let ctx = StartContext { work_dir: std::path::PathBuf::new(), tools: Some(tx) };
+    let ctx = StartContext {
+        work_dir: std::path::PathBuf::new(),
+        tools: Some(tx),
+    };
     let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
     say(&mut b, "go");
-    seen_rx.recv_timeout(Duration::from_secs(10)).map_err(|e| e.to_string())?;
+    seen_rx
+        .recv_timeout(Duration::from_secs(10))
+        .map_err(|e| e.to_string())?;
     b.cancel();
     let events = run_until(&mut b, ended)?;
     assert!(matches!(events.last(), Some(Event::TurnEnded { reason }) if reason == "cancelled"));
@@ -201,14 +271,28 @@ fn cancel_between_requests_ends_the_turn_with_reason_cancelled() -> Result<(), S
 
 #[test]
 fn a_401_reply_becomes_a_plain_sentence_without_the_key_in_it() -> Result<(), String> {
-    let (http, _) = fake(|_| (401, json!({"error": {"message": "Incorrect API key provided"}})));
+    let (http, _) = fake(|_| {
+        (
+            401,
+            json!({"error": {"message": "Incorrect API key provided"}}),
+        )
+    });
     let (ctx, _) = host("ok");
     let mut c = cfg(Protocol::OpenAi);
     c.key = Some("sk-secret-123".into());
     let mut b = ApiBackend::start(c, ctx, http)?;
     say(&mut b, "hi");
     let events = run_until(&mut b, ended)?;
-    let err = events.iter().find_map(|e| if let Event::Error(t) = e { Some(t.clone()) } else { None }).ok_or("no error")?;
+    let err = events
+        .iter()
+        .find_map(|e| {
+            if let Event::Error(t) = e {
+                Some(t.clone())
+            } else {
+                None
+            }
+        })
+        .ok_or("no error")?;
     assert!(err.starts_with("HTTP 401"));
     assert!(err.contains("Incorrect API key provided"));
     assert!(!err.contains("sk-secret-123"));
@@ -228,7 +312,8 @@ fn a_key_never_goes_to_a_plain_http_address_off_this_computer() {
 }
 
 #[test]
-fn the_tool_list_maps_every_registry_command_to_a_function_tool_with_its_schema() -> Result<(), String> {
+fn the_tool_list_maps_every_registry_command_to_a_function_tool_with_its_schema()
+-> Result<(), String> {
     let list = pcbcraft_mcp::tool_list();
     let source = list["tools"].as_array().ok_or("no tools")?;
     let open = openai_tools(&list);
@@ -250,22 +335,37 @@ fn model_list_reads_the_data_ids() -> Result<(), String> {
     let http2: HttpFn = Arc::new(move |r: &HttpRequest| {
         assert_eq!(r.url, "http://h/v1/models");
         http(r)?;
-        Ok((200, br#"{"data":[{"id":"a"},{"id":"b"},{"nope":1}]}"#.to_vec()))
+        Ok((
+            200,
+            br#"{"data":[{"id":"a"},{"id":"b"},{"nope":1}]}"#.to_vec(),
+        ))
     });
     let models = model_list(&http2, "http://h/v1", None)?;
-    assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
+    assert_eq!(
+        models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        vec!["a", "b"]
+    );
     Ok(())
 }
 
 #[test]
-fn test_anthropic_endpoint_returns_the_model_text_on_200_and_the_error_sentence_otherwise() -> Result<(), String> {
+fn test_anthropic_endpoint_returns_the_model_text_on_200_and_the_error_sentence_otherwise()
+-> Result<(), String> {
     let ok: HttpFn = Arc::new(|r: &HttpRequest| {
         assert_eq!(r.url, "https://h/v1/messages");
-        Ok((200, br#"{"content":[{"type":"text","text":"Hi there"}]}"#.to_vec()))
+        Ok((
+            200,
+            br#"{"content":[{"type":"text","text":"Hi there"}]}"#.to_vec(),
+        ))
     });
-    assert_eq!(test_anthropic_endpoint(&ok, "https://h", None, "m")?, "Hi there");
+    assert_eq!(
+        test_anthropic_endpoint(&ok, "https://h", None, "m")?,
+        "Hi there"
+    );
     let bad: HttpFn = Arc::new(|_| Ok((404, br#"{"error":{"message":"no such model"}}"#.to_vec())));
-    let err = test_anthropic_endpoint(&bad, "https://h", None, "m").err().ok_or("expected an error")?;
+    let err = test_anthropic_endpoint(&bad, "https://h", None, "m")
+        .err()
+        .ok_or("expected an error")?;
     assert!(err.starts_with("HTTP 404"));
     assert!(err.contains("no such model"));
     Ok(())
@@ -278,7 +378,11 @@ fn a_302_reply_is_an_error_and_no_second_request_follows() -> Result<(), String>
     let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
     say(&mut b, "hi");
     let events = run_until(&mut b, ended)?;
-    assert!(events.iter().any(|e| matches!(e, Event::Error(t) if t.starts_with("HTTP 302"))));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Error(t) if t.starts_with("HTTP 302")))
+    );
     assert_eq!(posts(&log).len(), 1);
     Ok(())
 }
