@@ -156,7 +156,7 @@ fn material_stackup(p: &Project, copper: usize) -> Value {
 /// File function and polarity of one package file. Attributes written into the
 /// file win; a file without them falls back to what its name and its `G04`
 /// comment say it is.
-fn file_function(name: &str, text: &str, copper: usize) -> (String, String) {
+pub(crate) fn file_function(name: &str, text: &str, copper: usize) -> (String, String) {
     let mut function: Option<String> = None;
     let mut polarity: Option<String> = None;
     let mut comment = "";
@@ -202,7 +202,7 @@ fn attribute_value(value: &str) -> String {
 /// Current time as an ISO 8601 UTC timestamp, the form the specification uses
 /// for `CreationDate`, for example `2026-10-28T22:05:11+00:00`.
 #[cfg(not(target_arch = "wasm32"))]
-fn now_utc() -> String {
+pub(crate) fn now_utc() -> String {
     let seconds = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -214,7 +214,7 @@ fn now_utc() -> String {
 /// carries the epoch rather than failing; the browser build cannot write a
 /// package to disk yet either.
 #[cfg(target_arch = "wasm32")]
-fn now_utc() -> String {
+pub(crate) fn now_utc() -> String {
     iso8601_utc(0)
 }
 
@@ -256,7 +256,7 @@ pub fn gerber_zip(p: &Project) -> Result<Vec<u8>, String> {
         .into_iter()
         .map(|(name, text)| (name, text.into_bytes()))
         .collect();
-    crate::zip_bytes(&entries)
+    crate::zip_entries(&entries)
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ mod board_mesh;
 mod gerber;
 mod gerber_job;
 mod library_render;
+mod package;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
@@ -17,6 +18,10 @@ pub use board_mesh::{
 pub use gerber::gerber_copper;
 pub use gerber_job::{gerber_job, gerber_zip};
 use library_render::*;
+pub use package::{
+    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
+    package_zip,
+};
 pub use pcbcraft_doc::Layer;
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
@@ -131,8 +136,9 @@ fn footprint_bounds(p: &Project, f: &pcbcraft_doc::Footprint) -> (Point, Point) 
     }
 }
 
-/// CRC-32 (IEEE, reflected polynomial) over a byte slice, for ZIP entries.
-fn crc32(bytes: &[u8]) -> u32 {
+/// CRC-32 (IEEE, reflected polynomial) over a byte slice, for ZIP entries and
+/// the fabrication package manifest that repeats them.
+pub fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = !0u32;
     for byte in bytes {
         crc = (crc >> 8) ^ CRC_TABLE[((crc as u8) ^ byte) as usize];
@@ -171,26 +177,36 @@ pub fn archive_zip(p: &Project) -> Result<Vec<u8>, String> {
             file.data.clone().into_bytes(),
         ));
     }
-    zip_bytes(&entries)
+    zip_entries(&entries)
 }
 
-/// Build a stored (uncompressed) ZIP file from named byte entries.
-fn zip_bytes(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+/// Build a stored (uncompressed) ZIP file from named byte entries, in the
+/// order given. Every entry carries the fixed 1980-01-01 stamp and no
+/// attributes, so the same entries always produce the same bytes. Names are
+/// limited to 255 bytes, entries to 65535 and the archive to 4 GiB, the plain
+/// limits of the format this writer emits.
+pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    let count = u16::try_from(entries.len())
+        .map_err(|_| "a stored ZIP holds at most 65535 entries".to_string())?;
     let mut zip: Vec<u8> = Vec::new();
     let mut central: Vec<u8> = Vec::new();
     let mut offset = 0u32;
     for (name, data) in entries {
-        if name.len() > 255 {
-            return Err("archive entry name is too long".into());
+        if name.is_empty() || name.len() > 255 {
+            return Err("archive entry names are 1 to 255 bytes".into());
         }
+        let size = u32::try_from(data.len())
+            .map_err(|_| format!("{name} is larger than the 4 GiB a stored ZIP address"))?;
+        let name_len = u16::try_from(name.len())
+            .map_err(|_| format!("{name} has a name longer than 255 bytes"))?;
         let crc = crc32(data);
         let mut local = Vec::new();
         local.extend_from_slice(b"PK\x03\x04");
         local.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         local.extend_from_slice(&crc.to_le_bytes());
-        local.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        local.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        local.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        local.extend_from_slice(&size.to_le_bytes());
+        local.extend_from_slice(&size.to_le_bytes());
+        local.extend_from_slice(&name_len.to_le_bytes());
         local.extend_from_slice(&0u16.to_le_bytes());
         local.extend_from_slice(name.as_bytes());
         local.extend_from_slice(data);
@@ -198,23 +214,31 @@ fn zip_bytes(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
         dir.extend_from_slice(b"PK\x01\x02");
         dir.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         dir.extend_from_slice(&crc.to_le_bytes());
-        dir.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        dir.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        dir.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        dir.extend_from_slice(&size.to_le_bytes());
+        dir.extend_from_slice(&size.to_le_bytes());
+        dir.extend_from_slice(&name_len.to_le_bytes());
         dir.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         dir.extend_from_slice(&offset.to_le_bytes());
         dir.extend_from_slice(name.as_bytes());
         zip.extend_from_slice(&local);
         central.extend_from_slice(&dir);
-        offset += local.len() as u32;
+        offset = offset
+            .checked_add(
+                u32::try_from(local.len())
+                    .map_err(|_| format!("{name} makes the archive too large"))?,
+            )
+            .ok_or_else(|| "the archive is larger than the 4 GiB of a stored ZIP".to_string())?;
     }
-    let directory_start = zip.len() as u32;
+    let directory_start = u32::try_from(zip.len())
+        .map_err(|_| "the archive is larger than the 4 GiB of a stored ZIP".to_string())?;
+    let central_size = u32::try_from(central.len())
+        .map_err(|_| "the archive directory is larger than a stored ZIP allows".to_string())?;
     zip.extend_from_slice(&central);
     zip.extend_from_slice(b"PK\x05\x06");
     zip.extend_from_slice(&[0, 0, 0, 0]);
-    zip.extend_from_slice(&(entries.len() as u16).to_le_bytes());
-    zip.extend_from_slice(&(entries.len() as u16).to_le_bytes());
-    zip.extend_from_slice(&(central.len() as u32).to_le_bytes());
+    zip.extend_from_slice(&count.to_le_bytes());
+    zip.extend_from_slice(&count.to_le_bytes());
+    zip.extend_from_slice(&central_size.to_le_bytes());
     zip.extend_from_slice(&directory_start.to_le_bytes());
     zip.extend_from_slice(&0u16.to_le_bytes());
     Ok(zip)
@@ -1274,7 +1298,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
             components(&comps_bottom).into_bytes(),
         ),
     ];
-    zip_bytes(&entries)
+    zip_entries(&entries)
 }
 
 /// A minimal AP214 (STEP) writer. The board outline and every placed pad
@@ -1914,6 +1938,12 @@ fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
 /// rotated long axis. Back-side coordinates are mirrored about x=0 as
 /// fabrication houses expect for bottom-side films.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
+    gerber_files_at(p, &gerber_job::now_utc())
+}
+/// The same fabrication files as `gerber_files`, with the creation date the
+/// job file records given by the caller. A package pins that date so two runs
+/// over the same design produce the same bytes.
+pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     const MAX_OPS: usize = 100_000;
     const MAX_APERTURES: usize = 64;
@@ -2373,7 +2403,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     }
     // The manifest is built from the files that exist, so it lists itself last
     // and never drifts from the package it travels in.
-    let job = gerber_job(p, &files)?;
+    let job = gerber_job::gerber_job_at(p, &files, creation)?;
     files.insert("pcb-job.gbrjob".into(), job);
     Ok(files)
 }
@@ -6385,6 +6415,47 @@ mod tests {
         assert!(
             archive_project(&wrong).is_err(),
             "a renamed design is not found"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn zip_entries_round_trip_and_reject_oversize_input() -> Result<(), String> {
+        let zip = zip_entries(&[
+            ("bom.csv".into(), b"Comment,Designator\n".to_vec()),
+            (
+                "pcb-F.Cu.gbr".into(),
+                b"%TF.FileFunction,Copper,L1,Top*%\n".to_vec(),
+            ),
+        ])?;
+        assert!(zip.starts_with(b"PK\x03\x04"), "a stored ZIP");
+        assert_eq!(
+            zip_entries(&[
+                ("bom.csv".into(), b"Comment,Designator\n".to_vec()),
+                (
+                    "pcb-F.Cu.gbr".into(),
+                    b"%TF.FileFunction,Copper,L1,Top*%\n".to_vec()
+                ),
+            ])?,
+            zip,
+            "the same entries always produce the same bytes"
+        );
+        let text = String::from_utf8_lossy(&zip).into_owned();
+        assert!(text.contains("bom.csv") && text.contains("pcb-F.Cu.gbr"));
+        let long = "n".repeat(256);
+        assert!(
+            zip_entries(&[(long, vec![])]).is_err(),
+            "a name past 255 bytes is refused, not truncated"
+        );
+        assert!(
+            zip_entries(&[(String::new(), vec![])]).is_err(),
+            "an empty name is refused"
+        );
+        let many: Vec<(String, Vec<u8>)> =
+            (0..65_536).map(|n| (format!("f{n}"), Vec::new())).collect();
+        assert!(
+            zip_entries(&many).is_err(),
+            "more than 65535 entries is refused, not wrapped in the header"
         );
         Ok(())
     }
