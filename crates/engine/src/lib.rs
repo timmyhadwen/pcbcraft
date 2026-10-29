@@ -88,6 +88,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "parameter.set",
+            "Record a named numeric parameter, or change one, and re-run the commands that reference it: holes and vias whose size or position follows the name are written again inside the same undoable step, and a value that breaks one of them is refused and changes nothing. Names are 1 to 32 letters, digits or underscores starting with a letter or underscore",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":32,"pattern":"^[A-Za-z_][A-Za-z0-9_]*$"},"value":{"type":"number","minimum":-10000,"maximum":10000},"note":{"type":"string","maxLength":256}}),
+                &["name", "value"],
+            ),
+        ),
+        (
+            "parameter.remove",
+            "Forget a named parameter; while objects still follow it the call is refused and names them, unless unbind is set to release them first",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":32},"unbind":{"type":"boolean","default":false}}),
+                &["name"],
+            ),
+        ),
+        (
+            "parameter.list",
+            "List the project's named numeric parameters with their values, notes and the object fields that follow each one",
+            schema(json!({}), &[]),
+        ),
+        (
             "project.set_unit",
             "Record the unit this design is read in: millimetres, mils or inches. Stored coordinates stay millimetres; inch drill and gerber fabrication output converts to inches, and the recorded unit is reported in the board statistics",
             schema(
@@ -2634,6 +2655,21 @@ struct MetaParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ParameterSetParams {
+    name: String,
+    value: f64,
+    #[serde(default)]
+    note: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ParameterRemoveParams {
+    name: String,
+    #[serde(default)]
+    unbind: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ProjectSetUnitParams {
     unit: String,
 }
@@ -4662,7 +4698,342 @@ fn validate_pair_coupling(
     }
     Ok(())
 }
+/// The bindable numeric fields a command accepts a `{"param": "name"}` value
+/// for: resolved to the parameter's number before the command parses its
+/// parameters, then recorded so a later parameter change follows it here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindableField {
+    HoleDiameter,
+    HoleX,
+    HoleY,
+    ViaDiameter,
+    ViaDrill,
+    ViaX,
+    ViaY,
+}
+impl BindableField {
+    /// The recorded field this parameter reference binds.
+    fn field(self) -> Field {
+        match self {
+            BindableField::HoleDiameter => Field::HoleDiameter,
+            BindableField::HoleX => Field::HoleX,
+            BindableField::HoleY => Field::HoleY,
+            BindableField::ViaDiameter => Field::ViaDiameter,
+            BindableField::ViaDrill => Field::ViaDrill,
+            BindableField::ViaX => Field::ViaX,
+            BindableField::ViaY => Field::ViaY,
+        }
+    }
+}
+/// The dotted parameter paths a command accepts a named parameter for, and
+/// the field each one drives. Commands absent from this table refuse a
+/// `{"param": "name"}` value with a plain message.
+fn bindable_fields(command: &str) -> &'static [(&'static str, BindableField)] {
+    const HOLE_POSITION: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::HoleX),
+        ("position.y", BindableField::HoleY),
+    ];
+    const HOLE_PLACE: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::HoleX),
+        ("position.y", BindableField::HoleY),
+        ("diameter", BindableField::HoleDiameter),
+    ];
+    const VIA_POSITION: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::ViaX),
+        ("position.y", BindableField::ViaY),
+    ];
+    const VIA_PLACE: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::ViaX),
+        ("position.y", BindableField::ViaY),
+        ("diameter", BindableField::ViaDiameter),
+        ("drill", BindableField::ViaDrill),
+    ];
+    const VIA_SIZE: &[(&str, BindableField)] = &[
+        ("diameter", BindableField::ViaDiameter),
+        ("drill", BindableField::ViaDrill),
+    ];
+    const HOLE_SIZE: &[(&str, BindableField)] = &[("diameter", BindableField::HoleDiameter)];
+    match command {
+        "board.hole_place" => HOLE_PLACE,
+        "board.hole_move" => HOLE_POSITION,
+        "board.hole_set_size" => HOLE_SIZE,
+        "via.place" => VIA_PLACE,
+        "via.move" => VIA_POSITION,
+        "via.set_size" => VIA_SIZE,
+        _ => &[],
+    }
+}
+/// Where the object a command just bound comes from: the id the command
+/// returned for a fresh object, or the id the caller named.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindingTarget {
+    Placed,
+    Targeted,
+}
+impl BindingTarget {
+    /// How a command's bound fields find their object.
+    fn of(command: &str) -> Self {
+        match command {
+            "board.hole_place" | "via.place" => BindingTarget::Placed,
+            _ => BindingTarget::Targeted,
+        }
+    }
+}
+/// A command's parameters with every named parameter reference replaced by
+/// its current number, plus the fields those references bind.
+struct ResolvedCommand {
+    params: Value,
+    bound: Vec<(BindableField, String)>,
+}
+/// Collect the dotted paths of every `{"param": "name"}` value in `value`,
+/// together with the name each one references.
+fn parameter_ref_paths(value: &Value, path: &mut Vec<String>, out: &mut Vec<(String, String)>) {
+    match value {
+        Value::Object(map) => {
+            if map.len() == 1
+                && let Some(Value::String(name)) = map.get("param")
+            {
+                out.push((path.join("."), name.clone()));
+                return;
+            }
+            for (key, child) in map {
+                path.push(key.clone());
+                parameter_ref_paths(child, path, out);
+                path.pop();
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                path.push(index.to_string());
+                parameter_ref_paths(child, path, out);
+                path.pop();
+            }
+        }
+        _ => {}
+    }
+}
+/// The child of `root` named by one dotted path segment, reading a number as
+/// an array index and anything else as an object key.
+fn path_child_mut<'a>(root: &'a mut Value, segment: &str) -> Option<&'a mut Value> {
+    match segment.parse::<usize>() {
+        Ok(index) => root.get_mut(index),
+        Err(_) => root.get_mut(segment),
+    }
+}
+/// The value at a dotted parameter path, if the path exists.
+fn value_at<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
+    path.split('.')
+        .try_fold(root, |node, segment| match segment.parse::<usize>() {
+            Ok(index) => node.get(index),
+            Err(_) => node.get(segment),
+        })
+}
+/// Replace the value at a dotted parameter path.
+fn set_at(root: &mut Value, path: &str, replacement: Value) -> Result<(), Error> {
+    let segments: Vec<&str> = path.split('.').collect();
+    let (last, parents) = segments
+        .split_last()
+        .ok_or_else(|| Error::Invalid("a parameter reference has no path".into()))?;
+    let mut cursor = root;
+    for segment in parents {
+        cursor = path_child_mut(cursor, segment)
+            .ok_or_else(|| Error::Invalid(format!("parameter path {path:?} is missing")))?;
+    }
+    *path_child_mut(cursor, last)
+        .ok_or_else(|| Error::Invalid(format!("parameter path {path:?} is missing")))? =
+        replacement;
+    Ok(())
+}
+/// Resolve every named parameter reference in one command's parameters,
+/// refusing a name the design does not record and a slot the command cannot
+/// bind.
+fn resolve_parameters(
+    p: &Project,
+    command: &str,
+    params: &Value,
+) -> Result<ResolvedCommand, Error> {
+    let mut found = Vec::new();
+    parameter_ref_paths(params, &mut Vec::new(), &mut found);
+    if found.is_empty() {
+        return Ok(ResolvedCommand {
+            params: params.clone(),
+            bound: vec![],
+        });
+    }
+    let slots = bindable_fields(command);
+    let mut resolved = params.clone();
+    let mut bound = Vec::new();
+    for (path, name) in found {
+        let field = slots
+            .iter()
+            .find(|(slot, _)| *slot == path)
+            .map(|(_, field)| *field)
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "{command} cannot take a named parameter for {path:?}; only hole and via placement, move and size commands can"
+                ))
+            })?;
+        let parameter = p.parameters.get(&name).ok_or_else(|| {
+            Error::Invalid(format!(
+                "no parameter named {name:?}; record it before referencing it"
+            ))
+        })?;
+        set_at(&mut resolved, &path, json!(parameter.value))?;
+        bound.push((field, name));
+    }
+    Ok(ResolvedCommand {
+        params: resolved,
+        bound,
+    })
+}
+/// Write one bound field again and re-run the range checks of the command
+/// that normally writes it.
+fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> Result<(), Error> {
+    match field {
+        Field::HoleDiameter => {
+            let hole = p
+                .board
+                .holes
+                .iter_mut()
+                .find(|h| h.id == object)
+                .ok_or_else(missing)?;
+            if !(0.05..=25.0).contains(&value) {
+                return Err(Error::Invalid(
+                    "hole drill must be within 0.05 to 25 mm".into(),
+                ));
+            }
+            hole.diameter = value;
+        }
+        Field::HoleX | Field::HoleY => {
+            let hole = p
+                .board
+                .holes
+                .iter_mut()
+                .find(|h| h.id == object)
+                .ok_or_else(missing)?;
+            let moved = if field == Field::HoleX {
+                Point::new(value, hole.position.y)
+            } else {
+                Point::new(hole.position.x, value)
+            };
+            if !moved.valid() {
+                return Err(Error::Invalid("hole position is out of range".into()));
+            }
+            hole.position = moved;
+        }
+        Field::ViaDiameter => {
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == object)
+                .ok_or_else(missing)?;
+            if !value.is_finite() || value <= 0.0 || value > 100.0 {
+                return Err(Error::Invalid(
+                    "via diameter must be within 0 to 100 mm".into(),
+                ));
+            }
+            if value <= via.drill {
+                return Err(Error::Invalid(
+                    "via drill must be smaller than its pad".into(),
+                ));
+            }
+            via.diameter = value;
+        }
+        Field::ViaDrill => {
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == object)
+                .ok_or_else(missing)?;
+            if !value.is_finite() || value < 0.0 || value >= via.diameter {
+                return Err(Error::Invalid(
+                    "via drill must be smaller than its pad".into(),
+                ));
+            }
+            via.drill = value;
+        }
+        Field::ViaX | Field::ViaY => {
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == object)
+                .ok_or_else(missing)?;
+            let moved = if field == Field::ViaX {
+                Point::new(value, via.position.y)
+            } else {
+                Point::new(via.position.x, value)
+            };
+            if !moved.valid() {
+                return Err(Error::Invalid("via position is out of range".into()));
+            }
+            via.position = moved;
+        }
+    }
+    Ok(())
+}
+/// Run one command with named parameters resolved, then record what it bound.
+/// A plain number written where a parameter could stand releases that field,
+/// so a later parameter change never overrides a deliberate edit.
 fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<Value, Error> {
+    let resolved = resolve_parameters(p, command, params)?;
+    let target = BindingTarget::of(command);
+    let object = match target {
+        BindingTarget::Placed => None,
+        BindingTarget::Targeted => params.get("id").and_then(Value::as_u64),
+    };
+    let mut released = Vec::new();
+    if let Some(object) = object {
+        let mut writes = Vec::new();
+        for (path, field) in bindable_fields(command) {
+            let written = value_at(params, path).is_some();
+            let follows = resolved.bound.iter().any(|(bound, _)| bound == field);
+            if written && !follows {
+                writes.push(field.field());
+            }
+        }
+        if !writes.is_empty() {
+            p.bindings.retain(|b| {
+                let stale = b.object == object && writes.contains(&b.field);
+                if stale {
+                    released.push(json!({"object": b.object, "field": b.field}));
+                }
+                !stale
+            });
+        }
+    }
+    let mut result = run_command(p, next, command, &resolved.params)?;
+    p.prune_bindings();
+    if !resolved.bound.is_empty() {
+        let placed = match target {
+            BindingTarget::Placed => result.get("id").and_then(Value::as_u64),
+            BindingTarget::Targeted => object,
+        };
+        if let Some(placed) = placed {
+            for (field, name) in &resolved.bound {
+                p.bindings.push(Binding {
+                    object: placed,
+                    field: field.field(),
+                    parameter: name.clone(),
+                });
+            }
+        }
+    }
+    if !released.is_empty()
+        && let Some(map) = result.as_object_mut()
+    {
+        map.insert("unbound".into(), Value::Array(released));
+    }
+    Ok(result)
+}
+fn run_command(
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+) -> Result<Value, Error> {
     if let Some(result) = authoring::run(p, next, command, params) {
         return result;
     }
@@ -4877,6 +5248,97 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 return Err(missing());
             }
             Ok(json!({"key": a.key}))
+        }
+        "parameter.set" => {
+            let a: ParameterSetParams = parse(params)?;
+            if !pcbcraft_doc::valid_parameter_name(&a.name) {
+                return Err(Error::Invalid(
+                    "parameter names are 1 to 32 letters, digits or underscores and start with a letter or underscore"
+                        .into(),
+                ));
+            }
+            if !pcbcraft_doc::valid_parameter_value(a.value) {
+                return Err(Error::Invalid(
+                    "parameter values are finite numbers within plus or minus 10000 mm".into(),
+                ));
+            }
+            let note = a.note.unwrap_or_default();
+            if !pcbcraft_doc::valid_parameter_note(&note) {
+                return Err(Error::Invalid("a parameter note fits 256 bytes".into()));
+            }
+            if !p.parameters.contains_key(&a.name)
+                && p.parameters.len() >= pcbcraft_doc::MAX_PARAMETERS
+            {
+                return Err(Error::Invalid(
+                    "a project records at most 128 named parameters".into(),
+                ));
+            }
+            // The table is the authority: every object bound to this name is
+            // written again here, inside the same batch, so one edit moves
+            // everything that depends on it and one undo puts it all back.
+            let follows: Vec<Binding> = p.parameter_bindings(&a.name).cloned().collect();
+            let mut updated: Vec<Id> = Vec::new();
+            for binding in &follows {
+                write_bound_field(p, binding.object, binding.field, a.value)?;
+                if !updated.contains(&binding.object) {
+                    updated.push(binding.object);
+                }
+            }
+            p.parameters.insert(
+                a.name.clone(),
+                pcbcraft_doc::Parameter {
+                    value: a.value,
+                    note,
+                },
+            );
+            Ok(json!({
+                "name": a.name,
+                "value": a.value,
+                "drives": follows.len(),
+                "updated": updated,
+            }))
+        }
+        "parameter.remove" => {
+            let a: ParameterRemoveParams = parse(params)?;
+            if !p.parameters.contains_key(&a.name) {
+                return Err(missing());
+            }
+            let mut users: Vec<Id> = Vec::new();
+            for binding in p.parameter_bindings(&a.name) {
+                if !users.contains(&binding.object) {
+                    users.push(binding.object);
+                }
+            }
+            if !users.is_empty() && !a.unbind {
+                return Err(Error::Invalid(format!(
+                    "parameter {:?} still drives these objects: {users:?}; pass unbind to release them",
+                    a.name
+                )));
+            }
+            p.bindings.retain(|b| b.parameter != a.name);
+            p.parameters.remove(&a.name);
+            Ok(json!({"name": a.name, "released": users}))
+        }
+        "parameter.list" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "parameter.list takes an empty object".into(),
+                ));
+            }
+            let mut rows = Vec::new();
+            for (name, parameter) in &p.parameters {
+                let driven: Vec<Value> = p
+                    .parameter_bindings(name)
+                    .map(|b| json!({"object":b.object,"field":b.field}))
+                    .collect();
+                rows.push(json!({
+                    "name": name,
+                    "value": parameter.value,
+                    "note": parameter.note,
+                    "drives": driven,
+                }));
+            }
+            Ok(json!({"parameters": rows, "count": rows.len()}))
         }
         "project.set_unit" => {
             let a: ProjectSetUnitParams = parse(params)?;
@@ -23951,6 +24413,294 @@ mod tests {
         let second = s.project.board.holes[1].id;
         s.execute("object.delete", json!({"id":id}), None)?;
         s.execute("object.delete", json!({"id":second}), None)?;
+        assert!(s.project.board.holes.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn parameters_are_set_read_and_listed() -> Result<(), Error> {
+        let mut s = Session::default();
+        let stored = s.execute(
+            "parameter.set",
+            json!({"name":"hole_pitch","value":3.2,"note":"mounting holes"}),
+            None,
+        )?;
+        assert_eq!(stored["result"]["value"], json!(3.2));
+        s.execute("parameter.set", json!({"name":"rail","value":1.0}), None)?;
+        let listed = s.execute("parameter.list", json!({}), None)?;
+        let rows = listed["result"]["parameters"]
+            .as_array()
+            .ok_or_else(missing)?;
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["name"], json!("hole_pitch"));
+        assert_eq!(rows[0]["value"], json!(3.2));
+        assert_eq!(rows[0]["note"], json!("mounting holes"));
+        assert_eq!(rows[1]["name"], json!("rail"));
+        assert_eq!(rows[1]["note"], json!(""));
+        assert_eq!(rows[0]["drives"], json!([]));
+        // Setting a name again changes its value and keeps one row.
+        s.execute(
+            "parameter.set",
+            json!({"name":"hole_pitch","value":4.0}),
+            None,
+        )?;
+        assert_eq!(s.project.parameters.len(), 2);
+        assert_eq!(
+            s.project.parameter("hole_pitch").map(|p| p.value),
+            Some(4.0)
+        );
+        assert!(s.project.parameter("missing").is_none());
+        Ok(())
+    }
+    #[test]
+    fn bad_parameter_names_and_values_are_refused() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut bad = vec![
+            json!({"name":"","value":1.0}),
+            json!({"name":"1pitch","value":1.0}),
+            json!({"name":"hole-pitch","value":1.0}),
+            json!({"name":"a b","value":1.0}),
+            json!({"name":"pitch","value":10_001.0}),
+            json!({"name":"pitch","value":-10_001.0}),
+            json!({"name":"pitch","value":"hole_pitch*2"}),
+            json!({"name":"pitch","value":1.0,"note":"x".repeat(257)}),
+            json!({"name":"pitch","value":1.0,"unknown":true}),
+            json!({"name":"x".repeat(33),"value":1.0}),
+        ];
+        bad.push(json!({"name":"pitch"}));
+        for request in bad {
+            assert!(
+                s.execute("parameter.set", request.clone(), None).is_err(),
+                "{request}"
+            );
+        }
+        assert!(s.project.parameters.is_empty());
+        // The table stays bounded.
+        for index in 0..pcbcraft_doc::MAX_PARAMETERS {
+            s.execute(
+                "parameter.set",
+                json!({"name":format!("p{index}"),"value":1.0}),
+                None,
+            )?;
+        }
+        assert!(
+            s.execute(
+                "parameter.set",
+                json!({"name":"one_too_many","value":1.0}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.parameters.len(), pcbcraft_doc::MAX_PARAMETERS);
+        Ok(())
+    }
+    #[test]
+    fn a_hole_placed_with_a_parameter_follows_it() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        s.execute("parameter.set", json!({"name":"drill","value":1.0}), None)?;
+        let left = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":{"param":"pitch"}},"diameter":{"param":"drill"}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let right = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":20.0},"diameter":{"param":"drill"}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        // The left hole follows the pitch twice and the drill, the right one
+        // follows the pitch for its x only.
+        assert_eq!(s.project.bindings.len(), 5);
+        assert_eq!(s.project.board.holes[0].position, Point::new(3.2, 3.2));
+        assert_eq!(s.project.board.holes[0].diameter, 1.0);
+        assert_eq!(s.project.board.holes[1].position, Point::new(3.2, 20.0));
+        let revision = s.revision;
+        let changed = s.execute("parameter.set", json!({"name":"pitch","value":8.0}), None)?;
+        assert_eq!(changed["revision"].as_u64(), Some(revision + 1));
+        assert_eq!(s.project.board.holes[0].position, Point::new(8.0, 8.0));
+        assert_eq!(s.project.board.holes[1].position, Point::new(8.0, 20.0));
+        assert_eq!(changed["result"]["updated"], json!([left, right]));
+        assert_eq!(changed["result"]["drives"], json!(3));
+        // One undo puts every hole back where it was.
+        s.undo()?;
+        assert_eq!(s.project.board.holes[0].position, Point::new(3.2, 3.2));
+        assert_eq!(s.project.board.holes[1].position, Point::new(3.2, 20.0));
+        assert_eq!(s.project.parameter("pitch").map(|p| p.value), Some(3.2));
+        Ok(())
+    }
+    #[test]
+    fn a_parameter_change_that_breaks_a_bound_hole_is_refused_and_leaves_everything()
+    -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"drill","value":1.0}), None)?;
+        s.execute(
+            "board.hole_place",
+            json!({"position":{"x":10.0,"y":10.0},"diameter":{"param":"drill"}}),
+            None,
+        )?;
+        let revision = s.revision;
+        let before = s.project.clone();
+        let failure = s.execute("parameter.set", json!({"name":"drill","value":30.0}), None);
+        assert!(failure.is_err());
+        assert_eq!(s.revision, revision);
+        assert_eq!(s.project, before);
+        assert_eq!(s.project.board.holes[0].diameter, 1.0);
+        assert_eq!(s.project.parameter("drill").map(|p| p.value), Some(1.0));
+        Ok(())
+    }
+    #[test]
+    fn removing_a_used_parameter_names_its_users() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":10.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let failure = s
+            .execute("parameter.remove", json!({"name":"pitch"}), None)
+            .err()
+            .ok_or_else(missing)?;
+        let message = failure.to_string();
+        assert!(message.contains("pitch"), "{message}");
+        assert!(message.contains(&hole.to_string()), "{message}");
+        assert_eq!(s.project.parameters.len(), 1);
+        // Releasing the users leaves their geometry exactly as it stands.
+        let released = s.execute(
+            "parameter.remove",
+            json!({"name":"pitch","unbind":true}),
+            None,
+        )?;
+        assert_eq!(released["result"]["released"], json!([hole]));
+        assert!(s.project.parameters.is_empty());
+        assert!(s.project.bindings.is_empty());
+        assert_eq!(s.project.board.holes[0].position.x, 3.2);
+        assert!(
+            s.execute("parameter.remove", json!({"name":"pitch"}), None)
+                .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn deleting_a_bound_object_drops_its_binding() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        let first = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":4.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let second = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":8.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.bindings.len(), 2);
+        s.execute("object.delete", json!({"id":first}), None)?;
+        assert_eq!(s.project.bindings.len(), 1);
+        assert!(
+            s.project
+                .bindings
+                .iter()
+                .all(|binding| binding.object == second)
+        );
+        // The surviving hole still follows the parameter.
+        s.execute("parameter.set", json!({"name":"pitch","value":9.0}), None)?;
+        assert_eq!(s.project.board.holes[0].position.x, 9.0);
+        Ok(())
+    }
+    #[test]
+    fn a_plain_edit_unbinds_the_field() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":10.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.bindings.len(), 1);
+        let moved = s.execute(
+            "board.hole_move",
+            json!({"id":hole,"position":{"x":6.0,"y":10.0}}),
+            None,
+        )?;
+        assert_eq!(
+            moved["result"]["unbound"],
+            json!([{"object":hole,"field":"hole_x"}])
+        );
+        assert!(s.project.bindings.is_empty());
+        // A later parameter change leaves the edited hole where it was put.
+        s.execute("parameter.set", json!({"name":"pitch","value":9.0}), None)?;
+        assert_eq!(s.project.board.holes[0].position.x, 6.0);
+        Ok(())
+    }
+    #[test]
+    fn parameters_reach_vias_and_other_commands_refuse_them() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "parameter.set",
+            json!({"name":"via_drill","value":0.4}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":20.0,"y":20.0},"diameter":1.2,"drill":{"param":"via_drill"}}),
+            None,
+        )?;
+        s.execute(
+            "parameter.set",
+            json!({"name":"via_drill","value":0.6}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias[0].drill, 0.6);
+        // A drill that no longer fits under the pad is refused.
+        assert!(
+            s.execute(
+                "parameter.set",
+                json!({"name":"via_drill","value":1.4}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.vias[0].drill, 0.6);
+        let refusal = s
+            .execute(
+                "track.add",
+                json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":{"param":"via_drill"}}),
+                None,
+            )
+            .err()
+            .ok_or_else(missing)?;
+        assert!(
+            refusal
+                .to_string()
+                .contains("cannot take a named parameter"),
+            "{refusal}"
+        );
+        let unknown = s
+            .execute(
+                "board.hole_place",
+                json!({"position":{"x":{"param":"nope"},"y":0.0},"diameter":1.0}),
+                None,
+            )
+            .err()
+            .ok_or_else(missing)?;
+        assert!(unknown.to_string().contains("nope"), "{unknown}");
         assert!(s.project.board.holes.is_empty());
         Ok(())
     }

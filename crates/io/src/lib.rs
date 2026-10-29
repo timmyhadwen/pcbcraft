@@ -10995,6 +10995,53 @@ mod tests {
         Ok(project)
     }
     #[test]
+    fn parameters_survive_save_and_open() -> Result<(), String> {
+        let mut project = Project::default();
+        project.parameters.insert(
+            "hole_pitch".into(),
+            pcbcraft_doc::Parameter {
+                value: 3.2,
+                note: "mounting holes".into(),
+            },
+        );
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 5,
+            position: Point::new(3.2, 8.0),
+            diameter: 1.0,
+            end: None,
+        });
+        project.bindings.push(pcbcraft_doc::Binding {
+            object: 5,
+            field: pcbcraft_doc::Field::HoleX,
+            parameter: "hole_pitch".into(),
+        });
+        project.validate()?;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("parameters.pcbcraft");
+        save(&project, &path)?;
+        let loaded = load(&path)?;
+        assert_eq!(loaded, project);
+        assert_eq!(loaded.parameters["hole_pitch"].value, 3.2);
+        assert_eq!(loaded.parameters["hole_pitch"].note, "mounting holes");
+        assert_eq!(loaded.bindings[0].field, pcbcraft_doc::Field::HoleX);
+        Ok(())
+    }
+    #[test]
+    fn projects_without_parameters_still_load() -> Result<(), String> {
+        let project = Project::default();
+        let text = serde_json::to_string(&project).map_err(|e| e.to_string())?;
+        assert!(!text.contains("\"parameters\""));
+        assert!(!text.contains("\"bindings\""));
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("plain.pcbcraft");
+        std::fs::write(&path, &text).map_err(|e| e.to_string())?;
+        let loaded = load(&path)?;
+        assert!(loaded.parameters.is_empty());
+        assert!(loaded.bindings.is_empty());
+        assert_eq!(loaded, project);
+        Ok(())
+    }
+    #[test]
     fn chamfered_and_custom_pads_survive_project_save_and_load() -> Result<(), String> {
         let project = shaped_pad_project()?;
         let dir = tempfile::tempdir().map_err(|e| e.to_string())?;

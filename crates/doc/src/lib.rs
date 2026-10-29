@@ -1680,6 +1680,89 @@ pub const PANEL_SCORE_COMPONENT_MIN_MM: f64 = 1.0;
 pub const PANEL_TAB_CHANNEL_MIN_MM: f64 = 1.6;
 /// Panel fiducial count expected in the rails.
 pub const PANEL_FIDUCIAL_COUNT: usize = 3;
+/// Most named numeric parameters one project may carry.
+pub const MAX_PARAMETERS: usize = 128;
+/// Largest absolute parameter value a project records, in millimetres.
+pub const MAX_PARAMETER_VALUE: f64 = 10_000.0;
+/// Longest parameter note a project records, in bytes.
+pub const MAX_PARAMETER_NOTE: usize = 256;
+/// Most object fields one project may bind to a parameter.
+pub const MAX_BINDINGS: usize = 1024;
+/// A named numeric value that commands reference by name instead of
+/// retyping a number, so one edit moves everything that depends on it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Parameter {
+    /// The number every reference to this name resolves to, in millimetres.
+    pub value: f64,
+    /// Free-form reminder of what the number means, carried with the design.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}
+/// One numeric field of one object recorded as following a named parameter:
+/// setting the parameter writes this field again and re-runs its range checks.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Binding {
+    /// The object whose field follows the parameter.
+    pub object: Id,
+    /// The field that follows it; a closed set, one variant per numeric
+    /// field a command accepts a parameter name for.
+    pub field: Field,
+    /// The parameter the field follows.
+    pub parameter: String,
+}
+/// The closed set of numeric object fields a named parameter can drive.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum Field {
+    /// Drill diameter, or slot width, of an unplated hole.
+    HoleDiameter,
+    /// X coordinate of an unplated hole's near centre.
+    HoleX,
+    /// Y coordinate of an unplated hole's near centre.
+    HoleY,
+    /// Outer copper pad diameter of a plated via.
+    ViaDiameter,
+    /// Drilled diameter of a plated via.
+    ViaDrill,
+    /// X coordinate of a plated via's centre.
+    ViaX,
+    /// Y coordinate of a plated via's centre.
+    ViaY,
+}
+impl Field {
+    /// True when this field belongs to an unplated hole.
+    pub fn is_hole(&self) -> bool {
+        matches!(self, Field::HoleDiameter | Field::HoleX | Field::HoleY)
+    }
+    /// True when this field belongs to a plated via.
+    pub fn is_via(&self) -> bool {
+        matches!(
+            self,
+            Field::ViaDiameter | Field::ViaDrill | Field::ViaX | Field::ViaY
+        )
+    }
+}
+/// True when `name` is a usable parameter name: one to 32 bytes starting with
+/// a letter or underscore, then letters, digits or underscores.
+pub fn valid_parameter_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 32
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+/// True when `note` fits the parameter note limit.
+pub fn valid_parameter_note(note: &str) -> bool {
+    note.len() <= MAX_PARAMETER_NOTE
+}
+/// True when `value` is a finite number a parameter may hold.
+pub fn valid_parameter_value(value: f64) -> bool {
+    value.is_finite() && value.abs() <= MAX_PARAMETER_VALUE
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -1730,6 +1813,14 @@ pub struct Project {
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub meta: BTreeMap<String, String>,
+    /// Named numeric values commands may reference by name instead of
+    /// retyping a number, keyed by name and carried with the saved design.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parameters: BTreeMap<String, Parameter>,
+    /// Object fields that follow a named parameter, so changing the parameter
+    /// moves everything that depends on it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bindings: Vec<Binding>,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1866,6 +1957,8 @@ impl Default for Project {
             variants: vec![],
             graphic_groups: vec![],
             meta: Default::default(),
+            parameters: Default::default(),
+            bindings: vec![],
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
@@ -1979,6 +2072,92 @@ pub fn component_template(
 }
 impl Project {
     pub const UNITS: [&'static str; 3] = ["mm", "mil", "inch"];
+
+    /// The named parameter recorded under `name`, if the design has one.
+    pub fn parameter(&self, name: &str) -> Option<&Parameter> {
+        self.parameters.get(name)
+    }
+    /// The bindings that follow the parameter `name`, in the order made.
+    pub fn parameter_bindings<'a>(
+        &'a self,
+        name: &'a str,
+    ) -> impl Iterator<Item = &'a Binding> + 'a {
+        self.bindings.iter().filter(move |b| b.parameter == name)
+    }
+    /// The live value of one object field, or None when no object carries it.
+    pub fn field_value(&self, object: Id, field: Field) -> Option<f64> {
+        let hole = self.board.holes.iter().find(|h| h.id == object);
+        let via = self.board.vias.iter().find(|v| v.id == object);
+        match field {
+            Field::HoleDiameter => Some(hole?.diameter),
+            Field::HoleX => Some(hole?.position.x),
+            Field::HoleY => Some(hole?.position.y),
+            Field::ViaDiameter => Some(via?.diameter),
+            Field::ViaDrill => Some(via?.drill),
+            Field::ViaX => Some(via?.position.x),
+            Field::ViaY => Some(via?.position.y),
+        }
+    }
+    /// True when `object` exists and can carry `field`.
+    pub fn carries_field(&self, object: Id, field: Field) -> bool {
+        if field.is_hole() {
+            self.board.holes.iter().any(|h| h.id == object)
+        } else {
+            self.board.vias.iter().any(|v| v.id == object)
+        }
+    }
+    /// Drop bindings whose object no longer exists, so deleting a bound hole
+    /// or via never leaves a dangling reference behind.
+    pub fn prune_bindings(&mut self) {
+        let board = &self.board;
+        self.bindings.retain(|b| {
+            if b.field.is_hole() {
+                board.holes.iter().any(|h| h.id == b.object)
+            } else {
+                board.vias.iter().any(|v| v.id == b.object)
+            }
+        });
+    }
+    /// Check the parameter table and its bindings: bounded names, values and
+    /// notes, at most one binding per field, and every binding naming a
+    /// parameter and an object that can carry that field.
+    pub fn validate_parameters(&self) -> Result<(), String> {
+        if self.parameters.len() > MAX_PARAMETERS {
+            return Err("a project records at most 128 named parameters".into());
+        }
+        for (name, parameter) in &self.parameters {
+            if !valid_parameter_name(name) {
+                return Err(
+                    "parameter names are 1 to 32 letters, digits or underscores and start with a letter or underscore"
+                        .into(),
+                );
+            }
+            if !valid_parameter_value(parameter.value) {
+                return Err(
+                    "parameter values are finite numbers within plus or minus 10000 mm".into(),
+                );
+            }
+            if !valid_parameter_note(&parameter.note) {
+                return Err("a parameter note fits 256 bytes".into());
+            }
+        }
+        if self.bindings.len() > MAX_BINDINGS {
+            return Err("a project binds at most 1024 object fields".into());
+        }
+        let mut bound = BTreeSet::new();
+        for binding in &self.bindings {
+            if !self.parameters.contains_key(&binding.parameter) {
+                return Err("a binding names a parameter the project does not record".into());
+            }
+            if !self.carries_field(binding.object, binding.field) {
+                return Err("a binding names an object that cannot carry that field".into());
+            }
+            if !bound.insert((binding.object, binding.field)) {
+                return Err("one object field follows at most one parameter".into());
+            }
+        }
+        Ok(())
+    }
 
     pub fn component(&self, id: Id) -> Option<&Component> {
         self.components.iter().find(|c| c.id == id)
@@ -2201,6 +2380,7 @@ impl Project {
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
+        self.validate_parameters()?;
         if self
             .components
             .iter()
