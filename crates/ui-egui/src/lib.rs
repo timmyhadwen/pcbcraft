@@ -4357,7 +4357,8 @@ impl App {
         ui.checkbox(
             &mut self.preferences.grid,
             t!("settings.settings_tab.show_grid"),
-        );
+        )
+        .on_hover_text(t!("settings.settings_tab.show_grid.tip"));
         ui.label(t!("settings.settings_tab.interface_size"));
         ui.horizontal_wrapped(|ui| {
             for (label, scale) in a11y::UI_SCALE_STEPS {
@@ -4397,7 +4398,9 @@ impl App {
             }
         });
         ui.label(t!("settings.settings_tab.accent_color"));
-        ui.color_edit_button_srgb(&mut self.preferences.accent);
+        ui.color_edit_button_srgb(&mut self.preferences.accent)
+            .named(&t!("settings.settings_tab.accent_color"))
+            .on_hover_text(t!("settings.settings_tab.accent_color.tip"));
         ui.checkbox(
             &mut self.preferences.reduced_motion,
             t!("settings.settings_tab.reduce_motion"),
@@ -4438,7 +4441,8 @@ impl App {
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Board width");
+            .named("Board width")
+.on_hover_text("How wide the board is, in millimetres; it must be larger than zero. Press Apply board dimensions to resize it.");
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.h"));
@@ -4447,7 +4451,8 @@ impl App {
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Board height");
+            .named("Board height")
+.on_hover_text("How tall the board is, in millimetres; it must be larger than zero. Press Apply board dimensions to resize it.");
         });
         if ui
             .button(t!("settings.settings_tab.apply_board_dimensions"))
@@ -4477,14 +4482,16 @@ impl App {
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Cutout X");
+            .named("Cutout X")
+            .on_hover_text(t!("settings.settings_tab.cutout_x.tip"));
             ui.label(t!("settings.settings_tab.y"));
             ui.add(
                 egui::DragValue::new(&mut self.cut_y)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Cutout Y");
+            .named("Cutout Y")
+.on_hover_text("Where the centre of the round hole sits up the board, in millimetres. It must stay within the board edge.");
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.radius"));
@@ -4494,7 +4501,8 @@ impl App {
                     .range(0.1..=50.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Cutout radius");
+            .named("Cutout radius")
+.on_hover_text("How big the round hole is, from its centre to its edge, in millimetres. It accepts 0.1 to 50 mm.");
         });
         if ui
             .button(t!("settings.settings_tab.add_hole"))
@@ -4528,14 +4536,16 @@ impl App {
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Pour X");
+            .named("Pour X")
+            .on_hover_text(t!("settings.settings_tab.pour_x.tip"));
             ui.label(t!("settings.settings_tab.y"));
             ui.add(
                 egui::DragValue::new(&mut self.pour_y)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Pour Y");
+            .named("Pour Y")
+.on_hover_text("Where the bottom side of the copper rectangle sits up the board, in millimetres. Keep it within the board.");
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.w"));
@@ -4545,7 +4555,8 @@ impl App {
                     .range(1.0..=500.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Pour width");
+            .named("Pour width")
+            .on_hover_text(t!("settings.settings_tab.pour_width.tip"));
             ui.label(t!("settings.settings_tab.h"));
             ui.add(
                 egui::DragValue::new(&mut self.pour_h)
@@ -4553,7 +4564,10 @@ impl App {
                     .range(1.0..=500.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Pour height");
+            .named("Pour height")
+            .on_hover_text(
+                "How tall the copper rectangle is, in millimetres. It accepts 1 to 500 mm.",
+            );
         });
         let pour_net = self.pour_net;
         let net_choices: Vec<(Id, String)> = self
@@ -4574,7 +4588,8 @@ impl App {
                 }
             })
             .response
-            .named("Pour connection");
+            .named("Pour connection")
+.on_hover_text("Choose which connection the poured copper joins. Every pad and wire of that connection inside the rectangle is tied to it.");
         if ui
             .button(t!("settings.settings_tab.pour_copper"))
             .on_hover_text(t!("settings.settings_tab.pour_copper.tip"))
@@ -4618,13 +4633,15 @@ impl App {
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Text X");
+            .named("Text X")
+.on_hover_text("Where the words start across the board, in millimetres. Keep them within the board to print.");
             ui.add(
                 egui::DragValue::new(&mut self.label_y)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Text Y");
+            .named("Text Y")
+.on_hover_text("Where the words sit up the board, in millimetres. Keep them within the board to print.");
             ui.add(
                 egui::DragValue::new(&mut self.label_size)
                     .range(0.3..=20.0)
@@ -4751,7 +4768,8 @@ impl App {
                     .speed(0.1)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Cutout radius");
+            .named("Cutout tool radius")
+.on_hover_text("The radius of the circle the cutout tool places, in millimetres. The whole circle must stay inside the board.");
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
         ui.add_space(12.0);
@@ -5456,7 +5474,8 @@ impl App {
                         }
                     })
                     .response
-                    .named("First net of the pair");
+                    .named("First net of the pair")
+                    .on_hover_text(t!("rules.rules_tab.pair_first_net.tip"));
                 ui.label(t!("rules.rules_tab.away_from"));
                 egui::ComboBox::from_id_salt("pair_b")
                     .selected_text(name_of(self.pair_b))
@@ -5467,7 +5486,8 @@ impl App {
                         }
                     })
                     .response
-                    .named("Second net of the pair");
+                    .named("Second net of the pair")
+.on_hover_text("Choose the second connection of the pair. It must differ from the first one.");
             });
             ui.horizontal(|ui| {
                 ui.label(t!("rules.rules_tab.keep_apart_by"));
@@ -5564,7 +5584,8 @@ impl App {
                         }
                     })
                     .response
-                    .named("Positive net");
+                    .named("Positive net")
+                    .on_hover_text(t!("rules.rules_tab.pair_positive_net.tip"));
                 ui.label(t!("rules.rules_tab.text3"));
                 egui::ComboBox::from_id_salt("dp_n")
                     .selected_text(name_of(self.dp_n))
@@ -5577,7 +5598,8 @@ impl App {
                         }
                     })
                     .response
-                    .named("Negative net");
+                    .named("Negative net")
+.on_hover_text("Choose the connection that carries the negative side of the pair, such as D-.");
             });
             ui.horizontal(|ui| {
                 ui.label(t!("rules.rules_tab.run_together_with_a_gap"));
@@ -5651,13 +5673,17 @@ impl App {
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Area corner X");
+            .named("Area corner X")
+            .on_hover_text(
+                "Where the left edge of the stricter area sits across the board, in millimetres.",
+            );
             ui.add(
                 egui::DragValue::new(&mut self.area_y)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Area corner Y");
+            .named("Area corner Y")
+            .on_hover_text(t!("rules.rules_tab.area_corner_y.tip"));
             ui.label(t!("rules.rules_tab.size"));
             ui.add(
                 egui::DragValue::new(&mut self.area_w)
@@ -5665,14 +5691,20 @@ impl App {
                     .range(1.0..=500.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Area width");
+            .named("Area width")
+            .on_hover_text(
+                "How wide the stricter area is, in millimetres. It accepts 1 to 500 mm.",
+            );
             ui.add(
                 egui::DragValue::new(&mut self.area_h)
                     .speed(0.5)
                     .range(1.0..=500.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .named("Area height");
+            .named("Area height")
+            .on_hover_text(
+                "How tall the stricter area is, in millimetres. It accepts 1 to 500 mm.",
+            );
         });
         ui.horizontal(|ui| {
             ui.label(t!("rules.rules_tab.copper_stays_apart_by_at"));
@@ -6083,7 +6115,16 @@ impl App {
             self.message = t!("status.write_make_files.that_folder_could_not_be");
             return;
         }
-        self.tool_call(tool, json!({"path": directory}));
+        // The report is a single text file; every other tool takes the folder.
+        let path = if tool == "report.write" {
+            std::path::Path::new(&directory)
+                .join("report.txt")
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            directory
+        };
+        self.tool_call(tool, json!({"path": path}));
     }
     /// Write the UV print artwork for one side into the make folder.
     fn write_uv_print_files(&mut self, side: &str, label: &str) {
@@ -6876,7 +6917,9 @@ impl App {
                     });
                 ui.add_space(10.0);
             }
-        });
+        })
+.header_response
+.on_hover_text("Show or hide the starter symbols that ship with the app. Each one can be placed straight into the schematic.");
     }
     fn checks_view(&mut self, ui: &mut egui::Ui) {
         ui.add_space(24.0);
@@ -7492,15 +7535,14 @@ impl App {
             }
             ui.separator();
             self.editing_controls(ui);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if !matches!(self.tool, Tool::Select) {
-                    ui.label(
-                        egui::RichText::new(tool_hint(&self.tool))
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-            });
+            // Inline after the chips, so it wraps instead of lying over them.
+            if !matches!(self.tool, Tool::Select) {
+                ui.label(
+                    egui::RichText::new(tool_hint(&self.tool))
+                        .small()
+                        .color(self.muted()),
+                );
+            }
         });
         ui.separator();
     }

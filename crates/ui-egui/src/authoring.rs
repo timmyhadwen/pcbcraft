@@ -205,22 +205,102 @@ fn new_footprint() -> FootprintDefinition {
 fn point(ui: &mut egui::Ui, label: &str, p: &mut Point) {
     ui.horizontal(|ui| {
         ui.label(label);
+        let size = label.to_lowercase().contains("size");
+        let name = label.to_lowercase();
+        let (across, up) = if size {
+            (
+                format!("How wide the {name} is, in millimetres."),
+                format!("How tall the {name} is, in millimetres."),
+            )
+        } else {
+            (
+                format!(
+                    "Sideways position of the {name} in millimetres, from the drawing's origin."
+                ),
+                format!(
+                    "Up-and-down position of the {name} in millimetres, from the drawing's origin."
+                ),
+            )
+        };
         ui.add(egui::DragValue::new(&mut p.x).speed(0.1).prefix("X "))
-            .named(&format!("{label} X"));
+            .named(&format!("{label} X"))
+            .on_hover_text(across);
         ui.add(egui::DragValue::new(&mut p.y).speed(0.1).prefix("Y "))
-            .named(&format!("{label} Y"));
+            .named(&format!("{label} Y"))
+            .on_hover_text(up);
     });
 }
 fn text(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(crate::targets::text_field(value)).named(label);
+        ui.add(crate::targets::text_field(value))
+            .named(label)
+            .on_hover_text(text_field_tip(label));
     });
+}
+/// What a text box in the symbol and package editors is for, keyed by its
+/// label, so each box says what to type and what it changes.
+fn text_field_tip(label: &str) -> &'static str {
+    match label {
+        "Name" => {
+            "The name this definition goes by in the library. Type something short you will recognise."
+        }
+        "Reference prefix" => {
+            "The letters placed before the part number on the board, such as R for resistors or C for capacitors."
+        }
+        "Default value" => {
+            "The value a new part starts with, such as 10k. You can change it on each part afterwards."
+        }
+        "Description" => "A one-line note on what this is, shown when you search the library.",
+        "Suggested footprint" => {
+            "The package name offered when this symbol is placed, such as 0603. Leave it blank to choose later."
+        }
+        "Number" => {
+            "The pin or pad number that wires refer to. Each one in the same definition needs its own."
+        }
+        "Layer" => "The layer this shape is drawn on, such as F.Cu or F.SilkS.",
+        "Fill" => "How the shape is filled. Leave it as none for a plain outline.",
+        "Text" => "The words this label shows on the drawing.",
+        _ => "Type a value for this field. It updates the draft in the editor straight away.",
+    }
+}
+/// What a text box in the symbol and package editors is for, keyed by its
+/// label, so each box says what to type and what it changes.
+fn text_field_tip(label: &str) -> String {
+    if label == t!("library.library_editor.name") {
+        t!("library.library_editor.name.tip")
+    } else if label == t!("library.library_editor.reference_prefix") {
+        t!("library.library_editor.reference_prefix.tip")
+    } else if label == t!("library.library_editor.default_value") {
+        t!("library.library_editor.default_value.tip")
+    } else if label == t!("library.library_editor.description") {
+        t!("library.library_editor.description.tip")
+    } else if label == t!("library.library_editor.suggested_footprint") {
+        t!("library.library_editor.suggested_footprint.tip")
+    } else if label == t!("library.library_editor.number") {
+        t!("library.library_editor.number.tip")
+    } else if label == t!("library.graphic.layer") {
+        t!("library.graphic.layer.tip")
+    } else if label == t!("library.graphic.fill") {
+        t!("library.graphic.fill.tip")
+    } else if label == t!("library.graphic.text") {
+        t!("library.graphic.text.tip")
+    } else {
+        t!("library.library_editor.field_default.tip")
+    }
 }
 fn number(ui: &mut egui::Ui, label: &str, value: &mut f64) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(value).speed(0.1)).named(label);
+        ui.add(egui::DragValue::new(value).speed(0.1))
+            .named(label)
+            .on_hover_text(match label {
+                "Angle" => "The angle in degrees. Positive turns counter-clockwise.",
+                "Length" => "How long the shape is, in millimetres.",
+                "Radius" => "The distance from the centre to the edge, in millimetres.",
+                "Stroke" => "How thick the outline is, in millimetres. Zero draws the thinnest line.",
+                _ => "Type a number for this field. It updates the draft in the editor straight away.",
+            });
     });
 }
 fn graphic(ui: &mut egui::Ui, g: &mut Graphic) {
@@ -1292,7 +1372,9 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(t!("library.library_editor.set"))
                         .on_hover_text(t!("library.library_editor.set.tip"));
-                    ui.add(crate::targets::text_field(&mut def.set)).named("Set name");
+                    ui.add(crate::targets::text_field(&mut def.set))
+                        .named("Set name")
+                        .on_hover_text(t!("library.library_editor.set_field.tip"));
                 });
                 if let Err(e) = def.validate() {
                     ui.colored_label(Color32::LIGHT_RED, e.to_string());
@@ -1412,7 +1494,9 @@ impl App {
                             {
                                 remove = Some(i);
                             }
-                        });
+                        })
+.header_response
+.on_hover_text("Show or hide the settings of this pin: its number, name, position and direction. Delete it from inside.");
                     });
                 }
                 if let Some(i) = remove {
@@ -1444,7 +1528,9 @@ impl App {
                             {
                                 remove = Some(i);
                             }
-                        });
+                        })
+.header_response
+.on_hover_text("Show or hide the settings of this drawn shape. Change its place or size, or delete it from inside.");
                     });
                 }
                 if let Some(i) = remove {
@@ -1568,7 +1654,9 @@ impl App {
                             {
                                 remove = Some(i);
                             }
-                        });
+                        })
+.header_response
+.on_hover_text("Show or hide the settings of this pad: its number, position, copper size and drill. Delete it from inside.");
                     });
                 }
                 if let Some(i) = remove {
@@ -1591,7 +1679,9 @@ impl App {
                             {
                                 remove = Some(i);
                             }
-                        });
+                        })
+.header_response
+.on_hover_text("Show or hide the settings of this drawn shape. Change its place or size, or delete it from inside.");
                     });
                 }
                 if let Some(i) = remove {

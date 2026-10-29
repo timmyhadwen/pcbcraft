@@ -326,6 +326,7 @@ impl App {
                         .speed(0.01)
                         .suffix(" mm"),
                 )
+                .named("Smoothing")
                 .on_hover_text("Round off pixel steps; larger gives fewer, straighter corners. From 0 to 10 millimetres.");
             });
             if ui
