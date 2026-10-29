@@ -300,8 +300,10 @@ fn preferences_ui_scale_clamps_and_persists() -> Result<(), String> {
     assert_eq!(a11y::clamp_ui_scale(9.0), a11y::MAX_UI_SCALE);
     assert_eq!(a11y::clamp_ui_scale(0.1), a11y::MIN_UI_SCALE);
     assert_eq!(a11y::clamp_ui_scale(f32::NAN), a11y::DEFAULT_UI_SCALE);
-    let mut prefs = Preferences::default();
-    prefs.ui_scale = 1.5;
+    let prefs = Preferences {
+        ui_scale: 1.5,
+        ..Preferences::default()
+    };
     let text = serde_json::to_string(&prefs).map_err(|e| e.to_string())?;
     let back: Preferences = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     assert_eq!(back.ui_scale, 1.5, "the scale survives a restart");
