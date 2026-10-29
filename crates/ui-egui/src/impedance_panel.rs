@@ -39,16 +39,17 @@ impl Default for ImpedanceUi {
 impl App {
     /// Read-only engine call that leaves the status line alone.
     fn quiet_report(&self, command: &str, params: Value) -> Option<Value> {
-        let mut s = self.session.lock().ok()?;
-        s.execute(command, params, Some(self.revision))
-            .ok()?
-            .pointer("/result")
-            .cloned()
+        let s = self.session.lock().ok()?;
+        s.peek(command, params).ok()
     }
 
     pub(crate) fn impedance_section(&mut self, ui: &mut egui::Ui, track: Id, net: Id) {
         ui.add_space(12.0);
-        ui.label(egui::RichText::new("IMPEDANCE").size(10.0).color(self.muted()));
+        ui.label(
+            egui::RichText::new("IMPEDANCE")
+                .size(10.0)
+                .color(self.muted()),
+        );
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.label("Target");
@@ -114,7 +115,9 @@ impl App {
                     self.project.board.thickness,
                     self.project.board.er,
                     num("copper_mm").unwrap_or(0.0),
-                    r.get("copper_source").and_then(Value::as_str).unwrap_or("default"),
+                    r.get("copper_source")
+                        .and_then(Value::as_str)
+                        .unwrap_or("default"),
                     num("eeff").unwrap_or(0.0),
                 );
                 ui.label(egui::RichText::new(inputs).small().color(self.muted()))
@@ -144,15 +147,20 @@ impl App {
 
     fn tune_section(&mut self, ui: &mut egui::Ui, track: Id, net: Id) {
         ui.add_space(12.0);
-        ui.label(egui::RichText::new("TUNE LENGTH").size(10.0).color(self.muted()));
+        ui.label(
+            egui::RichText::new("TUNE LENGTH")
+                .size(10.0)
+                .color(self.muted()),
+        );
         ui.add_space(4.0);
         let now = self.net_length(net);
         if self.impedance_ui.tune_target <= 0.0 {
             self.impedance_ui.tune_target = (now + 5.0).clamp(0.1, 10000.0);
         }
-        ui.label(format!("Connection is {now:.2} mm long")).on_hover_text(
-            "Total of all copper wires on this connection. Via barrels are not counted.",
-        );
+        ui.label(format!("Connection is {now:.2} mm long"))
+            .on_hover_text(
+                "Total of all copper wires on this connection. Via barrels are not counted.",
+            );
         ui.horizontal(|ui| {
             ui.label("Target");
             ui.add(
@@ -161,7 +169,9 @@ impl App {
                     .speed(0.1)
                     .suffix(" mm"),
             )
-            .on_hover_text("How long the whole connection should end up, so it matches its partners.");
+            .on_hover_text(
+                "How long the whole connection should end up, so it matches its partners.",
+            );
         });
         ui.horizontal(|ui| {
             ui.label("Allowed miss");

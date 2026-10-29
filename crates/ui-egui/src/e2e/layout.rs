@@ -195,6 +195,7 @@ fn a_newcomer_lengthens_a_wire_to_match_its_partner() -> Result<(), String> {
         "track.route",
         json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
     );
+    app.refresh();
     let (id, middle) = app
         .project
         .board
@@ -209,21 +210,27 @@ fn a_newcomer_lengthens_a_wire_to_match_its_partner() -> Result<(), String> {
         .ok_or("routing should leave a wire to tune")?;
     app.change_tab(Tab::Pcb);
     app.canvas_click(middle, 15.0);
-    assert_eq!(app.selected, Some(id), "the wire is picked up: {}", app.message);
+    assert_eq!(
+        app.selected,
+        Some(id),
+        "the wire is picked up: {}",
+        app.message
+    );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Suggested width")?,
+        scrolled_to(&ctx, &mut app, "Suggested width")?,
         "the side panel suggests a width for the target impedance: {}",
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "Tune length")?,
+        scrolled_to(&ctx, &mut app, "Tune length")?,
         "the side panel offers Tune length: {}",
         app.message
     );
     let before: f64 = app.project.board.tracks.iter().map(track_length).sum();
     app.impedance_ui.tune_target = before + 6.0;
+    scrolled_to(&ctx, &mut app, "Tune length")?;
     authoring::tests::tap(&ctx, &mut app, "Tune length")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
