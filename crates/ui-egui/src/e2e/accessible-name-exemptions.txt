@@ -2,7 +2,6 @@
 #   node id | role | #issue | reason
 # The gate in shell.rs fails on any unnamed control not listed here, and on any
 # line here whose control is named now. Close the gap, then delete the line.
-165 | pub(crate) fn unnamed(output: &egui::FullOutput) -> Vec<Role> { | #646 | text field has no label of its own (per-type follow-up issues to be filed by the owner)
 10083127017760843533 | SpinButton | #646 | number field shows its value but not its label (per-type follow-up issues to be filed by the owner)
 10563053124970705102 | SpinButton | #646 | number field shows its value but not its label (per-type follow-up issues to be filed by the owner)
 10781136699438048742 | SpinButton | #646 | number field shows its value but not its label (per-type follow-up issues to be filed by the owner)

@@ -706,8 +706,8 @@ fn preferences_ui_scale_clamps_and_persists() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_with_a_screen_reader_finds_the_fit_move_and_rotate_buttons_by_name(
-) -> Result<(), String> {
+fn a_newcomer_with_a_screen_reader_finds_the_fit_move_and_rotate_buttons_by_name()
+-> Result<(), String> {
     let (ctx, mut app) = practice_app();
     app.change_tab(Tab::Pcb);
     // Move and Rotate appear beside a selected part.
@@ -779,7 +779,7 @@ fn a_newcomer_with_a_screen_reader_hears_the_status_after_a_command() -> Result<
     let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let heard = polite_messages(&out);
     assert!(
-        heard.iter().any(|m| *m == app.message),
+        heard.contains(&app.message),
         "the screen reader is told '{}' without focus moving: {heard:?}",
         app.message
     );
@@ -792,12 +792,16 @@ fn an_unchanged_message_is_not_announced_twice() -> Result<(), String> {
     app.message = "net.create · committed".into();
     let first = polite_messages(&frame(&ctx, &mut app, vec![], egui::Modifiers::NONE));
     let again = polite_messages(&frame(&ctx, &mut app, vec![], egui::Modifiers::NONE));
-    assert_eq!(first, again, "same words, same node text, so nothing new is read");
+    assert_eq!(
+        first, again,
+        "same words, same node text, so nothing new is read"
+    );
     assert!(first.iter().any(|m| m == "net.create · committed"));
     app.message = "undo · reverted".into();
     let next = polite_messages(&frame(&ctx, &mut app, vec![], egui::Modifiers::NONE));
     assert!(
-        next.iter().any(|m| m == "undo · reverted") && !next.iter().any(|m| m == "net.create · committed"),
+        next.iter().any(|m| m == "undo · reverted")
+            && !next.iter().any(|m| m == "net.create · committed"),
         "a new message replaces the old text: {next:?}"
     );
     Ok(())

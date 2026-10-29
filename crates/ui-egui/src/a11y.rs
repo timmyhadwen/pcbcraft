@@ -161,15 +161,6 @@ pub(crate) mod audit {
             .collect()
     }
 
-    /// Roles of interactive nodes with an empty name.
-    pub(crate) fn unnamed(output: &egui::FullOutput) -> Vec<Role> {
-        nodes(output)
-            .into_iter()
-            .filter(|(_, _, name)| name.is_empty())
-            .map(|(_, role, _)| role)
-            .collect()
-    }
-
     /// The name of whatever holds keyboard focus after this frame.
     pub(crate) fn focused_name(ctx: &Context, output: &egui::FullOutput) -> Option<String> {
         let id = ctx.memory(|m| m.focused())?;
