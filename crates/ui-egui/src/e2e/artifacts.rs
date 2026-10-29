@@ -392,13 +392,21 @@ fn outputs_in(tag: &str) -> Result<std::collections::BTreeMap<String, Vec<u8>>, 
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     let path = folder.to_string_lossy().into_owned();
-    for tool in ["gerber.export", "drill_chart.write", "bom.write", "placement.write"] {
+    for tool in [
+        "gerber.export",
+        "drill_chart.write",
+        "bom.write",
+        "placement.write",
+    ] {
         if !app.tool_call(tool, json!({"path": path})) {
             return Err(format!("{tool} failed in {tag}: {}", app.message));
         }
     }
     let mut files = std::collections::BTreeMap::new();
-    for entry in std::fs::read_dir(&folder).map_err(|e| e.to_string())?.flatten() {
+    for entry in std::fs::read_dir(&folder)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
         let bytes = std::fs::read(entry.path()).map_err(|e| e.to_string())?;
         files.insert(entry.file_name().to_string_lossy().into_owned(), bytes);
     }
@@ -430,11 +438,21 @@ fn a_gerber_export_made_in_german_is_byte_identical_to_one_made_in_english() -> 
     let english = outputs_in("en")?;
     let german = outputs_in("de")?;
     let count = same_files(&english, &german, |n| {
-        n.ends_with(".gbr") || n.ends_with(".gtl") || n.ends_with(".gbl") || n.ends_with(".gko")
+        n.ends_with(".gbr")
+            || n.ends_with(".gtl")
+            || n.ends_with(".gbl")
+            || n.ends_with(".gko")
             || n.starts_with("board-")
     })?;
-    assert!(count > 0, "the sample board should write Gerber files: {:?}", english.keys());
-    assert_eq!(english.keys().collect::<Vec<_>>(), german.keys().collect::<Vec<_>>());
+    assert!(
+        count > 0,
+        "the sample board should write Gerber files: {:?}",
+        english.keys()
+    );
+    assert_eq!(
+        english.keys().collect::<Vec<_>>(),
+        german.keys().collect::<Vec<_>>()
+    );
     Ok(())
 }
 
@@ -443,7 +461,10 @@ fn drill_and_bom_exports_are_byte_identical_across_languages() -> Result<(), Str
     let english = outputs_in("en")?;
     let german = outputs_in("de")?;
     let count = same_files(&english, &german, |_| true)?;
-    assert!(english.contains_key("bom.csv"), "the bill of materials is written");
+    assert!(
+        english.contains_key("bom.csv"),
+        "the bill of materials is written"
+    );
     assert!(
         english.keys().any(|n| n.contains("drill")),
         "a drill file is written: {:?}",
@@ -456,12 +477,21 @@ fn drill_and_bom_exports_are_byte_identical_across_languages() -> Result<(), Str
 #[test]
 fn io_and_mcp_never_use_the_localized_formatters() -> Result<(), String> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let banned = ["fmt_ui", "fmt_count_ui", "fmt_with_unit", "fmt_date_ui", "pcbcraft_text"];
+    let banned = [
+        "fmt_ui",
+        "fmt_count_ui",
+        "fmt_with_unit",
+        "fmt_date_ui",
+        "pcbcraft_text",
+    ];
     let mut hits = Vec::new();
     let mut pending = vec![root.join("io/src"), root.join("mcp/src")];
     let mut seen = 0;
     while let Some(dir) = pending.pop() {
-        for entry in std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?.flatten() {
+        for entry in std::fs::read_dir(&dir)
+            .map_err(|e| format!("{}: {e}", dir.display()))?
+            .flatten()
+        {
             let path = entry.path();
             if path.is_dir() {
                 pending.push(path);
@@ -477,6 +507,9 @@ fn io_and_mcp_never_use_the_localized_formatters() -> Result<(), String> {
         }
     }
     assert!(seen > 0, "the scan found no source files");
-    assert!(hits.is_empty(), "machine output must not localize: {hits:?}");
+    assert!(
+        hits.is_empty(),
+        "machine output must not localize: {hits:?}"
+    );
     Ok(())
 }
