@@ -39,7 +39,7 @@ fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
         mind > 0,
         "the practice board should leave something to mind"
     );
-    let mind_label = format!("{mind} to mind");
+    let mind_label = app.catalog.plural("board.footer.warnings", mind as u64);
     assert!(
         paints_text(&ctx, &mut app, &mind_label)?,
         "the status strip should count the warnings ({mind_label}): {}",
@@ -114,6 +114,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
         "the mark is resized and moved to the bottom: {}",
         app.message
     );
+    assert!(scrolled_to(&ctx, &mut app, "\u{d7}")?, "the remove button is listed");
     authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(

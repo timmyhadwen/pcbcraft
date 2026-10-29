@@ -83,29 +83,24 @@ fn finding_counts_split_by_loudness() {
 
 #[test]
 fn a_newcomer_toggles_the_library_dock_from_the_left_rail() -> Result<(), String> {
+    // The rail is gone: the left aside has a Layers tab and a Library tab.
     let mut app = fresh();
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let at = centre_of(&out, "Lib", 44.0).ok_or("the rail should offer the library toggle")?;
-    assert!(
-        app.preferences.library_dock_open,
-        "the library dock starts open"
-    );
-    click(&ctx, &mut app, at);
-    assert!(
-        !app.preferences.library_dock_open,
-        "the rail toggle hides the dock"
-    );
-    click(&ctx, &mut app, at);
-    assert!(
-        app.preferences.library_dock_open,
-        "the rail toggle shows it again"
-    );
+    let library = centre_of(&out, "Library", 300.0).ok_or("the left aside should offer Library")?;
+    let layers = centre_of(&out, "Layers", 300.0).ok_or("the left aside should offer Layers")?;
+    assert_eq!(app.preferences.left_tab, 0, "the aside starts on the layers");
+    click(&ctx, &mut app, library);
+    assert_eq!(app.preferences.left_tab, 1, "the Library tab shows the parts");
+    click(&ctx, &mut app, layers);
+    assert_eq!(app.preferences.left_tab, 0, "the Layers tab brings the tree back");
     Ok(())
 }
 
 #[test]
 fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), String> {
+    // The stacked badges became the error and warning counts in the status
+    // strip; notes (the third badge) no longer have a count there.
     let mut app = fresh();
     app.checks = json!({
         "erc": [{"severity":"error"},{"severity":"error"},{"severity":"warning"}],
@@ -113,11 +108,18 @@ fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), S
     });
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let errors = centre_of(&out, "2", 44.0).ok_or("an errors badge reads 2")?;
-    centre_of(&out, "1", 44.0).ok_or("a warnings badge reads 1")?;
-    centre_of(&out, "4", 44.0).ok_or("a notes badge reads 4")?;
+    let find = |label: &str| {
+        out.shapes.iter().find_map(|shape| match &shape.shape {
+            egui::Shape::Text(t) if t.galley.text() == label && t.pos.y > 900.0 => {
+                Some(t.pos + t.galley.size() / 2.0)
+            }
+            _ => None,
+        })
+    };
+    let errors = find("2 errors").ok_or("the status strip reads 2 errors")?;
+    find("1 warning").ok_or("the status strip reads 1 warning")?;
     click(&ctx, &mut app, errors);
-    assert_eq!(app.tab, Tab::Checks, "a badge opens the Checks tab");
+    assert_eq!(app.tab, Tab::Checks, "the error count opens the Checks page");
     Ok(())
 }
 
@@ -232,7 +234,8 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
     app.refresh();
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let (rail, dock) = (44.0, 44.0 + 260.0);
+    // No rail any more: the left aside runs from the window edge, 320 wide.
+    let (rail, dock) = (0.0, 320.0);
     // The aside may grow past its 280 px minimum, so find its edge from
     // the panel's own heading, which sits one 16 px margin inside it.
     let aside = texts(&out)
@@ -241,7 +244,8 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
         .map(|(_, l, _, _)| l - 16.0)
         .ok_or("the right aside should show its Details heading")?;
     assert!(
-        aside <= SCREEN.x - 280.0 && aside > SCREEN.x - 420.0,
+        // Two points of slack: the heading sits at a fractional offset.
+        aside <= SCREEN.x - 280.0 + 2.0 && aside > SCREEN.x - 420.0,
         "the right aside is at least 280 px wide: starts at {aside}"
     );
     for (words, left, right, top) in texts(&out) {
