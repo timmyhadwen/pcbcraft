@@ -5698,8 +5698,11 @@ fn seed_stackup(p: &mut Project) {
 /// name (a row just added) is filled in.
 fn renumber_inner(records: &mut [LayerRecord]) {
     let last = records.iter().filter(|r| r.kind == "copper").count();
-    let mut index = 0;
-    for r in records.iter_mut().filter(|r| r.kind == "copper") {
+    for (index, r) in records
+        .iter_mut()
+        .filter(|r| r.kind == "copper")
+        .enumerate()
+    {
         let auto = r.name.is_empty()
             || r.name
                 .strip_prefix("In")
@@ -5708,7 +5711,6 @@ fn renumber_inner(records: &mut [LayerRecord]) {
         if auto && index > 0 && index + 1 < last {
             r.name = format!("In{index}.Cu");
         }
-        index += 1;
     }
 }
 fn copper_count_in_records(records: &[LayerRecord]) -> u8 {

@@ -151,7 +151,10 @@ impl App {
                 .user_layers
                 .iter()
                 .find(|l| l.id == id)
-                .map_or_else(|| t!("board.draw_tool_options.no_layer_yet"), |l| l.name.clone()),
+                .map_or_else(
+                    || t!("board.draw_tool_options.no_layer_yet"),
+                    |l| l.name.clone(),
+                ),
         }
     }
 
@@ -193,8 +196,12 @@ impl App {
     /// - Keep a second copy of the target here; read and write `App::target`.
     pub(crate) fn layer_field(&mut self, ui: &mut Ui) {
         use crate::a11y::Named;
-        ui.label(egui::RichText::new(t!("target.field")).small().color(self.muted()))
-            .on_hover_text(t!("target.field.tip"));
+        ui.label(
+            egui::RichText::new(t!("target.field"))
+                .small()
+                .color(self.muted()),
+        )
+        .on_hover_text(t!("target.field.tip"));
         let current = self.current_target();
         let mut picked = None;
         egui::ComboBox::from_id_salt("draw-target")

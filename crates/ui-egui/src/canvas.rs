@@ -1824,7 +1824,9 @@ impl App {
                 "board.cutout.add",
                 json!({"center":snap(pos),"radius":self.cutout_radius}),
             ),
-            Tool::DrawLayer if !matches!(self.current_target(), crate::draw_target::Target::User(_)) => {
+            Tool::DrawLayer
+                if !matches!(self.current_target(), crate::draw_target::Target::User(_)) =>
+            {
                 self.draw_click(pos, zoom);
             }
             Tool::DrawLayer => {

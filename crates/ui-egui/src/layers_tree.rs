@@ -140,6 +140,12 @@ pub(crate) enum Action {
     StackRename { name: String, new_name: String },
     /// Remove an inner copper layer.
     StackRemove(String),
+    /// Centre the drawing on a part.
+    ZoomTo(Id),
+    /// Move a part to the other board side.
+    FlipSide(Id),
+    /// Put a net in a net class, or in none.
+    NetClass { net: Id, class: Option<Id> },
     /// Rename a net.
     NetRename { net: Id, new_name: String },
     /// Move an inner copper layer up or down.
@@ -279,7 +285,6 @@ fn copper_key(layer: Layer) -> &'static str {
         "copper:back"
     }
 }
-
 
 fn segment(path: &str, seg: &str) -> String {
     if path.is_empty() {
@@ -611,7 +616,18 @@ fn top_level(env: &Env) -> Vec<Row> {
     out
 }
 
-fn footprint_row(project: &Project, path: &str, f: &pcbcraft_doc::Footprint, side: &str) -> Row {
+/// True when the part is soldered on the top (`front`) or bottom side.
+fn on_side(f: &pcbcraft_doc::Footprint, front: bool) -> bool {
+    f.side.is_none_or(|l| l == Layer::Front) == front
+}
+
+fn footprint_row(
+    project: &Project,
+    path: &str,
+    f: &pcbcraft_doc::Footprint,
+    (top, bottom): (&str, &str),
+) -> Row {
+    let side = if on_side(f, true) { top } else { bottom };
     let mut r = row(
         path,
         &format!("fp:{}", f.id),
@@ -718,11 +734,12 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             let inner = side.starts_with("inner:");
             let tracks = board.tracks.iter().filter(|t| t.layer == s).count();
             let zones = board.zones.iter().filter(|z| z.layer == s).count();
-            let pads: usize = if front {
-                board.footprints.iter().map(|f| f.pads.len()).sum()
-            } else {
-                0
-            };
+            let pads: usize = board
+                .footprints
+                .iter()
+                .filter(|f| on_side(f, front))
+                .map(|f| f.pads.len())
+                .sum();
             let (name, ck) = if inner {
                 ("", format!("copper:inner{}", s.index()))
             } else if front {
@@ -766,11 +783,15 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 c.canvas.mask,
                 Visibility::None,
                 false,
-                if front { pads } else { 0 },
+                pads,
                 false,
             ));
             let texts = board.texts.iter().filter(|x| x.layer == s).count();
-            let parts = if front { board.footprints.len() } else { 0 };
+            let parts = board
+                .footprints
+                .iter()
+                .filter(|f| on_side(f, front))
+                .count();
             let gfx = silk_graphics(env, front).count();
             out.push(sub_row(
                 key,
@@ -791,7 +812,7 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 c.muted,
                 Visibility::None,
                 false,
-                if front { pads } else { 0 },
+                pads,
                 false,
             ));
             out.push(sub_row(
@@ -853,11 +874,11 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
         }
         [side, "silk"] => {
             let s = path_layer(env, side);
-            let parts = if s == Layer::Front {
-                board.footprints.len()
-            } else {
-                0
-            };
+            let parts = board
+                .footprints
+                .iter()
+                .filter(|f| on_side(f, s == Layer::Front))
+                .count();
             out.push(counted(
                 row(key, "refs", RowKind::Leaf, t!("tree.silk.reference_text")),
                 parts,
@@ -879,17 +900,21 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 out.push(r);
             }
             for g in silk_graphics(env, s == Layer::Front) {
-                let mut r = row(key, &format!("gfx:{}", g.id), RowKind::Shape, g.shape.clone());
+                let mut r = row(
+                    key,
+                    &format!("gfx:{}", g.id),
+                    RowKind::Shape,
+                    g.shape.clone(),
+                );
                 r.select = Some(g.id);
                 out.push(r);
             }
         }
         [side, "components"] => {
-            if path_layer(env, side) == Layer::Front {
-                let top = t!("tree.side.top");
-                for f in &board.footprints {
-                    out.push(footprint_row(project, key, f, &top));
-                }
+            let front = path_layer(env, side) == Layer::Front;
+            let labels = (t!("tree.side.top"), t!("tree.side.bottom"));
+            for f in board.footprints.iter().filter(|f| on_side(f, front)) {
+                out.push(footprint_row(project, key, f, (&labels.0, &labels.1)));
             }
         }
         ["drills"] => {
@@ -998,9 +1023,9 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             }
         }
         ["components"] => {
-            let top = t!("tree.side.top");
+            let labels = (t!("tree.side.top"), t!("tree.side.bottom"));
             for f in &board.footprints {
-                out.push(footprint_row(project, key, f, &top));
+                out.push(footprint_row(project, key, f, (&labels.0, &labels.1)));
             }
         }
         [.., fp] if fp.starts_with("fp:") => {
@@ -2601,6 +2626,65 @@ fn row_menu(
             actions.push(Action::Delete(id));
         }
     }
+    if r.kind == RowKind::Part
+        && let Some(id) = r.select
+        && env.project.footprint(id).is_some()
+    {
+        if item(ui, t!("tree.menu.zoom_to"), t!("tree.menu.zoom_to.tip")) {
+            actions.push(Action::ZoomTo(id));
+        }
+        if item(ui, t!("tree.menu.flip"), t!("tree.menu.flip.tip")) {
+            actions.push(Action::FlipSide(id));
+        }
+    }
+    if r.kind == RowKind::Net
+        && let Some(net) = r.net
+    {
+        if item(ui, t!("tree.menu.rename"), t!("tree.menu.rename.tip")) {
+            view.rename = Some((RenameFor::Net(net), env.project.net_name(net).to_owned()));
+        }
+        let current = env.project.net_class_id(net);
+        ui.menu_button(t!("tree.menu.net_class"), |ui| {
+            for class in &env.project.net_classes {
+                if ui
+                    .selectable_label(current == Some(class.id), &class.name)
+                    .on_hover_text(t!("tree.menu.net_class.tip"))
+                    .clicked()
+                {
+                    actions.push(Action::NetClass {
+                        net,
+                        class: Some(class.id),
+                    });
+                    ui.close();
+                }
+            }
+            if ui
+                .selectable_label(current.is_none(), t!("tree.menu.net_class.none"))
+                .on_hover_text(t!("tree.menu.net_class.tip"))
+                .clicked()
+            {
+                actions.push(Action::NetClass { net, class: None });
+                ui.close();
+            }
+        })
+        .response
+        .on_hover_text(t!("tree.menu.net_class.tip"));
+    }
+    if r.stack.is_none()
+        && item(
+            ui,
+            t!("tree.menu.properties"),
+            t!("tree.menu.properties.tip"),
+        )
+    {
+        match r.select {
+            Some(id) => actions.push(Action::Select(id)),
+            None => {
+                view.selected_key = Some(r.key.clone());
+                actions.push(Action::SelectKey(r.key.clone()));
+            }
+        }
+    }
     if let Some(net) = r.net
         && r.kind == RowKind::Net
         && item(ui, t!("tree.menu.highlight"), t!("tree.menu.highlight.tip"))
@@ -2635,10 +2719,7 @@ fn stack_menu(ui: &mut Ui, env: &Env, view: &mut TreeView, r: &Row, actions: &mu
     let copper = !r.key.starts_with("diel:");
     let inner = r.key.starts_with("inner:");
     let bottom_row = r.key.starts_with("side:bottom");
-    if copper
-        && !bottom_row
-        && item(ui, t!("tree.menu.add_pair"), t!("tree.menu.add_pair.tip"))
-    {
+    if copper && !bottom_row && item(ui, t!("tree.menu.add_pair"), t!("tree.menu.add_pair.tip")) {
         actions.push(Action::StackAddPair(name.clone()));
     }
     if item(ui, t!("tree.menu.rename"), t!("tree.menu.rename.tip")) {
@@ -2674,11 +2755,19 @@ fn stack_menu(ui: &mut Ui, env: &Env, view: &mut TreeView, r: &Row, actions: &mu
                 up: false,
             });
         }
-        if item(ui, t!("tree.menu.remove_layer"), t!("tree.menu.remove_layer.tip")) {
+        if item(
+            ui,
+            t!("tree.menu.remove_layer"),
+            t!("tree.menu.remove_layer.tip"),
+        ) {
             actions.push(Action::StackRemove(name.clone()));
         }
     }
-    if item(ui, t!("tree.menu.properties"), t!("tree.menu.properties.tip")) {
+    if item(
+        ui,
+        t!("tree.menu.properties"),
+        t!("tree.menu.properties.tip"),
+    ) {
         view.selected_key = Some(r.key.clone());
         actions.push(Action::SelectKey(r.key.clone()));
     }
@@ -2894,7 +2983,10 @@ impl crate::App {
                     );
                 }
                 Action::StackRemove(name) => {
-                    self.run("board.stackup_remove_layer", serde_json::json!({"name": name}));
+                    self.run(
+                        "board.stackup_remove_layer",
+                        serde_json::json!({"name": name}),
+                    );
                     self.tree.selected_key = None;
                 }
                 Action::StackMove { name, up } => {
@@ -2903,8 +2995,27 @@ impl crate::App {
                         serde_json::json!({"name": name, "direction": if up { "up" } else { "down" }}),
                     );
                 }
+                Action::ZoomTo(id) => {
+                    if let Some(f) = self.project.footprint(id) {
+                        self.pcb.center = f.position;
+                        self.pcb.zoom = self.pcb.zoom.max(24.0);
+                    }
+                    self.select(Some(id));
+                }
+                Action::FlipSide(id) => {
+                    self.run("footprint.flip", serde_json::json!({"id": id}));
+                }
+                Action::NetClass { net, class } => {
+                    self.run(
+                        "netclass.assign",
+                        serde_json::json!({"net": net, "class": class}),
+                    );
+                }
                 Action::NetRename { net, new_name } => {
-                    self.run("net.rename", serde_json::json!({"id": net, "name": new_name}));
+                    self.run(
+                        "net.rename",
+                        serde_json::json!({"id": net, "name": new_name}),
+                    );
                 }
                 Action::HighlightNet(net) => self.highlight_net = net,
                 Action::NewArtLayer => {
@@ -2949,7 +3060,9 @@ impl crate::App {
             self.datums_section(ui);
             self.fiducials_section(ui);
             self.via_spans_section(ui);
-        } else if last.starts_with("side:") || last.starts_with("inner:") || last.starts_with("diel:")
+        } else if last.starts_with("side:")
+            || last.starts_with("inner:")
+            || last.starts_with("diel:")
         {
             self.stack_properties(ui, last);
         } else if last.starts_with("net:") || key == "nets" {
@@ -3032,9 +3145,7 @@ impl crate::App {
             .add(crate::targets::text_field(&mut material).desired_width(f32::INFINITY))
             .on_hover_text(t!("tree.stack.material.tip"))
             .named(&t!("tree.stack.material"));
-        let commit = t_resp.drag_stopped()
-            || t_resp.lost_focus()
-            || m_resp.lost_focus();
+        let commit = t_resp.drag_stopped() || t_resp.lost_focus() || m_resp.lost_focus();
         if commit {
             ui.data_mut(|d| {
                 d.remove::<f64>(key.with("t"));
