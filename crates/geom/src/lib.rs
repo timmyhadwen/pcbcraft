@@ -1,5 +1,8 @@
 //! Small, bounded planar geometry. Units are millimetres.
+mod overlay;
 use serde::{Deserialize, Serialize};
+
+pub use overlay::{OffsetJoin, Ring, polygon_offset, polygon_union};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

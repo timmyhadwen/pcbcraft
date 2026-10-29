@@ -7,8 +7,15 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 mod board_mesh;
+mod cam;
 mod gerber;
+mod layers;
 mod library_render;
+pub use cam::{
+    CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions, MirrorAxis, Side,
+    Spindle, Tool, isolation_gcode, isolation_paths,
+};
+pub use layers::{LayerShape, layer_shapes};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,

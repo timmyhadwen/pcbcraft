@@ -11,3 +11,5 @@ workspace = true
 [dependencies]
 serde.workspace = true
 thiserror.workspace = true
+i_overlay = "9.1.0"
+i_float = "5.0"
