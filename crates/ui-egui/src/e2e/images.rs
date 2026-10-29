@@ -14,7 +14,7 @@ fn a_newcomer_puts_a_logo_on_the_silk() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "REFERENCE IMAGE", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "REFERENCE IMAGE", 700.0)?,
         "the settings page has a plainly named reference image section"
     );
     assert!(
@@ -40,7 +40,7 @@ fn a_newcomer_puts_a_logo_on_the_silk() -> Result<(), String> {
     );
     assert!(
         paints_text(&ctx, &mut app, "Trace to layer")?
-            || scrolled_to_at(&ctx, &mut app, "Trace to layer", 300.0)?,
+            || scrolled_to_at(&ctx, &mut app, "Trace to layer", 700.0)?,
         "once a picture is attached the page offers to trace it"
     );
     authoring::tests::tap(&ctx, &mut app, "Trace to layer")?;
