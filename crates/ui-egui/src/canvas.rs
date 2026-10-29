@@ -1,10 +1,19 @@
 use super::*;
 use egui::{Pos2, Sense};
-use pcbcraft_doc::{Component, Layer, PinRef};
+use pcbcraft_doc::{Component, Id, Layer, PinRef, Project};
 use pcbcraft_geom::point_segment;
+use std::cell::Cell;
 mod board_art;
 pub(crate) mod gestures;
 mod underlay;
+
+thread_local! {
+    static SCHEMATIC_PAGE: Cell<Option<Id>> = const { Cell::new(None) };
+}
+
+fn on_page(p: &Project, page: Id, object: Id) -> bool {
+    p.on_schematic_page(page, object)
+}
 
 pub(super) enum CanvasMenuKind {
     Empty,
@@ -266,6 +275,17 @@ impl App {
     fn copper(&self, net: Option<Id>, base: Color32) -> Color32 {
         spotlight(self.highlight_net, net, base, self.accent())
     }
+    pub(crate) fn schematic_page(&self) -> Id {
+        SCHEMATIC_PAGE.with(|page| page.get()).unwrap_or(0)
+    }
+    #[cfg(test)]
+    pub(crate) fn set_schematic_page(&self, page: Id) {
+        SCHEMATIC_PAGE.with(|slot| slot.set(Some(page)));
+    }
+    #[cfg(test)]
+    pub(crate) fn clear_schematic_page_override() {
+        SCHEMATIC_PAGE.with(|slot| slot.set(None));
+    }
 }
 
 impl App {
@@ -277,6 +297,7 @@ impl App {
             && let Some(view) = c
                 .schematic_views()
                 .into_iter()
+                .filter(|view| view.sheet == self.schematic_page())
                 .filter(|view| {
                     let local = Point::new(pos.x - view.position.x, pos.y - view.position.y)
                         .rotate(view.rotation);
@@ -987,10 +1008,12 @@ impl App {
 
     pub(super) fn pick_object(&self, pos: Point, zoom: f32) -> Option<Id> {
         if self.tab == Tab::Schematic {
+            let page = self.schematic_page();
             self.project
                 .components
                 .iter()
                 .flat_map(|c| c.schematic_views())
+                .filter(|c| c.sheet == page)
                 .filter(|c| {
                     let local =
                         Point::new(pos.x - c.position.x, pos.y - c.position.y).rotate(c.rotation);
@@ -1079,7 +1102,8 @@ impl App {
         }
     }
     fn pick_pin(&self, pos: Point, zoom: f32) -> Option<PinRef> {
-        for c in &self.project.components {
+        let page = self.schematic_page();
+        for c in self.project.components.iter().filter(|c| c.sheet == page) {
             for pin in &c.pins {
                 if c.pin_position(&pin.number)
                     .is_some_and(|p| p.distance(pos) * (zoom as f64) < 12.0)
@@ -1837,9 +1861,15 @@ impl App {
         ));
     }
     fn paint_schematic(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
+        let page = self.schematic_page();
         let shown = |name: &str| self.layer_shown(name);
         underlay::paint(painter, rect, camera, p, "schematic");
-        for w in p.wires.iter().filter(|_| shown("Wires")) {
+        for w in p
+            .wires
+            .iter()
+            .filter(|w| on_page(p, page, w.id))
+            .filter(|_| shown("Wires"))
+        {
             if let Some(path) = p.wire_path(w) {
                 painter.add(egui::Shape::line(
                     path.iter()
@@ -1869,7 +1899,12 @@ impl App {
                 );
             }
         }
-        for w in p.drawn_wires.iter().filter(|_| shown("Wires")) {
+        for w in p
+            .drawn_wires
+            .iter()
+            .filter(|w| on_page(p, page, w.id))
+            .filter(|_| shown("Wires"))
+        {
             painter.add(egui::Shape::line(
                 w.points
                     .iter()
@@ -1881,7 +1916,8 @@ impl App {
         for g in p
             .graphics
             .iter()
-            .filter(|g| g.layer == "schematic" && shown("Graphics"))
+            .filter(|g| g.layer == "schematic" && on_page(p, page, g.id))
+            .filter(|_| shown("Graphics"))
         {
             if let Some(outline) = g.outline() {
                 painter.add(egui::Shape::line(
@@ -1901,7 +1937,12 @@ impl App {
                 );
             }
         }
-        for l in p.labels.iter().filter(|_| shown("Net labels")) {
+        for l in p
+            .labels
+            .iter()
+            .filter(|l| on_page(p, page, l.id))
+            .filter(|_| shown("Net labels"))
+        {
             let at = camera.screen(l.position, rect);
             if l.kind == "junction" {
                 painter.circle_filled(at, 3.0, self.accent());
@@ -1921,7 +1962,7 @@ impl App {
                 );
             }
         }
-        for port in &p.ports {
+        for port in p.ports.iter().filter(|port| port.sheet == page) {
             let at = camera.screen(port.position, rect);
             painter.text(
                 at,
@@ -1931,7 +1972,7 @@ impl App {
                 self.accent(),
             );
         }
-        for f in &p.no_connects {
+        for f in p.no_connects.iter().filter(|f| on_page(p, page, f.id)) {
             if let Some(anchor) = p.pin_position(&f.pin) {
                 let at = camera.screen(anchor, rect);
                 painter.line_segment(
@@ -1948,6 +1989,7 @@ impl App {
             .components
             .iter()
             .flat_map(|c| c.schematic_views())
+            .filter(|c| c.sheet == page)
             .filter(|_| shown("Symbols"))
         {
             self.symbol(
@@ -1960,7 +2002,7 @@ impl App {
                 false,
             );
         }
-        if p.components.is_empty() {
+        if p.components.iter().all(|c| c.sheet != page) {
             painter.text(
                 rect.center() - Vec2::new(0.0, 25.0),
                 Align2::CENTER_CENTER,
@@ -2653,6 +2695,7 @@ mod library_render_tests {
             position: Point::new(5.0, 5.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "7".into(),
                 offset: Point::new(1.0, 0.0),
@@ -2786,6 +2829,101 @@ mod tests {
             copper.gamma_multiply(0.25),
             "copper without a net fades while a net is lit"
         );
+    }
+
+    #[test]
+    fn a_newcomer_sees_one_schematic_page_at_a_time() -> Result<(), String> {
+        let mut session = pcbcraft_engine::Session::default();
+        let page_one = session
+            .execute("schematic.new_sheet", json!({"name":"Power"}), None)
+            .map_err(|e| e.to_string())?["result"]["id"]
+            .as_u64()
+            .ok_or("missing page id")?;
+        session
+            .execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R_ROOT","position":{"x":10.0,"y":10.0}}),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+        let _root_id = session
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R_ROOT")
+            .ok_or("root part missing")?
+            .id;
+        session
+            .execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R_PAGE","position":{"x":40.0,"y":10.0}}),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+        let page_id = session
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R_PAGE")
+            .ok_or("page part missing")?
+            .id;
+        session
+            .execute(
+                "schematic.move_component",
+                json!({"id":page_id,"sheet":page_one}),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+        let shared = pcbcraft_mcp::shared(session);
+        let app = App::create(shared, Preferences::default(), None, None);
+        let labels = |app: &App| -> Vec<String> {
+            let ctx = egui::Context::default();
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        Vec2::new(1440.0, 940.0),
+                    )),
+                    ..Default::default()
+                },
+                |root_ui| {
+                    egui::CentralPanel::default().show(root_ui, |ui| {
+                        let rect = ui.max_rect();
+                        app.paint_schematic(ui.painter(), rect, app.schematic, &app.project);
+                    });
+                },
+            );
+            output.textures_delta.clear();
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let root_labels = labels(&app);
+        assert!(
+            root_labels.iter().any(|t| t.contains("R_ROOT")),
+            "page zero still shows its own parts: {root_labels:?}"
+        );
+        assert!(
+            !root_labels.iter().any(|t| t.contains("R_PAGE")),
+            "page zero hides the other page: {root_labels:?}"
+        );
+        app.set_schematic_page(page_one);
+        let other_labels = labels(&app);
+        assert!(
+            other_labels.iter().any(|t| t.contains("R_PAGE")),
+            "the second page shows its parts: {other_labels:?}"
+        );
+        assert!(
+            !other_labels.iter().any(|t| t.contains("R_ROOT")),
+            "the second page hides page zero: {other_labels:?}"
+        );
+        App::clear_schematic_page_override();
+        Ok(())
     }
 }
 

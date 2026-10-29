@@ -167,7 +167,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                                 .collect()
                         }),
                     outline_error: pad.outline_error(),
-                    layer: Layer::Front,
+                    layer: f.pad_layer(pad),
                     pad: true,
                     clearance: local,
                     bridge: if plated {
@@ -1911,6 +1911,7 @@ mod tests {
                 position: Point::new(x, 10.0),
                 rotation: 0.0,
                 locked: None,
+                side: None,
                 pads: vec![Pad {
                     number: "1".into(),
                     offset: Point::default(),
@@ -2436,6 +2437,7 @@ mod tests {
             position: Point::new(20.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),
@@ -2552,6 +2554,7 @@ mod tests {
             position: Point::new(20.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads,
         });
         p.validate()?;
@@ -2948,6 +2951,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![
                 Pad {
                     number: "1".into(),
@@ -3143,6 +3147,7 @@ mod tests {
             position: Point::new(20.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),
@@ -3670,6 +3675,7 @@ mod pour_tests {
             position: at,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),
