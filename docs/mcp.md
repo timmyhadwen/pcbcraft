@@ -172,3 +172,32 @@ MCP hints, so a client can decide when to ask the user first.
 `openWorldHint` is false for every tool. The title is the tool name with dots and
 underscores turned into spaces. The table lives in `annotations_for` in
 `crates/mcp/src/lib.rs`.
+
+## Streamable HTTP
+
+`pcbcraft-cli mcp --http 127.0.0.1:PORT` serves MCP over the Streamable HTTP transport
+(revision 2025-11-25) on one endpoint, `http://127.0.0.1:PORT/mcp`. It prints the endpoint
+and a per-run random bearer token to stderr; stdout is never used. With
+`--token-file PATH` the token goes to that file (mode 0600) and is not printed.
+
+```sh
+pcbcraft-cli mcp --http 127.0.0.1:7992 --token-file ~/.pcbcraft-mcp-token
+curl -s http://127.0.0.1:7992/mcp -H "Authorization: Bearer $(cat ~/.pcbcraft-mcp-token)" \
+  -H "Accept: application/json, text/event-stream" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+What the listener does and does not do:
+
+- It binds only a literal loopback address (`127.0.0.1` or `::1`). There is no flag to
+  bind elsewhere, and names such as `localhost` are refused.
+- Every request needs `Authorization: Bearer <token>` (401 otherwise). A browser `Origin`
+  header that is not `http://127.0.0.1`, `http://localhost` or `http://[::1]` (any port)
+  gets 403; a request with no `Origin` is allowed.
+- POST only. GET and DELETE get 405 (there is no event stream), other paths 404, bodies over
+  1 MiB 413, a wrong `MCP-Protocol-Version` 400, a missing JSON `Accept` 406.
+- A request gets 200 with one JSON object. A notification or a client response gets 202 with
+  no body. A JSON array (batching) gets 400.
+- It is stateless: no `MCP-Session-Id` is issued, so the initialize gate of the stdio server
+  does not apply. Requests run one at a time against one design session.
+- It reuses `handle_rpc`, the same dispatcher as stdio and the `--control` bridge.

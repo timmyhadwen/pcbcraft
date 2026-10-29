@@ -1,5 +1,7 @@
 //! MCP stdio server plus a loopback bridge into the desktop's actual engine session.
 mod document_hub;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod http;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
 use pcbcraft_engine::{Command, Session};
@@ -12,6 +14,8 @@ use std::sync::{Arc, Mutex};
 
 pub type SharedSession = Arc<Mutex<Session>>;
 pub const MAX_MESSAGE: u64 = 1024 * 1024;
+/// Protocol versions `initialize` accepts, newest first; the HTTP transport checks its header against it.
+pub(crate) const SUPPORTED_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2024-11-05"];
 pub fn shared(session: Session) -> SharedSession {
     Arc::new(Mutex::new(session))
 }
@@ -758,7 +762,7 @@ pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> O
                 .get("protocolVersion")
                 .and_then(Value::as_str)
                 .unwrap_or("2025-11-25");
-            let version = if ["2025-11-25", "2025-06-18", "2024-11-05"].contains(&requested) {
+            let version = if SUPPORTED_VERSIONS.contains(&requested) {
                 requested
             } else {
                 "2025-11-25"
@@ -927,6 +931,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod http_tests;
 #[cfg(test)]
 mod protocol_tests;
 #[cfg(test)]
