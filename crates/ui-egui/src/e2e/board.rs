@@ -559,10 +559,7 @@ fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
     crate::e2e::support::tap_left(&ctx, &mut app, "New layer")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        matches!(
-            app.current_target(),
-            crate::draw_target::Target::User(_)
-        ),
+        matches!(app.current_target(), crate::draw_target::Target::User(_)),
         "New layer in the tree makes that layer the draw target: {}",
         app.message
     );
