@@ -161,9 +161,13 @@ fn file_function(name: &str, text: &str, copper: usize) -> (String, String) {
     let mut polarity: Option<String> = None;
     let mut comment = "";
     for line in text.lines() {
-        if let Some(value) = line.strip_prefix("%TF.FileFunction,") {
+        // Gerber carries attributes as `%TF.Name,value*%`; a drill file carries
+        // the same names as `; #@! TF.Name,value` comments.
+        let line = line.strip_prefix("; #@! ").unwrap_or(line);
+        let line = line.strip_prefix('%').unwrap_or(line);
+        if let Some(value) = line.strip_prefix("TF.FileFunction,") {
             function = Some(attribute_value(value));
-        } else if let Some(value) = line.strip_prefix("%TF.FilePolarity,") {
+        } else if let Some(value) = line.strip_prefix("TF.FilePolarity,") {
             polarity = Some(attribute_value(value));
         } else if comment.is_empty()
             && let Some(value) = line.strip_prefix("G04 ")
@@ -276,6 +280,14 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
+        });
+        // A plated via puts a plated drill file in the package.
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 4,
+            net: 8,
+            position: Point::new(40.0, 10.0),
+            diameter: 0.6,
+            drill: 0.3,
         });
         project
     }
