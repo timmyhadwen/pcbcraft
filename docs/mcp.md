@@ -201,3 +201,19 @@ What the listener does and does not do:
 - It is stateless: no `MCP-Session-Id` is issued, so the initialize gate of the stdio server
   does not apply. Requests run one at a time against one design session.
 - It reuses `handle_rpc`, the same dispatcher as stdio and the `--control` bridge.
+
+## Resources
+
+The server advertises `resources` (no subscribe, no list-changed notice) and answers
+`resources/list`, `resources/templates/list` and `resources/read`. Reading never edits the
+design; it goes through the active design like the tools do.
+
+| URI | Type | Content |
+| --- | --- | --- |
+| `pcbcraft://design` | JSON | Same as `inspect_design` |
+| `pcbcraft://commands` | JSON | Same as `list_commands` |
+| `pcbcraft://checks` | JSON | Runs `checks` when read; there is no stored last result |
+| `pcbcraft://design/preview/{view}` | PNG blob | `schematic` or `pcb`, same renderer as `screenshot` |
+
+An unknown URI is error -32002 "Resource not found" with the URI in `data`. A preview view
+other than `schematic` or `pcb` is -32602.

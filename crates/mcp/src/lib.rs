@@ -2,6 +2,7 @@
 mod document_hub;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod http;
+mod resources;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
 use pcbcraft_engine::{Command, Session};
@@ -767,7 +768,7 @@ pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> O
             } else {
                 "2025-11-25"
             };
-            json!({"protocolVersion":version,"capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"pcbcraft","version":env!("CARGO_PKG_VERSION")},"instructions":"100% Rust EDA engine. Use inspect_design and list_commands before edits; batches are atomic. Check capability limits and checks.scope."})
+            json!({"protocolVersion":version,"capabilities":{"tools":{"listChanged":false},"resources":{"subscribe":false,"listChanged":false}},"serverInfo":{"name":"pcbcraft","version":env!("CARGO_PKG_VERSION")},"instructions":"100% Rust EDA engine. Use inspect_design and list_commands before edits; batches are atomic. Check capability limits and checks.scope."})
         }
         "ping" => json!({}),
         "tools/list" => tool_list(),
@@ -801,6 +802,23 @@ pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> O
                 }
             } else {
                 hub.call_tool(name, &args)
+            }
+        }
+        "resources/list" => resources::list(),
+        "resources/templates/list" => resources::templates(),
+        "resources/read" => {
+            let Some(uri) = params.get("uri").and_then(Value::as_str) else {
+                return Some(rpc_error(id, -32602, "missing resource uri"));
+            };
+            match resources::read(hub, uri) {
+                Ok(value) => value,
+                Err(e) => {
+                    let mut reply = rpc_error(id, e.code, &e.message);
+                    if let Some(data) = e.data {
+                        reply["error"]["data"] = data;
+                    }
+                    return Some(reply);
+                }
             }
         }
         _ => return Some(rpc_error(id, -32601, "method not found")),

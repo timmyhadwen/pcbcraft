@@ -210,7 +210,7 @@ fn a_message_over_one_mebibyte_is_refused_and_stdout_stays_json_only() -> Result
     Ok(())
 }
 
-// Changes when #643 (resources) and #644 (prompts) land: those stop being method-not-found.
+// #643 (resources) is in; #644 (prompts) changes this test again when it lands.
 #[test]
 fn capabilities_advertise_only_tools_and_resources_and_prompts_calls_are_method_not_found()
 -> Result<(), String> {
@@ -219,8 +219,11 @@ fn capabilities_advertise_only_tools_and_resources_and_prompts_calls_are_method_
     let capabilities = reply["result"]["capabilities"]
         .as_object()
         .ok_or("capabilities is an object")?;
-    assert_eq!(capabilities.keys().collect::<Vec<_>>(), ["tools"]);
-    for method in ["resources/list", "prompts/list", "logging/setLevel"] {
+    assert_eq!(
+        capabilities.keys().collect::<Vec<_>>(),
+        ["resources", "tools"]
+    );
+    for method in ["prompts/list", "logging/setLevel"] {
         let reply = call(&hub, json!({"jsonrpc":"2.0","id":2,"method":method}))?;
         assert_eq!(reply["error"]["code"], -32601, "{method}");
     }
