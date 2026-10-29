@@ -214,27 +214,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Layers")?;
-    let mut shown = false;
-    for _ in 0..14 {
-        if paints_text(&ctx, &mut app, "BOARD ANATOMY")? {
-            shown = true;
-            break;
-        }
-        frame(
-            &ctx,
-            &mut app,
-            vec![
-                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
-                egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Line,
-                    delta: egui::vec2(0.0, -4.0),
-                    phase: egui::TouchPhase::Move,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-    }
+    let shown = scrolled_to(&ctx, &mut app, "BOARD ANATOMY")?;
     assert!(
         shown,
         "the layers dock should list every piece of the board: {}",
@@ -299,7 +279,7 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 700.0)?,
         "the board panel should offer printed words: {}",
         app.message
     );
@@ -308,7 +288,7 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     app.label_y = 2.0;
     app.label_size = 1.2;
     app.label_front = false;
-    scrolled_to_at(&ctx, &mut app, "Add label", 300.0)?;
+    scrolled_to_at(&ctx, &mut app, "Add label", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Add label")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
@@ -390,7 +370,7 @@ fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
         );
     }
     assert!(
-        scrolled_to_at(&ctx, &mut app, "BOARD AREAS", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "BOARD AREAS", 700.0)?,
         "the rules page should offer stricter corners: {}",
         app.message
     );

@@ -342,7 +342,7 @@ fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
         );
     }
     assert!(
-        scrolled_to_at(&ctx, &mut app, "DIFFERENTIAL PAIRS", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "DIFFERENTIAL PAIRS", 700.0)?,
         "the rules page should offer team lines: {}",
         app.message
     );

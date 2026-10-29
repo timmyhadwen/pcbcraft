@@ -7105,7 +7105,7 @@ mod tests {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 300.0)?,
+            scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 700.0)?,
             "the board's edge lives in its own plain-language section"
         );
         app.svg_path = file.to_string_lossy().into_owned();
@@ -7322,7 +7322,7 @@ mod tests {
         }
         authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            scrolled_to_at(&ctx, &mut app, "MAKE FILES", 300.0)?,
+            scrolled_to_at(&ctx, &mut app, "MAKE FILES", 700.0)?,
             "the settings page should offer the factory files"
         );
         authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
