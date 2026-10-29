@@ -3,6 +3,7 @@ mod a11y;
 mod assistant;
 mod authoring;
 mod board3d;
+mod browser;
 mod canvas;
 mod contrast;
 mod datums;
@@ -966,6 +967,8 @@ pub struct App {
     canvas_rect: Rect,
     canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
+    /// True in the browser build, where disk actions are refused (see browser.rs).
+    browser: bool,
     value: String,
     x: f64,
     y: f64,
@@ -1447,7 +1450,12 @@ impl App {
             cursor: None,
             canvas_rect: Rect::NOTHING,
             canvas_menu: None,
-            message: "Ready · A add · W wire · X route · M move · R rotate · E properties".into(),
+            message: if cfg!(target_arch = "wasm32") {
+                browser::start_message()
+            } else {
+                "Ready · A add · W wire · X route · M move · R rotate · E properties".into()
+            },
+            browser: cfg!(target_arch = "wasm32"),
             value: String::new(),
             x: 0.0,
             y: 0.0,
@@ -1588,6 +1596,10 @@ impl App {
         }
     }
     fn tool_call(&mut self, name: &str, args: Value) -> bool {
+        if self.browser && browser::needs_desktop(name) {
+            self.message = browser::refusal();
+            return false;
+        }
         let result = pcbcraft_mcp::call_tool(&self.session, name, &args);
         let success = result.get("isError").and_then(Value::as_bool) != Some(true);
         self.message = if success {
