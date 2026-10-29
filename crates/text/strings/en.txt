@@ -1623,3 +1623,4 @@ modifier.hotkey.route = Route tool
 modifier.hotkey.via = Via tool
 modifier.hotkey.text = Text tool
 modifier.menu.tip = What the modifier keys do for the active tool.
+modifier.prefs.title.tip = Show or hide the tool keys and modifier settings.
