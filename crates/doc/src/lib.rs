@@ -2382,7 +2382,8 @@ impl Project {
             if g.text.len() > 1024 {
                 return Err("graphic text is too long".into());
             }
-            if (g.shape == "text") != g.text.is_empty() {
+            #[allow(clippy::nonminimal_bool)]
+            if (g.shape == "text") != !g.text.is_empty() {
                 return Err("only text graphics may carry text".into());
             }
             if g.shape == "line" && g.points[0] == g.points[1] {
