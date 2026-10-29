@@ -482,10 +482,7 @@ impl App {
             if self.preferences.grid && self.layer_shown("Grid") {
                 self.paint_layout_grid(&painter, rect, camera);
             }
-        } else if self.tab != Tab::Schematic
-            && self.preferences.grid
-            && self.layer_shown("Grid")
-        {
+        } else if self.tab != Tab::Schematic && self.preferences.grid && self.layer_shown("Grid") {
             let grid = if camera.zoom < 5.0 { 5.0 } else { 1.0 };
             let step = grid * camera.zoom;
             let zero = camera.screen(Point::default(), rect);
