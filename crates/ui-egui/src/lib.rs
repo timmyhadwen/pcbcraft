@@ -547,6 +547,33 @@ fn sample_value(schema: &Value) -> Value {
     }
 }
 
+/// The catalog key that stands for one engine refusal: `error.` plus the
+/// refusal's words in lowercase, joined by underscores and cut at 60 characters.
+fn refusal_key(engine_text: &str) -> String {
+    let words: Vec<String> = engine_text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    let joined = words.join("_");
+    let cut: String = joined.chars().take(60).collect();
+    format!("error.{cut}")
+}
+
+/// What the status strip shows for an engine refusal. The engine text is API
+/// text and stays English; a language that carries an `error.*` line for it
+/// shows that line instead, and every other refusal (or the same words with
+/// other spelling) falls back to the engine text unchanged.
+fn refusal_text(engine_text: &str) -> String {
+    let key = refusal_key(engine_text);
+    let known = pcbcraft_text::Catalog::english();
+    if known.defines(&key) && known.get(&key) == engine_text {
+        pcbcraft_text::lookup_known(&key).unwrap_or_else(|| engine_text.to_owned())
+    } else {
+        engine_text.to_owned()
+    }
+}
+
 /// Hover text for a control that runs an engine command: the command
 /// registry description is the single source of truth for what the control
 /// does, so the UI explanation and the command documentation never drift.
@@ -1457,22 +1484,22 @@ impl App {
         let result = self
             .session
             .lock()
-            .map_err(|_| "Session unavailable".to_string())
+            .map_err(|_| t!("dialogs.run.session_unavailable"))
             .and_then(|mut s| {
                 s.execute(command, params, Some(self.revision))
                     .map_err(|e| e.to_string())
             });
         match result {
             Ok(v) => {
-                self.message = format!("{command} · committed");
+                self.message = t!("dialogs.run.command_committed", command = command);
                 if let Some(skipped) = v
                     .pointer("/result/unassigned_components")
                     .and_then(Value::as_array)
                     && !skipped.is_empty()
                 {
-                    self.message = format!(
-                        "{} library symbols need a footprint assignment in Libraries",
-                        skipped.len()
+                    self.message = t!(
+                        "dialogs.run.len_library_symbols_need_a",
+                        len = skipped.len()
                     );
                 }
                 if let Some(id) = v.pointer("/result/id").and_then(Value::as_u64) {
@@ -1497,14 +1524,14 @@ impl App {
         let outcome = self
             .session
             .lock()
-            .map_err(|_| "Session unavailable".to_string())
+            .map_err(|_| t!("dialogs.run_and_keep.session_unavailable"))
             .and_then(|mut s| {
                 s.execute(command, params, Some(self.revision))
                     .map_err(|e| e.to_string())
             });
         match outcome {
             Ok(v) => {
-                self.message = format!("{command} · reported");
+                self.message = t!("dialogs.run_and_keep.command_reported", command = command);
                 v.pointer("/result").cloned().unwrap_or(Value::Null)
             }
             Err(e) => {
@@ -1517,13 +1544,12 @@ impl App {
         let result = pcbcraft_mcp::call_tool(&self.session, name, &args);
         let success = result.get("isError").and_then(Value::as_bool) != Some(true);
         self.message = if success {
-            format!("{name} · complete")
+            t!("dialogs.tool_call.name_complete", name = name)
         } else {
             result
                 .pointer("/content/0/text")
                 .and_then(Value::as_str)
-                .unwrap_or("operation failed")
-                .into()
+                .map_or_else(|| t!("dialogs.tool_call.operation_failed"), refusal_text)
         };
         self.refresh();
         if success && (name == "save" || name == "open") {
@@ -3176,15 +3202,15 @@ impl App {
                         ui.vertical_centered(|ui| {
                             ui.add_space(36.0);
                             ui.label(
-                                egui::RichText::new("Welcome to PCBCraft")
+                                egui::RichText::new(t!("dialogs.start_home.welcome_to_pcbcraft"))
                                     .size(30.0)
                                     .strong()
                                     .color(self.accent()),
                             );
                             ui.label(
-                                egui::RichText::new(
-                                    "Draw a circuit, place the parts, and finish with a board ready to order.",
-                                )
+                                egui::RichText::new(t!(
+                                    "dialogs.start_home.draw_a_circuit_place_the"
+                                ))
                                 .size(14.0)
                                 .color(self.muted()),
                             );
@@ -3192,18 +3218,18 @@ impl App {
                             if ui
                                 .add_sized(
                                     [300.0, 64.0],
-                                    egui::Button::new(
-                                        (
-                                            egui::RichText::new("New design")
-                                                .size(16.0)
-                                                .strong(),
-                                            egui::RichText::new("Begin with a blank page.")
-                                                .small()
-                                                .color(self.muted()),
-                                        ),
-                                    ),
+                                    egui::Button::new((
+                                        egui::RichText::new(t!("dialogs.start_home.new_design"))
+                                            .size(16.0)
+                                            .strong(),
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.begin_with_a_blank_page"
+                                        ))
+                                        .small()
+                                        .color(self.muted()),
+                                    )),
                                 )
-                                .on_hover_text("Start a fresh empty design.")
+                                .on_hover_text(t!("dialogs.start_home.begin_with_a_blank_page.tip"))
                                 .clicked()
                             {
                                 self.tool_call("new_design", json!({}));
@@ -3214,22 +3240,22 @@ impl App {
                             if ui
                                 .add_sized(
                                     [300.0, 64.0],
-                                    egui::Button::new(
-                                        (
-                                            egui::RichText::new("Worked example")
-                                                .size(16.0)
-                                                .strong(),
-                                            egui::RichText::new(
-                                                "A small battery, resistor and LED to explore.",
-                                            )
-                                            .small()
-                                            .color(self.muted()),
-                                        ),
-                                    ),
+                                    egui::Button::new((
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.worked_example"
+                                        ))
+                                        .size(16.0)
+                                        .strong(),
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.a_small_battery_resistor_and"
+                                        ))
+                                        .small()
+                                        .color(self.muted()),
+                                    )),
                                 )
-                                .on_hover_text(
-                                    "Start from a small worked example: a battery, resistor and LED.",
-                                )
+                                .on_hover_text(t!(
+                                    "dialogs.start_home.a_small_battery_resistor_and.tip"
+                                ))
                                 .clicked()
                             {
                                 self.tool_call("sample_design", json!({}));
@@ -3239,22 +3265,20 @@ impl App {
                             if ui
                                 .add_sized(
                                     [300.0, 64.0],
-                                    egui::Button::new(
-                                        (
-                                            egui::RichText::new("Open a design file…")
-                                                .size(16.0)
-                                                .strong(),
-                                            egui::RichText::new(
-                                                "Type a path, or pick one from the list below.",
-                                            )
-                                            .small()
-                                            .color(self.muted()),
-                                        ),
-                                    ),
+                                    egui::Button::new((
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.open_a_design_file"
+                                        ))
+                                        .size(16.0)
+                                        .strong(),
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.type_a_path_or_pick"
+                                        ))
+                                        .small()
+                                        .color(self.muted()),
+                                    )),
                                 )
-                                .on_hover_text(
-                                    "Load a saved design file from the path beside this button.",
-                                )
+                                .on_hover_text(t!("dialogs.start_home.type_a_path_or_pick.tip"))
                                 .clicked()
                             {
                                 self.home_path_focus = true;
@@ -3264,21 +3288,17 @@ impl App {
                                 let path_box = ui
                                     .add(
                                         egui::TextEdit::singleline(&mut self.path)
-                                            .hint_text("design file path")
+                                            .hint_text(t!("dialogs.start_home.design_file_path"))
                                             .desired_width(240.0),
                                     )
-                                    .on_hover_text(
-                                        "The file that Open on this page, and in the File menu, uses.",
-                                    );
+                                    .on_hover_text(t!("dialogs.start_home.design_file_path.tip"));
                                 if self.home_path_focus {
                                     path_box.request_focus();
                                     self.home_path_focus = false;
                                 }
                                 if ui
-                                    .button("Open")
-                                    .on_hover_text(
-                                        "Load the design file named in the box beside this button.",
-                                    )
+                                    .button(t!("dialogs.start_home.open"))
+                                    .on_hover_text(t!("dialogs.start_home.open.tip"))
                                     .clicked()
                                 {
                                     self.tool_call("open", json!({"path": self.path}));
@@ -3290,21 +3310,21 @@ impl App {
                             if !self.recent_designs.is_empty() {
                                 ui.add_space(18.0);
                                 ui.label(
-                                    egui::RichText::new("Open one you worked on recently")
-                                        .size(14.0)
-                                        .strong(),
+                                    egui::RichText::new(t!(
+                                        "dialogs.start_home.open_one_you_worked_on"
+                                    ))
+                                    .size(14.0)
+                                    .strong(),
                                 );
                                 for design in self.recent_designs.clone() {
                                     if ui
                                         .add(
-                                            egui::Button::new(
-                                                egui::RichText::new(&design).small(),
-                                            )
-                                            .min_size(egui::vec2(300.0, 28.0)),
+                                            egui::Button::new(egui::RichText::new(&design).small())
+                                                .min_size(egui::vec2(300.0, 28.0)),
                                         )
-                                        .on_hover_text(
-                                            "Open this design again where you left off.",
-                                        )
+                                        .on_hover_text(t!(
+                                            "dialogs.start_home.open_this_design_again_where.tip"
+                                        ))
                                         .clicked()
                                     {
                                         self.path = design;
@@ -3317,9 +3337,9 @@ impl App {
                             }
                             ui.add_space(14.0);
                             ui.label(
-                                egui::RichText::new(
-                                    "Press Escape, or click PCBCraft in the corner, to return here any time.",
-                                )
+                                egui::RichText::new(t!(
+                                    "dialogs.start_home.press_escape_or_click_pcbcraft"
+                                ))
                                 .small()
                                 .color(self.muted()),
                             );
@@ -5960,7 +5980,7 @@ impl App {
     fn write_make_files(&mut self, tool: &str) {
         let directory = self.make_directory();
         if std::fs::create_dir_all(&directory).is_err() {
-            self.message = "that folder could not be created".into();
+            self.message = t!("status.write_make_files.that_folder_could_not_be");
             return;
         }
         self.tool_call(tool, json!({"path": directory}));
@@ -5969,7 +5989,7 @@ impl App {
     fn write_uv_print_files(&mut self, side: &str, label: &str) {
         let directory = self.make_directory();
         if std::fs::create_dir_all(&directory).is_err() {
-            self.message = "that folder could not be created".into();
+            self.message = t!("status.write_uv_print_files.that_folder_could_not_be");
             return;
         }
         let job = format!("uvprint-{side}");
@@ -5981,13 +6001,17 @@ impl App {
             "output_job.run",
             json!({"name": &job, "directory": &directory, "uv_print": {"side": side}}),
         ) {
-            self.message = format!("{label} saved in {directory}");
+            self.message = t!(
+                "status.write_uv_print_files.label_saved_in_directory",
+                label = label,
+                directory = directory
+            );
         }
     }
     fn write_job_file(&mut self, job: &str, kind: &str, label: &str) {
         let directory = self.make_directory();
         if std::fs::create_dir_all(&directory).is_err() {
-            self.message = "that folder could not be created".into();
+            self.message = t!("status.write_job_file.that_folder_could_not_be");
             return;
         }
         let _ = self.tool_call("output_job.add", json!({"name": job, "kinds": [kind]}));
@@ -5995,7 +6019,11 @@ impl App {
             "output_job.run",
             json!({"name": job, "directory": &directory}),
         ) {
-            self.message = format!("{label} saved in {directory}");
+            self.message = t!(
+                "status.write_job_file.label_saved_in_directory",
+                label = label,
+                directory = directory
+            );
         }
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
@@ -7019,7 +7047,7 @@ impl App {
                     image.size[1] as u32,
                     image::ColorType::Rgba8,
                 ) {
-                    self.message = format!("capture failed: {e}");
+                    self.message = t!("status.capture.capture_failed_e", e = e);
                     eprintln!("{}", self.message);
                 }
                 self.capture = None;
@@ -7053,9 +7081,9 @@ impl App {
                     [image.width() as usize, image.height() as usize],
                     image.as_raw(),
                 ));
-                self.message = "plot copied to the clipboard".into();
+                self.message = t!("status.copy_plot_to_clipboard.plot_copied_to_the_clipboard");
             }
-            None => self.message = "copy failed: no plot to copy".into(),
+            None => self.message = t!("status.copy_plot_to_clipboard.copy_failed_no_plot_to"),
         }
     }
 
@@ -8232,6 +8260,39 @@ mod tests {
         assert!(!library::entry_matches(&resistor, "led"));
         assert!(!library::entry_matches(&led, "9"));
     }
+    #[test]
+    fn an_engine_refusal_shows_in_the_language_that_names_it() {
+        let english = std::sync::Arc::new(pcbcraft_text::Catalog::english());
+        pcbcraft_text::activate(&english);
+        assert_eq!(
+            refusal_key("Nothing to undo!"),
+            "error.nothing_to_undo",
+            "the key is the refusal's words"
+        );
+        assert_eq!(
+            refusal_text("Nothing to undo!"),
+            "Nothing to undo!",
+            "other spelling keeps the engine text"
+        );
+        assert_eq!(
+            refusal_text("nothing to undo"),
+            "nothing to undo",
+            "a refusal English lists shows its own words in English"
+        );
+        let spanish = std::sync::Arc::new(
+            pcbcraft_text::Catalog::english()
+                .with_language("zz", "error.nothing_to_undo = Nada que deshacer"),
+        );
+        pcbcraft_text::activate(&spanish);
+        assert_eq!(refusal_text("nothing to undo"), "Nada que deshacer");
+        assert_eq!(
+            refusal_text("Another refusal"),
+            "Another refusal",
+            "an unmapped refusal keeps the engine words"
+        );
+        pcbcraft_text::activate(&english);
+    }
+
     #[test]
     fn control_tooltips_come_from_the_command_registry() -> Result<(), String> {
         let registry = pcbcraft_engine::commands();

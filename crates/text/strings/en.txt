@@ -933,6 +933,95 @@ docks.builds_tab.swap_package = Swap package
 docks.builds_tab.swap_package.tip = This build fits the chosen part in that package; the design keeps its own.
 docks.builds_tab.no_extra_builds_this_board = No extra builds; this board is built exactly as designed.
 
+# lib.rs start_home
+dialogs.start_home.welcome_to_pcbcraft = Welcome to PCBCraft
+dialogs.start_home.draw_a_circuit_place_the = Draw a circuit, place the parts, and finish with a board ready to order.
+dialogs.start_home.new_design = New design
+dialogs.start_home.begin_with_a_blank_page = Begin with a blank page.
+dialogs.start_home.begin_with_a_blank_page.tip = Start a fresh empty design.
+dialogs.start_home.worked_example = Worked example
+dialogs.start_home.a_small_battery_resistor_and = A small battery, resistor and LED to explore.
+dialogs.start_home.a_small_battery_resistor_and.tip = Start from a small worked example: a battery, resistor and LED.
+dialogs.start_home.open_a_design_file = Open a design file…
+dialogs.start_home.type_a_path_or_pick = Type a path, or pick one from the list below.
+dialogs.start_home.type_a_path_or_pick.tip = Load a saved design file from the path beside this button.
+dialogs.start_home.design_file_path = design file path
+dialogs.start_home.design_file_path.tip = The file that Open on this page, and in the File menu, uses.
+dialogs.start_home.open = Open
+dialogs.start_home.open.tip = Load the design file named in the box beside this button.
+dialogs.start_home.open_one_you_worked_on = Open one you worked on recently
+dialogs.start_home.open_this_design_again_where.tip = Open this design again where you left off.
+dialogs.start_home.press_escape_or_click_pcbcraft = Press Escape, or click PCBCraft in the corner, to return here any time.
+
+# lib.rs execute_palette_params
+
+# lib.rs params_template
+
+# lib.rs run
+dialogs.run.session_unavailable = Session unavailable
+dialogs.run.command_committed = {command} · committed
+dialogs.run.len_library_symbols_need_a = {len} library symbols need a footprint assignment in Libraries
+
+# lib.rs run_and_keep
+dialogs.run_and_keep.session_unavailable = Session unavailable
+dialogs.run_and_keep.command_reported = {command} · reported
+
+# lib.rs tool_call
+dialogs.tool_call.name_complete = {name} · complete
+dialogs.tool_call.operation_failed = operation failed
+
+# editing.rs shift_click
+status.shift_click.a_selection_holds_at_most = A selection holds at most {MAX_SELECTED} objects
+
+# editing.rs move_selection
+status.move_selection.moved_moved_objects_together = Moved {moved} objects together
+
+# editing.rs delete_selection
+status.delete_selection.deleted_len_objects = Deleted {len} objects
+
+# editing.rs duplicate_selection
+status.duplicate_selection.select_a_part_to_duplicate = Select a part to duplicate
+status.duplicate_selection.duplicated_count_parts = Duplicated {count} parts
+
+# editing.rs copy_selection
+status.copy_selection.select_something_first_then_copy = Select something first, then copy
+status.copy_selection.copied_len_objects = Copied {len} objects
+
+# editing.rs paste_last_copy_at
+status.paste_last_copy_at.nothing_copied_yet = Nothing copied yet
+
+# editing.rs paste_text_at
+status.paste_text_at.that_text_is_not_copied = That text is not copied objects, so nothing was pasted
+status.paste_text_at.pasted_count_objects_drag_them = Pasted {count} objects; drag them where they belong
+
+# editing.rs paste_last_copy
+status.paste_last_copy.nothing_copied_yet = Nothing copied yet
+
+# editing.rs measure_click
+status.measure_click.measure_click_the_second_point = Measure: click the second point
+
+# editing.rs cleanup_tracks
+status.cleanup_tracks.track_cleanup_found_nothing_to = Track cleanup found nothing to tidy
+status.cleanup_tracks.track_cleanup_removed_removed_pieces = Track cleanup removed {removed} pieces and merged {merged} segments
+
+# lib.rs write_make_files
+status.write_make_files.that_folder_could_not_be = that folder could not be created
+
+# lib.rs write_uv_print_files
+status.write_uv_print_files.that_folder_could_not_be = that folder could not be created
+status.write_uv_print_files.label_saved_in_directory = {label} saved in {directory}
+
+# lib.rs write_job_file
+status.write_job_file.that_folder_could_not_be = that folder could not be created
+status.write_job_file.label_saved_in_directory = {label} saved in {directory}
+
+# lib.rs capture
+status.capture.capture_failed_e = capture failed: {e}
+
+# lib.rs copy_plot_to_clipboard
+status.copy_plot_to_clipboard.plot_copied_to_the_clipboard = plot copied to the clipboard
+status.copy_plot_to_clipboard.copy_failed_no_plot_to = copy failed: no plot to copy
+
 unit.mm15.tip = How tall the letters are.
 settings.settings_tab.side = Side
 settings.settings_tab.add_label = Add label
@@ -1275,6 +1364,17 @@ shortcut.zoom_the_view = Zoom the view
 shortcut.keys.scroll = Scroll
 
 command.unmapped.tip = This control runs an engine command.
+
+# engine refusals the language files may translate; the engine text is the fallback
+error.nothing_to_undo = nothing to undo
+error.nothing_to_redo = nothing to redo
+error.that_folder_is_not_one_of_the_added_library_sources = that folder is not one of the added library sources
+error.that_folder_is_already_one_of_the_library_sources = that folder is already one of the library sources
+error.provide_the_full_path_to_a_library_folder = provide the full path to a library folder
+error.pair_rule_needs_two_different_nets = pair rule needs two different nets
+error.net_class_limit_reached_64 = net class limit reached (64)
+error.library_sources_are_limited_to_64_folders = library sources are limited to 64 folders
+error.object_id_space_exhausted = object ID space exhausted
 
 unit.mm = mm
 unit.mil = mil

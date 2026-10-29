@@ -336,6 +336,41 @@ fn docks_strings_are_all_catalog_keys() -> Result<(), String> {
 }
 
 #[test]
+fn dialogs_strings_are_all_catalog_keys() -> Result<(), String> {
+    let listed = pcbcraft_text::scan::converted_fns();
+    for (file, function) in [
+        ("lib.rs", "start_home"),
+        ("lib.rs", "execute_palette_params"),
+        ("lib.rs", "params_template"),
+        ("lib.rs", "run"),
+        ("lib.rs", "run_and_keep"),
+        ("lib.rs", "tool_call"),
+        ("lib.rs", "refusal_text"),
+        ("editing.rs", "shift_click"),
+        ("editing.rs", "move_selection"),
+        ("editing.rs", "delete_selection"),
+        ("editing.rs", "duplicate_selection"),
+        ("editing.rs", "copy_selection"),
+        ("editing.rs", "paste_last_copy_at"),
+        ("editing.rs", "paste_text_at"),
+        ("editing.rs", "paste_last_copy"),
+        ("editing.rs", "measure_click"),
+        ("editing.rs", "cleanup_tracks"),
+        ("lib.rs", "write_make_files"),
+        ("lib.rs", "write_uv_print_files"),
+        ("lib.rs", "write_job_file"),
+        ("lib.rs", "capture"),
+        ("lib.rs", "copy_plot_to_clipboard"),
+    ] {
+        assert!(
+            listed.contains(&(file.to_string(), function.to_string())),
+            "{file} {function} is listed in converted-fns.txt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(

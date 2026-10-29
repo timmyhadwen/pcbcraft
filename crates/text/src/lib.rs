@@ -235,6 +235,11 @@ impl Catalog {
         self.english.keys().map(String::as_str)
     }
 
+    /// True when English defines `key`.
+    pub fn defines(&self, key: &str) -> bool {
+        self.english.contains_key(key)
+    }
+
     /// The text for a key. A key the language lacks shows the English text;
     /// a key nobody defines shows the key itself. Either is reported once.
     pub fn get(&self, key: &str) -> String {
@@ -316,6 +321,22 @@ pub fn lookup(key: &str, args: &[(&str, &str)]) -> String {
     ACTIVE.with(|slot| match slot.borrow().as_ref() {
         Some(catalog) => catalog.format(key, args),
         None => Catalog::english().format(key, args),
+    })
+}
+
+/// Like [`lookup`], but `None` for a key English does not define, and
+/// without reporting it. For keys that are optional by design.
+pub fn lookup_known(key: &str) -> Option<String> {
+    ACTIVE.with(|slot| {
+        let fallback;
+        let catalog = match slot.borrow().as_ref() {
+            Some(catalog) => Arc::clone(catalog),
+            None => {
+                fallback = Arc::new(Catalog::english());
+                fallback
+            }
+        };
+        catalog.defines(key).then(|| catalog.get(key))
     })
 }
 
@@ -684,6 +705,34 @@ mod area_tests {
             ("lib.rs", "builds_tab"),
             ("lib.rs", "shortcut_rows"),
             ("lib.rs", "command_tip"),
+        ])
+    }
+
+    #[test]
+    fn every_key_used_by_dialogs_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "start_home"),
+            ("lib.rs", "execute_palette_params"),
+            ("lib.rs", "params_template"),
+            ("lib.rs", "run"),
+            ("lib.rs", "run_and_keep"),
+            ("lib.rs", "tool_call"),
+            ("lib.rs", "refusal_text"),
+            ("editing.rs", "shift_click"),
+            ("editing.rs", "move_selection"),
+            ("editing.rs", "delete_selection"),
+            ("editing.rs", "duplicate_selection"),
+            ("editing.rs", "copy_selection"),
+            ("editing.rs", "paste_last_copy_at"),
+            ("editing.rs", "paste_text_at"),
+            ("editing.rs", "paste_last_copy"),
+            ("editing.rs", "measure_click"),
+            ("editing.rs", "cleanup_tracks"),
+            ("lib.rs", "write_make_files"),
+            ("lib.rs", "write_uv_print_files"),
+            ("lib.rs", "write_job_file"),
+            ("lib.rs", "capture"),
+            ("lib.rs", "copy_plot_to_clipboard"),
         ])
     }
 }
