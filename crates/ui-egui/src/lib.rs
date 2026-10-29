@@ -7173,19 +7173,30 @@ mod tests {
             !paints_text(&ctx, &mut app, "Sync to PCB >")?,
             "sync moved into the Edit menu"
         );
+        let fit = app
+            .icon_rects
+            .get("canvas-fit")
+            .copied()
+            .ok_or("a floating Fit icon sits in the work area")?;
         assert!(
-            paints_text(&ctx, &mut app, "Fit")?,
-            "a floating Fit control sits in the work area"
+            fit.max.x <= 1440.0 - 280.0 && fit.min.y > 60.0,
+            "the Fit icon stays inside the canvas, left of the right aside: {fit:?}"
         );
         let first = app.project.components[0].id;
         let before = app.project.components[0].rotation;
         app.select(Some(first));
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let handle = app
+            .icon_rects
+            .get("handle-rotate")
+            .copied()
+            .ok_or("a selected part grows a Rotate handle beside it")?;
         assert!(
-            paints_text(&ctx, &mut app, "Rotate")?,
-            "a selected part grows a Rotate handle beside it"
+            handle.max.x <= 1440.0 - 280.0,
+            "the handle stays inside the canvas: {handle:?}"
         );
-        authoring::tests::tap(&ctx, &mut app, "Rotate")?;
+        authoring::tests::tap_icon(&ctx, &mut app, "handle-rotate")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let after = app
             .project
