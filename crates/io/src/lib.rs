@@ -3585,8 +3585,13 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
         bump(&mut count)?;
+        let side = if f.board_side() == pcbcraft_doc::Layer::Back {
+            "bottom"
+        } else {
+            "top"
+        };
         out.push_str(&format!(
-            "    (component (name {}) (place (type fixed) (side top) (rotate {:.1}) (at {})))\n",
+            "    (component (name {}) (place (type fixed) (side {side}) (rotate {:.1}) (at {})))\n",
             quote(&c.reference),
             f.rotation.rem_euclid(360.0),
             point(&f.position)?
