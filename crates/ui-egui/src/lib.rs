@@ -6617,7 +6617,6 @@ impl App {
         }
         ui.horizontal(|ui| {
             ui.add_space(8.0);
-            self.editing_controls(ui);
             let select = |app: &mut App| {
                 app.tool = Tool::Select;
             };
@@ -6726,6 +6725,8 @@ impl App {
                     self.tool = Tool::Fiducial;
                 }
             }
+            ui.separator();
+            self.editing_controls(ui);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if !matches!(self.tool, Tool::Select) {
                     ui.label(
