@@ -1817,7 +1817,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.package",
             "Write a whole fabrication bundle as one zip file: gerbers and drill files for every layer, the bill of materials and the pick-and-place file, plus a manifest that names every file with its size, checksum, export kind and the job that produced it. Name a recorded output job to package its recipe, or a list of kinds, or nothing for the fabrication bundle",
             schema(
-                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats","laser_job"]},"minItems":1,"maxItems":25},"variant":{"type":"string","minLength":1,"maxLength":64}}),
+                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64}}),
                 &["path"],
             ),
         ),
