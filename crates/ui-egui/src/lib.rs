@@ -5525,7 +5525,9 @@ impl App {
                         .inner_margin(egui::Margin::symmetric(16, 12))
                         .show(ui, |ui| self.draw_tool_options(ui));
                 }
-                if self.selected.is_none() && self.tree.selected_key.is_some() {
+                if let Some(page) = self.hovered_page_preview() {
+                    self.page_properties(ui, page, true);
+                } else if self.selected.is_none() && self.tree.selected_key.is_some() {
                     self.tree_row_properties(ui);
                 } else if let Some(id) = self
                     .selected

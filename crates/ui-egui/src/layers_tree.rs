@@ -113,6 +113,8 @@ pub(crate) struct Row {
     pub target: Option<Target>,
     /// The stackup record this row stands for (a copper layer or dielectric).
     pub stack: Option<String>,
+    /// The schematic page this row stands for (page 0 is Main).
+    pub page: Option<Id>,
 }
 
 /// What the tree asks the app to do; the app applies each in `lib.rs`.
@@ -148,6 +150,16 @@ pub(crate) enum Action {
     NetClass { net: Id, class: Option<Id> },
     /// Rename a net.
     NetRename { net: Id, new_name: String },
+    /// Rename a machine layer.
+    ArtRename { layer: Id, new_name: String },
+    /// Show a schematic page on the canvas and select it.
+    SelectPage(Id),
+    /// Add a schematic page.
+    PageAdd,
+    /// Remove a schematic page; its parts move to Main.
+    PageRemove(Id),
+    /// Rename a schematic page.
+    PageRename { id: Id, new_name: String },
     /// Move an inner copper layer up or down.
     StackMove { name: String, up: bool },
     /// Delete a document object (same as the Delete key on the drawing).
@@ -196,6 +208,10 @@ pub(crate) enum RenameFor {
     Layer(String),
     /// A net.
     Net(Id),
+    /// A machine layer the designer drew.
+    Art(Id),
+    /// A schematic page (never page 0, the Main page).
+    Page(Id),
 }
 
 /// View state owned by the app: what is open, filtered, locked and focused.
@@ -215,8 +231,13 @@ pub(crate) struct TreeView {
     pub cursor: Option<String>,
     /// A row selected that is not one object: the board outline, a layer, a net.
     pub selected_key: Option<String>,
-    /// A rename in progress from a row menu: what it renames and the text so far.
+    /// A rename in progress (F2 or a row menu): what it renames and the text
+    /// so far. The first row for that thing draws the editor in place of its label.
     pub rename: Option<(RenameFor, String)>,
+    /// The page row the pointer rests on, as of the last frame (Properties previews it).
+    pub hover_page: Option<Id>,
+    hover_now: Option<Id>,
+    editing_drawn: bool,
     last_selected: Option<Id>,
     scroll_to: Option<String>,
     focus_pending: Option<String>,
@@ -259,6 +280,9 @@ impl Default for TreeView {
             cursor: None,
             selected_key: None,
             rename: None,
+            hover_page: None,
+            hover_now: None,
+            editing_drawn: false,
             last_selected: None,
             scroll_to: None,
             focus_pending: None,
@@ -314,6 +338,7 @@ fn row(path: &str, seg: &str, kind: RowKind, label: String) -> Row {
         net: None,
         target: None,
         stack: None,
+        page: None,
     }
 }
 
@@ -1118,11 +1143,13 @@ fn schematic_children(env: &Env, key: &str) -> Vec<Row> {
             let mut sheets: Vec<(Id, String)> = vec![(0, t!("tree.sheet.first"))];
             sheets.extend(project.sheets.iter().map(|s| (s.id, s.name.clone())));
             for (id, name) in sheets {
-                out.push(section(
-                    &format!("sec:sheet:{id}"),
+                let mut page = section(
+                    &crate::App::page_row_key(id),
                     name,
                     if id == 0 { 4 } else { 1 },
-                ));
+                );
+                page.page = Some(id);
+                out.push(page);
             }
             let mut comps = counted(
                 row("", "components", RowKind::Layer, t!("tree.section.parts")),
@@ -1899,7 +1926,20 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
     view.offset = output.state.offset.y;
     view.viewport = output.inner_rect.height();
     view.has_focus = has_focus;
-    rename_window(ui, view, &mut actions);
+    view.hover_page = view.hover_now.take();
+    if let Some((what, _)) = &view.rename
+        && !view.editing_drawn
+    {
+        // The row is out of view: bring the first row for it into view so its editor shows.
+        match all
+            .iter()
+            .find(|r| rename_for(env, r).is_some_and(|(w, _)| &w == what))
+        {
+            Some(r) => view.scroll_to = Some(r.key.clone()),
+            None => view.rename = None,
+        }
+    }
+    view.editing_drawn = false;
     if n == 0 && !view.query.trim().is_empty() {
         ui.add_space(8.0);
         ui.label(
@@ -1911,60 +1951,48 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
     actions
 }
 
-/// The small window a Rename menu item opens: a text field with OK and Cancel.
-fn rename_window(ui: &mut Ui, view: &mut TreeView, actions: &mut Vec<Action>) {
-    let Some((what, mut text)) = view.rename.clone() else {
-        return;
-    };
-    let mut done = None;
-    egui::Window::new(t!("tree.rename.title"))
-        .collapsible(false)
-        .resizable(false)
-        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-        .show(ui.ctx(), |ui| {
-            ui.add_space(4.0);
-            let field = ui
-                .add(crate::targets::text_field(&mut text).desired_width(220.0))
-                .named(&t!("tree.rename.title"));
-            field.request_focus();
-            field.on_hover_text(t!("tree.rename.tip"));
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if ui
-                    .button(t!("tree.rename.ok"))
-                    .on_hover_text(t!("tree.rename.ok.tip"))
-                    .clicked()
-                    || ui.input(|i| i.key_pressed(egui::Key::Enter))
-                {
-                    done = Some(true);
-                }
-                if ui
-                    .button(t!("tree.rename.cancel"))
-                    .on_hover_text(t!("tree.rename.cancel.tip"))
-                    .clicked()
-                    || ui.input(|i| i.key_pressed(egui::Key::Escape))
-                {
-                    done = Some(false);
-                }
-            });
-        });
-    match done {
-        Some(true) => {
-            let new_name = text.trim().to_owned();
-            if !new_name.is_empty() {
-                actions.push(match what {
-                    RenameFor::Layer(name) => Action::StackRename { name, new_name },
-                    RenameFor::Net(net) => Action::NetRename { net, new_name },
-                });
-            }
-            view.rename = None;
-        }
-        Some(false) => view.rename = None,
-        None => view.rename = Some((what, text)),
+/// What F2, the Rename menu item and the inline editor rename for this row,
+/// with the name it has now. None for rows that have no rename command.
+///
+/// # Rules
+/// - Nets, stackup layers, machine layers and schematic pages other than Main.
+///
+/// # Dependencies
+/// - `crates/engine/src/lib.rs` holds `net.rename`, `board.stackup_rename_layer`,
+///   `board.layer_rename` and `schematic.rename_sheet`.
+///
+/// # Do not
+/// - Add a kind here before it has a typed rename command.
+fn rename_for(env: &Env, r: &Row) -> Option<(RenameFor, String)> {
+    if let Some(id) = r.page {
+        return (id != 0).then(|| (RenameFor::Page(id), r.label.clone()));
+    }
+    if let Some(name) = &r.stack {
+        return Some((RenameFor::Layer(name.clone()), name.clone()));
+    }
+    if let Some(ctl) = &r.controls
+        && let Visibility::Art(id) = ctl.visibility
+    {
+        return Some((RenameFor::Art(id), r.label.clone()));
+    }
+    if r.kind == RowKind::Net
+        && let Some(net) = r.net
+    {
+        return Some((RenameFor::Net(net), env.project.net_name(net).to_owned()));
+    }
+    None
+}
+
+/// The action a finished rename turns into.
+fn rename_action(what: RenameFor, new_name: String) -> Action {
+    match what {
+        RenameFor::Layer(name) => Action::StackRename { name, new_name },
+        RenameFor::Net(net) => Action::NetRename { net, new_name },
+        RenameFor::Art(layer) => Action::ArtRename { layer, new_name },
+        RenameFor::Page(id) => Action::PageRename { id, new_name },
     }
 }
 
-/// Filter field with its add button, then Show all, Hide others, New layer.
 fn header(
     ui: &mut Ui,
     env: &Env,
@@ -2130,6 +2158,11 @@ fn paint_row(
         view.focus_pending = None;
     }
     let focused = resp.has_focus();
+    if resp.hovered()
+        && let Some(page) = r.page
+    {
+        view.hover_now = Some(page);
+    }
     let selected = (r.marks && r.select.is_some() && r.select == env.selected)
         || view.selected_key.as_deref() == Some(r.key.as_str());
     let searching = !view.query.trim().is_empty();
@@ -2409,12 +2442,49 @@ fn paint_row(
     };
     let galley = painter.layout_no_wrap(text, font, ink);
     let label_w = galley.size().x;
-    p.galley(
-        Pos2::new(label_left, cy - galley.size().y / 2.0),
-        galley,
-        ink,
-    );
-    if !r.sub.is_empty() {
+    let editing = !view.editing_drawn
+        && match (&view.rename, rename_for(env, r)) {
+            (Some((want, _)), Some((what, _))) => *want == what,
+            _ => false,
+        };
+    if editing {
+        view.editing_drawn = true;
+        let edit_rect = Rect::from_min_max(
+            Pos2::new(label_left - 4.0, rect.top() + 1.0),
+            Pos2::new(label_right.max(label_left + 120.0), rect.bottom() - 1.0),
+        );
+        let done = ui
+            .scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| match view
+                .rename
+                .as_mut()
+            {
+                Some((_, text)) => crate::pages::inline_name_edit(
+                    ui,
+                    &r.key,
+                    text,
+                    edit_rect.width(),
+                    &t!("tree.rename.tip"),
+                ),
+                None => None,
+            })
+            .inner;
+        if let Some(done) = done
+            && let Some((what, text)) = view.rename.take()
+            && done == crate::pages::NameEdit::Commit
+        {
+            let new_name = text.trim().to_owned();
+            if !new_name.is_empty() {
+                actions.push(rename_action(what, new_name));
+            }
+        }
+    } else {
+        p.galley(
+            Pos2::new(label_left, cy - galley.size().y / 2.0),
+            galley,
+            ink,
+        );
+    }
+    if !r.sub.is_empty() && !editing {
         let dx = label_left + label_w + 6.0;
         if dx < label_right {
             p.text(
@@ -2493,6 +2563,31 @@ fn row_menu(
         actions.push(Action::SelectKey(r.key.clone()));
     }
     stack_menu(ui, env, view, r, actions);
+    if let Some(page) = r.page {
+        if item(ui, t!("schematic.pages.add"), t!("schematic.pages.add.tip")) {
+            actions.push(Action::PageAdd);
+        }
+        let can = page != 0;
+        let renamed = ui
+            .add_enabled(can, egui::Button::new(t!("schematic.pages.rename")))
+            .on_hover_text(t!("schematic.pages.rename.tip"))
+            .on_disabled_hover_text(t!("schematic.pages.main_fixed"))
+            .clicked();
+        let removed = ui
+            .add_enabled(can, egui::Button::new(t!("schematic.pages.remove")))
+            .on_hover_text(t!("schematic.pages.remove.tip"))
+            .on_disabled_hover_text(t!("schematic.pages.main_fixed"))
+            .clicked();
+        if renamed || removed {
+            ui.close();
+        }
+        if renamed {
+            view.rename = rename_for(env, r);
+        }
+        if removed {
+            actions.push(Action::PageRemove(page));
+        }
+    }
     if let Some(ctl) = &r.controls {
         if ctl.visibility != Visibility::None {
             let label = if hidden {
@@ -2535,10 +2630,13 @@ fn row_menu(
                 }));
             }
         }
-        if let Visibility::Art(id) = ctl.visibility
-            && item(ui, t!("tree.menu.remove"), t!("tree.menu.remove.tip"))
-        {
-            actions.push(Action::RemoveArtLayer(id));
+        if let Visibility::Art(id) = ctl.visibility {
+            if item(ui, t!("tree.menu.rename"), t!("tree.menu.rename.tip")) {
+                view.rename = Some((RenameFor::Art(id), r.label.clone()));
+            }
+            if item(ui, t!("tree.menu.remove"), t!("tree.menu.remove.tip")) {
+                actions.push(Action::RemoveArtLayer(id));
+            }
         }
     }
     if let Some(id) = r.select {
@@ -2707,6 +2805,12 @@ fn toggle(view: &mut TreeView, key: &str) {
 
 /// The result of clicking or pressing Enter on a row.
 fn activate(view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
+    if let Some(page) = r.page {
+        view.selected_key = Some(r.key.clone());
+        actions.push(Action::SelectPage(page));
+        toggle(view, &r.key);
+        return;
+    }
     if let Some(id) = r.select {
         view.selected_key = None;
         actions.push(Action::Select(id));
@@ -2765,6 +2869,10 @@ fn keyboard(ui: &mut Ui, env: &Env, view: &mut TreeView, all: &[Row], actions: &
             view.expanded.remove(&row.key);
         } else if let Some(parent) = all[..current].iter().rposition(|p| p.depth < row.depth) {
             go(view, parent);
+        }
+    } else if press(ui, egui::Key::F2) {
+        if let Some(rename) = rename_for(env, row) {
+            view.rename = Some(rename);
         }
     } else if press(ui, egui::Key::Enter) {
         activate(view, row, actions);
@@ -2943,6 +3051,16 @@ impl crate::App {
                         serde_json::json!({"id": net, "name": new_name}),
                     );
                 }
+                Action::ArtRename { layer, new_name } => {
+                    self.run(
+                        "board.layer_rename",
+                        serde_json::json!({"layer": layer, "name": new_name}),
+                    );
+                }
+                Action::SelectPage(id) => self.show_page(id),
+                Action::PageAdd => self.add_page(),
+                Action::PageRemove(id) => self.remove_page(id),
+                Action::PageRename { id, new_name } => self.rename_page(id, &new_name),
                 Action::HighlightNet(net) => self.highlight_net = net,
                 Action::NewArtLayer => {
                     let name = t!(
@@ -2963,6 +3081,17 @@ impl crate::App {
         }
     }
 
+    /// The page whose card Properties previews while the pointer rests on its
+    /// Layers row, or None. A page already selected is shown in full instead.
+    ///
+    /// # Dependencies
+    /// - `crates/ui-egui/src/lib.rs` `inspector_body` asks before drawing the selection.
+    pub(crate) fn hovered_page_preview(&self) -> Option<Id> {
+        let page = self.tree.hover_page?;
+        let key = Self::page_row_key(page);
+        (self.tree.selected_key.as_deref() != Some(key.as_str())).then_some(page)
+    }
+
     /// Properties for a tree row that is not one document object: the board
     /// outline (size, stackup, finish, origin) or a net (its connection editor).
     ///
@@ -2974,7 +3103,13 @@ impl crate::App {
             return;
         };
         let last = key.rsplit('/').next().unwrap_or("");
-        if key == "root" || key.ends_with("/root") {
+        if let Some(page) = key.strip_prefix("sec:sheet:") {
+            egui::Frame::NONE
+                .inner_margin(egui::Margin::symmetric(0, 0))
+                .show(ui, |ui| {
+                    self.page_properties(ui, page.parse().unwrap_or(0), false)
+                });
+        } else if key == "root" || key.ends_with("/root") {
             self.board_root_properties(ui);
         } else if last.starts_with("side:")
             || last.starts_with("inner:")
@@ -3129,6 +3264,50 @@ mod tests {
             target: Target::Copper(Layer::Front),
             revision: 1,
         }
+    }
+
+    #[test]
+    fn renamable_rows_are_nets_layers_and_pages_only() {
+        let mut project = sample();
+        project.sheets.push(pcbcraft_doc::Sheet {
+            id: 9001,
+            name: "Power".into(),
+            parent: None,
+            entry: None,
+        });
+        let mut view = TreeView::default();
+        view.expanded.insert("nets".to_owned());
+        let hidden: Vec<String> = Vec::new();
+        let layout = rows(&env(&project, &hidden), &mut view);
+        let kind_of = |key: &str| {
+            layout
+                .iter()
+                .find(|r| r.key == key)
+                .and_then(|r| rename_for(&env(&project, &hidden), r))
+                .map(|(what, _)| what)
+        };
+        assert!(matches!(kind_of("side:top"), Some(RenameFor::Layer(_))));
+        assert!(matches!(
+            kind_of("nets/net:1"),
+            Some(RenameFor::Net(_)) | None
+        ));
+        assert_eq!(
+            kind_of("edge"),
+            None,
+            "the board edge has no name to change"
+        );
+        let mut schematic = env(&project, &hidden);
+        schematic.tab = TreeTab::Schematic;
+        let mut view = TreeView::default();
+        let list = rows(&schematic, &mut view);
+        let page = |key: &str| {
+            list.iter()
+                .find(|r| r.key == key)
+                .and_then(|r| rename_for(&schematic, r))
+                .map(|(what, _)| what)
+        };
+        assert_eq!(page("sec:sheet:9001"), Some(RenameFor::Page(9001)));
+        assert_eq!(page("sec:sheet:0"), None, "Main cannot be renamed");
     }
 
     #[test]
