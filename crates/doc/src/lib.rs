@@ -35,6 +35,80 @@ pub struct SymbolUnitPlacement {
 fn passive() -> String {
     "passive".into()
 }
+/// Pin electrical types recognised by ERC and schematic validation.
+pub const PIN_ELECTRICAL_TYPES: [&str; 12] = [
+    "bidirectional",
+    "free",
+    "input",
+    "no_connect",
+    "open_collector",
+    "open_emitter",
+    "output",
+    "passive",
+    "power_in",
+    "power_out",
+    "tri_state",
+    "unspecified",
+];
+/// Sorted pair key for one cell of the pin-type connection matrix.
+pub fn pin_matrix_key(type_a: &str, type_b: &str) -> String {
+    if type_a <= type_b {
+        format!("{type_a}|{type_b}")
+    } else {
+        format!("{type_b}|{type_a}")
+    }
+}
+/// Default ERC level for a pin-type pair: `"ok"`, `"warning"`, or `"error"`.
+pub fn default_pin_matrix_level(type_a: &str, type_b: &str) -> &'static str {
+    let (a, b) = if type_a <= type_b {
+        (type_a, type_b)
+    } else {
+        (type_b, type_a)
+    };
+    if a == "no_connect" || b == "no_connect" {
+        return "error";
+    }
+    match (a, b) {
+        ("output", "output") => "error",
+        ("output", "power_out") => "error",
+        ("power_out", "power_out") => "error",
+        ("open_emitter", "power_out") => "error",
+        ("input", "input") => "warning",
+        ("output", "tri_state") => "warning",
+        ("open_collector", "power_out") => "warning",
+        ("bidirectional", "power_out") => "warning",
+        _ => "ok",
+    }
+}
+/// Default matrix cells whose level is not `"ok"`, for display beside overrides.
+pub const DEFAULT_PIN_MATRIX_OVERRIDES: &[(&str, &str, &str)] = &[
+    ("bidirectional", "no_connect", "error"),
+    ("bidirectional", "power_out", "warning"),
+    ("free", "no_connect", "error"),
+    ("input", "input", "warning"),
+    ("input", "no_connect", "error"),
+    ("no_connect", "no_connect", "error"),
+    ("no_connect", "open_collector", "error"),
+    ("no_connect", "open_emitter", "error"),
+    ("no_connect", "output", "error"),
+    ("no_connect", "passive", "error"),
+    ("no_connect", "power_in", "error"),
+    ("no_connect", "power_out", "error"),
+    ("no_connect", "tri_state", "error"),
+    ("no_connect", "unspecified", "error"),
+    ("open_collector", "power_out", "warning"),
+    ("open_emitter", "power_out", "error"),
+    ("output", "no_connect", "error"),
+    ("output", "output", "error"),
+    ("output", "power_out", "error"),
+    ("output", "tri_state", "warning"),
+    ("passive", "no_connect", "error"),
+    ("power_in", "no_connect", "error"),
+    ("power_out", "no_connect", "error"),
+    ("power_out", "power_out", "error"),
+    ("tri_state", "no_connect", "error"),
+    ("unspecified", "no_connect", "error"),
+];
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LibrarySymbol {
     pub library: String,
@@ -1412,6 +1486,10 @@ pub struct Project {
     /// Checks the designer wrote themselves, in the order they were made.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_checks: Vec<CustomCheck>,
+    /// Pin-type connection matrix overrides keyed `"<type_a>|<type_b>"` with
+    /// sorted types; values are `"ok"`, `"warning"` or `"error"`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pin_matrix: BTreeMap<String, String>,
     /// Free-form project metadata such as title, revision, company or notes,
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1540,6 +1618,7 @@ impl Default for Project {
             bom_fields: vec![],
             output_jobs: vec![],
             custom_checks: vec![],
+            pin_matrix: BTreeMap::new(),
             files: vec![],
             variants: vec![],
             graphic_groups: vec![],
@@ -1712,6 +1791,17 @@ impl Project {
     /// True when a check code has been silenced for this design.
     pub fn rule_disabled(&self, code: &str) -> bool {
         self.rule_severity.get(code).is_some_and(|s| s == "off")
+    }
+    pub fn pin_electrical_type_valid(type_name: &str) -> bool {
+        PIN_ELECTRICAL_TYPES.contains(&type_name)
+    }
+    /// ERC level for a pin-type pair, including project overrides.
+    pub fn pin_matrix_level(&self, type_a: &str, type_b: &str) -> String {
+        let key = pin_matrix_key(type_a, type_b);
+        self.pin_matrix
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| default_pin_matrix_level(type_a, type_b).to_string())
     }
     /// True when a finding for `code` naming exactly these objects has been
     /// excluded: every named object must sit on that code's exclusion list.
@@ -2181,6 +2271,26 @@ impl Project {
                 );
             }
         }
+        if self.pin_matrix.len() > 78 {
+            return Err("pin matrix overrides cover at most 78 cells".into());
+        }
+        for (key, level) in &self.pin_matrix {
+            let Some((a, b)) = key.split_once('|') else {
+                return Err("pin matrix key must name two types".into());
+            };
+            if a > b
+                || !Self::pin_electrical_type_valid(a)
+                || !Self::pin_electrical_type_valid(b)
+            {
+                return Err("pin matrix key must be two sorted recognised types".into());
+            }
+            if !matches!(level.as_str(), "ok" | "warning" | "error") {
+                return Err("pin matrix level must be ok, warning or error".into());
+            }
+            if level == default_pin_matrix_level(a, b) {
+                return Err("pin matrix entry matches the default table".into());
+            }
+        }
         if self.rule_severity.len() > 64 {
             return Err("severity overrides cover at most 64 check codes".into());
         }
@@ -2334,6 +2444,7 @@ impl Project {
                     || p.direction
                         .is_some_and(|angle| !angle.is_finite() || angle.abs() > 360_000.0)
                     || p.electrical_type.len() > 64
+                    || !Self::pin_electrical_type_valid(&p.electrical_type)
                     || p.net.is_some_and(|n| !nets.contains(&n))
                 {
                     return Err("invalid pin or net reference".into());
@@ -3120,6 +3231,32 @@ mod drill_tests {
             offset: Point::new(0.6, 0.6),
         });
         validate_footprint_support(&definition)?;
+        Ok(())
+    }
+
+    #[test]
+    fn default_pin_matrix_is_symmetric_and_covers_the_vocabulary() -> Result<(), String> {
+        for a in PIN_ELECTRICAL_TYPES {
+            for b in PIN_ELECTRICAL_TYPES {
+                assert_eq!(
+                    default_pin_matrix_level(a, b),
+                    default_pin_matrix_level(b, a),
+                    "{a}|{b} must be symmetric"
+                );
+            }
+        }
+        for &(a, b, level) in DEFAULT_PIN_MATRIX_OVERRIDES {
+            assert_eq!(
+                default_pin_matrix_level(a, b),
+                level,
+                "override slice must match default_pin_matrix_level for {a}|{b}"
+            );
+        }
+        for a in PIN_ELECTRICAL_TYPES {
+            for b in PIN_ELECTRICAL_TYPES {
+                let _ = default_pin_matrix_level(a, b);
+            }
+        }
         Ok(())
     }
 

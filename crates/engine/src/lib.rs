@@ -1372,9 +1372,22 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, unrouted, missing_footprint"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, unrouted, missing_footprint"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
             ),
+        ),
+        (
+            "erc.matrix_set",
+            "Set one cell of the pin-type connection matrix used by ERC",
+            schema(
+                json!({"type_a":{"type":"string","enum":["bidirectional","free","input","no_connect","open_collector","open_emitter","output","passive","power_in","power_out","tri_state","unspecified"]},"type_b":{"type":"string","enum":["bidirectional","free","input","no_connect","open_collector","open_emitter","output","passive","power_in","power_out","tri_state","unspecified"]},"level":{"type":"string","enum":["ok","warning","error"]}}),
+                &["type_a", "type_b", "level"],
+            ),
+        ),
+        (
+            "erc.matrix_reset",
+            "Restore the default pin-type connection matrix, clearing every override",
+            schema(json!({}), &[]),
         ),
         (
             "rules.exclude",
@@ -1851,7 +1864,7 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -3033,6 +3046,13 @@ struct RuleSeverityParams {
     code: String,
     #[serde(default)]
     severity: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ErcMatrixSetParams {
+    type_a: String,
+    type_b: String,
+    level: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10006,6 +10026,52 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             Ok(
                 json!({"rows": rows, "count": count, "dielectric": height, "er": er, "target_ohm": a.target}),
             )
+        }
+        "erc.matrix_set" => {
+            let a: ErcMatrixSetParams = parse(params)?;
+            if !Project::pin_electrical_type_valid(&a.type_a)
+                || !Project::pin_electrical_type_valid(&a.type_b)
+            {
+                return Err(Error::Invalid("pin type is not recognised".into()));
+            }
+            if !matches!(a.level.as_str(), "ok" | "warning" | "error") {
+                return Err(Error::Invalid(
+                    "matrix level must be ok, warning or error".into(),
+                ));
+            }
+            let key = pcbcraft_doc::pin_matrix_key(&a.type_a, &a.type_b);
+            let default = pcbcraft_doc::default_pin_matrix_level(&a.type_a, &a.type_b);
+            let set = if a.level == default {
+                if p.pin_matrix.remove(&key).is_none() {
+                    return Err(Error::Invalid(
+                        "that matrix cell already matches the default".into(),
+                    ));
+                }
+                false
+            } else {
+                if p.pin_matrix.len() >= 78 && !p.pin_matrix.contains_key(&key) {
+                    return Err(Error::Invalid(
+                        "pin matrix overrides cover at most 78 cells".into(),
+                    ));
+                }
+                let previous = p.pin_matrix.insert(key.clone(), a.level.clone());
+                if previous.as_deref() == Some(a.level.as_str()) {
+                    return Err(Error::Invalid(
+                        "that matrix cell already has this level".into(),
+                    ));
+                }
+                true
+            };
+            Ok(json!({"key": key, "level": a.level, "set": set}))
+        }
+        "erc.matrix_reset" => {
+            if p.pin_matrix.is_empty() {
+                return Err(Error::Invalid(
+                    "the pin matrix already matches the default table".into(),
+                ));
+            }
+            p.pin_matrix.clear();
+            Ok(json!({"reset": true}))
         }
         "rules.severity" => {
             let a: RuleSeverityParams = parse(params)?;
@@ -18979,6 +19045,76 @@ mod tests {
         assert_eq!(s.inspect(), before);
         assert!(s.project.validate().is_ok());
         assert!(a > 0 && b > 0);
+        Ok(())
+    }
+    #[test]
+    fn erc_pin_matrix_set_reset_and_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"BUS"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let u1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"U1","position":{"x":0.0,"y":0.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let u2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"U2","position":{"x":10.0,"y":0.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net": net, "pins": [{"component": u1, "pin": "1"}, {"component": u2, "pin": "1"}]}),
+            None,
+        )?;
+        for component in [u1, u2] {
+            let Some(c) = s.project.components.iter_mut().find(|c| c.id == component) else {
+                return Err(Error::Invalid("component missing".into()));
+            };
+            let Some(p) = c.pins.iter_mut().find(|p| p.number == "1") else {
+                return Err(Error::Invalid("pin missing".into()));
+            };
+            p.electrical_type = "output".into();
+        }
+        s.project.validate().map_err(Error::Invalid)?;
+        let has_conflict = |s: &Session| {
+            s.checks()["erc"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|f| f["code"] == json!("pin_conflict")))
+        };
+        assert!(has_conflict(&s), "two outputs should conflict before override");
+        s.execute(
+            "erc.matrix_set",
+            json!({"type_a":"output","type_b":"output","level":"ok"}),
+            None,
+        )?;
+        assert!(
+            !has_conflict(&s),
+            "matrix ok should silence the conflict"
+        );
+        assert_eq!(
+            s.project.pin_matrix.get("output|output").map(String::as_str),
+            Some("ok")
+        );
+        s.undo()?;
+        assert!(has_conflict(&s), "undo should restore the conflict");
+        s.execute(
+            "erc.matrix_set",
+            json!({"type_a":"output","type_b":"output","level":"ok"}),
+            None,
+        )?;
+        s.execute("erc.matrix_reset", json!({}), None)?;
+        assert!(has_conflict(&s), "reset should restore default error level");
+        s.undo()?;
+        assert!(
+            !has_conflict(&s),
+            "undo after reset should restore the ok override"
+        );
         Ok(())
     }
     #[test]
