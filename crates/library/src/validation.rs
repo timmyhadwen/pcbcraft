@@ -212,6 +212,7 @@ impl FootprintDefinition {
             {
                 return Err(bad("invalid pad drill"));
             }
+            #[allow(clippy::collapsible_match)]
             match (p.shape.as_str(), &p.chamfer) {
                 ("chamfered", Some(c)) => {
                     if !c.ratio.is_finite()

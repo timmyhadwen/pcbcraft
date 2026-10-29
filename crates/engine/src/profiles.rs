@@ -243,7 +243,7 @@ fn collect_unsupported(doc: &ProfileDocument) -> Vec<String> {
     out
 }
 
-fn net_id_by_name<'a>(p: &'a Project, name: &str) -> Option<Id> {
+fn net_id_by_name(p: &Project, name: &str) -> Option<Id> {
     p.nets.iter().find(|n| n.name == name).map(|n| n.id)
 }
 
@@ -367,9 +367,9 @@ fn find_or_create_class<'a>(
         nets: Vec::new(),
         profile: Some(profile_id.to_string()),
     });
-    Ok(p.net_classes
+    p.net_classes
         .last_mut()
-        .ok_or_else(|| "class push".to_string())?)
+        .ok_or_else(|| "class push".to_string())
 }
 
 fn apply_class_fields(class: &mut NetClass, spec: &NetClassToml) {
@@ -390,10 +390,10 @@ fn assign_nets_to_class(p: &mut Project, class_id: Id, nets: &[Id]) -> Result<()
         if !p.nets.iter().any(|n| n.id == *net) {
             return Err("unknown net in class membership".into());
         }
-        if let Some(existing) = p.net_class(*net) {
-            if existing.id != class_id {
-                return Err(format!("net already belongs to class {}", existing.name));
-            }
+        if let Some(existing) = p.net_class(*net)
+            && existing.id != class_id
+        {
+            return Err(format!("net already belongs to class {}", existing.name));
         }
     }
     for class in p.net_classes.iter_mut() {
