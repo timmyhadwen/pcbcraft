@@ -2029,30 +2029,24 @@ fn custom_findings(p: &Project) -> Vec<Value> {
                     }
                 }
             }
-            "part count above"
-                if p.components.len() as f64 > c.limit => {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} parts, over the limit of {} in \"{}\"",
-                            p.components.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
-            "via count above"
-                if p.board.vias.len() as f64 > c.limit => {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} vias, over the limit of {} in \"{}\"",
-                            p.board.vias.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
+            "part count above" if p.components.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} parts, over the limit of {} in \"{}\"",
+                    p.components.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
+            "via count above" if p.board.vias.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} vias, over the limit of {} in \"{}\"",
+                    p.board.vias.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
             "net track count above" => {
                 for n in &p.nets {
                     let count = p.board.tracks.iter().filter(|t| t.net == n.id).count();
@@ -12597,14 +12591,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if a.text.is_empty() || a.text.len() > 524_288 {
                 return Err(Error::Invalid("paste text length is out of range".into()));
             }
-            let (count, id_map) = selection_clip::paste(
-                p,
-                next,
-                &a.text,
-                a.offset,
-                a.renumber,
-                unique_reference,
-            )?;
+            let (count, id_map) =
+                selection_clip::paste(p, next, &a.text, a.offset, a.renumber, unique_reference)?;
             let map = id_map
                 .iter()
                 .map(|(from, to)| (from.to_string(), json!(*to)))
@@ -13777,7 +13765,7 @@ mod tests {
             .as_str()
             .ok_or_else(missing)?
             .to_string();
-        let before = s.inspect();
+        let before_project = s.project.clone();
         let pasted = s.execute(
             "selection.paste",
             json!({"text": text, "offset":{"x":0.0,"y":20.0}, "renumber": true}),
@@ -13797,18 +13785,14 @@ mod tests {
             s.project.board.tracks.iter().all(|t| t.net == gnd),
             "pasted copper keeps nets matched by name"
         );
-        assert_eq!(
-            s.project.nets.iter().filter(|n| n.name == "GND").count(),
-            1
-        );
+        assert_eq!(s.project.nets.iter().filter(|n| n.name == "GND").count(), 1);
         let pasted_ids: Vec<Id> = pasted["result"]["ids"]
             .as_object()
             .ok_or_else(missing)?
             .values()
             .filter_map(|v| v.as_u64())
             .collect();
-        let saved =
-            serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let saved = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
         let loaded: Project =
             serde_json::from_str(&saved).map_err(|e| Error::Invalid(e.to_string()))?;
         loaded.validate()?;
@@ -13819,7 +13803,7 @@ mod tests {
             );
         }
         s.undo()?;
-        assert_eq!(s.inspect(), before);
+        assert_eq!(s.project, before_project);
         assert_eq!(s.project.components.len(), 3);
         assert_eq!(s.project.board.tracks.len(), 3);
         Ok(())
@@ -13875,13 +13859,10 @@ mod tests {
         )?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
-        let text = s.execute(
-            "selection.copy_text",
-            json!({"ids":[r1, track]}),
-            None,
-        )?["result"]["text"]
-            .as_str()
-            .ok_or_else(missing)?;
+        let text =
+            s.execute("selection.copy_text", json!({"ids":[r1, track]}), None)?["result"]["text"]
+                .as_str()
+                .ok_or_else(missing)?;
         assert!(
             text.contains("\"tracks\""),
             "copy text carries selected tracks"

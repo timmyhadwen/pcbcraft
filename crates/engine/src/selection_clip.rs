@@ -38,10 +38,7 @@ fn shift_point(p: Point, offset: Point) -> Result<Point, Error> {
 }
 
 fn shift_points(points: &[Point], offset: Point) -> Result<Vec<Point>, Error> {
-    points
-        .iter()
-        .map(|p| shift_point(*p, offset))
-        .collect()
+    points.iter().map(|p| shift_point(*p, offset)).collect()
 }
 
 fn collect_net_ids(fragment: &SelectionFragment) -> BTreeSet<Id> {
@@ -134,7 +131,9 @@ fn validate_fragment_refs(fragment: &SelectionFragment) -> Result<(), Error> {
     }
     for net_id in &net_ids {
         if !fragment.nets.iter().any(|n| n.id == *net_id) {
-            return Err(Error::Invalid("clipboard fragment net record missing".into()));
+            return Err(Error::Invalid(
+                "clipboard fragment net record missing".into(),
+            ));
         }
     }
     for footprint in &fragment.footprints {
@@ -209,7 +208,9 @@ fn classify(p: &Project, id: Id) -> Result<ObjectSlot, Error> {
     if p.board.texts.iter().any(|t| t.id == id) {
         return Ok(ObjectSlot::BoardText);
     }
-    Err(Error::Invalid("selection id is not a copyable object".into()))
+    Err(Error::Invalid(
+        "selection id is not a copyable object".into(),
+    ))
 }
 
 fn referenced_net_ids(p: &Project, id: Id, kind: &ObjectSlot) -> BTreeSet<Id> {
@@ -270,11 +271,7 @@ fn referenced_net_ids(p: &Project, id: Id, kind: &ObjectSlot) -> BTreeSet<Id> {
     nets
 }
 
-pub fn copy_text(
-    p: &Project,
-    ids: &[Id],
-    context: Option<&str>,
-) -> Result<String, Error> {
+pub fn copy_text(p: &Project, ids: &[Id], context: Option<&str>) -> Result<String, Error> {
     if let Some(ctx) = context {
         if ctx != "board" && ctx != "schematic" {
             return Err(Error::Invalid(
@@ -393,7 +390,9 @@ pub fn copy_text(
     validate_fragment_refs(&fragment)?;
     let body = serde_json::to_string(&fragment).map_err(|e| Error::Invalid(e.to_string()))?;
     if body.len() > MAX_BYTES {
-        return Err(Error::Invalid("selection is too large for the clipboard".into()));
+        return Err(Error::Invalid(
+            "selection is too large for the clipboard".into(),
+        ));
     }
     Ok(format!("{ENVELOPE}\n{body}"))
 }
@@ -406,7 +405,9 @@ pub fn parse_envelope(text: &str) -> Result<SelectionFragment, Error> {
         return Err(Error::Invalid("clipboard text is malformed".into()));
     };
     if line != ENVELOPE {
-        return Err(Error::Invalid("clipboard envelope is not recognised".into()));
+        return Err(Error::Invalid(
+            "clipboard envelope is not recognised".into(),
+        ));
     }
     if body.is_empty() {
         return Err(Error::Invalid("clipboard body is empty".into()));
@@ -414,8 +415,8 @@ pub fn parse_envelope(text: &str) -> Result<SelectionFragment, Error> {
     if body.len() > MAX_BYTES {
         return Err(Error::Invalid("clipboard body is too large".into()));
     }
-    let fragment: SelectionFragment =
-        serde_json::from_str(body).map_err(|_| Error::Invalid("clipboard body is not valid JSON".into()))?;
+    let fragment: SelectionFragment = serde_json::from_str(body)
+        .map_err(|_| Error::Invalid("clipboard body is not valid JSON".into()))?;
     if fragment.version != 1 {
         return Err(Error::Invalid("clipboard version is not supported".into()));
     }
