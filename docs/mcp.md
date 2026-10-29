@@ -116,6 +116,12 @@ pads connect their own front/back copper; two different pads are never bridged.
 declared differential pair, optional `width`, and `layer` (default `F.Cu`). It
 routes both nets with coupled orthogonal L geometry and refuses when the pair gap
 cannot be kept.
+`track.drag` takes a track `id`, which `end` ("start" or "end"), a `position` and an
+optional `mode` (`octilinear` by default, or `octilinear_shove`). The other end stays
+put and the track is re-laid as 45-degree copper around pads, cutouts and other
+nets' tracks; shove mode also pushes other nets' tracks aside within fixed limits.
+A refusal gives a plain reason and changes nothing. `track.set_end` stays the
+unchecked move.
 
 `library.inspect_symbol` and `library.inspect_footprint` accept `include_source`.
 When true, up to 512 KiB of original nodes are returned for editing; larger source
