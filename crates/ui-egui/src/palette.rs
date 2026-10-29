@@ -19,7 +19,7 @@ use egui::Color32;
 ///   on the pale board fill.
 ///
 /// # Dependencies
-/// - `./contrast.rs` checks every field against `board` or `surface`.
+/// - `crates/ui-egui/src/contrast.rs` checks every field against `board` or `surface`.
 ///
 /// # Do not
 /// - Add a literal colour for something meaningful in `canvas.rs`; add a field.
@@ -42,7 +42,7 @@ pub(crate) struct CanvasColours {
 /// - `accent` is already adjusted to read on `panel`, `surface` and `hover`.
 ///
 /// # Dependencies
-/// - `./contrast.rs` reads all fields; `./lib.rs` `App::style` applies them.
+/// - `crates/ui-egui/src/contrast.rs` reads all fields; `crates/ui-egui/src/lib.rs` `App::style` applies them.
 ///
 /// # Do not
 /// - Build one by hand outside `palette` and tests.
@@ -74,7 +74,7 @@ pub(crate) struct ThemeColours {
 ///   thread because painters ask for it per object.
 ///
 /// # Dependencies
-/// - `./contrast.rs` `contrast_ratio`.
+/// - `crates/ui-egui/src/contrast.rs` `contrast_ratio`.
 ///
 /// # Do not
 /// - Cache the result across a theme or accent change.
@@ -169,7 +169,7 @@ fn build(dark: bool, accent: [u8; 3]) -> ThemeColours {
 /// - Pure and constant-time.
 ///
 /// # Dependencies
-/// - `./canvas.rs` painters; `./contrast.rs` tests.
+/// - `crates/ui-egui/src/canvas.rs` painters; `crates/ui-egui/src/contrast.rs` tests.
 ///
 /// # Do not
 /// - Read preferences here.
@@ -211,7 +211,7 @@ pub(crate) fn canvas_colours(dark: bool) -> CanvasColours {
 ///   `colours`; nothing is left at the egui default that carries meaning.
 ///
 /// # Dependencies
-/// - `craft_ui::theme::WidgetPalette` applies the widget fills.
+/// - `crates/ui-egui/src/lib.rs` `App::style` applies the result; craft-ui `WidgetPalette` fills the widgets.
 ///
 /// # Do not
 /// - Touch spacing here; `App::style` owns that.

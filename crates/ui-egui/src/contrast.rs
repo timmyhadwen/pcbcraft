@@ -28,7 +28,7 @@ fn luminance(c: Color32) -> f64 {
 /// - Symmetric: the lighter colour is always the numerator.
 ///
 /// # Dependencies
-/// - None; pure arithmetic on `egui::Color32`.
+/// - `crates/ui-egui/src/palette.rs` supplies the colours it is asked about.
 ///
 /// # Do not
 /// - Pass a translucent colour; composite it over its background first.
