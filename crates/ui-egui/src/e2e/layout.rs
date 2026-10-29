@@ -241,7 +241,7 @@ fn a_newcomer_lengthens_a_wire_to_match_its_partner() -> Result<(), String> {
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "Before")?,
+        scrolled_to_at(&ctx, &mut app, "Before", 1280.0)?,
         "the panel reports the length before and after: {}",
         app.message
     );

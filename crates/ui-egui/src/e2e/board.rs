@@ -1559,7 +1559,7 @@ fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), S
         ("icon:tool-outline", DrawShape::Poly),
         ("icon:tool-words", DrawShape::Words),
     ] {
-        tap_id(&ctx, &mut app, id)?;
+        tap_strip(&ctx, &mut app, id)?;
         assert!(
             matches!(app.tool, Tool::DrawLayer) && app.art_shape == shape,
             "{id} arms its shape on the machine layer"
@@ -1588,10 +1588,10 @@ fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), Str
         ("button:Parts", |a: &App| a.edit.filter.parts),
     ] {
         let before = read(&app);
-        tap_id(&ctx, &mut app, id)?;
+        tap_strip(&ctx, &mut app, id)?;
         assert_ne!(read(&app), before, "{id} flips what a click may pick up");
     }
-    tap_id(&ctx, &mut app, "button:Measure")?;
+    tap_strip(&ctx, &mut app, "button:Measure")?;
     assert!(matches!(app.tool, Tool::Measure), "Measure arms the ruler");
     Ok(())
 }

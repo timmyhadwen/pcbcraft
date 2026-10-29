@@ -336,7 +336,7 @@ pub(crate) fn open_tree_row(ctx: &egui::Context, app: &mut App, key: &str) {
     if key == "root" && app.tab != Tab::Pcb {
         app.change_tab(Tab::Pcb);
     }
-    app.preferences.left_tab = 0;
+    app.region().left_tab = "layers".to_owned();
     app.select(None);
     app.tree.selected_key = Some(key.to_owned());
     frame(ctx, app, vec![], egui::Modifiers::NONE);
