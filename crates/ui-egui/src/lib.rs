@@ -2,9 +2,9 @@
 mod authoring;
 mod board3d;
 mod canvas;
-mod footprint_wizard;
 mod datums;
 mod editing;
+mod footprint_wizard;
 mod impedance_panel;
 mod library;
 mod library_quality;
