@@ -80,7 +80,95 @@ pub fn tool_list() -> Value {
             json!({"name":spec.id,"description":spec.description,"inputSchema":spec.input_schema}),
         );
     }
+    for tool in &mut tools {
+        let name = tool
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        tool["title"] = json!(title_for(&name));
+        tool["annotations"] = annotations_for(&name);
+    }
     json!({"tools":tools})
+}
+
+/// Which family a tool belongs to, for its client-facing hints.
+#[derive(PartialEq)]
+enum ToolKind {
+    ReadOnly,
+    WritesFiles,
+    DiscardsState,
+    EditsDesign,
+}
+
+fn tool_kind(name: &str) -> ToolKind {
+    const READ_ONLY: [&str; 14] = [
+        "inspect_design",
+        "list_commands",
+        "checks",
+        "board_mesh",
+        "screenshot",
+        "library.catalog",
+        "library.search",
+        "library.inspect_symbol",
+        "library.inspect_footprint",
+        "library.compare",
+        "library.sources",
+        "design.recents",
+        "design.list_open",
+        "design.activate",
+    ];
+    if READ_ONLY.contains(&name) {
+        ToolKind::ReadOnly
+    } else if ["new_design", "sample_design", "open"].contains(&name) {
+        ToolKind::DiscardsState
+    } else if name.ends_with(".write")
+        || name.ends_with(".export")
+        || name.starts_with("export_")
+        || name.starts_with("library.export_")
+        || ["export", "save", "library.save", "output_job.package"].contains(&name)
+    {
+        ToolKind::WritesFiles
+    } else {
+        ToolKind::EditsDesign
+    }
+}
+
+/// The four MCP behaviour hints for one tool, so a client can decide when to ask first.
+///
+/// Read-only tools never change the design. File writers change nothing in the
+/// project but replace files on the host. Tools that replace the whole design are
+/// marked destructive. Every other edit is undoable, so it is not destructive.
+///
+/// # Rules
+/// The table lives here only; `docs/mcp.md` section "Tool hints" describes it.
+///
+/// # Dependencies
+/// `crates/mcp/src/lib.rs` (`tool_list` applies it to every listed tool).
+///
+/// # Do not
+/// Do not add a name to the read-only list unless the tool leaves the revision unchanged.
+fn annotations_for(name: &str) -> Value {
+    let (read_only, destructive, idempotent) = match tool_kind(name) {
+        ToolKind::ReadOnly => (true, false, true),
+        ToolKind::WritesFiles => (false, false, true),
+        ToolKind::DiscardsState => (false, true, false),
+        ToolKind::EditsDesign => (false, false, false),
+    };
+    json!({"readOnlyHint":read_only,"destructiveHint":destructive,"idempotentHint":idempotent,"openWorldHint":false})
+}
+
+/// A short display name: dots and underscores become spaces, first letter capitalized.
+///
+/// # Do not
+/// Do not put a rule here; a title is display text only.
+fn title_for(name: &str) -> String {
+    let spaced = name.replace(['.', '_'], " ");
+    let mut chars = spaced.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 pub(crate) fn text_result(value: Value) -> Value {
     json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":false})
@@ -830,6 +918,93 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn listed_tools() -> Result<Vec<Value>, String> {
+        tool_list()["tools"]
+            .as_array()
+            .cloned()
+            .ok_or_else(|| "tools is an array".to_string())
+    }
+    #[test]
+    fn every_listed_tool_has_a_title_and_the_four_annotation_hints() -> Result<(), String> {
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            assert!(
+                tool["title"].as_str().is_some_and(|t| !t.is_empty()),
+                "{name} has no title"
+            );
+            for hint in [
+                "readOnlyHint",
+                "destructiveHint",
+                "idempotentHint",
+                "openWorldHint",
+            ] {
+                assert!(
+                    tool["annotations"][hint].is_boolean(),
+                    "{name} lacks {hint}"
+                );
+            }
+        }
+        Ok(())
+    }
+    #[test]
+    fn tools_whose_description_says_without_editing_the_project_are_not_destructive()
+    -> Result<(), String> {
+        let mut seen = 0;
+        for tool in listed_tools()? {
+            if tool["description"]
+                .as_str()
+                .is_some_and(|d| d.contains("without editing the project"))
+            {
+                seen += 1;
+                assert_eq!(
+                    tool["annotations"]["destructiveHint"], false,
+                    "{}",
+                    tool["name"]
+                );
+            }
+        }
+        assert!(seen > 10, "the phrase is found on many tools");
+        Ok(())
+    }
+    #[test]
+    fn read_only_tools_never_change_the_revision() -> Result<(), String> {
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let revision = |s: &SharedSession| {
+            call_tool(s, "inspect_design", &json!({}))["structuredContent"]["revision"].clone()
+        };
+        let before = revision(&session);
+        assert!(before.is_number(), "inspect_design reports a revision");
+        let mut called = 0;
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            let needs_args = tool["inputSchema"]["required"]
+                .as_array()
+                .is_some_and(|r| !r.is_empty());
+            if tool["annotations"]["readOnlyHint"] == true
+                && !needs_args
+                && !name.starts_with("design.")
+            {
+                call_tool(&session, name, &json!({}));
+                called += 1;
+            }
+        }
+        assert!(called >= 4, "several read-only tools were called");
+        assert_eq!(revision(&session), before);
+        Ok(())
+    }
+    #[test]
+    fn new_design_and_open_are_marked_destructive() -> Result<(), String> {
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            let destructive = tool["annotations"]["destructiveHint"] == true;
+            assert_eq!(
+                destructive,
+                ["new_design", "sample_design", "open"].contains(&name),
+                "{name}"
+            );
+        }
+        Ok(())
+    }
     #[test]
     fn package_tool_is_listed_with_its_schema_and_writes_a_zip() -> Result<(), String> {
         let tools = tool_list();
