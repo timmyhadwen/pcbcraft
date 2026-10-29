@@ -722,6 +722,12 @@ library.add_graphic.label = Label
 # lib.rs browser
 library.browser.lib.tip = Show or hide the component library.
 library.browser.library = Library
+library.browser.tab_layers = Layers
+library.browser.tab_layers.tip = Show the parts and the layer tree.
+library.browser.tab_library = Library
+library.browser.tab_library.tip = Search the parts you can place.
+library.browser.place_part = Place part
+library.browser.place_part.tip = Search for a part to place on the schematic.
 library.browser.hide = Hide
 library.browser.hide.tip = Close the library dock to give the canvas more room. Open it again with the Lib toggle in the top bar.
 library.browser.add_part = Add part

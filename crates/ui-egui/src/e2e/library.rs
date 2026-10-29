@@ -11,7 +11,7 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Add part")?;
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Search parts by name")?,
@@ -96,7 +96,7 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
         "a part row says what the part is and where it came from: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "Add part")?;
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Power bits (1 part)")?,
@@ -298,7 +298,7 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
     let ctx = egui::Context::default();
     let none = egui::Modifiers::NONE;
     frame(&ctx, &mut app, vec![], none);
-    authoring::tests::tap(&ctx, &mut app, "Add part")?;
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], none);
     authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
     for letter in "resistor".chars() {
