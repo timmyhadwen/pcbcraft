@@ -1440,7 +1440,7 @@ impl App {
             cursor: None,
             canvas_rect: Rect::NOTHING,
             canvas_menu: None,
-            message: "Ready · A add · W wire · X route · M move · R rotate · E properties".into(),
+            message: t!("status.ready"),
             value: String::new(),
             x: 0.0,
             y: 0.0,
@@ -1867,7 +1867,7 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             ui.add(
                 crate::targets::text_field(&mut self.stack_name)
-                    .desired_width(70.0)
+                    .desired_width(150.0)
                     .hint_text(t!("board.stackup_section.layer_name")),
             )
             .named(&t!("board.stackup_section.layer_name"))
@@ -2344,114 +2344,59 @@ impl App {
                         ui.separator();
                         self.file_menu(ui);
                         self.edit_menu(ui);
+                        self.view_menu(ui);
                         self.help_menu(ui);
                     }
                 });
             });
     }
+    /// The tab row: Files, Schematic, Layout, 3D and Manufacture, left-aligned
+    /// with the active tab underlined. Rules, Checks and Settings are reached
+    /// from the File, Edit and View menus and the status bar.
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
-        let optional = [Tab::Rules, Tab::Checks, Tab::Settings];
-        let mut shown: Vec<(Tab, String)> = vec![
+        let shown: [(Tab, String); 5] = [
             (Tab::Files, t!("docks.workbench_tabs.files")),
             (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
             (Tab::Pcb, t!("docks.workbench_tabs.layout")),
             (Tab::Board3d, t!("docks.workbench_tabs.3d_view")),
+            (Tab::PlotFiles, t!("docks.workbench_tabs.manufacture")),
         ];
-        if self.tab == Tab::Libraries {
-            shown.push((Tab::Libraries, t!("docks.workbench_tabs.libraries")));
-        }
-        for (tab, label) in [
-            (Tab::Rules, t!("docks.workbench_tabs.rules")),
-            (Tab::Checks, t!("docks.workbench_tabs.checks")),
-            (Tab::PlotFiles, t!("docks.workbench_tabs.plot_files")),
-            (Tab::Settings, t!("docks.workbench_tabs.settings")),
-        ] {
-            if !self.closed_tabs.contains(&tab) {
-                shown.push((tab, label));
-            }
-        }
-        let mut close = None;
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 20.0;
             ui.add_space(Self::PAGE_GUTTER);
-            for (tab, label) in shown.iter().cloned() {
+            for (tab, label) in shown {
                 let selected = self.tab == tab;
-                let response = ui.selectable_label(selected, label.clone()).on_hover_text(
-                    if optional.contains(&tab) {
-                        t!(
-                            "docks.workbench_tabs.switch_to_the_label_view",
-                            label = label
-                        )
-                    } else {
-                        t!(
-                            "docks.workbench_tabs.switch_to_the_label_view2",
-                            label = label
-                        )
-                    },
-                );
+                let text = egui::RichText::new(label.clone());
+                let text = if selected {
+                    text.strong().color(self.ink())
+                } else {
+                    text.color(self.muted())
+                };
+                let response = ui
+                    .add(
+                        egui::Button::new(text)
+                            .frame(false)
+                            .min_size(egui::vec2(0.0, 32.0)),
+                    )
+                    .on_hover_text(t!(
+                        "docks.workbench_tabs.switch_to_the_label_view2",
+                        label = label
+                    ));
+                if selected {
+                    let r = response.rect;
+                    ui.painter().line_segment(
+                        [
+                            egui::pos2(r.left() + 4.0, r.bottom()),
+                            egui::pos2(r.right() - 4.0, r.bottom()),
+                        ],
+                        Stroke::new(2.0, self.accent()),
+                    );
+                }
                 if response.clicked() {
                     self.change_tab(tab);
                 }
-                if optional.contains(&tab) {
-                    response.context_menu(|ui| {
-                        if ui
-                            .button(t!("docks.workbench_tabs.close"))
-                            .on_hover_text(t!("docks.workbench_tabs.close.tip"))
-                            .clicked()
-                        {
-                            close = Some(tab);
-                            ui.close();
-                        }
-                    });
-                }
-            }
-            let closed = self.closed_tabs.clone();
-            ui.menu_button(t!("docks.workbench_tabs.text"), |ui| {
-                if closed.is_empty() {
-                    ui.add_enabled(
-                        false,
-                        egui::Label::new(t!("docks.workbench_tabs.every_view_is_open")),
-                    );
-                }
-                for tab in closed {
-                    let name = match tab {
-                        Tab::Rules => t!("docks.workbench_tabs.rules"),
-                        Tab::Checks => t!("docks.workbench_tabs.checks"),
-                        _ => t!("docks.workbench_tabs.settings"),
-                    };
-                    if ui
-                        .button(name)
-                        .on_hover_text(t!("docks.workbench_tabs.open_this_view_again.tip"))
-                        .clicked()
-                    {
-                        self.change_tab(tab);
-                        ui.close();
-                    }
-                }
-            })
-            .response
-            .on_hover_text(t!("docks.workbench_tabs.open_a_view_you_closed.tip"));
-            ui.separator();
-            if ui
-                .selectable_label(
-                    self.preferences.left_tab == 1,
-                    t!("docks.workbench_tabs.library_toggle"),
-                )
-                .on_hover_text(t!("library.browser.lib.tip"))
-                .clicked()
-            {
-                if Self::narrow_window(ui.ctx()) {
-                    self.change_tab(Tab::Libraries);
-                } else {
-                    self.preferences.left_tab = u8::from(self.preferences.left_tab != 1);
-                }
             }
         });
-        if let Some(tab) = close {
-            self.closed_tabs.push(tab);
-            if self.tab == tab {
-                self.change_tab(Tab::Schematic);
-            }
-        }
         if !matches!(self.tool, Tool::Select) && !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
             ui.horizontal(|ui| {
                 ui.add_space(Self::PAGE_GUTTER);
@@ -2715,6 +2660,14 @@ impl App {
                 self.paste_last_copy();
             }
             if ui
+                .button(t!("menu.edit.preferences"))
+                .on_hover_text(t!("menu.edit.preferences.tip"))
+                .clicked()
+            {
+                self.change_tab(Tab::Settings);
+                ui.close();
+            }
+            if ui
                 .button(t!("menu.edit.renumber"))
                 .on_hover_text(t!("menu.edit.renumber.tip"))
                 .clicked()
@@ -2799,6 +2752,24 @@ impl App {
             self.set_language(&tag);
             ui.ctx().request_repaint();
         }
+    }
+    /// The View menu: pages that are not tabs.
+    fn view_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button(t!("menu.view"), |ui| {
+            for (tab, label, tip) in [
+                (
+                    Tab::Checks,
+                    t!("menu.view.checks"),
+                    t!("menu.view.checks.tip"),
+                ),
+                (Tab::Rules, t!("menu.view.rules"), t!("menu.view.rules.tip")),
+            ] {
+                if ui.button(label).on_hover_text(tip).clicked() {
+                    self.change_tab(tab);
+                    ui.close();
+                }
+            }
+        });
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.help"), |ui| {
@@ -3139,119 +3110,115 @@ impl App {
                     ui.label(t!("library.browser.renumber_nothing"));
                     return;
                 }
-            let mut prefixes: Vec<String> = self
-                .project
-                .components
-                .iter()
-                .map(|c| {
-                    c.reference
-                        .chars()
-                        .take_while(char::is_ascii_alphabetic)
-                        .collect::<String>()
-                })
-                .filter(|p| !p.is_empty())
-                .collect();
-            prefixes.sort();
-            prefixes.dedup();
-            let mut pick = self
-                .renumber_plan
-                .clone()
-                .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
-            ui.horizontal(|ui| {
-                egui::ComboBox::from_id_salt("renumber-prefix")
-                    .selected_text(
-                        pick.clone()
-                            .unwrap_or_else(|| t!("library.browser.all_letters")),
-                    )
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(
-                                pick.is_none(),
-                                t!("library.browser.all_letters"),
-                            )
-                            .on_hover_text(t!("library.browser.all_letters.tip"))
-                            .clicked()
-                        {
-                            pick = None;
-                            ui.close();
-                        }
-                        for prefix in &prefixes {
+                let mut prefixes: Vec<String> = self
+                    .project
+                    .components
+                    .iter()
+                    .map(|c| {
+                        c.reference
+                            .chars()
+                            .take_while(char::is_ascii_alphabetic)
+                            .collect::<String>()
+                    })
+                    .filter(|p| !p.is_empty())
+                    .collect();
+                prefixes.sort();
+                prefixes.dedup();
+                let mut pick = self
+                    .renumber_plan
+                    .clone()
+                    .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_salt("renumber-prefix")
+                        .selected_text(
+                            pick.clone()
+                                .unwrap_or_else(|| t!("library.browser.all_letters")),
+                        )
+                        .show_ui(ui, |ui| {
                             if ui
-                                .selectable_label(
-                                    pick.as_deref() == Some(prefix.as_str()),
-                                    prefix,
-                                )
-                                .on_hover_text(t!(
-                                    "library.browser.only_renumber_the_parts_that.tip"
-                                ))
+                                .selectable_label(pick.is_none(), t!("library.browser.all_letters"))
+                                .on_hover_text(t!("library.browser.all_letters.tip"))
                                 .clicked()
                             {
-                                pick = Some(prefix.clone());
+                                pick = None;
                                 ui.close();
                             }
-                        }
-                    })
-                    .response
-                    .named("Renumber prefix")
-                    .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
-                if ui
-                    .button(t!("library.browser.preview"))
-                    .on_hover_text(t!("library.browser.preview.tip"))
-                    .clicked()
-                {
-                    let out = self.run_and_keep(
-                        "components.reannotate",
-                        json!({"dry_run": true, "prefix": pick}),
-                    );
-                    self.renumber_plan =
-                        out.get("renamed").and_then(Value::as_array).map(|rows| {
-                            (
-                                pick.clone(),
-                                rows.iter()
-                                    .filter_map(|row| {
-                                        let from = row.get("from")?.as_str()?.to_owned();
-                                        let to = row.get("to")?.as_str()?.to_owned();
-                                        Some((from, to))
-                                    })
-                                    .collect(),
-                            )
-                        });
-                }
-            });
-            if self.renumber_plan.is_none() {
-                self.renumber_prefix = pick.clone();
-            }
-            if let Some((_, plan)) = self.renumber_plan.clone() {
-                for (from, to) in plan.iter().take(12) {
-                    ui.label(
-                        egui::RichText::new(t!(
-                            "library.browser.from_to",
-                            from = from,
-                            to = to
-                        ))
-                        .small()
-                        .color(self.muted()),
-                    );
-                }
-                ui.horizontal(|ui| {
+                            for prefix in &prefixes {
+                                if ui
+                                    .selectable_label(
+                                        pick.as_deref() == Some(prefix.as_str()),
+                                        prefix,
+                                    )
+                                    .on_hover_text(t!(
+                                        "library.browser.only_renumber_the_parts_that.tip"
+                                    ))
+                                    .clicked()
+                                {
+                                    pick = Some(prefix.clone());
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .named("Renumber prefix")
+                        .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
                     if ui
-                        .button(t!("library.browser.renumber"))
-                        .on_hover_text(t!("library.browser.renumber.tip"))
+                        .button(t!("library.browser.preview"))
+                        .on_hover_text(t!("library.browser.preview.tip"))
                         .clicked()
                     {
-                        self.renumber_plan = None;
-                        self.run("components.reannotate", json!({"prefix": pick}));
-                    }
-                    if ui
-                        .button(t!("library.browser.cancel"))
-                        .on_hover_text(t!("library.browser.cancel.tip"))
-                        .clicked()
-                    {
-                        self.renumber_plan = None;
+                        let out = self.run_and_keep(
+                            "components.reannotate",
+                            json!({"dry_run": true, "prefix": pick}),
+                        );
+                        self.renumber_plan =
+                            out.get("renamed").and_then(Value::as_array).map(|rows| {
+                                (
+                                    pick.clone(),
+                                    rows.iter()
+                                        .filter_map(|row| {
+                                            let from = row.get("from")?.as_str()?.to_owned();
+                                            let to = row.get("to")?.as_str()?.to_owned();
+                                            Some((from, to))
+                                        })
+                                        .collect(),
+                                )
+                            });
                     }
                 });
-            }
-
+                if self.renumber_plan.is_none() {
+                    self.renumber_prefix = pick.clone();
+                }
+                if let Some((_, plan)) = self.renumber_plan.clone() {
+                    for (from, to) in plan.iter().take(12) {
+                        ui.label(
+                            egui::RichText::new(t!(
+                                "library.browser.from_to",
+                                from = from,
+                                to = to
+                            ))
+                            .small()
+                            .color(self.muted()),
+                        );
+                    }
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(t!("library.browser.renumber"))
+                            .on_hover_text(t!("library.browser.renumber.tip"))
+                            .clicked()
+                        {
+                            self.renumber_plan = None;
+                            self.run("components.reannotate", json!({"prefix": pick}));
+                        }
+                        if ui
+                            .button(t!("library.browser.cancel"))
+                            .on_hover_text(t!("library.browser.cancel.tip"))
+                            .clicked()
+                        {
+                            self.renumber_plan = None;
+                        }
+                    });
+                }
             });
         self.renumber_open = open;
     }
@@ -6372,8 +6339,12 @@ impl App {
         message: String,
         objects: Vec<Id>,
     ) {
+        let fill = self.colours().icon_fill;
+        let edge = Stroke::new(1.0, self.ink().gamma_multiply(0.35));
         let button = |text: String| {
             egui::Button::new(egui::RichText::new(text).size(Self::BODY))
+                .fill(fill)
+                .stroke(edge)
                 .min_size(egui::vec2(Self::ACTION_WIDTH, Self::MIN_TARGET))
         };
         if ui
@@ -6676,169 +6647,175 @@ impl App {
         if !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
             return;
         }
-        egui::ScrollArea::horizontal().auto_shrink([false, true]).scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| { ui.horizontal(|ui| {
-            ui.add_space(Self::PAGE_GUTTER);
-            let select = |app: &mut App| {
-                app.tool = Tool::Select;
-            };
-            if self
-                .tool_strip_button(
-                    ui,
-                    "tool-select",
-                    t!("board.tool_strip.select"),
-                    t!("board.tool_strip.select_objects_on_the_drawing"),
-                    matches!(self.tool, Tool::Select),
-                )
-                .clicked()
-            {
-                select(self);
-            }
-            if self
-                .tool_strip_button(
-                    ui,
-                    "tool-move",
-                    t!("board.tool_strip.move"),
-                    t!("board.tool_strip.move_tool_drop_the_selection"),
-                    matches!(self.tool, Tool::Move),
-                )
-                .clicked()
-            {
-                self.tool = Tool::Move;
-            }
-            if self.tab == Tab::Schematic {
-                if self
-                    .tool_strip_button(
-                        ui,
-                        "tool-wire",
-                        t!("board.tool_strip.wire"),
-                        t!("board.tool_strip.wire_tool_click_two_pins"),
-                        matches!(self.tool, Tool::Wire(_)),
-                    )
-                    .clicked()
-                {
-                    self.tool = Tool::Wire(None);
-                }
-                if self
-                    .tool_strip_button(
-                        ui,
-                        "tool-noconnect",
-                        t!("board.tool_strip.no_connect"),
-                        t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
-                        matches!(self.tool, Tool::NoConnect),
-                    )
-                    .clicked()
-                {
-                    self.tool = Tool::NoConnect;
-                }
-            }
-            if self.tab == Tab::Pcb {
-                if self
-                    .tool_strip_button(
-                        ui,
-                        "tool-route",
-                        t!("board.tool_strip.route"),
-                        t!("board.tool_strip.route_tool_click_two_pads"),
-                        matches!(self.tool, Tool::Route(_)),
-                    )
-                    .clicked()
-                {
-                    self.tool = Tool::Route(None);
-                }
-                for (shape, id, glyph, tip) in [
-                    (
-                        DrawShape::Line,
-                        "tool-line",
-                        t!("board.tool_strip.line"),
-                        t!("board.tool_strip.draw_a_straight_line_on"),
-                    ),
-                    (
-                        DrawShape::Rect,
-                        "tool-box",
-                        t!("board.tool_strip.box"),
-                        t!("board.tool_strip.draw_a_box_on_a"),
-                    ),
-                    (
-                        DrawShape::Circle,
-                        "tool-circle",
-                        t!("board.tool_strip.circle"),
-                        t!("board.tool_strip.draw_a_circle_on_a"),
-                    ),
-                    (
-                        DrawShape::Poly,
-                        "tool-outline",
-                        t!("board.tool_strip.outline"),
-                        t!("board.tool_strip.draw_an_outline_on_a"),
-                    ),
-                    (
-                        DrawShape::Words,
-                        "tool-words",
-                        t!("board.tool_strip.text"),
-                        t!("board.tool_strip.print_words_on_a_user"),
-                    ),
-                ] {
-                    let armed = matches!(self.tool, Tool::DrawLayer) && self.art_shape == shape;
-                    if self.tool_strip_button(ui, id, glyph, tip, armed).clicked() {
-                        self.tool = Tool::DrawLayer;
-                        self.art_shape = shape;
-                        self.art_start = None;
-                        self.art_points.clear();
+        egui::ScrollArea::horizontal()
+            .auto_shrink([false, true])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_space(Self::PAGE_GUTTER);
+                    let select = |app: &mut App| {
+                        app.tool = Tool::Select;
+                    };
+                    if self
+                        .tool_strip_button(
+                            ui,
+                            "tool-select",
+                            t!("board.tool_strip.select"),
+                            t!("board.tool_strip.select_objects_on_the_drawing"),
+                            matches!(self.tool, Tool::Select),
+                        )
+                        .clicked()
+                    {
+                        select(self);
                     }
-                }
-                if ui
-                    .selectable_label(
-                        matches!(self.tool, Tool::DrawLayer),
-                        t!("board.tool_strip.draw_shape"),
-                    )
-                    .on_hover_text(t!("board.tool_strip.draw_shape.tip"))
-                    .clicked()
-                {
-                    self.tool = Tool::DrawLayer;
-                    self.art_shape = DrawShape::Line;
-                    self.art_start = None;
-                    self.art_points.clear();
-                }
-                if ui
-                    .selectable_label(
-                        matches!(self.tool, Tool::Cutout),
-                        t!("board.tool_strip.cutout"),
-                    )
-                    .on_hover_text(command_tip("board.cutout.add"))
-                    .clicked()
-                {
-                    self.tool = Tool::Cutout;
-                }
-                if ui
-                    .selectable_label(
-                        matches!(self.tool, Tool::Hole),
-                        t!("board.tool_strip.mounting_hole"),
-                    )
-                    .on_hover_text(t!("board.tool_strip.mounting_hole.tip"))
-                    .clicked()
-                {
-                    self.tool = Tool::Hole;
-                }
-                if ui
-                    .selectable_label(
-                        matches!(self.tool, Tool::Fiducial),
-                        t!("board.tool_strip.assembly_mark"),
-                    )
-                    .on_hover_text(t!("board.tool_strip.assembly_mark.tip"))
-                    .clicked()
-                {
-                    self.tool = Tool::Fiducial;
-                }
-            }
-            ui.separator();
-            self.editing_controls(ui);
-            // Inline after the chips, so it wraps instead of lying over them.
-            if !matches!(self.tool, Tool::Select) {
-                ui.label(
-                    egui::RichText::new(tool_hint(&self.tool))
-                        .small()
-                        .color(self.muted()),
-                );
-            }
-        }); });
+                    if self
+                        .tool_strip_button(
+                            ui,
+                            "tool-move",
+                            t!("board.tool_strip.move"),
+                            t!("board.tool_strip.move_tool_drop_the_selection"),
+                            matches!(self.tool, Tool::Move),
+                        )
+                        .clicked()
+                    {
+                        self.tool = Tool::Move;
+                    }
+                    if self.tab == Tab::Schematic {
+                        if self
+                            .tool_strip_button(
+                                ui,
+                                "tool-wire",
+                                t!("board.tool_strip.wire"),
+                                t!("board.tool_strip.wire_tool_click_two_pins"),
+                                matches!(self.tool, Tool::Wire(_)),
+                            )
+                            .clicked()
+                        {
+                            self.tool = Tool::Wire(None);
+                        }
+                        if self
+                            .tool_strip_button(
+                                ui,
+                                "tool-noconnect",
+                                t!("board.tool_strip.no_connect"),
+                                t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
+                                matches!(self.tool, Tool::NoConnect),
+                            )
+                            .clicked()
+                        {
+                            self.tool = Tool::NoConnect;
+                        }
+                    }
+                    if self.tab == Tab::Pcb {
+                        if self
+                            .tool_strip_button(
+                                ui,
+                                "tool-route",
+                                t!("board.tool_strip.route"),
+                                t!("board.tool_strip.route_tool_click_two_pads"),
+                                matches!(self.tool, Tool::Route(_)),
+                            )
+                            .clicked()
+                        {
+                            self.tool = Tool::Route(None);
+                        }
+                        for (shape, id, glyph, tip) in [
+                            (
+                                DrawShape::Line,
+                                "tool-line",
+                                t!("board.tool_strip.line"),
+                                t!("board.tool_strip.draw_a_straight_line_on"),
+                            ),
+                            (
+                                DrawShape::Rect,
+                                "tool-box",
+                                t!("board.tool_strip.box"),
+                                t!("board.tool_strip.draw_a_box_on_a"),
+                            ),
+                            (
+                                DrawShape::Circle,
+                                "tool-circle",
+                                t!("board.tool_strip.circle"),
+                                t!("board.tool_strip.draw_a_circle_on_a"),
+                            ),
+                            (
+                                DrawShape::Poly,
+                                "tool-outline",
+                                t!("board.tool_strip.outline"),
+                                t!("board.tool_strip.draw_an_outline_on_a"),
+                            ),
+                            (
+                                DrawShape::Words,
+                                "tool-words",
+                                t!("board.tool_strip.text"),
+                                t!("board.tool_strip.print_words_on_a_user"),
+                            ),
+                        ] {
+                            let armed =
+                                matches!(self.tool, Tool::DrawLayer) && self.art_shape == shape;
+                            if self.tool_strip_button(ui, id, glyph, tip, armed).clicked() {
+                                self.tool = Tool::DrawLayer;
+                                self.art_shape = shape;
+                                self.art_start = None;
+                                self.art_points.clear();
+                            }
+                        }
+                        if ui
+                            .selectable_label(
+                                matches!(self.tool, Tool::DrawLayer),
+                                t!("board.tool_strip.draw_shape"),
+                            )
+                            .on_hover_text(t!("board.tool_strip.draw_shape.tip"))
+                            .clicked()
+                        {
+                            self.tool = Tool::DrawLayer;
+                            self.art_shape = DrawShape::Line;
+                            self.art_start = None;
+                            self.art_points.clear();
+                        }
+                        if ui
+                            .selectable_label(
+                                matches!(self.tool, Tool::Cutout),
+                                t!("board.tool_strip.cutout"),
+                            )
+                            .on_hover_text(command_tip("board.cutout.add"))
+                            .clicked()
+                        {
+                            self.tool = Tool::Cutout;
+                        }
+                        if ui
+                            .selectable_label(
+                                matches!(self.tool, Tool::Hole),
+                                t!("board.tool_strip.mounting_hole"),
+                            )
+                            .on_hover_text(t!("board.tool_strip.mounting_hole.tip"))
+                            .clicked()
+                        {
+                            self.tool = Tool::Hole;
+                        }
+                        if ui
+                            .selectable_label(
+                                matches!(self.tool, Tool::Fiducial),
+                                t!("board.tool_strip.assembly_mark"),
+                            )
+                            .on_hover_text(t!("board.tool_strip.assembly_mark.tip"))
+                            .clicked()
+                        {
+                            self.tool = Tool::Fiducial;
+                        }
+                    }
+                    ui.separator();
+                    self.editing_controls(ui);
+                    // Inline after the chips, so it wraps instead of lying over them.
+                    if !matches!(self.tool, Tool::Select) {
+                        ui.label(
+                            egui::RichText::new(tool_hint(&self.tool))
+                                .small()
+                                .color(self.muted()),
+                        );
+                    }
+                });
+            });
         ui.separator();
     }
 
