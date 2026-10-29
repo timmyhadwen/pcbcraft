@@ -103,7 +103,6 @@ story | button:Graphic # · unit # | no a_newcomer story, tracked in #520
 story | button:Help | no a_newcomer story, tracked in #520
 story | button:Hide | no a_newcomer story, tracked in #520
 story | button:Holes and cut-outs | no a_newcomer story, tracked in #520
-story | button:Home | no a_newcomer story, tracked in #520
 story | button:Import as board edge | no a_newcomer story, tracked in #520
 story | button:Import drawing | no a_newcomer story, tracked in #520
 story | button:J# #V input | no a_newcomer story, tracked in #520
@@ -130,10 +129,7 @@ story | button:Project notes | no a_newcomer story, tracked in #520
 story | button:Properties | no a_newcomer story, tracked in #520
 story | button:R# # Ω | no a_newcomer story, tracked in #520
 story | button:Rectangle | no a_newcomer story, tracked in #520
-story | button:Redo | no a_newcomer story, tracked in #520
 story | button:Rename | no a_newcomer story, tracked in #520
-story | button:Report a bug | no a_newcomer story, tracked in #520
-story | button:Save | no a_newcomer story, tracked in #520
 story | button:Save footprint to project library | no a_newcomer story, tracked in #520
 story | button:Save symbol to project library | no a_newcomer story, tracked in #520
 story | button:Schematic | no a_newcomer story, tracked in #520
@@ -155,7 +151,6 @@ story | button:Tool: Pick | no a_newcomer story, tracked in #520
 story | button:Top | no a_newcomer story, tracked in #520
 story | button:Top copper wires | no a_newcomer story, tracked in #520
 story | button:Two layers · thin #.# mm | no a_newcomer story, tracked in #520
-story | button:Undo | no a_newcomer story, tracked in #520
 story | button:VCC has disconnected copper islands | no a_newcomer story, tracked in #520
 story | button:Via holes | no a_newcomer story, tracked in #520
 story | button:Watched pairs | no a_newcomer story, tracked in #520
@@ -241,3 +236,8 @@ story | button:Pad | no a_newcomer story, tracked in #520
 story | button:Pads: net | no a_newcomer story, tracked in #520
 story | button:Pads: number | no a_newcomer story, tracked in #520
 story | button:Pads: off | no a_newcomer story, tracked in #520
+tooltip | checkbox:Plated board edge | has a tooltip but sits below the fold of the files panel, so the walk cannot hover it; scroll it into view in a walk step, tracked in #520
+tooltip | textinput:Search the whole board | has a tooltip but sits below the fold of the files panel, so the walk cannot hover it; scroll it into view in a walk step, tracked in #520
+story | button:Libraries | no a_newcomer story, tracked in #520
+story | button:Line | no a_newcomer story, tracked in #520
+story | icon:canvas-fit | no a_newcomer story, tracked in #520

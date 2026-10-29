@@ -225,8 +225,11 @@ fn settle(ctx: &egui::Context, app: &mut App) {
 }
 
 /// Hover the control for two frames and say whether a tooltip appeared.
+/// The control is looked up again after the pointer leaves, because panels
+/// can still be moving when the page is first listed. A control scrolled out
+/// of its panel has no visible area to hover, so it cannot show a tooltip
+/// here and is reported until a test scrolls it into view (#520).
 fn shows_tooltip(ctx: &egui::Context, app: &mut App, control: &Control) -> bool {
-    let pos = control.rect.center();
     // Clear the previous control's tooltip first: it can sit over this control.
     for _ in 0..2 {
         frame(
@@ -236,11 +239,18 @@ fn shows_tooltip(ctx: &egui::Context, app: &mut App, control: &Control) -> bool 
             egui::Modifiers::NONE,
         );
     }
+    let rect = controls(ctx, app)
+        .into_iter()
+        .find(|c| c.widget == control.widget)
+        .map_or(control.rect, |c| c.rect);
+    if rect.width() < 1.0 || rect.height() < 1.0 {
+        return false;
+    }
     for _ in 0..2 {
         frame(
             ctx,
             app,
-            vec![egui::Event::PointerMoved(pos)],
+            vec![egui::Event::PointerMoved(rect.center())],
             egui::Modifiers::NONE,
         );
     }
