@@ -20118,7 +20118,7 @@ mod tests {
         assert_eq!(report["removed"], 1, "the dangling stub goes");
         assert_eq!(report["merged"], 1, "the collinear pair becomes one segment");
         assert_eq!(
-            report["removed"].as_u64().ok_or_else(missing)? as u64
+            report["removed"].as_u64().ok_or_else(missing)?
                 + report["merged"].as_u64().ok_or_else(missing)?,
             2,
             "two changes in total"
