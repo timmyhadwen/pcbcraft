@@ -796,7 +796,11 @@ impl App {
                             {
                                 step(self, 1.0 / 1.15);
                             }
-                            let base = if self.tab == Tab::Schematic { 15.0 } else { 11.0 };
+                            let base = if self.tab == Tab::Schematic {
+                                15.0
+                            } else {
+                                11.0
+                            };
                             ui.label(
                                 egui::RichText::new(format!(
                                     "{}%",
