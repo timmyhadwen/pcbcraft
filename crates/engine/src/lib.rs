@@ -14194,6 +14194,9 @@ fn run_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SYM_REFRESH_SEQ: AtomicU64 = AtomicU64::new(0);
     fn library_fixture(name: &str) -> String {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../library/tests/fixtures")
@@ -16415,9 +16418,11 @@ mod tests {
 
     #[test]
     fn symbol_refresh_propagates_symbol_edits_to_every_placed_copy() -> Result<(), Error> {
-        let folder = std::env::temp_dir()
-            .join(format!("pcbcraft-symrefresh-{}", std::process::id()))
-            .join("amps");
+        let folder = std::env::temp_dir().join(format!(
+            "pcbcraft-symrefresh-{}-{}",
+            std::process::id(),
+            SYM_REFRESH_SEQ.fetch_add(1, Ordering::Relaxed)
+        )).join("amps");
         std::fs::create_dir_all(&folder).map_err(|e| Error::Invalid(e.to_string()))?;
         let file = folder.join("amps.kicad_sym");
         let fixture = library_fixture("lm358.kicad_sym");
