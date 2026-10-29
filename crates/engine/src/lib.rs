@@ -17983,7 +17983,10 @@ mod tests {
                    "body_x": 5.0, "body_y": 5.0}),
         ];
         for params in bad {
-            assert!(s.execute("library.footprint.generate", params, None).is_err());
+            assert!(
+                s.execute("library.footprint.generate", params, None)
+                    .is_err()
+            );
             assert_eq!(s.revision, before);
             assert_eq!(s.project.library.footprints.len(), 0);
         }
@@ -18000,7 +18003,10 @@ mod tests {
             None,
         )?;
         let out = s.execute("library.footprint.check", json!({"name": "QFN32"}), None)?;
-        let clean = out["result"]["findings"].as_array().cloned().unwrap_or_default();
+        let clean = out["result"]["findings"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         assert!(
             !clean.iter().any(|f| f["code"] == "lib_pad_overlap"),
             "fresh QFN must not overlap: {clean:?}"
@@ -18009,7 +18015,10 @@ mod tests {
         let at = def.pads[0].position;
         def.pads[1].position = at;
         let out = s.execute("library.footprint.check", json!({"definition": def}), None)?;
-        let found = out["result"]["findings"].as_array().cloned().unwrap_or_default();
+        let found = out["result"]["findings"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         assert!(
             found.iter().any(|f| f["code"] == "lib_pad_overlap"),
             "moved pad must overlap: {found:?}"
