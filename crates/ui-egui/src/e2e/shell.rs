@@ -243,6 +243,35 @@ fn schematic_strings_are_all_catalog_keys() -> Result<(), String> {
 }
 
 #[test]
+fn library_strings_are_all_catalog_keys() -> Result<(), String> {
+    let listed = pcbcraft_text::scan::converted_fns();
+    for (file, function) in [
+        ("library.rs", "request"),
+        ("library.rs", "search"),
+        ("library.rs", "poll"),
+        ("library.rs", "collection_browser"),
+        ("library.rs", "library_preview"),
+        ("authoring.rs", "library_editor"),
+        ("authoring.rs", "project_library"),
+        ("authoring.rs", "library_workspaces"),
+        ("authoring.rs", "graphic"),
+        ("authoring.rs", "add_graphic"),
+        ("lib.rs", "browser"),
+        ("lib.rs", "library"),
+        ("lib.rs", "files_tab"),
+        ("library_quality.rs", "quality_badge"),
+        ("library_quality.rs", "library_checks_section"),
+        ("library_quality.rs", "refresh_footprint_quality"),
+    ] {
+        assert!(
+            listed.contains(&(file.to_string(), function.to_string())),
+            "{file} {function} is listed in converted-fns.txt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(

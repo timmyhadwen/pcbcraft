@@ -628,4 +628,26 @@ mod area_tests {
             ("canvas.rs", "paint_schematic"),
         ])
     }
+
+    #[test]
+    fn every_key_used_by_library_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("library.rs", "request"),
+            ("library.rs", "search"),
+            ("library.rs", "poll"),
+            ("library.rs", "collection_browser"),
+            ("library.rs", "library_preview"),
+            ("authoring.rs", "library_editor"),
+            ("authoring.rs", "project_library"),
+            ("authoring.rs", "library_workspaces"),
+            ("authoring.rs", "graphic"),
+            ("authoring.rs", "add_graphic"),
+            ("lib.rs", "browser"),
+            ("lib.rs", "library"),
+            ("lib.rs", "files_tab"),
+            ("library_quality.rs", "quality_badge"),
+            ("library_quality.rs", "library_checks_section"),
+            ("library_quality.rs", "refresh_footprint_quality"),
+        ])
+    }
 }

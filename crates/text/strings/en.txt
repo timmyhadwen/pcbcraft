@@ -514,6 +514,269 @@ schematic.type_note.true_or_false = true or false
 schematic.paint_schematic.start_your_circuit = Start your circuit
 schematic.paint_schematic.press_a_to_add_a = Press A to add a symbol, or open the start screen for a worked example
 
+# library.rs request
+library.request.installed_library_browsing_is_available = Installed library browsing is available in the desktop build.
+
+# library.rs search
+
+# library.rs poll
+library.poll.added_v0_v1_symbol_libraries = Added {v0} · {v1} symbol libraries · {v2} footprint libraries now in the unified list
+library.poll.removed_v0_from_the_library = Removed {v0} from the library sources; installed folders stay untouched
+
+# library.rs collection_browser
+library.collection_browser.component_libraries = Component libraries
+library.collection_browser.one_library_for_every_collection = One library for every collection below · add any folder as a source · definitions used by a project are embedded on placement.
+library.collection_browser.symbols = Symbols
+library.collection_browser.symbols.tip = List the schematic symbols in the chosen library.
+library.collection_browser.footprints = Footprints
+library.collection_browser.footprints.tip = List the board footprints in the chosen library.
+library.collection_browser.refresh_folders = Refresh folders
+library.collection_browser.refresh_folders.tip = Rescan the library folders for symbol and footprint collections.
+library.collection_browser.sources = Sources
+library.collection_browser.all = All
+library.collection_browser.all.tip = Show collections from every library source together.
+library.collection_browser.show_only_the_collections_that.tip = Show only the collections that come from {name}.
+library.collection_browser.choose_library = Choose library
+library.collection_browser.browse_this_collection.tip = Browse this collection.
+library.collection_browser.library_path = Library path
+library.collection_browser.the_collection_the_search_box.tip = The collection the search box below reads; pick any library from the list above or type a path.
+library.collection_browser.folder_to_add_as_a = Folder to add as a library source
+library.collection_browser.folder_to_add_as_a.tip = Any folder holding symbol files or footprint collections, from any distributor or your own shelf; it joins the list above without moving your files. Press Enter to add it.
+library.collection_browser.add_folder = Add folder
+library.collection_browser.add_folder.tip = Register the folder named to the left as a library source; its collections appear in the list above on the next scan.
+library.collection_browser.remove_source = Remove source
+library.collection_browser.remove_source.tip = Stop listing the added source that contains the selected library; installed folders are never removed.
+library.collection_browser.search_names_descriptions_keywords = Search names, descriptions, keywords
+library.collection_browser.search = Search
+library.collection_browser.search.tip = Find symbols and footprints by name across the loaded collections.
+library.collection_browser.reading_library = Reading library…
+library.collection_browser.some_library_folders_exceeded_the = Some library folders exceeded the scan limit; use a specific library path.
+library.collection_browser.total_matches_in_scanned_entries = {total} matches in scanned entries · showing up to 100
+library.collection_browser.directory_scan_reached_its_limit = Directory scan reached its limit; more entries may exist.
+library.collection_browser.filter_shown_results = Filter shown results
+library.collection_browser.narrow_the_list_below_as.tip = Narrow the list below as you type; matches names and descriptions, ignoring case. Double-click to clear.
+library.collection_browser.clear_filter = Clear filter
+library.collection_browser.clear_filter.tip = Show every listed result again.
+library.collection_browser.len_of_len2_listed_entries = {len} of {len2} listed entries match the filter
+library.collection_browser.original_nodes_exceed_inline_editing = Original nodes exceed inline editing limits; the source file is preserved.
+library.collection_browser.edit_a_copy = Edit a copy →
+library.collection_browser.len_pads_len2_graphics = {len} pads · {len2} graphics
+library.collection_browser.pad_numbers_must_match_every = Pad numbers must match every pin of the selected symbol.
+library.collection_browser.assign_to_reference = Assign to {reference}
+library.collection_browser.select_a_schematic_component_before = Select a schematic component before assigning its footprint.
+library.collection_browser.len_pins_v1_units = {len} pins · {v1} units
+library.collection_browser.suggested_footprint_footprint = Suggested footprint: {footprint}
+library.collection_browser.place_in_schematic = Place in schematic →
+library.collection_browser.inspection_available_unsupported_pin_graphic = Inspection available; unsupported pin/graphic styles or repeated common pin numbers cannot be placed yet.
+library.collection_browser.choose_an_entry_to_preview = Choose an entry to preview its real geometry.
+library.collection_browser.library_data_license_cc_by = Library data license: CC-BY-SA 4.0 + design exception
+library.collection_browser.placement_single_multi_unit_symbols = Placement: single/multi-unit symbols, matching front SMD or plated through-hole packages. Use Edit a copy to customize a definition.
+
+# library.rs library_preview
+library.library_preview.preview_unit = Preview unit
+library.library_preview.draw_this_half_of_the.tip = Draw this half of the part in the preview.
+
+# authoring.rs library_editor
+library.library_editor.library_editor = Library editor
+library.library_editor.create_a_symbol_or_footprint = Create a symbol or footprint, or edit a copy from the installed/project library.
+library.library_editor.dimensions_are_millimetres_angles_are = Dimensions are millimetres; angles are counterclockwise degrees. Save commits one undoable edit.
+library.library_editor.symbol_editor = Symbol editor
+library.library_editor.name = Name
+library.library_editor.reference_prefix = Reference prefix
+library.library_editor.default_value = Default value
+library.library_editor.description = Description
+library.library_editor.suggested_footprint = Suggested footprint
+library.library_editor.set = Set
+library.library_editor.set.tip = Optional group name, like Power bits. Parts that share a set are grouped together when you add parts, and the group can be hidden.
+library.library_editor.preserved_unsupported_features_v0 = Preserved unsupported features: {v0}
+library.library_editor.save_symbol_to_project_library = Save symbol to project library
+library.library_editor.save_symbol_to_project_library.tip = Store this symbol in the current project library.
+library.library_editor.pins = Pins
+library.library_editor.duplicate_preview_unit = Duplicate preview unit
+library.library_editor.duplicate_preview_unit.tip = Copy the unit being edited to grow a multi-unit package.
+library.library_editor.add_pin = Add pin
+library.library_editor.add_pin.tip = Add a new pin to this symbol.
+library.library_editor.pin_number_unit_unit = Pin {number} · unit {unit}
+library.library_editor.unit = Unit
+library.library_editor.delete_pin = Delete pin
+library.library_editor.delete_pin.tip = Remove this pin.
+library.library_editor.drawing = Drawing
+library.library_editor.graphic_v0_unit_unit = Graphic {v0} · unit {unit}
+library.library_editor.unit_0_shared = Unit (0 shared)
+library.library_editor.delete_graphic = Delete graphic
+library.library_editor.delete_graphic.tip = Remove this graphic.
+library.library_editor.footprint_editor = Footprint editor
+library.library_editor.save_footprint_to_project_library = Save footprint to project library
+library.library_editor.save_footprint_to_project_library.tip = Store this footprint in the current project library.
+library.library_editor.pads = Pads
+library.library_editor.add_pad = Add pad
+library.library_editor.add_pad.tip = Add a new pad to this footprint.
+library.library_editor.pad_number_pad_type = Pad {number} · {pad_type}
+library.library_editor.front_smd = Front SMD
+library.library_editor.front_smd.tip = Soldered to the board surface; no drill hole.
+library.library_editor.plated_through_hole = Plated through-hole
+library.library_editor.plated_through_hole.tip = Drilled and plated so legs can pass through.
+library.library_editor.unplated_hole = Unplated hole
+library.library_editor.unplated_hole.tip = A bare drilled hole for a locating peg or screw. It has no copper and no net.
+library.library_editor.copper_outline_of_the_pad.tip = Copper outline of the pad; the mask follows it.
+library.library_editor.corner_ratio = Corner ratio
+library.library_editor.layers_v0 = Layers: {v0}
+library.library_editor.delete_pad = Delete pad
+library.library_editor.delete_pad.tip = Remove this pad.
+library.library_editor.graphic_v0 = Graphic {v0}
+
+# authoring.rs project_library
+library.project_library.this_project_s_definitions = This project's definitions
+library.project_library.saved_here_live_with_the = Saved here, live with the design; everything above is shared collections. Placed components retain their embedded copies.
+library.project_library.collection_file = Collection file
+library.project_library.save_library = Save library
+library.project_library.save_library.tip = Write the authored collections to a reusable library file.
+library.project_library.load_library = Load library
+library.project_library.load_library.tip = Bring a saved library file into the editor.
+library.project_library.symbols = Symbols
+library.project_library.len_physical_pins = {len} physical pins
+library.project_library.edit = Edit
+library.project_library.edit.tip = Edit this definition in the panel below.
+library.project_library.place = Place
+library.project_library.remove = Remove
+library.project_library.remove.tip = Remove this definition from the project library.
+library.project_library.footprints = Footprints
+library.project_library.len_pads = {len} pads
+library.project_library.assign_to_selection = Assign to selection
+
+# authoring.rs library_workspaces
+library.library_workspaces.library = Library
+library.library_workspaces.library.tip = Browse the installed and project libraries.
+library.library_workspaces.editor = Editor
+library.library_workspaces.editor.tip = Draw or edit a symbol or a footprint.
+library.library_workspaces.new_symbol = New symbol
+library.library_workspaces.new_symbol.tip = Start a fresh empty symbol definition.
+library.library_workspaces.new_footprint = New footprint
+library.library_workspaces.new_footprint.tip = Start a fresh empty footprint definition.
+library.library_workspaces.generate_footprint = Generate footprint
+library.library_workspaces.generate_footprint.tip = Build a footprint from a package family and the numbers in its datasheet.
+
+# authoring.rs graphic
+library.graphic.start = Start
+library.graphic.end = End
+library.graphic.stroke = Stroke
+library.graphic.layer = Layer
+library.graphic.fill = Fill
+library.graphic.center = Center
+library.graphic.radius = Radius
+library.graphic.through = Through
+library.graphic.vertex_v0 = Vertex {v0}
+library.graphic.remaining_vertices_are_preserved = Remaining vertices are preserved.
+library.graphic.add_vertex = Add vertex
+library.graphic.add_vertex.tip = Append another corner to the outline.
+library.graphic.remove_last_vertex = Remove last vertex
+library.graphic.remove_last_vertex.tip = Drop the last corner of the outline.
+library.graphic.position = Position
+library.graphic.text = Text
+library.graphic.text_size = Text size
+library.graphic.angle = Angle
+
+# authoring.rs add_graphic
+library.add_graphic.add_drawing = Add drawing:
+library.add_graphic.line = Line
+library.add_graphic.line.tip = Add a straight line segment to this definition.
+library.add_graphic.rectangle = Rectangle
+library.add_graphic.rectangle.tip = Add a rectangle outline to this definition.
+library.add_graphic.circle = Circle
+library.add_graphic.circle.tip = Add a circle to this definition.
+library.add_graphic.arc = Arc
+library.add_graphic.arc.tip = Add an arc segment to this definition.
+library.add_graphic.polyline = Polyline
+library.add_graphic.polyline.tip = Add an open multi-segment outline to this definition.
+library.add_graphic.text = Text
+library.add_graphic.text.tip = Add a text label to this definition.
+library.add_graphic.label = Label
+
+# lib.rs browser
+library.browser.lib = Lib
+library.browser.lib.tip = Show or hide the component library.
+library.browser.mistakes_the_checks_say_you = Mistakes the checks say you must fix.
+library.browser.warnings_worth_a_look_but = Warnings worth a look, but not blockers.
+library.browser.notes_from_the_checks_that = Notes from the checks that need no action.
+library.browser.count = {count}
+library.browser.count.tip = {count} {name} from the checks. {help} Click to open the Checks tab.
+library.browser.library = Library
+library.browser.hide = Hide
+library.browser.hide.tip = Close the library dock.
+library.browser.add_part = Add part
+library.browser.add_part.tip = Search for a part to place on the schematic.
+library.browser.add_a_part = Add a part
+library.browser.search_parts_by_name = Search parts by name
+library.browser.search_parts_by_name.tip = Type any part name; the list below narrows as you type.
+library.browser.browse_component_libraries = Browse component libraries →
+library.browser.browse_component_libraries.tip = Open library sources in Settings to browse symbol and footprint collections.
+library.browser.nothing_here_matches_trim_yet = Nothing here matches "{trim}" yet.
+library.browser.common_parts = Common parts
+library.browser.pick_this_part_the_next.tip = Pick this part; the next click on the schematic places it.
+library.browser.from_this_project_s_library = From this project's library
+library.browser.set_len_part_v1 = {set} ({len} part{v1})
+library.browser.set_len_part_v1.tip = Parts grouped under this name. Untick to hide the whole group while you add parts.
+library.browser.components = COMPONENTS
+library.browser.reference_value = {reference}   {value}
+library.browser.reference_value.tip = Select this component and show its properties.
+library.browser.description = Description
+library.browser.built_in = built in
+library.browser.from_name = from {name}
+library.browser.renumber_parts = RENUMBER PARTS
+library.browser.all_letters = all letters
+library.browser.all_letters.tip = Number every kind of part again, one run of numbers per letter.
+library.browser.only_renumber_the_parts_that.tip = Only renumber the parts that start with this letter.
+library.browser.renumber_one_kind_of_part.tip = Renumber one kind of part, or every part at once.
+library.browser.preview = Preview
+library.browser.preview.tip = Show the new numbers, in placement order, before anything changes.
+library.browser.from_to = {from}  →  {to}
+library.browser.renumber = Renumber
+library.browser.renumber.tip = Write these numbers now; Undo puts the old ones back.
+library.browser.cancel = Cancel
+library.browser.cancel.tip = Drop this plan; nothing changes.
+
+# lib.rs library
+library.library.original_starter_symbols = Original starter symbols
+library.library.prefix_value_2_pins = {prefix} · {value} · 2 pins
+library.library.place_in_schematic = Place in schematic >
+
+# lib.rs files_tab
+library.files_tab.project_files = Project files
+library.files_tab.design_file_trim = Design file: {trim}
+library.files_tab.library_sources = Library sources
+library.files_tab.library_sources.tip = Manage the folders that feed the component list.
+library.files_tab.builds = Builds
+
+# library_quality.rs quality_badge
+library.quality_badge.errors_to_fix = {errors} to fix
+library.quality_badge.this_footprint_has_mistakes_that = This footprint has mistakes that can make a bad board. Open the Checks tab for what to change.
+library.quality_badge.warnings_to_review = {warnings} to review
+library.quality_badge.this_footprint_is_usable_but = This footprint is usable but breaks a common good habit. Open the Checks tab for the details.
+library.quality_badge.clean = Clean
+library.quality_badge.the_library_checks_found_nothing = The library checks found nothing wrong with this footprint.
+
+# library_quality.rs library_checks_section
+library.library_checks_section.library = Library
+library.library_checks_section.whether_the_footprints_in_this = Whether the footprints in this project's library follow good drawing habits: pad numbers, silkscreen, courtyard and the like.
+library.library_checks_section.no_findings_in_the_implemented = No findings in the implemented checks
+library.library_checks_section.a_mistake_in_a_library = A mistake in a library footprint. Fix it before parts using this footprint go on a board.
+library.library_checks_section.worth_a_look_but_it = Worth a look, but it does not stop a board being built.
+library.library_checks_section.footprint_message = {footprint}: {message}
+library.library_checks_section.footprint_message.tip = Open this footprint in the library editor.
+library.library_checks_section.fix_hint = Fix: {hint}
+
+# library_quality.rs refresh_footprint_quality
+
+# extra authoring.rs library_editor
+library.library_editor.number = Number
+library.library_editor.connection = Connection
+library.library_editor.angle = Angle
+library.library_editor.length = Length
+library.library_editor.position = Position
+library.library_editor.copper_size = Copper size
+library.library_editor.drill_size_oval_if_unequal = Drill size (oval if unequal)
+library.library_editor.drill_offset = Drill offset
+
 unit.mm7.tip = How wide this stretch of copper is. Thicker wires carry more current.
 board.inspector.set_width = Set width
 board.inspector.thicken_whole_connection = Thicken whole connection
@@ -598,6 +861,8 @@ empty.symbols = No symbols yet. Press A to open the symbol palette, or run compo
 empty.nets = No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import and board.sync will create the packages.
 empty.board = No packages on the board yet. Run board.sync to place a package for every symbol.
 empty.checks = Checks run automatically on every edit; findings are listed here as soon as one appears.
+
+library.browser.item_origin = {item} · {origin}
 
 unit.mm = mm
 unit.mil = mil

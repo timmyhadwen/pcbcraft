@@ -3498,8 +3498,11 @@ impl App {
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
                     if ui
-                        .selectable_label(self.preferences.library_dock_open, "Lib")
-                        .on_hover_text("Show or hide the component library.")
+                        .selectable_label(
+                            self.preferences.library_dock_open,
+                            t!("library.browser.lib"),
+                        )
+                        .on_hover_text(t!("library.browser.lib.tip"))
                         .clicked()
                     {
                         self.preferences.library_dock_open = !self.preferences.library_dock_open;
@@ -3507,14 +3510,29 @@ impl App {
                     ui.add_space(8.0);
                     let counts = Self::finding_counts(&self.checks);
                     for (count, name, help) in [
-                        (counts.0, "errors", "Mistakes the checks say you must fix."),
-                        (counts.1, "warnings", "Warnings worth a look, but not blockers."),
-                        (counts.2, "notes", "Notes from the checks that need no action."),
+                        (
+                            counts.0,
+                            "errors",
+                            t!("library.browser.mistakes_the_checks_say_you"),
+                        ),
+                        (
+                            counts.1,
+                            "warnings",
+                            t!("library.browser.warnings_worth_a_look_but"),
+                        ),
+                        (
+                            counts.2,
+                            "notes",
+                            t!("library.browser.notes_from_the_checks_that"),
+                        ),
                     ] {
                         if ui
-                            .button(format!("{count}"))
-                            .on_hover_text(format!(
-                                "{count} {name} from the checks. {help} Click to open the Checks tab."
+                            .button(t!("library.browser.count", count = count))
+                            .on_hover_text(t!(
+                                "library.browser.count.tip",
+                                count = count,
+                                name = name,
+                                help = help
                             ))
                             .clicked()
                         {
@@ -3532,10 +3550,10 @@ impl App {
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Library").strong());
+                    ui.label(egui::RichText::new(t!("library.browser.library")).strong());
                     if ui
-                        .small_button("Hide")
-                        .on_hover_text("Close the library dock.")
+                        .small_button(t!("library.browser.hide"))
+                        .on_hover_text(t!("library.browser.hide.tip"))
                         .clicked()
                     {
                         self.preferences.library_dock_open = false;
@@ -3543,31 +3561,29 @@ impl App {
                 });
                 ui.add_space(8.0);
                 if ui
-                    .button("Add part")
-                    .on_hover_text("Search for a part to place on the schematic.")
+                    .button(t!("library.browser.add_part"))
+                    .on_hover_text(t!("library.browser.add_part.tip"))
                     .clicked()
                 {
                     self.palette = true;
                     self.part_search_focus = true;
                 }
                 if self.palette {
-                    ui.label(egui::RichText::new("Add a part").strong());
+                    ui.label(egui::RichText::new(t!("library.browser.add_a_part")).strong());
                     let query_box = ui
                         .add(
                             egui::TextEdit::singleline(&mut self.part_search)
-                                .hint_text("Search parts by name")
+                                .hint_text(t!("library.browser.search_parts_by_name"))
                                 .desired_width(f32::INFINITY),
                         )
-                        .on_hover_text("Type any part name; the list below narrows as you type.");
+                        .on_hover_text(t!("library.browser.search_parts_by_name.tip"));
                     if self.part_search_focus {
                         query_box.request_focus();
                         self.part_search_focus = false;
                     }
                     if ui
-                        .button("Browse component libraries →")
-                        .on_hover_text(
-                            "Open library sources in Settings to browse symbol and footprint collections.",
-                        )
+                        .button(t!("library.browser.browse_component_libraries"))
+                        .on_hover_text(t!("library.browser.browse_component_libraries.tip"))
                         .clicked()
                     {
                         self.change_tab(Tab::Settings);
@@ -3601,9 +3617,9 @@ impl App {
                         .show(ui, |ui| {
                             if built_in.is_empty() && saved.is_empty() {
                                 ui.label(
-                                    egui::RichText::new(format!(
-                                        "Nothing here matches \"{}\" yet.",
-                                        self.part_search.trim()
+                                    egui::RichText::new(t!(
+                                        "library.browser.nothing_here_matches_trim_yet",
+                                        trim = self.part_search.trim()
                                     ))
                                     .small()
                                     .color(self.muted()),
@@ -3611,16 +3627,16 @@ impl App {
                             }
                             if !built_in.is_empty() {
                                 ui.label(
-                                    egui::RichText::new("Common parts")
+                                    egui::RichText::new(t!("library.browser.common_parts"))
                                         .size(10.0)
                                         .color(self.muted()),
                                 );
                                 for (kind, label) in built_in {
                                     if ui
                                         .button(label)
-                                        .on_hover_text(
-                                            "Pick this part; the next click on the schematic places it.",
-                                        )
+                                        .on_hover_text(t!(
+                                            "library.browser.pick_this_part_the_next.tip"
+                                        ))
                                         .clicked()
                                     {
                                         self.change_tab(Tab::Schematic);
@@ -3632,9 +3648,11 @@ impl App {
                             }
                             if !saved.is_empty() {
                                 ui.label(
-                                    egui::RichText::new("From this project's library")
-                                        .size(10.0)
-                                        .color(self.muted()),
+                                    egui::RichText::new(t!(
+                                        "library.browser.from_this_project_s_library"
+                                    ))
+                                    .size(10.0)
+                                    .color(self.muted()),
                                 );
                                 let mut sets: std::collections::BTreeMap<
                                     String,
@@ -3648,22 +3666,18 @@ impl App {
                                 let loose = sets.remove("");
                                 for (set, definitions) in &sets {
                                     let mut shown = !self.hidden_sets.iter().any(|h| h == set);
-                                    let row = ui.checkbox(
-                                        &mut shown,
-                                        egui::RichText::new(format!(
-                                            "{set} ({} part{})",
-                                            definitions.len(),
-                                            if definitions.len() == 1 {
-                                                ""
-                                            } else {
-                                                "s"
-                                            }
-                                        ))
-                                        .strong(),
-                                    )
-                                    .on_hover_text(
-                                        "Parts grouped under this name. Untick to hide the whole group while you add parts.",
-                                    );
+                                    let row = ui
+                                        .checkbox(
+                                            &mut shown,
+                                            egui::RichText::new(t!(
+                                                "library.browser.set_len_part_v1",
+                                                set = set,
+                                                len = definitions.len(),
+                                                v1 = if definitions.len() == 1 { "" } else { "s" }
+                                            ))
+                                            .strong(),
+                                        )
+                                        .on_hover_text(t!("library.browser.set_len_part_v1.tip"));
                                     if row.changed() {
                                         if shown {
                                             self.hidden_sets.retain(|h| h != set);
@@ -3687,7 +3701,7 @@ impl App {
                 }
                 ui.add_space(12.0);
                 ui.label(
-                    egui::RichText::new("COMPONENTS")
+                    egui::RichText::new(t!("library.browser.components"))
                         .size(10.0)
                         .color(self.muted()),
                 );
@@ -3706,28 +3720,34 @@ impl App {
                     if ui
                         .selectable_label(
                             self.selected == Some(id),
-                            format!("{}   {}", c.reference, c.value),
+                            t!(
+                                "library.browser.reference_value",
+                                reference = c.reference,
+                                value = c.value
+                            ),
                         )
-                        .on_hover_text("Select this component and show its properties.")
+                        .on_hover_text(t!("library.browser.reference_value.tip"))
                         .clicked()
                     {
                         self.select(Some(id));
                     }
                     let what = c
-                        .field("Description")
+                        .field(&t!("library.browser.description"))
                         .map(str::to_owned)
                         .or_else(|| {
-                            c.library_symbol.as_ref().map(|ls| ls.definition.description.clone())
+                            c.library_symbol
+                                .as_ref()
+                                .map(|ls| ls.definition.description.clone())
                         })
                         .map(|d| d.trim().to_owned())
                         .filter(|d| !d.is_empty());
                     let origin = c.library_symbol.as_ref().map_or_else(
-                        || "built in".to_string(),
-                        |ls| format!("from {}", ls.definition.name),
+                        || t!("library.browser.built_in"),
+                        |ls| t!("library.browser.from_name", name = ls.definition.name),
                     );
                     let note = what.map_or_else(
                         || origin.clone(),
-                        |d| format!("{d} · {origin}"),
+                        |d| t!("library.browser.item_origin", item = d, origin = origin),
                     );
                     ui.label(
                         egui::RichText::new(format!("    {note}"))
@@ -3738,7 +3758,7 @@ impl App {
                 if self.project.components.len() >= 2 {
                     ui.add_space(12.0);
                     ui.label(
-                        egui::RichText::new("RENUMBER PARTS")
+                        egui::RichText::new(t!("library.browser.renumber_parts"))
                             .size(10.0)
                             .color(self.muted()),
                     );
@@ -3756,19 +3776,23 @@ impl App {
                         .collect();
                     prefixes.sort();
                     prefixes.dedup();
-                    let mut pick = self.renumber_plan.clone().map_or_else(
-                        || self.renumber_prefix.clone(),
-                        |(prefix, _)| prefix,
-                    );
+                    let mut pick = self
+                        .renumber_plan
+                        .clone()
+                        .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt("renumber-prefix")
-                            .selected_text(pick.clone().unwrap_or_else(|| "all letters".into()))
+                            .selected_text(
+                                pick.clone()
+                                    .unwrap_or_else(|| t!("library.browser.all_letters")),
+                            )
                             .show_ui(ui, |ui| {
                                 if ui
-                                    .selectable_label(pick.is_none(), "all letters")
-                                    .on_hover_text(
-                                        "Number every kind of part again, one run of numbers per letter.",
+                                    .selectable_label(
+                                        pick.is_none(),
+                                        t!("library.browser.all_letters"),
                                     )
+                                    .on_hover_text(t!("library.browser.all_letters.tip"))
                                     .clicked()
                                 {
                                     pick = None;
@@ -3780,9 +3804,9 @@ impl App {
                                             pick.as_deref() == Some(prefix.as_str()),
                                             prefix,
                                         )
-                                        .on_hover_text(
-                                            "Only renumber the parts that start with this letter.",
-                                        )
+                                        .on_hover_text(t!(
+                                            "library.browser.only_renumber_the_parts_that.tip"
+                                        ))
                                         .clicked()
                                     {
                                         pick = Some(prefix.clone());
@@ -3791,30 +3815,23 @@ impl App {
                                 }
                             })
                             .response
-                            .on_hover_text(
-                                "Renumber one kind of part, or every part at once.",
-                            );
+                            .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
                         if ui
-                            .button("Preview")
-                            .on_hover_text(
-                                "Show the new numbers, in placement order, before anything changes.",
-                            )
+                            .button(t!("library.browser.preview"))
+                            .on_hover_text(t!("library.browser.preview.tip"))
                             .clicked()
                         {
                             let out = self.run_and_keep(
                                 "components.reannotate",
                                 json!({"dry_run": true, "prefix": pick}),
                             );
-                            self.renumber_plan = out
-                                .get("renamed")
-                                .and_then(Value::as_array)
-                                .map(|rows| {
+                            self.renumber_plan =
+                                out.get("renamed").and_then(Value::as_array).map(|rows| {
                                     (
                                         pick.clone(),
                                         rows.iter()
                                             .filter_map(|row| {
-                                                let from =
-                                                    row.get("from")?.as_str()?.to_owned();
+                                                let from = row.get("from")?.as_str()?.to_owned();
                                                 let to = row.get("to")?.as_str()?.to_owned();
                                                 Some((from, to))
                                             })
@@ -3829,28 +3846,27 @@ impl App {
                     if let Some((_, plan)) = self.renumber_plan.clone() {
                         for (from, to) in plan.iter().take(12) {
                             ui.label(
-                                egui::RichText::new(format!("{from}  →  {to}"))
-                                    .small()
-                                    .color(self.muted()),
+                                egui::RichText::new(t!(
+                                    "library.browser.from_to",
+                                    from = from,
+                                    to = to
+                                ))
+                                .small()
+                                .color(self.muted()),
                             );
                         }
                         ui.horizontal(|ui| {
                             if ui
-                                .button("Renumber")
-                                .on_hover_text(
-                                    "Write these numbers now; Undo puts the old ones back.",
-                                )
+                                .button(t!("library.browser.renumber"))
+                                .on_hover_text(t!("library.browser.renumber.tip"))
                                 .clicked()
                             {
                                 self.renumber_plan = None;
-                                self.run(
-                                    "components.reannotate",
-                                    json!({"prefix": pick}),
-                                );
+                                self.run("components.reannotate", json!({"prefix": pick}));
                             }
                             if ui
-                                .button("Cancel")
-                                .on_hover_text("Drop this plan; nothing changes.")
+                                .button(t!("library.browser.cancel"))
+                                .on_hover_text(t!("library.browser.cancel.tip"))
                                 .clicked()
                             {
                                 self.renumber_plan = None;
@@ -6613,7 +6629,7 @@ impl App {
     }
     fn library(&mut self, ui: &mut egui::Ui) {
         self.library_workspaces(ui);
-        ui.collapsing("Original starter symbols", |ui| {
+        ui.collapsing(t!("library.library.original_starter_symbols"), |ui| {
             for t in TEMPLATES {
                 egui::Frame::group(ui.style())
                     .inner_margin(18.0)
@@ -6621,13 +6637,17 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.vertical(|ui| {
                                 ui.label(egui::RichText::new(t.label).size(18.0).strong());
-                                ui.label(format!("{} · {} · 2 pins", t.prefix, t.value));
+                                ui.label(t!(
+                                    "library.library.prefix_value_2_pins",
+                                    prefix = t.prefix,
+                                    value = t.value
+                                ));
                             });
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     if ui
-                                        .button("Place in schematic >")
+                                        .button(t!("library.library.place_in_schematic"))
                                         .on_hover_text(command_tip("component.place_library"))
                                         .clicked()
                                     {
@@ -7259,18 +7279,25 @@ impl App {
 
     fn files_tab(&mut self, ui: &mut egui::Ui) {
         Self::margined(ui, |ui| {
-            ui.heading("Project files");
-            ui.label(format!("Design file: {}", self.path.trim()));
+            ui.heading(t!("library.files_tab.project_files"));
+            ui.label(t!(
+                "library.files_tab.design_file_trim",
+                trim = self.path.trim()
+            ));
             ui.add_space(8.0);
             if ui
-                .button("Library sources")
-                .on_hover_text("Manage the folders that feed the component list.")
+                .button(t!("library.files_tab.library_sources"))
+                .on_hover_text(t!("library.files_tab.library_sources.tip"))
                 .clicked()
             {
                 self.change_tab(Tab::Libraries);
             }
             ui.add_space(12.0);
-            ui.label(egui::RichText::new("Builds").size(10.0).color(self.muted()));
+            ui.label(
+                egui::RichText::new(t!("library.files_tab.builds"))
+                    .size(10.0)
+                    .color(self.muted()),
+            );
             self.builds_tab(ui);
         });
     }
