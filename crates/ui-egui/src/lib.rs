@@ -1,6 +1,7 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod authoring;
 mod canvas;
+mod impedance_panel;
 mod library;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
@@ -608,6 +609,7 @@ pub struct App {
     renumber_prefix: Option<String>,
     track_width: f64,
     chamfer_size: f64,
+    impedance_ui: impedance_panel::ImpedanceUi,
     stitch_spacing: f64,
     pair_a: Id,
     pair_b: Id,
@@ -945,6 +947,7 @@ impl App {
             renumber_prefix: None,
             track_width: 0.25,
             chamfer_size: 0.25,
+            impedance_ui: impedance_panel::ImpedanceUi::default(),
             stitch_spacing: 3.0,
             pair_a: 0,
             pair_b: 0,
@@ -5802,6 +5805,7 @@ impl App {
                                     json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
                                 );
                             }
+                            self.impedance_section(ui, id, net);
                         }
                         if let Some(zone) =
                             self.project.board.zones.iter().find(|z| z.id == id)
