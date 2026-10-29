@@ -23476,6 +23476,7 @@ mod tests {
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cu.gbr",
+                "pcb-job.gbrjob",
                 "pcb.dxf"
             ])
         );
