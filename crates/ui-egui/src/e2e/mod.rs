@@ -16,3 +16,4 @@ mod settings;
 mod shell;
 mod vias;
 mod via_covering;
+mod workbench;
