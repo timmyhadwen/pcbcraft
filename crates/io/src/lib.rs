@@ -20,12 +20,12 @@ pub use layers::{
     FabLayer, LayerShapes, Shape, ShapePolarity, copper_shape_counts, fabrication_point,
     gerber_copper_counts, layer_shapes,
 };
-pub use raster::{
-    RegMarkShape, RegistrationMarks, Raster, RasterDepth, RasterOptions, RasterPixels,
-    layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg,
-};
 use library_render::*;
 pub use pcbcraft_doc::Layer;
+pub use raster::{
+    Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
+    layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg,
+};
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
