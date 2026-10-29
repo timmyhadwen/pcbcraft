@@ -45,16 +45,19 @@ fn empty_state(ui: &mut egui::Ui, key: &str, muted: egui::Color32) {
 /// Help copy shown under the inspector's editable fields. Each line names
 /// what the field is for and the limit the engine will enforce, so the
 /// requirement is visible before the first rejected edit.
-const FIELD_HELP_VALUE: &str = "Free text: a name or value, like R1 or 10k. It updates the symbol or package immediately when Apply is pressed.";
-const FIELD_HELP_POSITION: &str =
-    "Absolute millimetres from the design origin; Apply moves just this symbol or package.";
-const FIELD_HELP_BOARD: &str =
-    "Board outline size in millimetres; both values must be larger than zero.";
-const FIELD_HELP_CUTOUT: &str =
-    "Radius of the circle the cutout tool places; the whole circle must stay inside the board.";
+const FIELD_HELP_VALUE: &str = "field_help.value";
+const FIELD_HELP_POSITION: &str = "field_help.position";
+const FIELD_HELP_BOARD: &str = "field_help.board";
+const FIELD_HELP_CUTOUT: &str = "field_help.cutout";
 
-fn field_help(ui: &mut egui::Ui, text: &str, muted: egui::Color32) {
-    ui.label(egui::RichText::new(text).small().color(muted).weak());
+/// Show the help line for catalog key `key` under an inspector field.
+fn field_help(ui: &mut egui::Ui, key: &str, muted: egui::Color32) {
+    ui.label(
+        egui::RichText::new(pcbcraft_text::lookup(key, &[]))
+            .small()
+            .color(muted)
+            .weak(),
+    );
 }
 
 /// The complete input reference: every key binding the app installs, plus
@@ -382,7 +385,7 @@ fn param_help(spec: &pcbcraft_engine::CommandSpec) -> Vec<String> {
                         let mut line = format!("{key} ({}):", type_note(field));
                         match field.get("description").and_then(Value::as_str) {
                             Some(text) => line.push_str(&format!(" {text}")),
-                            None => line.push_str(" required"),
+                            None => line.push_str(&format!(" {}", t!("rules.param_help.required"))),
                         }
                         line
                     })
@@ -4812,11 +4815,9 @@ impl App {
             self.rule_draft = None;
         }
         ui.label(
-            egui::RichText::new(
-                "Design rules travel with the design and steer the checks and any new wiring.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.design_rules_travel_with_the"))
+                .small()
+                .color(self.muted()),
         );
         if let Some(pick) = &self.class_pick
             && !self.project.nets.iter().any(|n| n.name == *pick)
@@ -4824,13 +4825,14 @@ impl App {
             self.class_pick = None;
         }
         if ui
-            .button("New class")
-            .on_hover_text(
-                "Add a rule set with a starting gap and wire width; rename and tune it from its row.",
-            )
+            .button(t!("rules.rules_tab.new_class"))
+            .on_hover_text(t!("rules.rules_tab.new_class.tip"))
             .clicked()
         {
-            let name = format!("Class {}", self.project.net_classes.len() + 1);
+            let name = t!(
+                "rules.rules_tab.class_v0",
+                v0 = self.project.net_classes.len() + 1
+            );
             self.run(
                 "netclass.add",
                 json!({"name": name, "clearance": 0.2, "width": 0.25}),
@@ -4842,23 +4844,19 @@ impl App {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&class.name).strong());
-                    ui.label(format!("{} nets", class.nets.len())).on_hover_text(
-                        "Connections that follow this rule set. Put them there with the box below.",
-                    );
+                    ui.label(t!("rules.rules_tab.len_nets", len = class.nets.len()))
+                        .on_hover_text(t!("rules.rules_tab.len_nets.tip"));
                     if !editing {
                         if ui
-                            .small_button("Tune")
-                            .on_hover_text("Change this rule set's gap and wire width.")
+                            .small_button(t!("rules.rules_tab.tune"))
+                            .on_hover_text(t!("rules.rules_tab.tune.tip"))
                             .clicked()
                         {
-                            self.rule_draft =
-                                Some((class.id, class.clearance, class.width));
+                            self.rule_draft = Some((class.id, class.clearance, class.width));
                         }
                         if ui
-                            .small_button("Remove")
-                            .on_hover_text(
-                                "Delete this rule set; its connections fall back to the default rules.",
-                            )
+                            .small_button(t!("rules.rules_tab.remove"))
+                            .on_hover_text(t!("rules.rules_tab.remove.tip"))
                             .clicked()
                         {
                             self.run("netclass.remove", json!({"class": class.id}));
@@ -4870,33 +4868,29 @@ impl App {
                         return;
                     };
                     ui.horizontal(|ui| {
-                        ui.label("Gap");
+                        ui.label(t!("rules.rules_tab.gap"));
                         ui.add(
                             egui::DragValue::new(clearance)
                                 .speed(0.01)
                                 .range(0.001..=100.0)
-                                .suffix(" mm"),
+                                .suffix(format!(" {}", t!("unit.mm"))),
                         )
-                        .on_hover_text(
-                            "Smallest allowed clear space between this group's copper and everything else.",
-                        );
+                        .on_hover_text(t!("unit.mm10.tip"));
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Wire width");
+                        ui.label(t!("rules.rules_tab.wire_width"));
                         ui.add(
                             egui::DragValue::new(width)
                                 .speed(0.01)
                                 .range(0.001..=100.0)
-                                .suffix(" mm"),
+                                .suffix(format!(" {}", t!("unit.mm"))),
                         )
-                        .on_hover_text(
-                            "Width new tracks on these connections start with.",
-                        );
+                        .on_hover_text(t!("unit.mm11.tip"));
                     });
                     ui.horizontal(|ui| {
                         if ui
-                            .button("Apply")
-                            .on_hover_text("Keep these numbers for this rule set.")
+                            .button(t!("rules.rules_tab.apply"))
+                            .on_hover_text(t!("rules.rules_tab.apply.tip"))
                             .clicked()
                             && let Some((id, clearance, width)) = self.rule_draft.take()
                         {
@@ -4907,8 +4901,8 @@ impl App {
                             self.run("netclass.set", json!({"class": id, "width": width}));
                         }
                         if ui
-                            .small_button("Cancel")
-                            .on_hover_text("Leave this rule set as it was.")
+                            .small_button(t!("rules.rules_tab.cancel"))
+                            .on_hover_text(t!("rules.rules_tab.cancel.tip"))
                             .clicked()
                         {
                             self.rule_draft = None;
@@ -4916,9 +4910,10 @@ impl App {
                     });
                 } else {
                     ui.label(
-                        egui::RichText::new(format!(
-                            "Gap {:.3} mm · wire {:.3} mm",
-                            class.clearance, class.width
+                        egui::RichText::new(t!(
+                            "rules.rules_tab.gap_clearance_mm_wire_width",
+                            clearance = format!("{:.3}", class.clearance),
+                            width = format!("{:.3}", class.width)
                         ))
                         .small()
                         .color(self.muted()),
@@ -4940,7 +4935,7 @@ impl App {
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt(("class-pick", class.id))
                             .selected_text(if pick.is_empty() {
-                                "choose a connection to put here".to_owned()
+                                t!("rules.rules_tab.choose_a_connection_to_put")
                             } else {
                                 pick.clone()
                             })
@@ -4948,9 +4943,9 @@ impl App {
                                 for (name, _) in &free {
                                     if ui
                                         .selectable_label(&pick == name, name)
-                                        .on_hover_text(
-                                            "A connection that follows no rule set yet.",
-                                        )
+                                        .on_hover_text(t!(
+                                            "rules.rules_tab.a_connection_that_follows_no.tip"
+                                        ))
                                         .clicked()
                                     {
                                         pick = name.clone();
@@ -4959,17 +4954,13 @@ impl App {
                                 }
                             })
                             .response
-                            .on_hover_text(
-                                "Pick a connection, then Assign: its wiring follows this rule set.",
-                            );
+                            .on_hover_text(t!("rules.rules_tab.pick_a_connection_then_assign.tip"));
                         if ui
                             .add_enabled(
                                 !pick.is_empty(),
-                                egui::Button::new("Assign"),
+                                egui::Button::new(t!("rules.rules_tab.assign")),
                             )
-                            .on_hover_text(
-                                "Put the chosen connection under this rule set.",
-                            )
+                            .on_hover_text(t!("rules.rules_tab.assign.tip"))
                             .clicked()
                             && let Some((_, id)) = free.iter().find(|(name, _)| *name == pick)
                         {
@@ -4977,16 +4968,14 @@ impl App {
                             self.class_pick = None;
                         }
                     });
-                    self.class_pick = if pick.is_empty() {
-                        None
-                    } else {
-                        Some(pick)
-                    };
+                    self.class_pick = if pick.is_empty() { None } else { Some(pick) };
                     if free.is_empty() && class.nets.is_empty() {
                         ui.label(
-                            egui::RichText::new("Every connection already follows a rule set.")
-                                .small()
-                                .color(self.muted()),
+                            egui::RichText::new(t!(
+                                "rules.rules_tab.every_connection_already_follows_a"
+                            ))
+                            .small()
+                            .color(self.muted()),
                         );
                     }
                     for net_id in &class.nets {
@@ -5000,13 +4989,11 @@ impl App {
                             continue;
                         };
                         ui.horizontal(|ui| {
-                            ui.label("· ");
+                            ui.label(format!("{} ", t!("rules.rules_tab.text")));
                             ui.label(&name);
                             if ui
-                                .small_button("\u{d7}")
-                                .on_hover_text(
-                                    "Let this connection follow the default rules again.",
-                                )
+                                .small_button(t!("rules.rules_tab.text2"))
+                                .on_hover_text(t!("rules.rules_tab.text2.tip"))
                                 .clicked()
                             {
                                 self.run("netclass.assign", json!({"net": net_id, "class": null}));
@@ -5018,50 +5005,40 @@ impl App {
         }
         if self.project.net_classes.is_empty() {
             ui.label(
-                egui::RichText::new(
-                    "No rule sets yet; the default rules apply to every connection.",
-                )
-                .small()
-                .color(self.muted()),
+                egui::RichText::new(t!("rules.rules_tab.no_rule_sets_yet_the"))
+                    .small()
+                    .color(self.muted()),
             );
         }
         ui.add_space(8.0);
         ui.label(
-            egui::RichText::new("TEARDROPS")
+            egui::RichText::new(t!("rules.rules_tab.teardrops"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Stem-shaped copper where wires meet pads and vias, so the joints survive etching and soldering.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.stem_shaped_copper_where_wires"))
+                .small()
+                .color(self.muted()),
         );
         ui.horizontal(|ui| {
             ui.add(
                 egui::DragValue::new(&mut self.teardrop_depth)
                     .range(0.05..=5.0)
                     .speed(0.05)
-                    .suffix(" mm deep"),
+                    .suffix(format!(" {}", t!("rules.rules_tab.mm_deep"))),
             )
-            .on_hover_text(
-                "How far each teardrop runs along the wire from the joint. Bigger stems are sturdier but eat board space.",
-            );
+            .on_hover_text(t!("rules.rules_tab.mm_deep.tip"));
             if ui
-                .button("Harden junctions")
-                .on_hover_text(
-                    "Grow a teardrop at every pad and via junction in one go. Undo brings the plain wires back.",
-                )
+                .button(t!("rules.rules_tab.harden_junctions"))
+                .on_hover_text(t!("rules.rules_tab.harden_junctions.tip"))
                 .clicked()
             {
                 self.run("teardrop.add", json!({"depth": self.teardrop_depth}));
             }
             if ui
-                .small_button("Remove teardrops")
-                .on_hover_text(
-                    "Take the teardrop copper away again, leaving the ordinary wires exactly as they were.",
-                )
+                .small_button(t!("rules.rules_tab.remove_teardrops"))
+                .on_hover_text(t!("rules.rules_tab.remove_teardrops.tip"))
                 .clicked()
             {
                 self.run("teardrop.remove", json!({}));
@@ -5069,25 +5046,23 @@ impl App {
         });
         ui.add_space(12.0);
         ui.label(
-            egui::RichText::new("CHECKS YOU WRITE")
+            egui::RichText::new(t!("rules.rules_tab.checks_you_write"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Rules only you know about: pick one plain measurement, set one limit, and it runs with the other checks after every edit. It travels inside the design, so anyone who opens it is covered too.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.rules_only_you_know_about"))
+                .small()
+                .color(self.muted()),
         );
         for c in self.project.custom_checks.clone() {
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new(format!(
-                        "{} · {} · {}",
-                        c.name,
-                        custom_measure_line(&c.measure, c.limit),
-                        if c.severity == "error" {
+                    egui::RichText::new(t!(
+                        "rules.rules_tab.name_v1_v2",
+                        name = c.name,
+                        v1 = custom_measure_line(&c.measure, c.limit),
+                        v2 = if c.severity == "error" {
                             "must fix"
                         } else {
                             "a nudge"
@@ -5095,14 +5070,10 @@ impl App {
                     ))
                     .small(),
                 )
-                .on_hover_text(
-                    "A check you wrote. It is saved with the design and re-run after every edit.",
-                );
+                .on_hover_text(t!("rules.rules_tab.name_v1_v2.tip"));
                 if ui
-                    .small_button("Remove this check")
-                    .on_hover_text(
-                        "Stop running this check. Nothing about the design itself changes.",
-                    )
+                    .small_button(t!("rules.rules_tab.remove_this_check"))
+                    .on_hover_text(t!("rules.rules_tab.remove_this_check.tip"))
                     .clicked()
                 {
                     self.run("checks.custom_remove", json!({"id": c.id}));
@@ -5113,11 +5084,10 @@ impl App {
             ui.horizontal(|ui| {
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.custom_name)
-                        .hint_text("What this check means, in your words")
+                        .hint_text(t!("rules.rules_tab.what_this_check_means_in"))
                         .desired_width(150.0),
                 );
-                response
-                    .on_hover_text("The name this check reports under, e.g. \"keep power wires meaty\".");
+                response.on_hover_text(t!("rules.rules_tab.the_name_this_check_reports.tip"));
                 egui::ComboBox::from_id_salt("custom-measure")
                     .selected_text(CUSTOM_MEASURES[self.custom_measure.min(4)].0)
                     .show_ui(ui, |ui| {
@@ -5126,9 +5096,7 @@ impl App {
                         }
                     })
                     .response
-                    .on_hover_text(
-                        "The one thing this check measures. Every check stays a plain sentence, never a puzzle.",
-                    );
+                    .on_hover_text(t!("rules.rules_tab.the_one_thing_this_check.tip"));
                 let unit = if CUSTOM_MEASURES[self.custom_measure.min(4)]
                     .1
                     .contains("count")
@@ -5143,29 +5111,25 @@ impl App {
                         .speed(0.05)
                         .suffix(unit),
                 )
-                .on_hover_text(
-                    "The limit: millimetres for wire measures, a plain number of things otherwise.",
-                );
+                .on_hover_text(t!("rules.rules_tab.the_limit_millimetres_for_wire.tip"));
                 if ui
-                    .selectable_label(self.custom_loud, "must fix")
-                    .on_hover_text("Treat a breach as a real problem, counted under \"to fix\".")
+                    .selectable_label(self.custom_loud, t!("rules.rules_tab.must_fix"))
+                    .on_hover_text(t!("rules.rules_tab.must_fix.tip"))
                     .clicked()
                 {
                     self.custom_loud = true;
                 }
                 if ui
-                    .selectable_label(!self.custom_loud, "a nudge")
-                    .on_hover_text("Mention a breach, but do not call the board a failure.")
+                    .selectable_label(!self.custom_loud, t!("rules.rules_tab.a_nudge"))
+                    .on_hover_text(t!("rules.rules_tab.a_nudge.tip"))
                     .clicked()
                 {
                     self.custom_loud = false;
                 }
             });
             if ui
-                .button("Add this check")
-                .on_hover_text(
-                    "Start running this rule after every edit. It lives inside the design; Undo takes it away again.",
-                )
+                .button(t!("rules.rules_tab.add_this_check"))
+                .on_hover_text(t!("rules.rules_tab.add_this_check.tip"))
                 .clicked()
                 && !self.custom_name.trim().is_empty()
             {
@@ -5184,16 +5148,14 @@ impl App {
         }
         ui.add_space(12.0);
         ui.label(
-            egui::RichText::new("HOW STRICT TO BE")
+            egui::RichText::new(t!("rules.rules_tab.how_strict_to_be"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Choose what each automatic check does when it spots something: stop you, warn you, or stay quiet.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.choose_what_each_automatic_check"))
+                .small()
+                .color(self.muted()),
         );
         for code in [
             "unassigned_pin",
@@ -5213,10 +5175,10 @@ impl App {
                 for level in ["error", "warning", "off"] {
                     let tip = match level {
                         "error" => {
-                            "Treat this as a real problem to fix before the board goes away."
+                            t!("rules.rules_tab.treat_this_as_a_real")
                         }
-                        "warning" => "Mention it, but do not call the board a failure.",
-                        _ => "Stop reporting this check at all.",
+                        "warning" => t!("rules.rules_tab.mention_it_but_do_not"),
+                        _ => t!("rules.rules_tab.stop_reporting_this_check_at"),
                     };
                     if ui
                         .selectable_label(current == level, level)
@@ -5227,8 +5189,8 @@ impl App {
                     }
                 }
                 if ui
-                    .small_button("Auto")
-                    .on_hover_text("Go back to what this check does out of the box.")
+                    .small_button(t!("rules.rules_tab.auto"))
+                    .on_hover_text(t!("rules.rules_tab.auto.tip"))
                     .clicked()
                 {
                     self.run("rules.severity", json!({"code": code, "severity": null}));
@@ -5237,16 +5199,14 @@ impl App {
         }
         ui.add_space(10.0);
         ui.label(
-            egui::RichText::new("PAIR CLEARANCES")
+            egui::RichText::new(t!("rules.rules_tab.pair_clearances"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Extra room between two connections that must keep their distance, like a noisy one next to a sensitive one.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.extra_room_between_two_connections"))
+                .small()
+                .color(self.muted()),
         );
         let nets: Vec<(Id, String)> = self
             .project
@@ -5259,7 +5219,7 @@ impl App {
             nets.iter()
                 .find(|(id, _)| *id == wanted)
                 .map(|(_, name)| name.clone())
-                .unwrap_or_else(|| format!("net {wanted}"))
+                .unwrap_or_else(|| t!("rules.rules_tab.net_wanted", wanted = wanted))
         };
         if nets.len() >= 2 {
             if !nets.iter().any(|(id, _)| *id == self.pair_a) {
@@ -5278,36 +5238,32 @@ impl App {
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
                             ui.selectable_value(&mut self.pair_a, *id, name)
-                                .on_hover_text("Pick the first net of the pair.");
+                                .on_hover_text(t!("rules.rules_tab.pick_the_first_net_of.tip"));
                         }
                     });
-                ui.label("away from");
+                ui.label(t!("rules.rules_tab.away_from"));
                 egui::ComboBox::from_id_salt("pair_b")
                     .selected_text(name_of(self.pair_b))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
                             ui.selectable_value(&mut self.pair_b, *id, name)
-                                .on_hover_text("Pick the second net of the pair.");
+                                .on_hover_text(t!("rules.rules_tab.pick_the_second_net_of.tip"));
                         }
                     });
             });
             ui.horizontal(|ui| {
-                ui.label("Keep apart by");
+                ui.label(t!("rules.rules_tab.keep_apart_by"));
                 ui.add(
                     egui::DragValue::new(&mut self.pair_clearance)
                         .range(0.05..=25.0)
                         .speed(0.05)
-                        .suffix(" mm"),
+                        .suffix(format!(" {}", t!("unit.mm"))),
                 )
-                .on_hover_text(
-                    "The least distance the two connections' copper may sit from each other.",
-                );
+                .on_hover_text(t!("unit.mm12.tip"));
             });
             if ui
-                .button("Set spacing")
-                .on_hover_text(
-                    "Tell the checks these two connections must stay this far apart everywhere on the board. Undo takes the rule away.",
-                )
+                .button(t!("rules.rules_tab.set_spacing"))
+                .on_hover_text(t!("rules.rules_tab.set_spacing.tip"))
                 .clicked()
             {
                 self.run(
@@ -5325,22 +5281,21 @@ impl App {
             .collect();
         if !pairs.is_empty() {
             ui.label(
-                egui::RichText::new("Spacing rules you have set between connections")
+                egui::RichText::new(t!("rules.rules_tab.spacing_rules_you_have_set"))
                     .small()
                     .color(self.muted()),
             );
             for (a, b, clearance) in pairs {
                 ui.horizontal(|ui| {
-                    ui.label(format!(
-                        "{} away from {} · {clearance} mm",
-                        name_of(a),
-                        name_of(b)
+                    ui.label(t!(
+                        "rules.rules_tab.v0_away_from_v1_clearance",
+                        v0 = name_of(a),
+                        v1 = name_of(b),
+                        clearance = clearance
                     ));
                     if ui
-                        .small_button("Clear")
-                        .on_hover_text(
-                            "Let these two connections fall back to the normal spacing rules.",
-                        )
+                        .small_button(t!("rules.rules_tab.clear"))
+                        .on_hover_text(t!("rules.rules_tab.clear.tip"))
                         .clicked()
                     {
                         self.run("board.remove_pair_rule", json!({"net_a": a, "net_b": b}));
@@ -5350,16 +5305,14 @@ impl App {
         }
         ui.add_space(10.0);
         ui.label(
-            egui::RichText::new("DIFFERENTIAL PAIRS")
+            egui::RichText::new(t!("rules.rules_tab.differential_pairs"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Two connections that should run side by side as a team, like the data lines of a socket.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.two_connections_that_should_run"))
+                .small()
+                .color(self.muted()),
         );
         if nets.len() >= 2 {
             if !nets.iter().any(|(id, _)| *id == self.dp_p) {
@@ -5373,13 +5326,13 @@ impl App {
                     .unwrap_or(self.dp_n);
             }
             ui.horizontal(|ui| {
-                ui.label("Name");
+                ui.label(t!("rules.rules_tab.name"));
                 ui.add(
                     egui::TextEdit::singleline(&mut self.dp_name)
-                        .hint_text("USB")
+                        .hint_text(t!("rules.rules_tab.usb"))
                         .desired_width(90.0),
                 )
-                .on_hover_text("A name you will recognise, like USB or HDMI.");
+                .on_hover_text(t!("rules.rules_tab.usb.tip"));
             });
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("dp_p")
@@ -5387,36 +5340,34 @@ impl App {
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
                             ui.selectable_value(&mut self.dp_p, *id, name)
-                                .on_hover_text("Pick the net that carries the positive side.");
+                                .on_hover_text(t!("rules.rules_tab.pick_the_net_that_carries.tip"));
                         }
                     });
-                ui.label("+");
+                ui.label(t!("rules.rules_tab.text3"));
                 egui::ComboBox::from_id_salt("dp_n")
                     .selected_text(name_of(self.dp_n))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
                             ui.selectable_value(&mut self.dp_n, *id, name)
-                                .on_hover_text("Pick the net that carries the negative side.");
+                                .on_hover_text(t!(
+                                    "rules.rules_tab.pick_the_net_that_carries2.tip"
+                                ));
                         }
                     });
             });
             ui.horizontal(|ui| {
-                ui.label("Run together with a gap of");
+                ui.label(t!("rules.rules_tab.run_together_with_a_gap"));
                 ui.add(
                     egui::DragValue::new(&mut self.dp_gap)
                         .range(0.02..=10.0)
                         .speed(0.02)
-                        .suffix(" mm"),
+                        .suffix(format!(" {}", t!("unit.mm"))),
                 )
-                .on_hover_text(
-                    "How closely the two sides should hug each other; copper nearer than this gets reported.",
-                );
+                .on_hover_text(t!("unit.mm13.tip"));
             });
             if ui
-                .button("Declare pair")
-                .on_hover_text(
-                    "Tell the checks these two connections are a team: they watch the gap between them. Reusing the name updates the same pair, and undo takes it away.",
-                )
+                .button(t!("rules.rules_tab.declare_pair"))
+                .on_hover_text(t!("rules.rules_tab.declare_pair.tip"))
                 .clicked()
             {
                 self.run(
@@ -5434,20 +5385,22 @@ impl App {
             .collect();
         if !pairs.is_empty() {
             ui.label(
-                egui::RichText::new("Pairs you have declared")
+                egui::RichText::new(t!("rules.rules_tab.pairs_you_have_declared"))
                     .small()
                     .color(self.muted()),
             );
             for (id, name, p, n, gap) in pairs {
                 ui.horizontal(|ui| {
-                    ui.label(format!(
-                        "{name} · {} + {} · gap {gap} mm",
-                        name_of(p),
-                        name_of(n)
+                    ui.label(t!(
+                        "rules.rules_tab.name_v0_v1_gap_gap",
+                        name = name,
+                        v0 = name_of(p),
+                        v1 = name_of(n),
+                        gap = gap
                     ));
                     if ui
-                        .small_button("Remove")
-                        .on_hover_text("Stop watching this pair; the lines stay as they are.")
+                        .small_button(t!("rules.rules_tab.remove"))
+                        .on_hover_text(t!("rules.rules_tab.remove2.tip"))
                         .clicked()
                     {
                         self.run("board.remove_diffpair", json!({"id": id}));
@@ -5457,74 +5410,69 @@ impl App {
         }
         ui.add_space(10.0);
         ui.label(
-            egui::RichText::new("BOARD AREAS")
+            egui::RichText::new(t!("rules.rules_tab.board_areas"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "A corner of the board that plays by stricter rules: wider gaps, and optionally a height limit for what fits under a cover.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.a_corner_of_the_board"))
+                .small()
+                .color(self.muted()),
         );
         ui.horizontal(|ui| {
-            ui.label("Corner");
+            ui.label(t!("rules.rules_tab.corner"));
             ui.add(
                 egui::DragValue::new(&mut self.area_x)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
             ui.add(
                 egui::DragValue::new(&mut self.area_y)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
-            ui.label("Size");
+            ui.label(t!("rules.rules_tab.size"));
             ui.add(
                 egui::DragValue::new(&mut self.area_w)
                     .speed(0.5)
                     .range(1.0..=500.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
             ui.add(
                 egui::DragValue::new(&mut self.area_h)
                     .speed(0.5)
                     .range(1.0..=500.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
         });
         ui.horizontal(|ui| {
-            ui.label("Copper stays apart by at least");
+            ui.label(t!("rules.rules_tab.copper_stays_apart_by_at"));
             ui.add(
                 egui::DragValue::new(&mut self.area_gap)
                     .range(0.05..=25.0)
                     .speed(0.05)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .on_hover_text(
-                "The minimum separation demanded between copper pieces inside this area.",
-            );
+            .on_hover_text(t!("unit.mm14.tip"));
         });
         ui.horizontal(|ui| {
-            ui.checkbox(&mut self.area_limited, "Parts here stand no taller than")
-                .on_hover_text(
-                    "For boards that must fit under a cover: anything placed here taller than the limit is reported.",
-                );
+            ui.checkbox(
+                &mut self.area_limited,
+                t!("rules.rules_tab.parts_here_stand_no_taller"),
+            )
+            .on_hover_text(t!("rules.rules_tab.parts_here_stand_no_taller.tip"));
             if self.area_limited {
                 ui.add(
                     egui::DragValue::new(&mut self.area_height)
                         .range(0.1..=100.0)
                         .speed(0.5)
-                        .suffix(" mm"),
+                        .suffix(format!(" {}", t!("unit.mm"))),
                 );
             }
         });
         if ui
-            .button("Add area")
-            .on_hover_text(
-                "Marks this rectangle on the board with its own stricter rules. The checks watch it from now on, and undo erases the mark.",
-            )
+            .button(t!("rules.rules_tab.add_area"))
+            .on_hover_text(t!("rules.rules_tab.add_area.tip"))
             .clicked()
         {
             let mut args = json!({
@@ -5548,7 +5496,11 @@ impl App {
                 (
                     a.id,
                     a.name.clone().unwrap_or_else(|| {
-                        format!("area at {}, {}", a.region.x.round(), a.region.y.round())
+                        t!(
+                            "rules.rules_tab.area_at_round_round2",
+                            round = a.region.x.round(),
+                            round2 = a.region.y.round()
+                        )
                     }),
                     a.clearance,
                     a.max_height,
@@ -5557,21 +5509,21 @@ impl App {
             .collect();
         if !areas.is_empty() {
             ui.label(
-                egui::RichText::new("Stricter areas on the board")
+                egui::RichText::new(t!("rules.rules_tab.stricter_areas_on_the_board"))
                     .small()
                     .color(self.muted()),
             );
             for (id, name, clearance, max_height) in areas {
                 ui.horizontal(|ui| {
-                    ui.label(format!(
-                        "{name} · gap {clearance} mm{}",
-                        max_height.map_or(String::new(), |h| format!(" · up to {h} mm tall"))
+                    ui.label(t!(
+                        "rules.rules_tab.name_gap_clearance_mm_v0",
+                        name = name,
+                        clearance = clearance,
+                        v0 = max_height.map_or(String::new(), |h| format!(" · up to {h} mm tall"))
                     ));
                     if ui
-                        .small_button("Erase area")
-                        .on_hover_text(
-                            "This corner goes back to the board's normal rules; the copper stays as it is.",
-                        )
+                        .small_button(t!("rules.rules_tab.erase_area"))
+                        .on_hover_text(t!("rules.rules_tab.erase_area.tip"))
                         .clicked()
                     {
                         self.run("rules.area_remove", json!({"id": id}));
@@ -8335,10 +8287,10 @@ mod tests {
         // The help copy for the inspector's free-form fields must state the
         // same limits the engine enforces, so a novice never has to guess
         // why a value was refused.
-        assert!(FIELD_HELP_VALUE.contains("name or value"));
-        assert!(FIELD_HELP_POSITION.contains("origin"));
-        assert!(FIELD_HELP_BOARD.contains("larger than zero"));
-        assert!(FIELD_HELP_CUTOUT.contains("inside the board"));
+        assert!(pcbcraft_text::lookup(FIELD_HELP_VALUE, &[]).contains("name or value"));
+        assert!(pcbcraft_text::lookup(FIELD_HELP_POSITION, &[]).contains("origin"));
+        assert!(pcbcraft_text::lookup(FIELD_HELP_BOARD, &[]).contains("larger than zero"));
+        assert!(pcbcraft_text::lookup(FIELD_HELP_CUTOUT, &[]).contains("inside the board"));
     }
 
     #[test]

@@ -650,4 +650,13 @@ mod area_tests {
             ("library_quality.rs", "refresh_footprint_quality"),
         ])
     }
+
+    #[test]
+    fn every_key_used_by_rules_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "rules_tab"),
+            ("lib.rs", "param_help"),
+            ("lib.rs", "field_help"),
+        ])
+    }
 }
