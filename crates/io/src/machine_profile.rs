@@ -1,4 +1,13 @@
-//! TOML import and export for machine profiles.
+//! TOML import and export for machine profiles, plus the built-in shop presets.
+//!
+//! # Rules
+//! - TOML is parsed here only; crates/doc stays free of it, so text becomes
+//!   `serde_json::Value` first and is then read into `MachineProfile`.
+//! - Presets are compiled in from the repo `machine-profiles/` folder and returned as copies.
+//!
+//! # Dependencies
+//! - crates/doc/src/machine_profile.rs
+//! - machine-profiles/SCHEMA.md
 use pcbcraft_doc::MachineProfile;
 use serde_json::{Map, Value};
 
@@ -10,10 +19,15 @@ const BUILTIN_IDS: [&str; 5] = [
     "commarker-b6-mopa",
 ];
 
+/// The ids of the shop presets compiled into the program.
 pub fn builtin_machine_profile_ids() -> &'static [&'static str] {
     &BUILTIN_IDS
 }
 
+/// A copy of one shop preset, parsed and validated; an unknown id is refused.
+///
+/// # Dependencies
+/// - machine-profiles/SCHEMA.md
 pub fn builtin_machine_profile(id: &str) -> Result<MachineProfile, String> {
     let text = match id {
         "neoden-yy1" => include_str!("../../../machine-profiles/neoden-yy1.toml"),
@@ -30,12 +44,25 @@ pub fn builtin_machine_profile(id: &str) -> Result<MachineProfile, String> {
     machine_profile_from_toml(text)
 }
 
+/// Read one profile from TOML text and validate it.
+///
+/// # Rules
+/// - Unknown keys and out-of-range numbers are refused with a plain reason.
+///
+/// # Do not
+/// - Read a file here; callers pass the text.
 pub fn machine_profile_from_toml(text: &str) -> Result<MachineProfile, String> {
     let parsed: toml::Value = toml::from_str(text).map_err(|e| e.to_string())?;
     let json = toml_value_to_json(parsed);
-    serde_json::from_value(json).map_err(|e| e.to_string())
+    let profile: MachineProfile = serde_json::from_value(json).map_err(|e| e.to_string())?;
+    profile.validate()?;
+    Ok(profile)
 }
 
+/// Write one validated profile as TOML text that reads back to the same profile.
+///
+/// # Do not
+/// - Write to disk here; the engine uses `atomic_write`.
 pub fn machine_profile_to_toml(profile: &MachineProfile) -> Result<String, String> {
     profile.validate()?;
     let json = serde_json::to_value(profile).map_err(|e| e.to_string())?;
@@ -46,13 +73,7 @@ pub fn machine_profile_to_toml(profile: &MachineProfile) -> Result<String, Strin
 fn toml_value_to_json(value: toml::Value) -> Value {
     match value {
         toml::Value::String(s) => Value::String(s),
-        toml::Value::Integer(i) => {
-            if i >= i64::from(i32::MIN) && i <= i64::from(i32::MAX) {
-                Value::Number(i.into())
-            } else {
-                Value::Number(i.into())
-            }
-        }
+        toml::Value::Integer(i) => Value::Number(i.into()),
         toml::Value::Float(f) => match serde_json::Number::from_f64(f) {
             Some(n) => Value::Number(n),
             None => Value::String(f.to_string()),

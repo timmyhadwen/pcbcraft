@@ -1,6 +1,20 @@
-//! Shop machine profiles stored on the design for fabrication artifacts.
+//! Shop machine profiles: the numbers a fabrication writer needs from one
+//! machine (work area, output dialect, laser operations, mill tools, pick and
+//! place tables, UV printer limits), stored on the design as `Project.machine_profiles`.
+//!
+//! # Rules
+//! - Pure data and bounds checks. No file or TOML code lives here; the TOML
+//!   reader and writer are in crates/io/src/machine_profile.rs.
+//! - Only the table that matches `kind` may be filled; every number is finite
+//!   and bounded, and every row list holds at most `MAX_PROFILE_ROWS` rows.
+//! - Refusals are one plain sentence a person can act on.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs
+//! - machine-profiles/SCHEMA.md
 use serde::{Deserialize, Serialize};
 
+/// Limit named max profile rows.
 pub const MAX_PROFILE_ROWS: usize = 64;
 
 const MAX_ID_LEN: usize = 64;
@@ -9,7 +23,6 @@ const MAX_VENDOR_LEN: usize = 128;
 const MAX_MODEL_LEN: usize = 128;
 const MAX_NOTES_LEN: usize = 4096;
 const MAX_SHORT: usize = 64;
-const MAX_MEDIUM: usize = 256;
 
 fn valid_slug(id: &str) -> bool {
     !id.is_empty()
@@ -29,268 +42,437 @@ fn optional_bounded(s: &str, max: usize) -> bool {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for work area.
 pub struct WorkArea {
+    /// Horizontal value in millimetres.
     pub x: f64,
+    /// Vertical value in millimetres.
     pub y: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Depth value in millimetres.
     pub z: Option<f64>,
+    /// Y length once a Quick Swap kit is fitted; absent when the machine has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y_with_quick_swap: Option<f64>,
+    /// Origin.
     pub origin: String,
+    /// Y up.
     pub y_up: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for machine output.
 pub struct MachineOutput {
+    /// Format.
     pub format: String,
+    /// Dialect.
     pub dialect: String,
+    /// Units.
     pub units: String,
+    /// Line ending.
     pub line_ending: String,
+    /// Mirror bottom.
     pub mirror_bottom: bool,
+    /// Mirror axis.
     pub mirror_axis: String,
+    /// Invert.
     pub invert: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for laser operation.
 pub struct LaserOperation {
+    /// Display name.
     pub name: String,
+    /// Mode.
     pub mode: String,
+    /// Speed in millimetres per second.
     pub speed_mm_s: f64,
+    /// Power as a percentage.
     pub power_percent: f64,
+    /// Passes.
     pub passes: u32,
+    /// Frequency in kilohertz.
     pub frequency_khz: f64,
+    /// Pulse width in nanoseconds.
     pub pulse_width_ns: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Line interval in millimetres.
     pub line_interval_mm: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Hatch angle in degrees.
     pub hatch_angle_deg: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Angle increment in degrees.
     pub angle_increment_deg: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Kerf offset in millimetres.
     pub kerf_offset_mm: Option<f64>,
     #[serde(default)]
+    /// Verified.
     pub verified: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for laser section.
 pub struct LaserSection {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Operation.
     pub operation: Vec<LaserOperation>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Field x in millimetres.
     pub field_x_mm: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Field y in millimetres.
     pub field_y_mm: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Source watts.
     pub source_watts: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Wavelength nm.
     pub wavelength_nm: Option<f64>,
+    /// Square field sizes of the lenses the machine can take, in millimetres.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lens_options_mm: Vec<f64>,
+    /// Lowest pulse repetition rate, in kilohertz.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_khz_min: Option<f64>,
+    /// Highest pulse repetition rate, in kilohertz.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_khz_max: Option<f64>,
+    /// Shortest pulse width, in nanoseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pulse_width_ns_min: Option<f64>,
+    /// Longest pulse width, in nanoseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pulse_width_ns_max: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for spindle section.
 pub struct SpindleSection {
+    /// Speed style.
     pub speed_style: String,
+    /// Max in revolutions per minute.
     pub max_rpm: f64,
+    /// Default as a percentage.
     pub default_percent: f64,
+    /// Min as a percentage.
     pub min_percent: f64,
+    /// Max as a percentage.
     pub max_percent: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for gcode section.
 pub struct GcodeSection {
+    /// Header type.
     pub header_type: String,
+    /// Tool head.
     pub tool_head: String,
+    /// Machine label.
     pub machine_label: String,
+    /// Flavor.
     pub flavor: String,
+    /// Arcs allowed.
     pub arcs_allowed: bool,
+    /// Tool change.
     pub tool_change: String,
+    /// Safe z in millimetres.
     pub safe_z_mm: f64,
+    /// Work speed in millimetres per minute.
     pub work_speed_mm_min: f64,
+    /// Jog speed in millimetres per minute.
     pub jog_speed_mm_min: f64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Preamble.
     pub preamble: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Postamble.
     pub postamble: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for mill tool.
 pub struct MillTool {
+    /// Identifier.
     pub id: String,
+    /// Diameter in millimetres.
     pub diameter_mm: f64,
+    /// Feed in millimetres per minute.
     pub feed_mm_min: f64,
+    /// Plunge in millimetres per minute.
     pub plunge_mm_min: f64,
+    /// Spindle as a percentage.
     pub spindle_percent: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for mill material.
 pub struct MillMaterial {
+    /// Display name.
     pub name: String,
+    /// Thickness in millimetres.
     pub thickness_mm: f64,
+    /// Safe z in millimetres.
     pub safe_z_mm: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for mill section.
 pub struct MillSection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Spindle.
     pub spindle: Option<SpindleSection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Gcode.
     pub gcode: Option<GcodeSection>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Tool.
     pub tool: Vec<MillTool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Material.
     pub material: Option<MillMaterial>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for pick place board.
 pub struct PickPlaceBoard {
+    /// Max x in millimetres.
     pub max_x_mm: f64,
+    /// Max y in millimetres.
     pub max_y_mm: f64,
+    /// Origin top.
     pub origin_top: String,
+    /// Origin bottom.
     pub origin_bottom: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for pick place rotation.
 pub struct PickPlaceRotation {
+    /// Min in degrees.
     pub min_deg: f64,
+    /// Max in degrees.
     pub max_deg: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for pick place csv.
 pub struct PickPlaceCsv {
+    /// Native header.
     pub native_header: String,
+    /// Import columns.
     pub import_columns: u32,
+    /// Line ending.
     pub line_ending: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for feeder bank.
 pub struct FeederBank {
+    /// Display name.
     pub name: String,
+    /// First.
     pub first: u32,
+    /// Last.
     pub last: u32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for nozzle row.
 pub struct NozzleRow {
+    /// Identifier.
     pub id: String,
+    /// Diameter in millimetres.
     pub diameter_mm: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for rotation offset row.
 pub struct RotationOffsetRow {
+    /// Comment.
     pub comment: String,
+    /// Footprint.
     pub footprint: String,
+    /// Offset in degrees.
     pub offset_deg: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for footprint alias row.
 pub struct FootprintAliasRow {
+    /// Pattern.
     pub pattern: String,
+    /// Replacement.
     pub replacement: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for feeder map row.
 pub struct FeederMapRow {
+    /// Comment.
     pub comment: String,
+    /// Footprint.
     pub footprint: String,
+    /// Feeder no.
     pub feeder_no: u32,
+    /// Nozzle.
     pub nozzle: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for pick place section.
 pub struct PickPlaceSection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Board.
     pub board: Option<PickPlaceBoard>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Rotation.
     pub rotation: Option<PickPlaceRotation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Csv.
     pub csv: Option<PickPlaceCsv>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Feeders.
     pub feeders: Vec<FeederBank>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Nozzle.
     pub nozzle: Vec<NozzleRow>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Rotation offset.
     pub rotation_offset: Vec<RotationOffsetRow>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Footprint alias.
     pub footprint_alias: Vec<FootprintAliasRow>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Feeder map.
     pub feeder_map: Vec<FeederMapRow>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for uv print section.
 pub struct UvPrintSection {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Dpi options.
     pub dpi_options: Vec<u32>,
+    /// Default dpi.
     pub default_dpi: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Channels.
     pub channels: Vec<String>,
+    /// Registration.
     pub registration: String,
+    /// White choke in millimetres.
     pub white_choke_mm: f64,
+    /// Max substrate height in millimetres.
     pub max_substrate_height_mm: f64,
+    /// Relief in millimetres.
     pub relief_mm: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for uv artwork section.
 pub struct UvArtworkSection {
+    /// Default bleed in millimetres.
     pub default_bleed_mm: f64,
+    /// Pad clearance in millimetres.
     pub pad_clearance_mm: f64,
+    /// Min text height in millimetres.
     pub min_text_height_mm: f64,
+    /// Min stroke in millimetres.
     pub min_stroke_mm: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for uv limits section.
 pub struct UvLimitsSection {
+    /// Max width in millimetres.
     pub max_width_mm: f64,
+    /// Max height in millimetres.
     pub max_height_mm: f64,
+    /// Max pixels.
     pub max_pixels: u32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Settings for uv printer section.
 pub struct UvPrinterSection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Print.
     pub print: Option<UvPrintSection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Artwork.
     pub artwork: Option<UvArtworkSection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Limits.
     pub limits: Option<UvLimitsSection>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+/// One shop machine as the design stores it: identity, work area, output
+/// dialect and the single kind-specific table the writers read.
+///
+/// # Rules
+/// - `id` is a lowercase slug and is what an artifact refers to; it is unique per design.
+/// - A built-in preset is copied into the design, so editing a design copy never changes the preset.
+///
+/// # Dependencies
+/// - machine-profiles/SCHEMA.md
+///
+/// # Do not
+/// - Add a field without a bound in `validate`.
 pub struct MachineProfile {
+    /// Identifier.
     pub id: String,
+    /// Display name.
     pub name: String,
+    /// Kind of the item.
     pub kind: String,
+    /// Vendor.
     pub vendor: String,
+    /// Model.
     pub model: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
+    /// Notes.
     pub notes: String,
+    /// Work area.
     pub work_area: WorkArea,
+    /// Output.
     pub output: MachineOutput,
     #[serde(default, skip_serializing_if = "LaserSection::is_empty")]
+    /// Laser.
     pub laser: LaserSection,
     #[serde(default, skip_serializing_if = "MillSection::is_empty")]
+    /// Mill.
     pub mill: MillSection,
     #[serde(default, skip_serializing_if = "PickPlaceSection::is_empty")]
+    /// Pick place.
     pub pick_place: PickPlaceSection,
     #[serde(default, skip_serializing_if = "UvPrinterSection::is_empty")]
+    /// Uv printer.
     pub uv_printer: UvPrinterSection,
 }
 
@@ -301,6 +483,11 @@ impl LaserSection {
             && self.field_y_mm.is_none()
             && self.source_watts.is_none()
             && self.wavelength_nm.is_none()
+            && self.lens_options_mm.is_empty()
+            && self.frequency_khz_min.is_none()
+            && self.frequency_khz_max.is_none()
+            && self.pulse_width_ns_min.is_none()
+            && self.pulse_width_ns_max.is_none()
     }
 }
 
@@ -333,9 +520,19 @@ impl UvPrinterSection {
 }
 
 impl MachineProfile {
+    /// Refuse a profile whose numbers, labels or tables are out of bounds.
+    ///
+    /// # Rules
+    /// - Returns the first problem as a plain sentence; never panics.
+    /// - Rejects a table that does not belong to the profile's `kind`.
+    ///
+    /// # Do not
+    /// - Accept a non-finite number or a row list longer than `MAX_PROFILE_ROWS`.
     pub fn validate(&self) -> Result<(), String> {
         if !valid_slug(&self.id) {
-            return Err("machine profile id must be 1 to 64 lowercase letters, digits or hyphens".into());
+            return Err(
+                "machine profile id must be 1 to 64 lowercase letters, digits or hyphens".into(),
+            );
         }
         if !bounded(&self.name, MAX_NAME_LEN) {
             return Err("machine profile name must be 1 to 128 bytes".into());
@@ -357,14 +554,18 @@ impl MachineProfile {
         self.validate_output()?;
         match kind {
             "laser_galvo" | "laser_gantry" => {
-                if !self.mill.is_empty() || !self.pick_place.is_empty() || !self.uv_printer.is_empty()
+                if !self.mill.is_empty()
+                    || !self.pick_place.is_empty()
+                    || !self.uv_printer.is_empty()
                 {
                     return Err("laser profiles may only carry laser settings".into());
                 }
                 self.validate_laser()?;
             }
             "cnc_mill" => {
-                if !self.laser.is_empty() || !self.pick_place.is_empty() || !self.uv_printer.is_empty()
+                if !self.laser.is_empty()
+                    || !self.pick_place.is_empty()
+                    || !self.uv_printer.is_empty()
                 {
                     return Err("mill profiles may only carry mill settings".into());
                 }
@@ -389,12 +590,26 @@ impl MachineProfile {
 
     fn validate_work_area(&self) -> Result<(), String> {
         let w = &self.work_area;
-        if !w.x.is_finite() || !w.y.is_finite() || w.x <= 0.0 || w.y <= 0.0 || w.x > 5000.0 || w.y > 5000.0
+        if !w.x.is_finite()
+            || !w.y.is_finite()
+            || w.x <= 0.0
+            || w.y <= 0.0
+            || w.x > 5000.0
+            || w.y > 5000.0
         {
             return Err("work area width and height must be positive finite millimetres".into());
         }
-        if w.z.is_some_and(|z| !z.is_finite() || z <= 0.0 || z > 5000.0) {
+        if w.z
+            .is_some_and(|z| !z.is_finite() || z <= 0.0 || z > 5000.0)
+        {
             return Err("work area depth must be a positive finite millimetre value".into());
+        }
+        if w.y_with_quick_swap
+            .is_some_and(|y| !y.is_finite() || y <= 0.0 || y > w.y)
+        {
+            return Err(
+                "Quick Swap work depth must be positive and not exceed the full depth".into(),
+            );
         }
         if !optional_bounded(&w.origin, MAX_SHORT) {
             return Err("work area origin label is too long".into());
@@ -418,6 +633,32 @@ impl MachineProfile {
     fn validate_laser(&self) -> Result<(), String> {
         if self.laser.operation.len() > MAX_PROFILE_ROWS {
             return Err("laser profiles carry at most 64 operations".into());
+        }
+        if self.laser.lens_options_mm.len() > 8
+            || self
+                .laser
+                .lens_options_mm
+                .iter()
+                .any(|v| !v.is_finite() || *v <= 0.0 || *v > 2000.0)
+        {
+            return Err("laser lens sizes must be up to 8 positive millimetre values".into());
+        }
+        for (low, high, limit) in [
+            (
+                self.laser.frequency_khz_min,
+                self.laser.frequency_khz_max,
+                100_000.0,
+            ),
+            (
+                self.laser.pulse_width_ns_min,
+                self.laser.pulse_width_ns_max,
+                1_000_000.0,
+            ),
+        ] {
+            let ok = |v: Option<f64>| v.is_none_or(|x| x.is_finite() && x > 0.0 && x <= limit);
+            if !ok(low) || !ok(high) || matches!((low, high), (Some(a), Some(b)) if a > b) {
+                return Err("laser frequency or pulse width range is out of bounds".into());
+            }
         }
         for op in &self.laser.operation {
             if !bounded(&op.name, MAX_SHORT) || !optional_bounded(&op.mode, MAX_SHORT) {
@@ -446,8 +687,8 @@ impl MachineProfile {
         if self.mill.tool.len() > MAX_PROFILE_ROWS {
             return Err("mill profiles carry at most 64 tools".into());
         }
-        if let Some(spindle) = &self.mill.spindle {
-            if !spindle.default_percent.is_finite()
+        if let Some(spindle) = &self.mill.spindle
+            && (!spindle.default_percent.is_finite()
                 || spindle.default_percent < 50.0
                 || spindle.default_percent > 100.0
                 || !spindle.min_percent.is_finite()
@@ -456,10 +697,9 @@ impl MachineProfile {
                 || !spindle.max_percent.is_finite()
                 || spindle.max_percent < 50.0
                 || spindle.max_percent > 100.0
-                || spindle.min_percent > spindle.max_percent
-            {
-                return Err("mill spindle percent must stay between 50 and 100".into());
-            }
+                || spindle.min_percent > spindle.max_percent)
+        {
+            return Err("mill spindle percent must stay between 50 and 100".into());
         }
         for tool in &self.mill.tool {
             if !bounded(&tool.id, MAX_SHORT) {
@@ -522,6 +762,7 @@ mod tests {
             model: "X".into(),
             notes: String::new(),
             work_area: WorkArea {
+                y_with_quick_swap: None,
                 x: 150.0,
                 y: 150.0,
                 z: None,
@@ -556,6 +797,7 @@ mod tests {
                 field_y_mm: Some(150.0),
                 source_watts: Some(30.0),
                 wavelength_nm: Some(1064.0),
+                ..Default::default()
             },
             ..Default::default()
         }
@@ -570,6 +812,7 @@ mod tests {
             model: "Y".into(),
             notes: String::new(),
             work_area: WorkArea {
+                y_with_quick_swap: None,
                 x: 320.0,
                 y: 325.0,
                 z: Some(275.0),

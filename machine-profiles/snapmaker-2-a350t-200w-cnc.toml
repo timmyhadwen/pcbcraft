@@ -10,6 +10,7 @@ x = 320.0
 y = 325.0
 z = 275.0
 origin = "lower-left"
+y_with_quick_swap = 310.0
 y_up = false
 
 [output]
