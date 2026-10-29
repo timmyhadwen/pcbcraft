@@ -290,13 +290,13 @@ impl App {
                 });
             ui.horizontal(|ui| {
                 ui.label("Library path");
-                ui.add(egui::TextEdit::singleline(&mut self.library.path).desired_width(480.0))
+                ui.add(crate::targets::text_field(&mut self.library.path).desired_width(480.0))
                     .on_hover_text("The collection the search box below reads; pick any library from the list above or type a path.");
             });
             ui.horizontal(|ui| {
                 let response = ui
                     .add(
-                        egui::TextEdit::singleline(&mut self.library.new_source)
+                        crate::targets::text_field(&mut self.library.new_source)
                             .hint_text("Folder to add as a library source")
                             .desired_width(320.0),
                     )
@@ -349,7 +349,7 @@ impl App {
             });
             ui.horizontal(|ui| {
                 let response = ui.add(
-                    egui::TextEdit::singleline(&mut self.library.query)
+                    crate::targets::text_field(&mut self.library.query)
                         .hint_text("Search names, descriptions, keywords")
                         .desired_width(360.0),
                 );
@@ -398,7 +398,7 @@ impl App {
             if results.get("scan_truncated").and_then(Value::as_bool)==Some(true) {left.label("Directory scan reached its limit; more entries may exist.");}
             let listed: Vec<Value> = results.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
             let shown: Vec<&Value> = listed.iter().filter(|item| entry_matches(item, &filter)).collect();
-            let response = left.add(egui::TextEdit::singleline(&mut self.library.filter).hint_text("Filter shown results").desired_width(240.0));
+            let response = left.add(crate::targets::text_field(&mut self.library.filter).hint_text("Filter shown results").desired_width(240.0));
             let response = response.on_hover_text("Narrow the list below as you type; matches names and descriptions, ignoring case. Double-click to clear.");
             if left.button("Clear filter").on_hover_text("Show every listed result again.").clicked() || response.double_clicked() {self.library.filter.clear();}
             if !filter.is_empty() {left.label(format!("{} of {} listed entries match the filter", shown.len(), listed.len()));}

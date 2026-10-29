@@ -7,8 +7,12 @@ mod editing;
 mod impedance_panel;
 mod library;
 mod library_quality;
+mod motion;
 mod plot_viewer;
 mod sources;
+#[cfg(test)]
+mod target_size;
+mod targets;
 mod via_covering;
 mod via_span;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
@@ -18,6 +22,7 @@ use pcbcraft_mcp::SharedSession;
 use pcbcraft_text::t;
 #[cfg(test)]
 use std::collections::BTreeMap;
+use targets::TapButton;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
@@ -513,6 +518,9 @@ struct Preferences {
     /// Language tag of the text catalog, or `system` to follow the computer.
     #[serde(default = "default_language")]
     language: String,
+    /// Turn off fades, collapses and glided zoom. Dragging is unaffected.
+    #[serde(default)]
+    reduced_motion: bool,
 }
 fn default_language() -> String {
     pcbcraft_text::SYSTEM.into()
@@ -535,6 +543,7 @@ impl Default for Preferences {
             aside_lower_tab: 0,
             library_dock_open: true,
             language: default_language(),
+            reduced_motion: motion::os_prefers_reduced_motion(),
         }
     }
 }
@@ -1404,7 +1413,7 @@ impl App {
             ];
             for (title, help, layers) in PRESETS {
                 if ui
-                    .small_button(title)
+                    .tap_button(title)
                     .on_hover_text(format!(
                         "{help} Choosing it replaces whatever stackup is recorded now."
                     ))
@@ -1445,7 +1454,7 @@ impl App {
                     .on_hover_text("What this layer is and how thick it is, as recorded.");
                     if !editing
                         && ui
-                            .small_button("Tune")
+                            .tap_button("Tune")
                             .on_hover_text("Change this layer's role or thickness.")
                             .clicked()
                     {
@@ -1490,7 +1499,7 @@ impl App {
                         .on_hover_text("Keep these changes for this layer.")
                         .clicked();
                     let cancel = ui
-                        .small_button("Cancel")
+                        .tap_button("Cancel")
                         .on_hover_text("Leave this layer as it was.")
                         .clicked();
                     if apply {
@@ -1524,7 +1533,7 @@ impl App {
         }
         ui.horizontal_wrapped(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.stack_name)
+                crate::targets::text_field(&mut self.stack_name)
                     .desired_width(70.0)
                     .hint_text("layer name"),
             )
@@ -1729,7 +1738,7 @@ impl App {
                         ));
                     }
                     if ui
-                        .small_button("Tune")
+                        .tap_button("Tune")
                         .on_hover_text("Change this hole's drill size.")
                         .clicked()
                     {
@@ -1737,7 +1746,7 @@ impl App {
                     }
                 }
                 if ui
-                    .small_button("\u{d7}")
+                    .tap_button("\u{d7}")
                     .on_hover_text("Take this hole out of the board.")
                     .clicked()
                 {
@@ -1831,7 +1840,7 @@ impl App {
                         fid.position.y
                     ));
                     if ui
-                        .small_button("Tune")
+                        .tap_button("Tune")
                         .on_hover_text("Change this mark's size or side.")
                         .clicked()
                     {
@@ -1843,7 +1852,7 @@ impl App {
                     }
                 }
                 if ui
-                    .small_button("\u{d7}")
+                    .tap_button("\u{d7}")
                     .on_hover_text("Take this mark off the board.")
                     .clicked()
                 {
@@ -1869,7 +1878,7 @@ impl App {
         ui.separator();
         ui.horizontal(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.tree_query)
+                crate::targets::text_field(&mut self.tree_query)
                     .hint_text("Search the whole board")
                     .desired_width(150.0),
             )
@@ -1878,7 +1887,7 @@ impl App {
             );
             if !self.tree_query.is_empty()
                 && ui
-                    .small_button("Clear")
+                    .tap_button("Clear")
                     .on_hover_text("Show every row again.")
                     .clicked()
             {
@@ -2288,7 +2297,7 @@ impl App {
                         };
                         let focused = self.focus_layer.as_deref() == Some(focus_key);
                         if ui
-                            .small_button(if focused {
+                            .tap_button(if focused {
                                 "Stop fading"
                             } else {
                                 "Fade others"
@@ -2440,7 +2449,7 @@ impl App {
                             let focused =
                                 self.focus_layer.as_deref() == Some(focus_key.as_str());
                             if ui
-                                .small_button(if focused {
+                                .tap_button(if focused {
                                     "Stop fading"
                                 } else {
                                     "Fade others"
@@ -2686,9 +2695,12 @@ impl App {
             Stroke::new(1.0, self.ink()),
         );
         ctx.set_visuals(visuals);
+        let reduced = self.preferences.reduced_motion;
         ctx.style_mut_of(ctx.theme(), |s| {
             s.spacing.item_spacing = Vec2::new(8.0, 8.0);
             s.spacing.button_padding = Vec2::new(10.0, 6.0);
+            s.spacing.interact_size = Vec2::new(40.0, Self::MIN_TARGET);
+            s.animation_time = if reduced { 0.0 } else { 1.0 / 12.0 };
             s.spacing.window_margin = egui::Margin::same(12);
             s.spacing.menu_margin = egui::Margin::same(12);
         });
@@ -2696,6 +2708,8 @@ impl App {
     fn dock_frame(style: &egui::Style) -> egui::Frame {
         egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(16, 12))
     }
+    /// The smallest side of any control a pointer must hit (WCAG 2.5.8).
+    const MIN_TARGET: f32 = targets::MIN_TARGET;
     const APP_BAR_HEIGHT: f32 = 34.0;
     /// The slim top bar: the brand and the menus, nothing else. Save, Undo
     /// and Redo, settings, bug reports and the version live in the menus.
@@ -2914,7 +2928,7 @@ impl App {
                             ui.horizontal(|ui| {
                                 let path_box = ui
                                     .add(
-                                        egui::TextEdit::singleline(&mut self.path)
+                                        crate::targets::text_field(&mut self.path)
                                             .hint_text("design file path")
                                             .desired_width(240.0),
                                     )
@@ -3265,7 +3279,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("Library").strong());
                     if ui
-                        .small_button("Hide")
+                        .tap_button("Hide")
                         .on_hover_text("Close the library dock.")
                         .clicked()
                     {
@@ -3285,7 +3299,7 @@ impl App {
                     ui.label(egui::RichText::new("Add a part").strong());
                     let query_box = ui
                         .add(
-                            egui::TextEdit::singleline(&mut self.part_search)
+                            crate::targets::text_field(&mut self.part_search)
                                 .hint_text("Search parts by name")
                                 .desired_width(f32::INFINITY),
                         )
@@ -3675,7 +3689,7 @@ impl App {
                         return;
                     };
                     ui.add(
-                        egui::TextEdit::singleline(draft)
+                        crate::targets::text_field(draft)
                             .desired_width(120.0)
                             .hint_text("net name"),
                     )
@@ -3707,7 +3721,7 @@ impl App {
                         self.highlight_net = if lit { None } else { Some(net.id) };
                     }
                     if ui
-                        .small_button("Rename")
+                        .tap_button("Rename")
                         .on_hover_text("Type a new name for this connection.")
                         .clicked()
                     {
@@ -3715,7 +3729,7 @@ impl App {
                     }
                     let open = self.net_editor == Some(net.id);
                     if ui
-                        .small_button(if open { "Hide pins" } else { "Pins" })
+                        .tap_button(if open { "Hide pins" } else { "Pins" })
                         .on_hover_text("Show or hide the list of pins on this connection.")
                         .clicked()
                     {
@@ -3777,7 +3791,7 @@ impl App {
                             ui.horizontal(|ui| {
                                 ui.label(label);
                                 if ui
-                                    .small_button("\u{d7}")
+                                    .tap_button("\u{d7}")
                                     .on_hover_text(
                                         "Take this pin off the connection. Nothing moves on the board.",
                                     )
@@ -3919,6 +3933,10 @@ impl App {
         });
         ui.label("Accent color");
         ui.color_edit_button_srgb(&mut self.preferences.accent);
+        ui.checkbox(&mut self.preferences.reduced_motion, "Reduce motion")
+            .on_hover_text(
+                "Turn off fades and gliding zoom. The wheel zooms in one step. Dragging is unchanged.",
+            );
         self.language_menu(ui);
         ui.label(
             egui::RichText::new("Appearance is saved automatically.")
@@ -4099,7 +4117,7 @@ impl App {
         );
         ui.horizontal(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.label_text)
+                crate::targets::text_field(&mut self.label_text)
                     .desired_width(110.0)
                     .hint_text("what to print"),
             )
@@ -4167,7 +4185,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(format!("{text} · {}", if front { "Top" } else { "Bottom" }));
                     if ui
-                        .small_button("Erase")
+                        .tap_button("Erase")
                         .on_hover_text("Wipe this word off the board.")
                         .clicked()
                     {
@@ -4201,7 +4219,7 @@ impl App {
         }
         ui.horizontal(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.svg_path)
+                crate::targets::text_field(&mut self.svg_path)
                     .hint_text("drawing file path (.svg)")
                     .desired_width(150.0),
             )
@@ -4280,7 +4298,7 @@ impl App {
             .color(self.muted()),
         );
         ui.add(
-            egui::TextEdit::singleline(&mut self.make_dir)
+            crate::targets::text_field(&mut self.make_dir)
                 .hint_text("folder for the files (blank means \"outputs\" beside the design)")
                 .desired_width(220.0),
         )
@@ -4522,7 +4540,7 @@ impl App {
                     );
                     if !editing {
                         if ui
-                            .small_button("Tune")
+                            .tap_button("Tune")
                             .on_hover_text("Change this rule set's gap and wire width.")
                             .clicked()
                         {
@@ -4530,7 +4548,7 @@ impl App {
                                 Some((class.id, class.clearance, class.width));
                         }
                         if ui
-                            .small_button("Remove")
+                            .tap_button("Remove")
                             .on_hover_text(
                                 "Delete this rule set; its connections fall back to the default rules.",
                             )
@@ -4582,7 +4600,7 @@ impl App {
                             self.run("netclass.set", json!({"class": id, "width": width}));
                         }
                         if ui
-                            .small_button("Cancel")
+                            .tap_button("Cancel")
                             .on_hover_text("Leave this rule set as it was.")
                             .clicked()
                         {
@@ -4678,7 +4696,7 @@ impl App {
                             ui.label("· ");
                             ui.label(&name);
                             if ui
-                                .small_button("\u{d7}")
+                                .tap_button("\u{d7}")
                                 .on_hover_text(
                                     "Let this connection follow the default rules again.",
                                 )
@@ -4733,7 +4751,7 @@ impl App {
                 self.run("teardrop.add", json!({"depth": self.teardrop_depth}));
             }
             if ui
-                .small_button("Remove teardrops")
+                .tap_button("Remove teardrops")
                 .on_hover_text(
                     "Take the teardrop copper away again, leaving the ordinary wires exactly as they were.",
                 )
@@ -4774,7 +4792,7 @@ impl App {
                     "A check you wrote. It is saved with the design and re-run after every edit.",
                 );
                 if ui
-                    .small_button("Remove this check")
+                    .tap_button("Remove this check")
                     .on_hover_text(
                         "Stop running this check. Nothing about the design itself changes.",
                     )
@@ -4787,7 +4805,7 @@ impl App {
         if self.project.custom_checks.len() < 32 {
             ui.horizontal(|ui| {
                 let response = ui.add(
-                    egui::TextEdit::singleline(&mut self.custom_name)
+                    crate::targets::text_field(&mut self.custom_name)
                         .hint_text("What this check means, in your words")
                         .desired_width(150.0),
                 );
@@ -4902,7 +4920,7 @@ impl App {
                     }
                 }
                 if ui
-                    .small_button("Auto")
+                    .tap_button("Auto")
                     .on_hover_text("Go back to what this check does out of the box.")
                     .clicked()
                 {
@@ -5012,7 +5030,7 @@ impl App {
                         name_of(b)
                     ));
                     if ui
-                        .small_button("Clear")
+                        .tap_button("Clear")
                         .on_hover_text(
                             "Let these two connections fall back to the normal spacing rules.",
                         )
@@ -5050,7 +5068,7 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label("Name");
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.dp_name)
+                    crate::targets::text_field(&mut self.dp_name)
                         .hint_text("USB")
                         .desired_width(90.0),
                 )
@@ -5121,7 +5139,7 @@ impl App {
                         name_of(n)
                     ));
                     if ui
-                        .small_button("Remove")
+                        .tap_button("Remove")
                         .on_hover_text("Stop watching this pair; the lines stay as they are.")
                         .clicked()
                     {
@@ -5243,7 +5261,7 @@ impl App {
                         max_height.map_or(String::new(), |h| format!(" · up to {h} mm tall"))
                     ));
                     if ui
-                        .small_button("Erase area")
+                        .tap_button("Erase area")
                         .on_hover_text(
                             "This corner goes back to the board's normal rules; the copper stays as it is.",
                         )
@@ -5307,7 +5325,7 @@ impl App {
                     }
                     if !editing {
                         if ui
-                            .small_button("Note")
+                            .tap_button("Note")
                             .on_hover_text(
                                 "Write a short reminder of what makes this build different.",
                             )
@@ -5317,7 +5335,7 @@ impl App {
                                 Some((variant.name.clone(), variant.note.clone().unwrap_or_default()));
                         }
                         if ui
-                            .small_button("Remove")
+                            .tap_button("Remove")
                             .on_hover_text(
                                 "Delete this extra build; the design itself does not change.",
                             )
@@ -5351,7 +5369,7 @@ impl App {
                         .on_hover_text("Keep this reminder on the build.")
                         .clicked();
                     let cancel = ui
-                        .small_button("Cancel")
+                        .tap_button("Cancel")
                         .on_hover_text("Leave the build's reminder as it was.")
                         .clicked();
                     if save {
@@ -5382,7 +5400,7 @@ impl App {
                             ui.label("· ");
                             ui.label(&reference);
                             if ui
-                                .small_button("\u{d7}")
+                                .tap_button("\u{d7}")
                                 .on_hover_text(
                                     "Put this part back on for this build.",
                                 )
@@ -5473,7 +5491,7 @@ impl App {
                             ui.label("· ");
                             ui.label(format!("{reference} fits {}", swap.footprint));
                             if ui
-                                .small_button("\u{d7}")
+                                .tap_button("\u{d7}")
                                 .on_hover_text("Fit this part in its original package again.")
                                 .clicked()
                             {
@@ -5509,7 +5527,7 @@ impl App {
                                 "Pick a part, name its other package, then Swap package.",
                             );
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.swap_name)
+                            crate::targets::text_field(&mut self.swap_name)
                                 .desired_width(80.0)
                                 .hint_text("package name"),
                         )
@@ -5681,7 +5699,7 @@ impl App {
                         );
                         ui.add_space(10.0);
                         ui.label("Value");
-                        ui.text_edit_singleline(&mut self.value);
+                        ui.add(crate::targets::text_field(&mut self.value));
                         field_help(ui, FIELD_HELP_VALUE, self.muted());
                         if ui.button("Apply value").on_hover_text(command_tip("component.value")).clicked() {
                             self.run("component.value", json!({"id":c.id,"value":self.value}));
@@ -6081,7 +6099,7 @@ impl App {
                     )
                     .on_hover_text("How close the drawing is zoomed in. Scroll to change it.");
                     let tool_btn = ui
-                        .small_button(format!("Tool: {tool_words}"))
+                        .tap_button(format!("Tool: {tool_words}"))
                         .on_hover_text(
                             "What a click on the drawing does right now. Click here to go back to picking things, or press Esc.",
                         );
@@ -6089,10 +6107,10 @@ impl App {
                         self.tool = Tool::Select;
                     }
                     let fix_btn = ui
-                        .small_button(format!("{fix} to fix"))
+                        .tap_button(format!("{fix} to fix"))
                         .on_hover_text("Mistakes the checks say you must fix. Click to see the list.");
                     let mind_btn = ui
-                        .small_button(format!("{mind} to mind"))
+                        .tap_button(format!("{mind} to mind"))
                         .on_hover_text(
                             "Warnings worth a look, but not blockers. Click to see the list.",
                         );
@@ -6124,7 +6142,7 @@ impl App {
                                 .color(self.accent()),
                         );
                         let search = ui.add(
-                            egui::TextEdit::singleline(&mut self.command_query)
+                            crate::targets::text_field(&mut self.command_query)
                                 .hint_text("filter command names and descriptions")
                                 .desired_width(300.0),
                         );
@@ -6410,7 +6428,7 @@ impl App {
                             }
                             if !objects.is_empty()
                                 && ui
-                                    .small_button("Hide this")
+                                    .tap_button("Hide this")
                                     .on_hover_text(
                                         "You have looked at this and it is fine: hide just this finding. Everything you hide can be brought back below.",
                                     )
@@ -6436,7 +6454,7 @@ impl App {
                                 {
                                     let pad = 2.0;
                                     if ui
-                                        .small_button("Quiet this area")
+                                        .tap_button("Quiet this area")
                                         .on_hover_text(
                                             "This corner of the board is the way you want it: ask the check to leave anything inside a box drawn around these items alone. You can clear the box below.",
                                         )
@@ -6478,7 +6496,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(format!("{code} · {count} hidden"));
                     if ui
-                        .small_button(format!("Bring back {code}"))
+                        .tap_button(format!("Bring back {code}"))
                         .on_hover_text(
                             "Show every hidden finding from this check again; each one can be hidden afresh.",
                         )
@@ -6506,7 +6524,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(format!("{code} · {count} zone(s)"));
                     if ui
-                        .small_button(format!("Clear {code} zones"))
+                        .tap_button(format!("Clear {code} zones"))
                         .on_hover_text(
                             "Remove every quiet box for this check, so it reports the whole board again.",
                         )
@@ -6679,7 +6697,7 @@ impl App {
             });
             if self.art_shape == DrawShape::Words {
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.art_text)
+                    crate::targets::text_field(&mut self.art_text)
                         .hint_text("words to print")
                         .desired_width(f32::INFINITY),
                 )

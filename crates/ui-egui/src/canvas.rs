@@ -380,7 +380,7 @@ impl App {
             self.needs_fit = false;
         }
         if response.hovered() {
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            let scroll = motion::wheel_zoom_delta(ui, self.preferences.reduced_motion);
             if scroll.abs() > 0.01
                 && let Some(mouse) = ui.input(|i| i.pointer.hover_pos())
             {
@@ -738,7 +738,7 @@ impl App {
                         self.needs_fit = true;
                     }
                     if ui
-                        .small_button("+")
+                        .tap_button("+")
                         .on_hover_text("Zoom in on the drawing.")
                         .clicked()
                     {
@@ -750,7 +750,7 @@ impl App {
                         *zoom = (*zoom * 1.15).clamp(0.02, 100.0);
                     }
                     if ui
-                        .small_button("\u{2212}")
+                        .tap_button("\u{2212}")
                         .on_hover_text("Zoom out on the drawing.")
                         .clicked()
                     {

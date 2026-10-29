@@ -205,7 +205,7 @@ fn point(ui: &mut egui::Ui, label: &str, p: &mut Point) {
 fn text(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.text_edit_singleline(value);
+        ui.add(crate::targets::text_field(value));
     });
 }
 fn number(ui: &mut egui::Ui, label: &str, value: &mut f64) {
@@ -825,7 +825,7 @@ impl App {
             self.library.editor.needs_fit = false;
         }
         if response.hovered() {
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            let scroll = motion::wheel_zoom_delta(ui, self.preferences.reduced_motion);
             if scroll.abs() > 0.01
                 && let Some(mouse) = ui.input(|i| i.pointer.hover_pos())
             {
@@ -1125,7 +1125,7 @@ impl App {
         ui.label("Saved here, live with the design; everything above is shared collections. Placed components retain their embedded copies.");
         ui.horizontal(|ui| {
             ui.label("Collection file");
-            ui.text_edit_singleline(&mut self.library.editor.path);
+            ui.add(crate::targets::text_field(&mut self.library.editor.path));
             if ui
                 .button("Save library")
                 .on_hover_text("Write the authored collections to a reusable library file.")
@@ -1257,7 +1257,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label("Set")
                         .on_hover_text("Optional group name, like Power bits. Parts that share a set are grouped together when you add parts, and the group can be hidden.");
-                    ui.text_edit_singleline(&mut def.set);
+                    ui.add(crate::targets::text_field(&mut def.set));
                 });
                 if let Err(e) = def.validate() {
                     ui.colored_label(Color32::LIGHT_RED, e.to_string());
