@@ -2,3 +2,4 @@
 *.pcbcraft.tmp
 /work/
 __pycache__/
+/apps/pcbcraft-web/dist/
