@@ -338,3 +338,8 @@ pub(crate) fn open_tree_row(ctx: &egui::Context, app: &mut App, key: &str) {
     app.tree.selected_key = Some(key.to_owned());
     frame(ctx, app, vec![], egui::Modifiers::NONE);
 }
+
+/// Show the Library tab of the left aside, where the part search lives.
+pub(crate) fn open_library_dock(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
+    tap_id(ctx, app, "button:Library")
+}

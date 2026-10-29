@@ -11,7 +11,7 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    open_library_dock(&ctx, &mut app)?;
     assert!(
         paints_text(&ctx, &mut app, "Keyword or part number")?,
         "the part search opens with a box that says what to type"
@@ -94,6 +94,7 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    open_library_dock(&ctx, &mut app)?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "    blinky red · built in", 150.0)?,
         "a part row says what the part is and where it came from: {}",
@@ -301,7 +302,7 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
     let ctx = egui::Context::default();
     let none = egui::Modifiers::NONE;
     frame(&ctx, &mut app, vec![], none);
-    frame(&ctx, &mut app, vec![], none);
+    open_library_dock(&ctx, &mut app)?;
     authoring::tests::tap(&ctx, &mut app, "Keyword or part number")?;
     for letter in "resistor".chars() {
         frame(&ctx, &mut app, vec![egui::Event::Text(letter.into())], none);
@@ -380,6 +381,8 @@ fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
 #[test]
 fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<(), String> {
     let (mut app, ctx) = app_with_overlapping_pads()?;
+    // The menus hide while a library editor is open; step out of it first.
+    app.library.editor.mode = 0;
     authoring::tests::open_page(&ctx, &mut app, "Checks")?;
     for needle in [
         "Lib pad overlap · 1 place",
@@ -835,10 +838,11 @@ fn a_newcomer_switches_between_the_library_and_the_editor() -> Result<(), String
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    app.change_tab(Tab::Libraries);
+    // The Libraries page is reached from Files, under Library sources.
+    app.change_tab(Tab::Files);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap_id(&ctx, &mut app, "button:Libraries")?;
-    assert_eq!(app.tab, Tab::Libraries, "the Libraries tab stays selected");
+    authoring::tests::tap(&ctx, &mut app, "Library sources")?;
+    assert_eq!(app.tab, Tab::Libraries, "Library sources opens the Libraries page");
     tap_id(&ctx, &mut app, "button:Editor")?;
     assert_eq!(app.library.editor.mode, 2, "Editor opens the editor");
     tap_id(&ctx, &mut app, "button:Library")?;
@@ -891,6 +895,10 @@ fn dock_app() -> (egui::Context, App) {
     app.dock.roots = Some(vec![]);
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The part search is the Library tab of the left aside.
+    if open_library_dock(&ctx, &mut app).is_err() {
+        app.preferences.left_tab = 1;
+    }
     (ctx, app)
 }
 
