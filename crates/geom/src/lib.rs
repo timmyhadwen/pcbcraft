@@ -3,6 +3,7 @@ mod overlay;
 use serde::{Deserialize, Serialize};
 
 pub use overlay::{OffsetJoin, Ring, polygon_offset, polygon_union};
+pub mod hull;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
