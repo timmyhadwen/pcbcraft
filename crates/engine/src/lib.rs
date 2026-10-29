@@ -18006,9 +18006,8 @@ mod tests {
             "fresh QFN must not overlap: {clean:?}"
         );
         let mut def = s.project.library.footprints[0].clone();
-        let (x, y) = (def.pads[0].x, def.pads[0].y);
-        def.pads[1].x = x;
-        def.pads[1].y = y;
+        let at = def.pads[0].position;
+        def.pads[1].position = at;
         let out = s.execute("library.footprint.check", json!({"definition": def}), None)?;
         let found = out["result"]["findings"].as_array().cloned().unwrap_or_default();
         assert!(
