@@ -2,13 +2,8 @@ use super::*;
 use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Id, Layer, PinRef, Project};
 use pcbcraft_geom::point_segment;
-use std::cell::Cell;
 mod board_art;
 mod underlay;
-
-thread_local! {
-    static SCHEMATIC_PAGE: Cell<Option<Id>> = const { Cell::new(None) };
-}
 
 fn on_page(p: &Project, page: Id, object: Id) -> bool {
     p.on_schematic_page(page, object)
@@ -270,17 +265,6 @@ impl App {
     fn copper(&self, net: Option<Id>, base: Color32) -> Color32 {
         spotlight(self.highlight_net, net, base, self.accent())
     }
-    pub(crate) fn schematic_page(&self) -> Id {
-        SCHEMATIC_PAGE.with(|page| page.get()).unwrap_or(0)
-    }
-    #[cfg(test)]
-    pub(crate) fn set_schematic_page(&self, page: Id) {
-        SCHEMATIC_PAGE.with(|slot| slot.set(Some(page)));
-    }
-    #[cfg(test)]
-    pub(crate) fn clear_schematic_page_override() {
-        SCHEMATIC_PAGE.with(|slot| slot.set(None));
-    }
 }
 
 impl App {
@@ -396,6 +380,9 @@ impl App {
         }
     }
     pub(super) fn canvas(&mut self, ui: &mut egui::Ui) {
+        if self.tab == Tab::Schematic {
+            self.page_switcher(ui);
+        }
         let (response, painter) = ui.allocate_painter(
             ui.available_size(),
             Sense::click_and_drag().union(Sense::hover()),
@@ -1859,7 +1846,13 @@ impl App {
             stroke,
         ));
     }
-    fn paint_schematic(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
+    pub(crate) fn paint_schematic(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        camera: Camera,
+        p: &Project,
+    ) {
         let page = self.schematic_page();
         let shown = |name: &str| self.layer_shown(name);
         underlay::paint(painter, rect, camera, p, "schematic");
@@ -2825,101 +2818,6 @@ mod tests {
             copper.gamma_multiply(0.25),
             "copper without a net fades while a net is lit"
         );
-    }
-
-    #[test]
-    fn a_newcomer_sees_one_schematic_page_at_a_time() -> Result<(), String> {
-        let mut session = pcbcraft_engine::Session::default();
-        let page_one = session
-            .execute("schematic.new_sheet", json!({"name":"Power"}), None)
-            .map_err(|e| e.to_string())?["result"]["id"]
-            .as_u64()
-            .ok_or("missing page id")?;
-        session
-            .execute(
-                "component.add",
-                json!({"kind":"resistor","reference":"R_ROOT","position":{"x":10.0,"y":10.0}}),
-                None,
-            )
-            .map_err(|e| e.to_string())?;
-        let _root_id = session
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R_ROOT")
-            .ok_or("root part missing")?
-            .id;
-        session
-            .execute(
-                "component.add",
-                json!({"kind":"resistor","reference":"R_PAGE","position":{"x":40.0,"y":10.0}}),
-                None,
-            )
-            .map_err(|e| e.to_string())?;
-        let page_id = session
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R_PAGE")
-            .ok_or("page part missing")?
-            .id;
-        session
-            .execute(
-                "schematic.move_component",
-                json!({"id":page_id,"sheet":page_one}),
-                None,
-            )
-            .map_err(|e| e.to_string())?;
-        let shared = pcbcraft_mcp::shared(session);
-        let app = App::create(shared, Preferences::default(), None, None);
-        let labels = |app: &App| -> Vec<String> {
-            let ctx = egui::Context::default();
-            let mut output = ctx.run_ui(
-                egui::RawInput {
-                    screen_rect: Some(Rect::from_min_size(
-                        egui::Pos2::ZERO,
-                        Vec2::new(1440.0, 940.0),
-                    )),
-                    ..Default::default()
-                },
-                |root_ui| {
-                    egui::CentralPanel::default().show(root_ui, |ui| {
-                        let rect = ui.max_rect();
-                        app.paint_schematic(ui.painter(), rect, app.schematic, &app.project);
-                    });
-                },
-            );
-            output.textures_delta.clear();
-            output
-                .shapes
-                .iter()
-                .filter_map(|shape| match &shape.shape {
-                    egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
-                    _ => None,
-                })
-                .collect()
-        };
-        let root_labels = labels(&app);
-        assert!(
-            root_labels.iter().any(|t| t.contains("R_ROOT")),
-            "page zero still shows its own parts: {root_labels:?}"
-        );
-        assert!(
-            !root_labels.iter().any(|t| t.contains("R_PAGE")),
-            "page zero hides the other page: {root_labels:?}"
-        );
-        app.set_schematic_page(page_one);
-        let other_labels = labels(&app);
-        assert!(
-            other_labels.iter().any(|t| t.contains("R_PAGE")),
-            "the second page shows its parts: {other_labels:?}"
-        );
-        assert!(
-            !other_labels.iter().any(|t| t.contains("R_ROOT")),
-            "the second page hides page zero: {other_labels:?}"
-        );
-        App::clear_schematic_page_override();
-        Ok(())
     }
 }
 

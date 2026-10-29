@@ -19,6 +19,7 @@ mod library;
 mod nets;
 mod pairs;
 mod rules;
+mod schematic_pages;
 mod settings;
 mod shell;
 mod via_covering;

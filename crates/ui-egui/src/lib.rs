@@ -12,6 +12,7 @@ mod impedance_panel;
 mod library;
 mod library_quality;
 mod motion;
+mod pages;
 mod palette;
 mod plot_viewer;
 mod reference_panel;
@@ -958,6 +959,8 @@ pub struct App {
     /// Left edge of the central page, so tests can check text keeps its margin.
     page_left: f32,
     schematic: Camera,
+    /// Schematic page on the canvas; 0 is the Main page. See `pages.rs`.
+    active_page: Id,
     pcb: Camera,
     plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
@@ -1432,6 +1435,7 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             needs_fit: true,
+            active_page: 0,
             page_left: 0.0,
             schematic: Camera {
                 center: Point::new(40.0, 24.0),
