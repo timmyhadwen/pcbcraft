@@ -12,6 +12,7 @@
 | [ci.md](ci.md) | GitHub Actions jobs |
 | [adr-0001-simulation.md](adr-0001-simulation.md) | Decision record (Proposed): how circuit simulation will work |
 | [tooltips.md](tooltips.md) | What every control tooltip must say |
+| [tool-modifiers.md](tool-modifiers.md) | Shift, Ctrl and Alt per tool, tool hotkeys, what a press on a pin or pad does |
 | [validation.md](validation.md) | How the first subset was verified |
 | [kicad-libraries.md](kicad-libraries.md) | Library formats, limits, fixture licenses |
 | [agents/](agents/) | Researcher, enricher, worker, reviewer briefs |

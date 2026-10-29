@@ -3628,6 +3628,47 @@ impl Project {
     fn copper_layer_valid(&self, layer: Layer) -> bool {
         layer.index() < self.copper_layer_count()
     }
+    /// Rewrite the copper layer index of every board object that names one:
+    /// tracks, zones, board text, assembly marks, rule areas and the ends of
+    /// vias that stop short of the outer layers. Used when the stackup gains,
+    /// loses or reorders a copper layer, so copper keeps the layer it was on.
+    pub fn remap_copper_layers(&mut self, map: impl Fn(u8) -> u8) {
+        let to = |l: Layer| Layer(map(l.index()));
+        for t in &mut self.board.tracks {
+            t.layer = to(t.layer);
+        }
+        for z in &mut self.board.zones {
+            z.layer = to(z.layer);
+        }
+        for t in &mut self.board.texts {
+            t.layer = to(t.layer);
+        }
+        for f in &mut self.board.fiducials {
+            f.layer = to(f.layer);
+        }
+        for a in &mut self.board.rule_areas {
+            a.layer = a.layer.map(to);
+        }
+        for v in &mut self.board.vias {
+            v.from_layer = v.from_layer.map(to);
+            v.to_layer = v.to_layer.map(to);
+        }
+    }
+    /// True when any board object sits on copper layer `index`.
+    pub fn copper_layer_in_use(&self, index: u8) -> bool {
+        let b = &self.board;
+        b.tracks.iter().any(|t| t.layer.index() == index)
+            || b.zones.iter().any(|z| z.layer.index() == index)
+            || b.texts.iter().any(|t| t.layer.index() == index)
+            || b.fiducials.iter().any(|f| f.layer.index() == index)
+            || b.rule_areas
+                .iter()
+                .any(|a| a.layer.is_some_and(|l| l.index() == index))
+            || b.vias.iter().any(|v| {
+                v.from_layer.is_some_and(|l| l.index() == index)
+                    || v.to_layer.is_some_and(|l| l.index() == index)
+            })
+    }
     /// Highest copper index referenced by board objects, if any.
     pub fn max_copper_layer_index_used(&self) -> Option<u8> {
         let mut max: Option<u8> = None;
