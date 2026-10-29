@@ -218,6 +218,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
         position: Point::new(30.0, 20.0),
         rotation: 0.0,
         locked: None,
+        side: None,
         pads: pads
             .into_iter()
             .map(|g| Pad {
@@ -643,6 +644,219 @@ fn a_newcomer_sees_why_impossible_numbers_cannot_make_a_footprint() -> Result<()
             "pitch must be between 0.1 and 25.4 millimetres"
         )?,
         "a pitch that no package has is explained in plain words"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_makes_a_chamfered_pad_and_then_a_custom_pad() -> Result<(), String> {
+    let (shared, mut app, ctx) = authoring::tests::editor("footprint-editor")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Pad 1 · thru_hole")?;
+    authoring::tests::tap(&ctx, &mut app, "circle")?;
+    authoring::tests::tap(&ctx, &mut app, "Chamfered")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Top left")?,
+        "a chamfered pad offers its corners by name"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Top right")?;
+    let Some(authoring::Draft::Footprint(draft)) = app.library.editor.draft.clone() else {
+        return Err("the footprint editor lost its draft".to_string());
+    };
+    let chamfer = draft.pads[0].chamfer.ok_or("the chamfer was not created")?;
+    assert_eq!(draft.pads[0].shape, "chamfered");
+    assert!(chamfer.corners.top_left && chamfer.corners.top_right);
+    assert!(!chamfer.corners.bottom_left && !chamfer.corners.bottom_right);
+    assert!(
+        (chamfer.ratio - 0.25).abs() < 1e-9,
+        "default cut is a quarter"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Save footprint to project library")?;
+    {
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        let saved = &session.project.library.footprints[0].pads[0];
+        assert_eq!(saved.shape, "chamfered", "the cut pad reaches the project");
+        assert_eq!(saved.chamfer, Some(chamfer));
+    }
+    authoring::tests::tap(&ctx, &mut app, "Chamfered")?;
+    authoring::tests::tap(&ctx, &mut app, "Custom polygon")?;
+    authoring::tests::tap(&ctx, &mut app, "Add point")?;
+    let Some(authoring::Draft::Footprint(draft)) = app.library.editor.draft.clone() else {
+        return Err("the footprint editor lost its draft".to_string());
+    };
+    assert_eq!(draft.pads[0].shape, "custom");
+    assert!(draft.pads[0].chamfer.is_none(), "the cuts go away");
+    assert_eq!(
+        draft.pads[0].polygon.len(),
+        5,
+        "four corners plus the added point"
+    );
+    Ok(())
+}
+
+fn editor_app(page: &str) -> (App, egui::Context) {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, Some(page));
+    app.refresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    (app, ctx)
+}
+
+fn symbol_draft(app: &App) -> Result<pcbcraft_library::SymbolDefinition, String> {
+    authoring::tests::draft_symbol(app)
+}
+
+#[test]
+fn a_newcomer_describes_a_new_symbol_in_every_box() -> Result<(), String> {
+    let (mut app, ctx) = editor_app("symbol-editor");
+    type_into(&ctx, &mut app, "textinput:Name", "Amplifier")?;
+    type_into(&ctx, &mut app, "textinput:Reference prefix", "U")?;
+    type_into(&ctx, &mut app, "textinput:Default value", "LM358")?;
+    type_into(&ctx, &mut app, "textinput:Description", "Dual op amp")?;
+    type_into(&ctx, &mut app, "textinput:Suggested footprint", "SOIC-8")?;
+    type_into(&ctx, &mut app, "textinput:Set name", "Analog")?;
+    let draft = symbol_draft(&app)?;
+    assert_eq!(draft.name, "Amplifier", "the name is the one typed");
+    assert_eq!(
+        draft.reference, "U",
+        "the reference prefix is the one typed"
+    );
+    assert_eq!(draft.value, "LM358", "the default value is the one typed");
+    assert_eq!(
+        draft.description, "Dual op amp",
+        "the note is the one typed"
+    );
+    assert_eq!(draft.footprint, "SOIC-8", "the package is the one typed");
+    assert_eq!(draft.set, "Analog", "the set is the one typed");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_adds_pins_and_shapes_to_a_symbol_and_makes_a_second_unit() -> Result<(), String> {
+    let (mut app, ctx) = editor_app("symbol-editor");
+    let pins = symbol_draft(&app)?.pins.len();
+    tap_id(&ctx, &mut app, "button:Add pin")?;
+    assert_eq!(
+        symbol_draft(&app)?.pins.len(),
+        pins + 1,
+        "one click, one pin"
+    );
+    let shapes = symbol_draft(&app)?.graphics.len();
+    for (index, button) in [
+        "button:Line",
+        "button:Rectangle",
+        "button:Circle",
+        "button:Arc",
+        "button:Polyline",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        tap_id(&ctx, &mut app, button)?;
+        assert_eq!(
+            symbol_draft(&app)?.graphics.len(),
+            shapes + index + 1,
+            "{button} adds one shape to the drawing"
+        );
+    }
+    // Opening a pin or a shape shows its own fields.
+    tap_id(&ctx, &mut app, "button:Pin # · unit #")?;
+    tap_id(&ctx, &mut app, "button:Graphic # · unit #")?;
+    tap_id(&ctx, &mut app, "button:Duplicate preview unit")?;
+    assert!(
+        symbol_draft(&app)?.pins.iter().any(|pin| pin.unit == 2),
+        "the copy lives in a second unit"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_a_drawing_tool_in_the_symbol_editor() -> Result<(), String> {
+    use crate::authoring::LibraryTool;
+    let (mut app, ctx) = editor_app("symbol-editor");
+    for (button, tool) in [
+        ("button:Draw line", LibraryTool::Line),
+        ("button:Draw circle", LibraryTool::Circle),
+        ("button:Draw arc", LibraryTool::Arc),
+        ("button:Draw polyline", LibraryTool::Polyline),
+    ] {
+        tap_id(&ctx, &mut app, button)?;
+        assert!(
+            app.library.editor.tool == tool,
+            "{button} arms its drawing tool"
+        );
+    }
+    tap_id(&ctx, &mut app, "button:Fit")?;
+    assert!(
+        app.library.editor.tool == LibraryTool::Polyline,
+        "Fit zooms the canvas and leaves the chosen tool alone"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_lays_out_a_footprint_with_pads_and_a_drawing() -> Result<(), String> {
+    use crate::authoring::LibraryTool;
+    let (mut app, ctx) = editor_app("footprint-editor");
+    let pads = match &app.library.editor.draft {
+        Some(Draft::Footprint(draft)) => draft.pads.len(),
+        _ => return Err("the footprint editor starts with a draft".into()),
+    };
+    tap_id(&ctx, &mut app, "button:Add pad")?;
+    let after = match &app.library.editor.draft {
+        Some(Draft::Footprint(draft)) => draft.pads.len(),
+        _ => return Err("the footprint draft vanished".into()),
+    };
+    assert_eq!(after, pads + 1, "one click, one pad");
+    tap_id(&ctx, &mut app, "button:Pad")?;
+    assert!(
+        app.library.editor.tool == LibraryTool::Pad,
+        "Pad arms the pad tool"
+    );
+    tap_id(&ctx, &mut app, "button:Pad # · thru_hole")?;
+    tap_id(&ctx, &mut app, "button:Line")?;
+    tap_id(&ctx, &mut app, "button:Graphic #")?;
+    let shapes = match &app.library.editor.draft {
+        Some(Draft::Footprint(draft)) => draft.graphics.len(),
+        _ => 0,
+    };
+    assert!(shapes > 0, "the footprint now has a drawn shape to open");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_switches_between_the_library_and_the_editor() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Libraries);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    tap_id(&ctx, &mut app, "button:Libraries")?;
+    assert_eq!(app.tab, Tab::Libraries, "the Libraries tab stays selected");
+    tap_id(&ctx, &mut app, "button:Editor")?;
+    assert_eq!(app.library.editor.mode, 2, "Editor opens the editor");
+    tap_id(&ctx, &mut app, "button:Library")?;
+    assert_eq!(app.library.editor.mode, 0, "Library comes back to browsing");
+    tap_id(&ctx, &mut app, "button:New symbol")?;
+    assert!(
+        matches!(app.library.editor.draft, Some(Draft::Symbol(_))),
+        "New symbol starts a symbol draft"
+    );
+    tap_id(&ctx, &mut app, "button:New footprint")?;
+    assert!(
+        matches!(app.library.editor.draft, Some(Draft::Footprint(_))),
+        "New footprint starts a package draft"
+    );
+    app.library.editor.mode = 0;
+    tap_id(&ctx, &mut app, "button:Original starter symbols")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Place in schematic >")?,
+        "the starter symbols open with a button to place each one"
     );
     Ok(())
 }
