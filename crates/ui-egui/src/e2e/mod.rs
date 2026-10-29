@@ -28,4 +28,3 @@ mod shell;
 mod via_covering;
 mod vias;
 mod workbench;
-mod zz_debug;
