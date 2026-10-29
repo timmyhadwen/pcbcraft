@@ -1559,11 +1559,16 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.set_layer_record",
-            "Record or replace one board layer note: its name, role (copper, core, prepreg, soldermask, silkscreen, paste or custom) and thickness in millimetres; at most 32 notes per board",
+            "Record or replace one physical board layer: its name, role (copper, core, prepreg, soldermask, silkscreen, paste or custom) and thickness in millimetres, plus optional function, side, polarity, material (see board.materials), dk (1 to 20), df (0 to 1), thickness_tol_pct (0 to 50), copper_weight_oz (0.1 to 10), foil (rolled or electrodeposited) and linked_copper (the copper row a mask, silk or paste row sits on); at most 32 layers per board. Fields left out keep their value on an existing layer",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":["copper","core","prepreg","soldermask","silkscreen","paste","custom"]},"thickness":{"type":"number"}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":["copper","core","prepreg","soldermask","silkscreen","paste","custom"]},"thickness":{"type":"number"},"copper_role":{"type":"string","enum":["signal","plane","mixed","hatched"]},"function":{"type":"string","enum":pcbcraft_doc::LAYER_FUNCTIONS},"side":{"type":"string","enum":["top","bottom","internal","both","none"]},"polarity":{"type":"string","enum":["positive","negative"]},"material":{"type":"string","maxLength":64},"dk":{"type":"number","minimum":1,"maximum":20},"df":{"type":"number","minimum":0,"maximum":1},"thickness_tol_pct":{"type":"number","minimum":0,"maximum":50},"copper_weight_oz":{"type":"number","minimum":0.1,"maximum":10},"foil":{"type":"string","enum":["rolled","electrodeposited"]},"linked_copper":{"type":"string","maxLength":64}}),
                 &["name", "kind", "thickness"],
             ),
+        ),
+        (
+            "board.materials",
+            "List the built-in laminate table: name, dk, df, the frequency the figures were stated at and a source note",
+            schema(json!({}), &[]),
         ),
         (
             "board.clear_layer_records",
@@ -1632,6 +1637,11 @@ pub fn commands() -> Vec<CommandSpec> {
             "net.lengths",
             "Report routed copper length per net: track segments summed in millimetres, with via counts and unrouted nets listed",
             schema(json!({"net":id_schema()}), &[]),
+        ),
+        (
+            "net.members",
+            "List every member of one net: board tracks, zones and vias grouped by copper layer, the layers the net runs on, vias with their spans, pads, schematic pins, wires and labels. Read only",
+            schema(json!({"net":id_schema()}), &["net"]),
         ),
         (
             "net.chain",
@@ -4343,6 +4353,11 @@ struct RuleAreaParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct NetMembersParams {
+    net: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct NetLengthsParams {
     #[serde(default)]
     net: Option<Id>,
@@ -4391,6 +4406,92 @@ struct LayerRecordParams {
     thickness: f64,
     #[serde(default)]
     copper_role: Option<String>,
+    #[serde(default)]
+    function: Option<String>,
+    #[serde(default)]
+    side: Option<String>,
+    #[serde(default)]
+    polarity: Option<String>,
+    #[serde(default)]
+    material: Option<String>,
+    #[serde(default)]
+    dk: Option<f64>,
+    #[serde(default)]
+    df: Option<f64>,
+    #[serde(default)]
+    thickness_tol_pct: Option<f64>,
+    #[serde(default)]
+    copper_weight_oz: Option<f64>,
+    #[serde(default)]
+    foil: Option<String>,
+    #[serde(default)]
+    linked_copper: Option<String>,
+}
+impl LayerRecordParams {
+    /// Check the optional physical fields against their bounds, with a plain message.
+    fn check_physical(&self) -> Result<(), Error> {
+        let bad = |m: &str| Err(Error::Invalid(m.into()));
+        let in_set =
+            |v: &Option<String>, set: &[&str]| v.as_ref().is_none_or(|x| set.contains(&x.as_str()));
+        let in_range = |v: Option<f64>, lo: f64, hi: f64| {
+            v.is_none_or(|x| x.is_finite() && (lo..=hi).contains(&x))
+        };
+        if !in_set(&self.function, &pcbcraft_doc::LAYER_FUNCTIONS) {
+            return bad("function must be one of the listed layer functions");
+        }
+        if !in_set(&self.side, &["top", "bottom", "internal", "both", "none"]) {
+            return bad("side must be top, bottom, internal, both or none");
+        }
+        if !in_set(&self.polarity, &["positive", "negative"]) {
+            return bad("polarity must be positive or negative");
+        }
+        if !in_set(&self.foil, &["rolled", "electrodeposited"]) {
+            return bad("foil must be rolled or electrodeposited");
+        }
+        if let Some(m) = &self.material
+            && pcbcraft_doc::material(m).is_none()
+        {
+            return bad("material is not in the built-in table; see board.materials");
+        }
+        if !in_range(self.dk, 1.0, 20.0) {
+            return bad("dk must be between 1 and 20");
+        }
+        if !in_range(self.df, 0.0, 1.0) {
+            return bad("df must be between 0 and 1");
+        }
+        if !in_range(self.thickness_tol_pct, 0.0, 50.0) {
+            return bad("thickness tolerance must be between 0 and 50 percent");
+        }
+        if !in_range(self.copper_weight_oz, 0.1, 10.0) {
+            return bad("copper weight must be between 0.1 and 10 ounces");
+        }
+        Ok(())
+    }
+    /// Write every field the caller gave onto a record; omitted fields stay.
+    fn apply(&self, rec: &mut pcbcraft_doc::LayerRecord) {
+        rec.kind = self.kind.clone();
+        rec.thickness = self.thickness;
+        rec.copper_role = self.copper_role.clone();
+        macro_rules! keep {
+            ($($f:ident),*) => {$(
+                if self.$f.is_some() {
+                    rec.$f = self.$f.clone();
+                }
+            )*};
+        }
+        keep!(
+            function,
+            side,
+            polarity,
+            material,
+            dk,
+            df,
+            thickness_tol_pct,
+            copper_weight_oz,
+            foil,
+            linked_copper
+        );
+    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -13009,6 +13110,18 @@ fn run_command(
             p.board.outline_arcs.clear();
             Ok(json!({"width": p.board.width, "height": p.board.height}))
         }
+        "board.materials" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "board.materials takes an empty object".into(),
+                ));
+            }
+            let rows: Vec<Value> = pcbcraft_doc::MATERIALS
+                .iter()
+                .map(|m| json!({"name": m.name, "dk": m.dk, "df": m.df, "frequency_mhz": m.frequency_mhz, "source": m.source}))
+                .collect();
+            Ok(json!({"materials": rows}))
+        }
         "board.set_layer_record" => {
             let a: LayerRecordParams = parse(params)?;
             let name = a.name.trim().to_string();
@@ -13035,38 +13148,32 @@ fn run_command(
                         .into(),
                 ));
             }
+            a.check_physical()?;
             let mut trial = p.board.layer_records.clone();
             if let Some(existing) = trial.iter_mut().find(|l| l.name == name) {
-                existing.kind = a.kind.clone();
-                existing.thickness = a.thickness;
-                existing.copper_role = a.copper_role.clone();
+                a.apply(existing);
             } else {
                 if trial.len() >= 32 {
                     return Err(Error::Invalid(
                         "a board records at most 32 layer notes".into(),
                     ));
                 }
-                trial.push(pcbcraft_doc::LayerRecord {
+                let mut rec = pcbcraft_doc::LayerRecord {
                     name: name.clone(),
-                    kind: a.kind.clone(),
-                    thickness: a.thickness,
-                    copper_role: a.copper_role.clone(),
-                });
+                    ..Default::default()
+                };
+                a.apply(&mut rec);
+                trial.push(rec);
+            }
+            if let Some(link) = &a.linked_copper
+                && !trial.iter().any(|r| r.kind == "copper" && &r.name == link)
+            {
+                return Err(Error::Invalid(
+                    "linked_copper must name a copper layer on this board".into(),
+                ));
             }
             refuse_stack_shrink(p, copper_count_in_records(&trial))?;
-            let records = &mut p.board.layer_records;
-            if let Some(existing) = records.iter_mut().find(|l| l.name == name) {
-                existing.kind = a.kind;
-                existing.thickness = a.thickness;
-                existing.copper_role = a.copper_role;
-            } else {
-                records.push(pcbcraft_doc::LayerRecord {
-                    name: name.clone(),
-                    kind: a.kind,
-                    thickness: a.thickness,
-                    copper_role: a.copper_role,
-                });
-            }
+            p.board.layer_records = trial;
             Ok(json!({"name": name, "count": p.board.layer_records.len()}))
         }
         "board.remove_layer_record" => {
@@ -13101,6 +13208,11 @@ fn run_command(
             let removed = p.board.layer_records.len();
             p.board.layer_records.clear();
             Ok(json!({"removed": removed}))
+        }
+        "net.members" => {
+            let a: NetMembersParams = parse(params)?;
+            let members = p.net_members(a.net).ok_or_else(missing)?;
+            serde_json::to_value(members).map_err(|e| Error::Invalid(e.to_string()))
         }
         "net.lengths" => {
             let a: NetLengthsParams = parse(params)?;
@@ -34573,6 +34685,7 @@ mod tests {
                     kind: "copper".into(),
                     thickness: 0.035,
                     copper_role: None,
+                    ..Default::default()
                 });
             if i < 6 {
                 s.project
@@ -34583,6 +34696,7 @@ mod tests {
                         kind: "prepreg".into(),
                         thickness: 0.4,
                         copper_role: None,
+                        ..Default::default()
                     });
             }
         }
