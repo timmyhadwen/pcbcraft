@@ -7,6 +7,7 @@ const COURTYARD_LAYER: &str = "pcbcraft.courtyard";
 const SILK_LAYER: &str = "F.SilkS";
 const FAB_LAYER: &str = "F.Fab";
 const CHIP_ROUNDRECT: f64 = 0.244;
+const GRID_MM: f64 = 0.01;
 
 /// Land pattern density level (IPC-7351B).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -720,13 +721,17 @@ fn base_footprint(
     let pin1_y = -fab_half_w - stroke * 4.0;
     let excess = density.courtyard_excess();
     let art_margin = stroke * 6.0;
-    let half_x = half_x
-        .max(pad_reach + excess)
-        .max(fab_half_l + art_margin + excess);
-    let half_y = half_y
-        .max(pad_reach + excess)
-        .max(fab_half_w + art_margin + excess)
-        .max(silk_y + stroke + excess);
+    let half_x = snap_grid(
+        half_x
+            .max(pad_reach + excess)
+            .max(fab_half_l + art_margin + excess),
+    );
+    let half_y = snap_grid(
+        half_y
+            .max(pad_reach + excess)
+            .max(fab_half_w + art_margin + excess)
+            .max(silk_y + stroke + excess),
+    );
     let mut graphics = vec![
         Graphic::Rectangle {
             start: Point::new(-half_x, -half_y),
@@ -909,4 +914,11 @@ fn metric_code(body_l: f64, body_w: f64) -> String {
 fn pitch_mils(pitch: f64) -> String {
     let mils = (pitch / 0.0254).round() as u32;
     format!("{mils}")
+}
+
+fn snap_grid(value: f64) -> f64 {
+    if !value.is_finite() {
+        return value;
+    }
+    (value / GRID_MM).round() * GRID_MM
 }

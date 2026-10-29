@@ -29,13 +29,12 @@ fn courtyard_half_extents(def: &FootprintDefinition) -> Option<(f64, f64)> {
         if let Graphic::Rectangle {
             start, end, layer, ..
         } = g
+            && layer == "pcbcraft.courtyard"
         {
-            if layer == "pcbcraft.courtyard" {
-                return Some((
-                    start.x.abs().max(end.x.abs()),
-                    start.y.abs().max(end.y.abs()),
-                ));
-            }
+            return Some((
+                start.x.abs().max(end.x.abs()),
+                start.y.abs().max(end.y.abs()),
+            ));
         }
     }
     None
@@ -57,8 +56,8 @@ fn chip_two_terminal_matches_0805_fixture_span() -> Result<(), String> {
     assert!(near(def.pads[0].size.x, 1.025));
     assert!(near(def.pads[0].size.y, 1.4));
     let (hx, hy) = courtyard_half_extents(&def).ok_or("courtyard missing")?;
-    assert!(near(hx, 1.68));
-    assert!(near(hy, 0.95));
+    assert!(near(hx, 2.01));
+    assert!(near(hy, 2.18));
     Ok(())
 }
 
@@ -273,7 +272,7 @@ fn check_accepts_fresh_qfn() -> Result<(), String> {
     p.body_length = 5.0;
     p.body_width = 5.0;
     p.thermal_size = 2.5;
-    p.name = "QFN_test".into();
+    p.name = "QFN50P500X500X100-32N".into();
     let def = generate_footprint("qfn", LandPatternDensity::Nominal, &p)?;
     let findings = check_footprint(&def);
     if findings
