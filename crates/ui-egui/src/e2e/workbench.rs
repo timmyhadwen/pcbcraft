@@ -1,7 +1,7 @@
-//! Stories for the left rail, the library dock, the datasheet action and the
+//! Stories for the left aside, the library browser, the datasheet action and the
 //! breathing room around every dock and tab body.
 use super::super::*;
-use super::support::{frame, scrolled_to};
+use super::support::{LEFT_ASIDE, frame, scrolled_to};
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 
@@ -44,6 +44,19 @@ fn centre_of(output: &egui::FullOutput, label: &str, left_of: f32) -> Option<egu
     })
 }
 
+fn click(ctx: &egui::Context, app: &mut App, at: egui::Pos2) {
+    let press = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame_plain(ctx, app, vec![egui::Event::PointerMoved(at)]);
+    frame_plain(ctx, app, vec![press(true)]);
+    frame_plain(ctx, app, vec![press(false)]);
+    frame_plain(ctx, app, vec![]);
+}
+
 fn fresh() -> App {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
@@ -69,44 +82,60 @@ fn finding_counts_split_by_loudness() {
 }
 
 #[test]
-fn a_newcomer_opens_the_library_tab_and_sees_described_parts() -> Result<(), String> {
+fn a_newcomer_toggles_the_library_dock_from_the_left_rail() -> Result<(), String> {
     let mut app = fresh();
-    app.preferences.left_tab = 1;
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
+    assert_eq!(
+        app.preferences.left_tab, 0,
+        "the Layers tab starts selected in the left aside"
+    );
+    let library = centre_of(&out, "Library", LEFT_ASIDE + 8.0)
+        .ok_or("the left aside should offer the Library tab")?;
+    click(&ctx, &mut app, library);
+    assert_eq!(
+        app.preferences.left_tab, 1,
+        "the Library tab shows the parts browser"
+    );
+    let out = settled(&ctx, &mut app);
     let words: Vec<String> = texts(&out).into_iter().map(|(w, ..)| w).collect();
-    for wanted in ["Resistor", "Fixed resistor, two terminals", "LED"] {
-        assert!(
-            words.iter().any(|w| w.contains(wanted)),
-            "the Library tab should show {wanted}"
-        );
-    }
-    for gone in ["COMPONENTS", "RENUMBER PARTS", "Lib"] {
+    for gone in ["COMPONENTS", "RENUMBER PARTS"] {
         assert!(
             !words.iter().any(|w| w == gone),
             "the old {gone} block is gone from the Library tab"
         );
     }
+    assert!(
+        texts(&out)
+            .iter()
+            .any(|(words, left, _, _)| words.contains("Fixed resistor") && *left < LEFT_ASIDE),
+        "the library browser body sits in the left aside"
+    );
+    let layers = centre_of(&out, "Layers", LEFT_ASIDE + 8.0)
+        .ok_or("the left aside should offer the Layers tab")?;
+    click(&ctx, &mut app, layers);
+    assert_eq!(
+        app.preferences.left_tab, 0,
+        "the Layers tab brings the tree back"
+    );
     Ok(())
 }
 
 #[test]
-fn a_newcomer_sees_the_check_counts_in_the_status_strip_and_opens_checks() -> Result<(), String> {
+fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), String> {
     let mut app = fresh();
     app.checks = json!({
         "erc": [{"severity":"error"},{"severity":"error"},{"severity":"warning"}],
         "drc": [{"severity":"info"},{"severity":"info"},{"severity":"info"},{"severity":"info"}]
     });
-    app.change_tab(Tab::Pcb);
     let ctx = egui::Context::default();
-    settled(&ctx, &mut app);
-    authoring::tests::tap(&ctx, &mut app, "2 errors")?;
-    frame_plain(&ctx, &mut app, vec![]);
-    assert_eq!(
-        app.tab,
-        Tab::Checks,
-        "the error count opens the Checks page"
-    );
+    let out = settled(&ctx, &mut app);
+    let errors =
+        centre_of(&out, "2 errors", f32::MAX).ok_or("the status strip should count errors")?;
+    centre_of(&out, "5 warnings", f32::MAX)
+        .ok_or("the status strip should count warnings and notes together")?;
+    click(&ctx, &mut app, errors);
+    assert_eq!(app.tab, Tab::Checks, "a badge opens the Checks tab");
     Ok(())
 }
 
@@ -118,7 +147,7 @@ fn a_newcomer_finds_no_board_statistics_in_the_library_dock() -> Result<(), Stri
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
     for (words, left, _, _) in texts(&out) {
-        if left > 44.0 && left < 304.0 {
+        if left > 8.0 && left < LEFT_ASIDE {
             let lower = words.to_lowercase();
             for banned in ["board size", "dimensions", "layer count", "parts placed"] {
                 assert!(
@@ -221,7 +250,7 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
     app.refresh();
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let (rail, dock) = (44.0, 44.0 + 260.0);
+    let dock_right = LEFT_ASIDE;
     // The aside may grow past its 280 px minimum, so find its edge from
     // the panel's own heading, which sits one 16 px margin inside it.
     let aside = texts(&out)
@@ -237,10 +266,10 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
         if words.trim().is_empty() || top < 80.0 || top > 900.0 {
             continue;
         }
-        if left > rail && left < dock {
+        if left > 8.0 && left < dock_right {
             assert!(
-                left >= rail + 12.0,
-                "left dock text hugs the edge: {words} at {left}"
+                left >= 20.0,
+                "left aside text hugs the edge: {words} at {left}"
             );
         }
         if left > aside {
@@ -261,10 +290,10 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
             if words.trim().is_empty() || top < 110.0 || top > 900.0 {
                 continue;
             }
-            if left > dock && left < SCREEN.x - 280.0 - 40.0 {
+            if left > dock_right && left < SCREEN.x - 280.0 - 40.0 {
                 assert!(
-                    left >= dock + 12.0,
-                    "{tab:?} body text hugs the dock edge: {words} at {left},{top}"
+                    left >= dock_right + 12.0,
+                    "{tab:?} body text hugs the left aside edge: {words} at {left},{top}"
                 );
             }
         }

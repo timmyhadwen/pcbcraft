@@ -139,7 +139,7 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
     );
     assert!(
         paints_text(&ctx, &mut app, "Layers")?,
-        "the right dock leads with the layers tree: {}",
+        "the left aside leads with the layers tree: {}",
         app.message
     );
     assert!(
