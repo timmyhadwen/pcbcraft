@@ -100,7 +100,9 @@ pub fn zone_fill(project: &Project, zone: &CopperZone) -> Result<ZoneFill, Strin
         net: zone.net,
         layer,
         pieces: Vec::new(),
-        min_width: settings.min_width.unwrap_or_else(|| default_min_width(project)),
+        min_width: settings
+            .min_width
+            .unwrap_or_else(|| default_min_width(project)),
         islands: 0,
         removed: 0,
         unconnected: false,
@@ -145,11 +147,15 @@ pub fn zone_fill(project: &Project, zone: &CopperZone) -> Result<ZoneFill, Strin
         if item.net == zone.net && item.net != 0 {
             continue;
         }
-        let clearance = project.required_clearance_at(
-            zone.net, item.net, item.at, item.at, layer, layer,
-        );
-        let grown = poly::offset(std::slice::from_ref(&item.piece), clearance)
-            .ok_or_else(|| format!("zone {} clearance growth left the coordinate range", zone.id))?;
+        let clearance =
+            project.required_clearance_at(zone.net, item.net, item.at, item.at, layer, layer);
+        let grown =
+            poly::offset(std::slice::from_ref(&item.piece), clearance).ok_or_else(|| {
+                format!(
+                    "zone {} clearance growth left the coordinate range",
+                    zone.id
+                )
+            })?;
         knockout.extend(grown);
     }
     for cutout in &zone.cutouts {
@@ -190,11 +196,8 @@ pub fn zone_fill(project: &Project, zone: &CopperZone) -> Result<ZoneFill, Strin
         if poly::intersect(std::slice::from_ref(&item.piece), &copper).is_empty() {
             continue;
         }
-        let grown = poly::offset(
-            std::slice::from_ref(&item.piece),
-            settings.relief_gap,
-        )
-        .ok_or_else(|| format!("zone {} relief growth left the coordinate range", zone.id))?;
+        let grown = poly::offset(std::slice::from_ref(&item.piece), settings.relief_gap)
+            .ok_or_else(|| format!("zone {} relief growth left the coordinate range", zone.id))?;
         if connect == ZoneConnect::None {
             gap.extend(grown);
             continue;
@@ -449,7 +452,10 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
                     let end = arc.point_at(f64::from(step + 1) / f64::from(chords));
                     bars.push(poly::capsule(start, end, track.width / 2.0));
                 }
-                poly::union(&bars, &[]).into_iter().next().unwrap_or(Piece::new())
+                poly::union(&bars, &[])
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default()
             }
         };
         items.push(Item {
@@ -530,7 +536,11 @@ fn piece_of(points: &[Point], map: impl Fn(Point) -> Point) -> Option<Piece> {
 
 /// A closed ring from a vertex list, or none when it is degenerate.
 pub(crate) fn ring(points: &[Point]) -> Option<Ring> {
-    let mut ring: Ring = points.iter().copied().filter(|point| point.valid()).collect();
+    let mut ring: Ring = points
+        .iter()
+        .copied()
+        .filter(|point| point.valid())
+        .collect();
     if ring.first() == ring.last() {
         ring.pop();
     }
@@ -627,8 +637,11 @@ pub fn keepout_hits(project: &Project) -> Result<Vec<KeepoutHit>, String> {
                 if !keepout.forbids(kind) || !area.keepout_applies(layer, item.net) {
                     continue;
                 }
-                if poly::intersect(std::slice::from_ref(&item.piece), std::slice::from_ref(&rect))
-                    .is_empty()
+                if poly::intersect(
+                    std::slice::from_ref(&item.piece),
+                    std::slice::from_ref(&rect),
+                )
+                .is_empty()
                 {
                     continue;
                 }

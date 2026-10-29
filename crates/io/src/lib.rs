@@ -2324,10 +2324,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         // track or pad is drawn, because LPC would clear those too.
         for piece in &fill.pieces {
             for (index, ring) in piece.iter().enumerate() {
-                let points: Vec<(f64, f64)> = ring
-                    .iter()
-                    .map(|q| mirror(q.x, q.y, is_back))
-                    .collect();
+                let points: Vec<(f64, f64)> =
+                    ring.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
                 if index > 0 {
                     file.body.push_str("%LPC*%\n");
                 }
@@ -12204,7 +12202,9 @@ mod tests {
         p.validate()?;
         let front = front_copper(&p)?;
         assert_eq!(front.matches("G36*").count(), 2, "outer region plus hole");
-        let clear = front.find("%LPC*%").ok_or("no clear polarity for the hole")?;
+        let clear = front
+            .find("%LPC*%")
+            .ok_or("no clear polarity for the hole")?;
         let hole = front[clear..].find("G36*").ok_or("hole is not a region")?;
         assert!(hole > 0);
         assert!(front.contains("%LPD*%"), "polarity returns to dark");
@@ -12230,12 +12230,9 @@ mod tests {
             polygon: vec![],
             raw_source: String::new(),
         };
-        if let Some(mut c) = pcbcraft_doc::component_template(
-            "resistor",
-            4,
-            "R4".into(),
-            Point::new(20.0, 20.0),
-        ) {
+        if let Some(mut c) =
+            pcbcraft_doc::component_template("resistor", 4, "R4".into(), Point::new(20.0, 20.0))
+        {
             c.pins.truncate(1);
             for pin in &mut c.pins {
                 pin.net = Some(1);
@@ -12274,7 +12271,11 @@ mod tests {
         p.validate()?;
         let front = front_copper(&p)?;
         // Four spokes cut the gap ring round the pad into four separate holes.
-        assert_eq!(front.matches("%LPC*%").count(), 4, "four gaps between four spokes");
+        assert_eq!(
+            front.matches("%LPC*%").count(),
+            4,
+            "four gaps between four spokes"
+        );
         Ok(())
     }
 }

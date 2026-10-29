@@ -39,10 +39,7 @@ fn int_point(point: Point) -> IntPoint<i64> {
 }
 
 fn float_point(point: IntPoint<i64>) -> Point {
-    Point::new(
-        point.x as f64 / UNITS_PER_MM,
-        point.y as f64 / UNITS_PER_MM,
-    )
+    Point::new(point.x as f64 / UNITS_PER_MM, point.y as f64 / UNITS_PER_MM)
 }
 
 /// Outer rings run counter-clockwise and holes run clockwise, the winding the
@@ -124,7 +121,8 @@ pub fn offset(region: &[Piece], delta: f64) -> Option<Region> {
     if delta.abs() < 1e-9 {
         return Some(union(region, &[]));
     }
-    let step = Angle::from_radians(5.0_f64.to_radians()).unwrap_or_else(|| Angle::from_bits(1 << 26));
+    let step =
+        Angle::from_radians(5.0_f64.to_radians()).unwrap_or_else(|| Angle::from_bits(1 << 26));
     let mut style = IntOutlineStyle::new((delta * UNITS_PER_MM).round() as i64);
     style.join = IntLineJoin::Round(ArcOptions {
         max_step: step,
@@ -170,7 +168,9 @@ pub fn piece_contains(piece: &Piece, point: Point) -> bool {
         return false;
     };
     crate::point_in_polygon(point, outer)
-        && !holes.iter().any(|hole| crate::point_in_polygon(point, hole))
+        && !holes
+            .iter()
+            .any(|hole| crate::point_in_polygon(point, hole))
 }
 
 /// True when a point falls on any copper of a region.
@@ -264,7 +264,7 @@ mod tests {
     fn union_merges_touching_pieces_and_intersect_keeps_the_overlap() {
         let a = square(0.0, 0.0, 4.0);
         let b = square(2.0, 0.0, 4.0);
-        let merged = union(&[a.clone()], &[b.clone()]);
+        let merged = union(std::slice::from_ref(&a), std::slice::from_ref(&b));
         assert_eq!(merged.len(), 1);
         assert!((region_area(&merged) - 24.0).abs() < 1e-6);
         let shared = intersect(&[a], &[b]);

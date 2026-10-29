@@ -9438,8 +9438,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .find(|z| z.id == a.id)
                 .ok_or_else(missing)?
                 .clone();
-            let fill =
-                pcbcraft_doc::zone_fill(&p, &zone).map_err(Error::Invalid)?;
+            let fill = pcbcraft_doc::zone_fill(p, &zone).map_err(Error::Invalid)?;
             Ok(json!({
                 "id": a.id,
                 "net": zone.net,
@@ -22214,7 +22213,10 @@ mod tests {
             0,
             "copper on opposite sides no longer touches"
         );
-        assert!(probe(&s), "on the other side the pour runs over the track's place");
+        assert!(
+            probe(&s),
+            "on the other side the pour runs over the track's place"
+        );
         for params in [
             json!({"id":zone,"layer":"C.Cu"}),
             json!({"id":zone,"layer":"B.Cu"}),

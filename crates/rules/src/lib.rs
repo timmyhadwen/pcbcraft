@@ -54,10 +54,12 @@ struct Hole {
 /// Filled copper of one zone as (outer ring, holes, anchor). A zone whose fill
 /// refuses, because the board is beyond the pour bounds, is reported inside
 /// `drc` and checked by its bare outline here.
+/// One poured piece: outer ring, hole rings, anchor point.
+type ZonePiece = (Vec<Point>, Vec<Vec<Point>>, Point);
 fn zone_pieces(
     project: &Project,
     zone: &pcbcraft_doc::CopperZone,
-) -> Result<Vec<(Vec<Point>, Vec<Vec<Point>>, Point)>, String> {
+) -> Result<Vec<ZonePiece>, String> {
     let fill = pcbcraft_doc::zone_fill(project, zone)?;
     Ok(fill
         .pieces
@@ -3084,8 +3086,8 @@ mod tests {
 mod pour_tests {
     use super::*;
     use pcbcraft_doc::{
-        CopperZone, Footprint, Keepout, Net, Pad, component_template, RuleArea, RuleRegion, Track, Via, ZoneIslands,
-        ZonePour,
+        CopperZone, Footprint, Keepout, Net, Pad, RuleArea, RuleRegion, Track, Via, ZoneIslands,
+        ZonePour, component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
 
@@ -3345,7 +3347,10 @@ mod pour_tests {
         p.validate()?;
         assert!(codes(&p).contains(&"keepout"));
         p.board.tracks[0] = track(31, 2, Layer::Front, (5.0, 30.0), (35.0, 30.0), 0.25);
-        assert!(!codes(&p).contains(&"keepout"), "a track clear of it is fine");
+        assert!(
+            !codes(&p).contains(&"keepout"),
+            "a track clear of it is fine"
+        );
         Ok(())
     }
 
