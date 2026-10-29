@@ -2112,3 +2112,6 @@ props.track = Track
 props.track.tip = Width, corners and splitting for this track.
 props.zone = Zone
 props.zone.tip = Pour settings and stitching vias for this zone.
+web.needs_webgpu = PCBCraft in the browser needs WebGPU. Try a recent Chrome or Edge, or download the desktop app.
+web.download_desktop = Download the desktop app
+web.download_desktop.tip = Open the releases page, where the desktop app for your computer is listed.
