@@ -1312,6 +1312,8 @@ fn a_newcomer_sees_the_mark_on_the_start_page() -> Result<(), String> {
         "the welcome line is still there: {}",
         app.message
     );
+    Ok(())
+}
 
 #[test]
 fn a_newcomer_sees_that_saving_needs_the_desktop_app() -> Result<(), String> {
