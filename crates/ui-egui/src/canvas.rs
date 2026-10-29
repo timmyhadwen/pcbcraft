@@ -651,8 +651,21 @@ impl App {
                 _ => {}
             }
         }
+        self.paint_route_drag(ui, &painter, rect, camera, cursor);
+        if response.drag_started_by(egui::PointerButton::Primary)
+            && let Some(pos) = cursor
+        {
+            self.begin_route_drag(pos, camera.zoom);
+        }
+        if response.drag_stopped_by(egui::PointerButton::Primary)
+            && self.route_drag.active()
+            && let Some(pos) = cursor
+        {
+            self.end_route_drag(pos, camera.zoom);
+        }
         if response.drag_started_by(egui::PointerButton::Primary)
             && matches!(self.tool, Tool::Select)
+            && !self.route_drag.active()
             && let Some(pos) = cursor
         {
             let shift = ui.input(|i| i.modifiers.shift);
@@ -1111,7 +1124,7 @@ impl App {
     /// pair, the pad each of those footprints has on the partner net, so one
     /// drag routes both sides. None when the net is not paired or a footprint
     /// has no single partner pad.
-    fn pair_mates(
+    pub(super) fn pair_mates(
         &self,
         from: Id,
         from_pad: &str,
@@ -1152,7 +1165,7 @@ impl App {
         };
         Some((mate(from)?, mate(to)?))
     }
-    fn pick_pad(&self, pos: Point, zoom: f32) -> Option<(Id, String)> {
+    pub(super) fn pick_pad(&self, pos: Point, zoom: f32) -> Option<(Id, String)> {
         for f in &self.project.board.footprints {
             for pad in &f.pads {
                 if f.pad_position(&pad.number).is_some_and(|p| {
@@ -1685,29 +1698,7 @@ impl App {
             Tool::Route(start) => {
                 if let Some((id, pad)) = self.pick_pad(pos, zoom) {
                     if let Some((from, from_pad)) = start {
-                        let mode = if self.preferences.chamfer_corners {
-                            "octilinear"
-                        } else {
-                            "orthogonal"
-                        };
-                        if let Some((mate_from, mate_to)) =
-                            self.pair_mates(from, &from_pad, id, &pad)
-                        {
-                            self.run(
-                                "track.route_pair",
-                                json!({
-                                    "from_p":{"footprint":from,"pad":from_pad},
-                                    "from_n":{"footprint":from,"pad":mate_from},
-                                    "to_p":{"footprint":id,"pad":pad},
-                                    "to_n":{"footprint":id,"pad":mate_to},
-                                    "layer":self.route_layer,
-                                    "mode":mode,
-                                }),
-                            );
-                        } else {
-                            self.run("track.route",json!({"from":{"footprint":from,"pad":from_pad},"to":{"footprint":id,"pad":pad},"layer":self.route_layer,"mode":mode}));
-                        }
-                        self.tool = Tool::Select;
+                        self.finish_route(from, &from_pad, id, &pad);
                     } else {
                         self.tool = Tool::Route(Some((id, pad)));
                     }
