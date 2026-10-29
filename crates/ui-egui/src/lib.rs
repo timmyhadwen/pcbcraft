@@ -2867,23 +2867,33 @@ impl App {
             return;
         }
         egui::Panel::left("left-aside")
-            .default_size(300.0)
-            .min_size(260.0)
-            .frame(Self::dock_frame(ui.style()))
+            .default_size(320.0)
+            .min_size(240.0)
+            .frame(egui::Frame::NONE.fill(ui.style().visuals.panel_fill))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.preferences.left_tab, 0, t!("tree.tab.layers"))
-                        .on_hover_text(t!("tree.tab.layers.tip"));
-                    ui.selectable_value(&mut self.preferences.left_tab, 1, t!("tree.tab.library"))
-                        .on_hover_text(t!("tree.tab.library.tip"));
-                });
-                ui.add_space(6.0);
+                let colours = self.colours();
+                if let Some(tab) = layers_tree::aside_tabs(
+                    ui,
+                    &colours,
+                    self.preferences.left_tab,
+                    &[
+                        (layers_tree::Glyph::Layer, t!("tree.tab.layers"), t!("tree.tab.layers.tip")),
+                        (layers_tree::Glyph::Part, t!("tree.tab.library"), t!("tree.tab.library.tip")),
+                    ],
+                ) {
+                    self.preferences.left_tab = tab;
+                }
                 if self.preferences.left_tab == 0 {
                     self.layers_tree_panel(ui);
                 } else {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
-                        .show(ui, |ui| self.library_body(ui));
+                        .show(ui, |ui| {
+                            ui.add_space(8.0);
+                            egui::Frame::NONE
+                                .inner_margin(egui::Margin::symmetric(12, 0))
+                                .show(ui, |ui| self.library_body(ui));
+                        });
                 }
             });
     }

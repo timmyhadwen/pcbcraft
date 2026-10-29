@@ -999,7 +999,16 @@ impl App {
         );
     }
 
+    /// The object under `pos`, leaving out anything on a layer the Layers tree
+    /// locked.
+    ///
+    /// # Dependencies
+    /// - `crates/ui-egui/src/layers_tree.rs` `is_locked` decides what a lock covers.
     pub(super) fn pick_object(&self, pos: Point, zoom: f32) -> Option<Id> {
+        self.pick_object_any(pos, zoom)
+            .filter(|id| !crate::layers_tree::is_locked(&self.project, &self.tree.locked, *id))
+    }
+    fn pick_object_any(&self, pos: Point, zoom: f32) -> Option<Id> {
         if self.tab == Tab::Schematic {
             self.project
                 .components
