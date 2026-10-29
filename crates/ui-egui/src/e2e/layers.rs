@@ -90,13 +90,19 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
     authoring::tests::tap(&ctx, &mut app, "Top copper")?;
     key(&ctx, &mut app, egui::Key::Space);
     assert!(
-        app.preferences.hidden_layers.iter().any(|h| h == "Top copper"),
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "Top copper"),
         "Space hides the layer: {}",
         app.message
     );
     key(&ctx, &mut app, egui::Key::Space);
     assert!(
-        !app.preferences.hidden_layers.iter().any(|h| h == "Top copper"),
+        !app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "Top copper"),
         "Space shows it again"
     );
     app.project.board.tracks.push(pcbcraft_doc::Track {

@@ -24149,7 +24149,10 @@ mod tests {
             None,
         )?;
         assert_eq!(s.project.components.len(), 1);
-        assert!(s.project.board.footprints.is_empty(), "a schematic drop adds no board part");
+        assert!(
+            s.project.board.footprints.is_empty(),
+            "a schematic drop adds no board part"
+        );
         assert_eq!(s.project.library.footprints.len(), 1);
         assert_eq!(s.project.library.notices.len(), 1);
         s.undo()?;
@@ -24173,15 +24176,28 @@ mod tests {
             .iter()
             .find(|c| c.id == placed.component)
             .ok_or_else(missing)?;
-        assert_eq!(part.position.x, 0.0, "the schematic part is parked, not at the board point");
+        assert_eq!(
+            part.position.x, 0.0,
+            "the schematic part is parked, not at the board point"
+        );
         assert!(part.library_footprint.is_some());
         let again = s.execute(
             "part.place",
             json!({"target":"board","position":{"x":60.0,"y":40.0},"name":"R"}),
             None,
         );
-        assert!(again.is_ok(), "a part already in the library places by name");
-        assert!(s.execute("part.place", json!({"target":"sideways","position":{"x":0,"y":0},"name":"R"}), None).is_err());
+        assert!(
+            again.is_ok(),
+            "a part already in the library places by name"
+        );
+        assert!(
+            s.execute(
+                "part.place",
+                json!({"target":"sideways","position":{"x":0,"y":0},"name":"R"}),
+                None
+            )
+            .is_err()
+        );
         s.execute("library.import_part", json!({"symbol":symbol}), None)?;
         Ok(())
     }

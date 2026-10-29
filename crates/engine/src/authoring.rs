@@ -2454,7 +2454,9 @@ pub(super) fn run(
             let name = match a.symbol {
                 Some(symbol) => import_part(p, symbol, a.footprint, a.notice)?.0,
                 None => a.name.ok_or_else(|| {
-                    Error::Invalid("give a symbol definition or the name of one in the project library".into())
+                    Error::Invalid(
+                        "give a symbol definition or the name of one in the project library".into(),
+                    )
                 })?,
             };
             let def = p
@@ -2475,7 +2477,8 @@ pub(super) fn run(
             } else {
                 a.position
             };
-            let placed = place_definition(p, next, "project".into(), def, at, a.reference, a.value)?;
+            let placed =
+                place_definition(p, next, "project".into(), def, at, a.reference, a.value)?;
             let id = placed["id"].as_u64().ok_or_else(missing)?;
             if let Some(footprint) = footprint
                 && let Some(c) = p.components.iter_mut().find(|c| c.id == id)
