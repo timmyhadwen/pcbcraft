@@ -15,7 +15,7 @@
 //!   that every file is in the set.
 //!
 //! # Dependencies
-//! - `assets/icons/ui/add.svg`, `assets/icons/ui/LICENSE-lucide.txt`
+//! - `assets/icons/ui/` (the SVG files) and `assets/icons/ui/LICENSE-lucide.txt`
 //! - `crates/ui-egui/src/a11y.rs` for `name_control`
 //!
 //! # Do not

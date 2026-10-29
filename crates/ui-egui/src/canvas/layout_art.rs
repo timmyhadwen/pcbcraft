@@ -21,7 +21,7 @@ use std::f32::consts::FRAC_PI_2;
 /// - Constant per theme; `BoardArt::new` is the only constructor.
 ///
 /// # Dependencies
-/// - `app-design/design-system.md` canvas layer colours (owner research repo).
+/// - `crates/ui-egui/src/canvas.rs` calls it; the colours follow the approved design system (owner research notes, outside this repository).
 ///
 /// # Do not
 /// - Use these for window chrome; chrome uses `ThemeColours`.

@@ -63,7 +63,9 @@ pub enum FetchError {
 /// - Retry in a loop; the source decides what to do with a failure.
 ///
 /// # Implementations
-/// - none yet
+/// - `apps/pcbcraft/src/online_http.rs`
+/// - `crates/ui-egui/src/e2e/support.rs`
+/// - `crates/ui-egui/src/sources.rs`
 pub trait Fetcher: Send + Sync {
     /// Read the whole answer for a URL.
     fn get(&self, url: &str) -> Result<Vec<u8>, FetchError>;

@@ -240,7 +240,7 @@ fn today() -> String {
 ///   area, so a fresh project still shows a frame.
 ///
 /// # Dependencies
-/// - `Project::meta` and `Project::sheets` in `crates/doc/src/lib.rs`.
+/// - `crates/doc/src/lib.rs` for `Project::meta` and `Project::sheets`.
 ///
 /// # Do not
 /// - Move or resize anything in the project; the sheet follows the drawing.
@@ -628,8 +628,8 @@ pub(super) fn run_point(run: (Point, Point), fraction: f64) -> Point {
 /// - A `power` label draws its own symbol at the label position.
 ///
 /// # Dependencies
-/// - `power_nets` for the classification and `crates/doc/src/lib.rs`
-///   `Project::wire_path` for the run a supply symbol attaches to.
+/// - `crates/ui-egui/src/canvas/sheet.rs` (`power_nets`) for the classification and
+///   `crates/doc/src/lib.rs` (`Project::wire_path`) for the run a supply symbol attaches to.
 ///
 /// # Do not
 /// - Draw a wire the caller still paints.
@@ -773,7 +773,7 @@ pub(super) struct HitOutline {
 ///   are listed as pins.
 ///
 /// # Dependencies
-/// - `hover_outline` below and `crates/ui-egui/src/canvas.rs` `paint_schematic`.
+/// - `crates/ui-egui/src/canvas/sheet.rs` (`hover_outline`, below) and `crates/ui-egui/src/canvas.rs` (`paint_schematic`).
 ///
 /// # Do not
 /// - Paint here, or read the pointer.

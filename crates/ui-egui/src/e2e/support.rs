@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 /// Answers the open library from the recordings kept beside the library
 /// crate's own tests, so a story can search real part names with no network.
 ///
-/// Contract: crates/library/src/open_library.rs (Fetcher)
+/// Contract: crates/library/src/open_library.rs
 pub(crate) struct RecordedLibrary {
     index: BTreeMap<String, String>,
 }
@@ -27,6 +27,7 @@ impl RecordedLibrary {
     }
 }
 
+/// Contract: crates/library/src/open_library.rs
 impl Fetcher for RecordedLibrary {
     fn get(&self, url: &str) -> Result<Vec<u8>, FetchError> {
         let file = self

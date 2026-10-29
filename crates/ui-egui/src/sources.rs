@@ -27,6 +27,7 @@ use std::sync::mpsc::Receiver;
 /// Contract: crates/library/src/open_library.rs (Fetcher)
 pub(super) struct CacheOnly;
 
+/// Contract: crates/library/src/open_library.rs
 impl Fetcher for CacheOnly {
     fn get(&self, _url: &str) -> Result<Vec<u8>, FetchError> {
         Err(FetchError::Offline(
