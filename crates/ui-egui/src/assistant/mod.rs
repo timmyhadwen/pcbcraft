@@ -14,8 +14,8 @@ mod text;
 
 use super::App;
 use pcbcraft_assistant::{
-    ApiBackend, ChatBackend, Event, HttpFn, Item, PromptPart, Secrets, StartContext,
-    ToolRequest, Transcript, Turn, Verdict,
+    ApiBackend, ChatBackend, Event, HttpFn, Item, PromptPart, Secrets, StartContext, ToolRequest,
+    Transcript, Turn, Verdict,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -183,11 +183,11 @@ impl App {
         };
         self.assistant.tried = true;
         let key = if connection.has_key {
-            self.assistant
-                .host
-                .secrets
-                .as_ref()
-                .and_then(|s| s.get(&pcbcraft_assistant::key_id(&connection.id)).ok().flatten())
+            self.assistant.host.secrets.as_ref().and_then(|s| {
+                s.get(&pcbcraft_assistant::key_id(&connection.id))
+                    .ok()
+                    .flatten()
+            })
         } else {
             None
         };
@@ -301,7 +301,11 @@ impl App {
         let held = self.assistant.waiting.remove(at);
         if allow && always {
             let id = self.assistant.active.clone().unwrap_or_default();
-            let keys = self.preferences.assistant_always_allow.entry(id).or_default();
+            let keys = self
+                .preferences
+                .assistant_always_allow
+                .entry(id)
+                .or_default();
             if !keys.contains(&held.key) {
                 keys.push(held.key.clone());
             }

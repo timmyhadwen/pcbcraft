@@ -290,21 +290,27 @@ fn a_newcomer_adds_a_local_model_server_and_tests_it() -> Result<(), String> {
         settle(&ctx, &mut app);
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    assert!(paints_text(&ctx, &mut app, "2 models")?, "the test result is shown");
+    assert!(
+        paints_text(&ctx, &mut app, "2 models")?,
+        "the test result is shown"
+    );
     authoring::tests::tap(&ctx, &mut app, "Add")?;
     settle(&ctx, &mut app);
     assert_eq!(app.preferences.assistant_connections.len(), 1);
     assert_eq!(
-        app.preferences.assistant_default,
-        app.preferences.assistant_connections[0].id,
+        app.preferences.assistant_default, app.preferences.assistant_connections[0].id,
         "the first connection is the one in use"
     );
-    assert!(paints_text(&ctx, &mut app, "Local model server")?, "the row is listed");
+    assert!(
+        paints_text(&ctx, &mut app, "Local model server")?,
+        "the row is listed"
+    );
     Ok(())
 }
 
 #[test]
-fn a_newcomer_cannot_type_a_key_for_a_plain_http_server_on_another_computer() -> Result<(), String> {
+fn a_newcomer_cannot_type_a_key_for_a_plain_http_server_on_another_computer() -> Result<(), String>
+{
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut app = settings_app(calls, std::sync::Arc::new(FakeKeychain::default()));
     let ctx = egui::Context::default();
@@ -315,7 +321,10 @@ fn a_newcomer_cannot_type_a_key_for_a_plain_http_server_on_another_computer() ->
         d.set_url("http://10.0.0.5:1234/v1");
     }
     settle(&ctx, &mut app);
-    assert!(paints_text(&ctx, &mut app, "only sent over https")?, "the reason is painted");
+    assert!(
+        paints_text(&ctx, &mut app, "only sent over https")?,
+        "the reason is painted"
+    );
     assert!(!paints_text(&ctx, &mut app, "Kept in the system keychain")?);
     Ok(())
 }
@@ -335,7 +344,10 @@ fn a_key_is_stored_in_the_keychain_and_never_in_the_preferences_file() -> Result
     authoring::tests::tap(&ctx, &mut app, "Add")?;
     settle(&ctx, &mut app);
     let text = serde_json::to_string(&app.preferences).map_err(|e| e.to_string())?;
-    assert!(!text.contains("sk-secret-123"), "the key is not in the preferences");
+    assert!(
+        !text.contains("sk-secret-123"),
+        "the key is not in the preferences"
+    );
     assert!(text.contains("\"has_key\":true"));
     let id = app.preferences.assistant_connections[0].id.clone();
     assert_eq!(
@@ -356,14 +368,16 @@ fn with_the_assistant_switched_off_nothing_is_probed() -> Result<(), String> {
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut app = settings_app(calls.clone(), std::sync::Arc::new(FakeKeychain::default()));
     app.preferences.assistant_enabled = false;
-    app.preferences.assistant_connections.push(pcbcraft_assistant::Connection {
-        id: "api-1".into(),
-        name: "Home".into(),
-        protocol: pcbcraft_assistant::Protocol::OpenAi,
-        base_url: "http://localhost:11434/v1".into(),
-        model: "m".into(),
-        has_key: false,
-    });
+    app.preferences
+        .assistant_connections
+        .push(pcbcraft_assistant::Connection {
+            id: "api-1".into(),
+            name: "Home".into(),
+            protocol: pcbcraft_assistant::Protocol::OpenAi,
+            base_url: "http://localhost:11434/v1".into(),
+            model: "m".into(),
+            has_key: false,
+        });
     app.preferences.assistant_default = "api-1".into();
     let ctx = egui::Context::default();
     for _ in 0..10 {

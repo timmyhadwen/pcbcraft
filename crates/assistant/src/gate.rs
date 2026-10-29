@@ -11,7 +11,18 @@
 use serde_json::Value;
 
 /// How much the assistant may do without asking.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum Mode {
     /// Ask before every edit.
     #[default]

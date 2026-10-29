@@ -113,7 +113,10 @@ mod tests {
         assert!(normalize_url("localhost:11434/v1").is_err());
         assert!(normalize_url("http://a/v1?x=1").is_err());
         assert!(normalize_url("http://a/v1#top").is_err());
-        assert_eq!(normalize_url(" http://localhost:11434/v1/ "), Ok("http://localhost:11434/v1".into()));
+        assert_eq!(
+            normalize_url(" http://localhost:11434/v1/ "),
+            Ok("http://localhost:11434/v1".into())
+        );
         assert!(normalize_url(&format!("https://{}", "a".repeat(2100))).is_err());
     }
 

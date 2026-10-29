@@ -11,8 +11,8 @@
 use super::text;
 use crate::App;
 use pcbcraft_assistant::{
-    Connection, HttpFn, Mode, PRESETS, Protocol, anthropic_model_list, 
-    key_safe_for, model_list, new_id, normalize_url, test_anthropic_endpoint,
+    Connection, HttpFn, Mode, PRESETS, Protocol, anthropic_model_list, key_safe_for, model_list,
+    new_id, normalize_url, test_anthropic_endpoint,
 };
 use std::sync::{Arc, Mutex};
 
@@ -132,7 +132,10 @@ fn result_line(ui: &mut egui::Ui, t: &TestState, muted: egui::Color32) {
             ui.add(egui::Label::new(line.as_str()).wrap());
         }
         TestState::Done(Err(e)) => {
-            ui.add(egui::Label::new(egui::RichText::new(e.as_str()).color(egui::Color32::LIGHT_RED)).wrap());
+            ui.add(
+                egui::Label::new(egui::RichText::new(e.as_str()).color(egui::Color32::LIGHT_RED))
+                    .wrap(),
+            );
         }
     }
 }
@@ -140,7 +143,11 @@ fn result_line(ui: &mut egui::Ui, t: &TestState, muted: egui::Color32) {
 /// The Assistant part of the Settings page.
 pub(crate) fn section(app: &mut App, ui: &mut egui::Ui) {
     let muted = app.muted();
-    ui.label(egui::RichText::new(text::SETTINGS_HEADING).size(10.0).color(muted));
+    ui.label(
+        egui::RichText::new(text::SETTINGS_HEADING)
+            .size(10.0)
+            .color(muted),
+    );
     ui.checkbox(&mut app.preferences.assistant_enabled, text::SHOW)
         .on_hover_text(text::SHOW_TIP);
     if !app.preferences.assistant_enabled {
@@ -168,7 +175,14 @@ pub(crate) fn section(app: &mut App, ui: &mut egui::Ui) {
             .on_hover_text(tip);
     }
     if app.preferences.assistant_mode == Mode::All {
-        ui.add(egui::Label::new(egui::RichText::new(text::MODE_ALL_WARNING).small().color(muted)).wrap());
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(text::MODE_ALL_WARNING)
+                    .small()
+                    .color(muted),
+            )
+            .wrap(),
+        );
     }
     ui.add_space(12.0);
     ui.horizontal(|ui| {
@@ -197,29 +211,55 @@ fn connections(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
     for c in &rows {
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            let key = if c.has_key { text::KEY_STORED } else { text::NO_KEY };
+            let key = if c.has_key {
+                text::KEY_STORED
+            } else {
+                text::NO_KEY
+            };
             ui.add(egui::Label::new(egui::RichText::new(&c.name).strong()).wrap());
             ui.add(
-                egui::Label::new(egui::RichText::new(format!("{} · {} · {key}", c.base_url, c.model)).small().color(muted))
-                    .wrap(),
+                egui::Label::new(
+                    egui::RichText::new(format!("{} · {} · {key}", c.base_url, c.model))
+                        .small()
+                        .color(muted),
+                )
+                .wrap(),
             );
             ui.horizontal_wrapped(|ui| {
                 let current = app.preferences.assistant_default == c.id;
                 if ui
-                    .add_enabled(!current, egui::Button::new(if current { text::IN_USE } else { text::MAKE_DEFAULT }))
-                    .on_hover_text(if current { text::IN_USE_TIP } else { text::MAKE_DEFAULT_TIP })
+                    .add_enabled(
+                        !current,
+                        egui::Button::new(if current {
+                            text::IN_USE
+                        } else {
+                            text::MAKE_DEFAULT
+                        }),
+                    )
+                    .on_hover_text(if current {
+                        text::IN_USE_TIP
+                    } else {
+                        text::MAKE_DEFAULT_TIP
+                    })
                     .clicked()
                 {
                     make_default = Some(c.id.clone());
                 }
                 if ui
-                    .add_enabled(app.assistant.host.http.is_some(), egui::Button::new(text::TEST))
+                    .add_enabled(
+                        app.assistant.host.http.is_some(),
+                        egui::Button::new(text::TEST),
+                    )
                     .on_hover_text(text::TEST_TIP)
                     .clicked()
                 {
                     test = Some(c.clone());
                 }
-                if ui.button(text::REMOVE).on_hover_text(text::REMOVE_TIP).clicked() {
+                if ui
+                    .button(text::REMOVE)
+                    .on_hover_text(text::REMOVE_TIP)
+                    .clicked()
+                {
                     remove = Some(c.id.clone());
                 }
             });
@@ -231,13 +271,23 @@ fn connections(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
                 .unwrap_or(app.preferences.assistant_mode);
             let overridden = app.preferences.assistant_modes.contains_key(&c.id);
             egui::ComboBox::from_id_salt(("assistant-mode", &c.id))
-                .selected_text(if overridden { current.label() } else { text::SAME_AS_DEFAULT })
+                .selected_text(if overridden {
+                    current.label()
+                } else {
+                    text::SAME_AS_DEFAULT
+                })
                 .show_ui(ui, |ui| {
-                    if ui.selectable_label(!overridden, text::SAME_AS_DEFAULT).clicked() {
+                    if ui
+                        .selectable_label(!overridden, text::SAME_AS_DEFAULT)
+                        .clicked()
+                    {
                         app.preferences.assistant_modes.remove(&c.id);
                     }
                     for mode in Mode::ALL {
-                        if ui.selectable_label(overridden && current == mode, mode.label()).clicked() {
+                        if ui
+                            .selectable_label(overridden && current == mode, mode.label())
+                            .clicked()
+                        {
                             app.preferences.assistant_modes.insert(c.id.clone(), mode);
                         }
                     }
@@ -261,7 +311,14 @@ fn connections(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
     {
         let key = stored_key(app, &c);
         let slot = SharedTest::default();
-        start_test(http, c.protocol, c.base_url.clone(), key, c.model.clone(), slot.clone());
+        start_test(
+            http,
+            c.protocol,
+            c.base_url.clone(),
+            key,
+            c.model.clone(),
+            slot.clone(),
+        );
         app.assistant.row_test = Some((c.id, slot));
     }
     if let Some(id) = remove {
@@ -313,73 +370,99 @@ pub(crate) fn dialog(app: &mut App, ctx: &egui::Context) {
         .collapsible(false)
         .default_width(360.0)
         .show(ctx, |ui| {
-            egui::Frame::new().inner_margin(egui::Margin::same(12)).show(ui, |ui| {
-                let before = d.preset;
-                egui::ComboBox::from_label(text::PRESET)
-                    .selected_text(PRESETS.get(d.preset).map_or("", |p| p.name))
-                    .show_ui(ui, |ui| {
-                        for (i, p) in PRESETS.iter().enumerate() {
-                            ui.selectable_value(&mut d.preset, i, p.name);
-                        }
-                    })
-                    .response
-                    .on_hover_text(text::PRESET_TIP);
-                if d.preset != before {
-                    d.apply_preset(d.preset);
-                }
-                ui.add_space(8.0);
-                ui.label(text::NAME);
-                ui.text_edit_singleline(&mut d.name).on_hover_text(text::NAME_TIP);
-                ui.label(text::URL);
-                ui.text_edit_singleline(&mut d.url).on_hover_text(text::URL_TIP);
-                ui.label(text::MODEL);
-                let listed = match &*lock(&d.test) {
-                    TestState::Done(Ok((_, ids))) => ids.clone(),
-                    _ => Vec::new(),
-                };
-                if listed.is_empty() {
-                    ui.text_edit_singleline(&mut d.model).on_hover_text(text::MODEL_TIP);
-                } else {
-                    egui::ComboBox::from_id_salt("assistant-model")
-                        .selected_text(&d.model)
+            egui::Frame::new()
+                .inner_margin(egui::Margin::same(12))
+                .show(ui, |ui| {
+                    let before = d.preset;
+                    egui::ComboBox::from_label(text::PRESET)
+                        .selected_text(PRESETS.get(d.preset).map_or("", |p| p.name))
                         .show_ui(ui, |ui| {
-                            for id in &listed {
-                                ui.selectable_value(&mut d.model, id.clone(), id);
+                            for (i, p) in PRESETS.iter().enumerate() {
+                                ui.selectable_value(&mut d.preset, i, p.name);
                             }
                         })
                         .response
-                        .on_hover_text(text::MODEL_TIP);
-                }
-                key_field(app, ui, &mut d, muted);
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(app.assistant.host.http.is_some(), egui::Button::new(text::TEST))
-                        .on_hover_text(text::TEST_TIP)
-                        .clicked()
-                        && let Some(http) = app.assistant.host.http.clone()
-                    {
-                        match normalize_url(&d.url) {
-                            Ok(url) => {
-                                d.error.clear();
-                                let key = (!d.key.is_empty() && key_safe_for(&url)).then(|| d.key.clone());
-                                start_test(http, d.protocol(), url, key, d.model.clone(), d.test.clone());
+                        .on_hover_text(text::PRESET_TIP);
+                    if d.preset != before {
+                        d.apply_preset(d.preset);
+                    }
+                    ui.add_space(8.0);
+                    ui.label(text::NAME);
+                    ui.text_edit_singleline(&mut d.name)
+                        .on_hover_text(text::NAME_TIP);
+                    ui.label(text::URL);
+                    ui.text_edit_singleline(&mut d.url)
+                        .on_hover_text(text::URL_TIP);
+                    ui.label(text::MODEL);
+                    let listed = match &*lock(&d.test) {
+                        TestState::Done(Ok((_, ids))) => ids.clone(),
+                        _ => Vec::new(),
+                    };
+                    if listed.is_empty() {
+                        ui.text_edit_singleline(&mut d.model)
+                            .on_hover_text(text::MODEL_TIP);
+                    } else {
+                        egui::ComboBox::from_id_salt("assistant-model")
+                            .selected_text(&d.model)
+                            .show_ui(ui, |ui| {
+                                for id in &listed {
+                                    ui.selectable_value(&mut d.model, id.clone(), id);
+                                }
+                            })
+                            .response
+                            .on_hover_text(text::MODEL_TIP);
+                    }
+                    key_field(app, ui, &mut d, muted);
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(
+                                app.assistant.host.http.is_some(),
+                                egui::Button::new(text::TEST),
+                            )
+                            .on_hover_text(text::TEST_TIP)
+                            .clicked()
+                            && let Some(http) = app.assistant.host.http.clone()
+                        {
+                            match normalize_url(&d.url) {
+                                Ok(url) => {
+                                    d.error.clear();
+                                    let key = (!d.key.is_empty() && key_safe_for(&url))
+                                        .then(|| d.key.clone());
+                                    start_test(
+                                        http,
+                                        d.protocol(),
+                                        url,
+                                        key,
+                                        d.model.clone(),
+                                        d.test.clone(),
+                                    );
+                                }
+                                Err(e) => d.error = e,
                             }
-                            Err(e) => d.error = e,
                         }
-                    }
-                    if ui.button(text::ADD).on_hover_text(text::ADD_TIP).clicked() {
-                        add = true;
-                    }
-                    if ui.button(text::CANCEL).on_hover_text(text::CANCEL_TIP).clicked() {
-                        cancel = true;
+                        if ui.button(text::ADD).on_hover_text(text::ADD_TIP).clicked() {
+                            add = true;
+                        }
+                        if ui
+                            .button(text::CANCEL)
+                            .on_hover_text(text::CANCEL_TIP)
+                            .clicked()
+                        {
+                            cancel = true;
+                        }
+                    });
+                    result_line(ui, &lock(&d.test), muted);
+                    if !d.error.is_empty() {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(d.error.as_str())
+                                    .color(egui::Color32::LIGHT_RED),
+                            )
+                            .wrap(),
+                        );
                     }
                 });
-                result_line(ui, &lock(&d.test), muted);
-                if !d.error.is_empty() {
-                    ui.add(egui::Label::new(egui::RichText::new(d.error.as_str()).color(egui::Color32::LIGHT_RED)).wrap());
-                }
-            });
         });
     if add {
         match finish(app, &d) {
@@ -394,14 +477,23 @@ pub(crate) fn dialog(app: &mut App, ctx: &egui::Context) {
 
 fn key_field(app: &App, ui: &mut egui::Ui, d: &mut Dialog, muted: egui::Color32) {
     if app.assistant.host.secrets.is_none() {
-        ui.add(egui::Label::new(egui::RichText::new(text::KEY_NEEDS_DESKTOP).small().color(muted)).wrap());
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(text::KEY_NEEDS_DESKTOP)
+                    .small()
+                    .color(muted),
+            )
+            .wrap(),
+        );
     } else if key_safe_for(&d.url) {
         ui.label(text::KEY);
         ui.add(egui::TextEdit::singleline(&mut d.key).password(true))
             .on_hover_text(text::KEY_TIP);
     } else {
         d.key.clear();
-        ui.add(egui::Label::new(egui::RichText::new(text::KEY_REFUSED).small().color(muted)).wrap());
+        ui.add(
+            egui::Label::new(egui::RichText::new(text::KEY_REFUSED).small().color(muted)).wrap(),
+        );
     }
 }
 
@@ -417,7 +509,12 @@ fn finish(app: &mut App, d: &Dialog) -> Result<(), String> {
         if !key_safe_for(&url) {
             return Err(text::KEY_REFUSED.into());
         }
-        let secrets = app.assistant.host.secrets.clone().ok_or(text::KEY_NEEDS_DESKTOP)?;
+        let secrets = app
+            .assistant
+            .host
+            .secrets
+            .clone()
+            .ok_or(text::KEY_NEEDS_DESKTOP)?;
         secrets.set(&pcbcraft_assistant::key_id(&id), &d.key)?;
         has_key = true;
     }
@@ -430,7 +527,11 @@ fn finish(app: &mut App, d: &Dialog) -> Result<(), String> {
         has_key,
     });
     if app.preferences.assistant_default.is_empty()
-        || !app.preferences.assistant_connections.iter().any(|c| c.id == app.preferences.assistant_default)
+        || !app
+            .preferences
+            .assistant_connections
+            .iter()
+            .any(|c| c.id == app.preferences.assistant_default)
     {
         app.preferences.assistant_default = id;
     }
