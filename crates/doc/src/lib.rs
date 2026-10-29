@@ -3287,27 +3287,25 @@ impl Project {
                 if wire.net != label.net {
                     continue;
                 }
-                if let Some(path) = self.wire_path(wire) {
-                    if path
+                if let Some(path) = self.wire_path(wire)
+                    && path
                         .iter()
                         .any(|point| point.distance(label.position) < 0.05)
-                    {
-                        if let Some(page) = self.schematic_wire_page(wire) {
-                            return page;
-                        }
-                    }
+                    && let Some(page) = self.schematic_wire_page(wire)
+                {
+                    return page;
                 }
             }
         }
         let mut best = (f64::INFINITY, 0);
         for component in &self.components {
             for pin in &component.pins {
-                if pin.net.is_some_and(|n| n == label.net) {
-                    if let Some(position) = component.pin_position(&pin.number) {
-                        let reach = position.distance(label.position);
-                        if reach < best.0 {
-                            best = (reach, component.sheet);
-                        }
+                if pin.net.is_some_and(|n| n == label.net)
+                    && let Some(position) = component.pin_position(&pin.number)
+                {
+                    let reach = position.distance(label.position);
+                    if reach < best.0 {
+                        best = (reach, component.sheet);
                     }
                 }
             }
@@ -3333,12 +3331,12 @@ impl Project {
         {
             for component in &self.components {
                 for pin in &component.pins {
-                    if pin.net.is_some_and(|n| n == net) {
-                        if let Some(position) = component.pin_position(&pin.number) {
-                            let reach = position.distance(*anchor);
-                            if reach < best.0 {
-                                best = (reach, component.sheet);
-                            }
+                    if pin.net.is_some_and(|n| n == net)
+                        && let Some(position) = component.pin_position(&pin.number)
+                    {
+                        let reach = position.distance(*anchor);
+                        if reach < best.0 {
+                            best = (reach, component.sheet);
                         }
                     }
                 }
@@ -3733,10 +3731,10 @@ impl Project {
             if s.entry.is_some() && s.parent.is_none() {
                 return Err("sheet entry needs a parent page".into());
             }
-            if let Some(entry) = s.entry {
-                if !entry.valid() {
-                    return Err("sheet entry position is out of range".into());
-                }
+            if let Some(entry) = s.entry
+                && !entry.valid()
+            {
+                return Err("sheet entry position is out of range".into());
             }
         }
         if self.ids().count() > MAX_ITEMS {

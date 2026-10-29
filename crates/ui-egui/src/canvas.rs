@@ -2842,7 +2842,7 @@ mod tests {
                 None,
             )
             .map_err(|e| e.to_string())?;
-        let root_id = session
+        let _root_id = session
             .project
             .components
             .iter()
