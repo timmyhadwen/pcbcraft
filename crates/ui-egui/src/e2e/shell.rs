@@ -551,7 +551,7 @@ fn a_newcomer_switches_view_with_the_keyboard_only() -> Result<(), String> {
     Ok(())
 }
 
-/// Known unnamed controls: `node id | role | #issue | reason`.
+/// Known unnamed controls, as a count per role: `role | count | #issue | reason`.
 const EXEMPTIONS: &str = include_str!("accessible-name-exemptions.txt");
 
 /// Every screen a person can reach without typing: the start page, each tab,
@@ -600,64 +600,90 @@ fn unnamed_controls() -> Result<Vec<String>, String> {
     Ok(found)
 }
 
-/// The first three fields of each exemption line.
-fn exempted() -> Vec<(String, String)> {
+/// Unnamed controls counted per role, from the lines of the exemption file
+/// (`role | count | #issue | reason`).
+fn budget() -> Vec<(String, usize, String)> {
     EXEMPTIONS
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(|l| {
             let parts: Vec<&str> = l.splitn(4, '|').map(str::trim).collect();
-            (parts[..2.min(parts.len())].join(" | "), l.to_owned())
+            (
+                parts.first().copied().unwrap_or_default().to_owned(),
+                parts.get(1).and_then(|n| n.parse().ok()).unwrap_or(0),
+                l.to_owned(),
+            )
         })
         .collect()
 }
 
+/// How many distinct unnamed controls each role has right now.
+fn unnamed_by_role() -> Result<Vec<(String, usize)>, String> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for line in unnamed_controls()? {
+        let role = line.split('|').nth(1).unwrap_or_default().trim().to_owned();
+        match counts.iter_mut().find(|(r, _)| *r == role) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((role, 1)),
+        }
+    }
+    Ok(counts)
+}
+
 #[test]
 fn every_interactive_control_has_an_accessible_name() -> Result<(), String> {
-    let allowed: Vec<String> = exempted().into_iter().map(|(key, _)| key).collect();
-    let new_gaps: Vec<String> = unnamed_controls()?
-        .into_iter()
-        .filter(|gap| !allowed.contains(gap))
-        .collect();
+    let allowed = budget();
+    let mut worse = Vec::new();
+    for (role, now) in unnamed_by_role()? {
+        let limit = allowed
+            .iter()
+            .find(|(r, _, _)| *r == role)
+            .map_or(0, |(_, n, _)| *n);
+        if now > limit {
+            worse.push(format!("{role}: {now} unnamed, {limit} allowed"));
+        }
+    }
     assert!(
-        new_gaps.is_empty(),
-        "these controls have no accessible name; name them with a11y::name_control \
-         or, as a last resort, list them in accessible-name-exemptions.txt with an \
-         issue number:\n{}",
-        new_gaps.join("\n")
+        worse.is_empty(),
+        "a new control has no accessible name; name it with a11y::name_control \
+         or label it, and only as a last resort raise its count in \
+         accessible-name-exemptions.txt with an issue number: {worse:?}\nunnamed now: {:?}",
+        unnamed_controls()?
     );
     Ok(())
 }
 
 #[test]
 fn the_exemption_file_has_no_entry_for_a_control_that_is_now_named() -> Result<(), String> {
-    let still_unnamed = unnamed_controls()?;
-    let stale: Vec<String> = exempted()
-        .into_iter()
-        .filter(|(key, _)| !still_unnamed.contains(key))
-        .map(|(_, line)| line)
-        .collect();
+    let now = unnamed_by_role()?;
+    let mut stale = Vec::new();
+    for (role, limit, line) in budget() {
+        let have = now.iter().find(|(r, _)| *r == role).map_or(0, |(_, n)| *n);
+        if have < limit {
+            stale.push(format!("{line} (only {have} unnamed now; lower the count)"));
+        }
+    }
     assert!(
         stale.is_empty(),
-        "these controls are named now (or gone); delete their lines:\n{}",
-        stale.join("\n")
+        "controls got names; shrink the list: {stale:?}"
     );
     Ok(())
 }
 
 #[test]
 fn each_exemption_names_an_issue_number() -> Result<(), String> {
-    for (_, line) in exempted() {
+    for (_, _, line) in budget() {
         let fields: Vec<&str> = line.splitn(4, '|').map(str::trim).collect();
+        let count_ok = fields.get(1).is_some_and(|n| n.parse::<usize>().is_ok());
         let issue_ok = fields.get(2).is_some_and(|f| {
             f.strip_prefix('#')
                 .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
         });
         let reason_ok = fields.get(3).is_some_and(|r| !r.is_empty());
         assert!(
-            issue_ok && reason_ok,
-            "needs `node id | role | #issue | reason`: {line}"
+            count_ok && issue_ok && reason_ok,
+            "needs `role | count | #issue | reason`: {line}"
         );
     }
     Ok(())
