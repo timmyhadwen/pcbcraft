@@ -344,6 +344,8 @@ These are the initial KiCad-style defaults, not a complete configurable KiCad ke
 
 ```sh
 cargo run -p pcbcraft-cli -- commands
+cargo run -p pcbcraft-cli -- new --out blank.pcbcraft
+cargo run -p pcbcraft-cli -- init my-led-board --name "LED indicator"
 cargo run -p pcbcraft-cli -- sample --out led.pcbcraft
 cargo run -p pcbcraft-cli -- run examples/led-indicator.json --save led.pcbcraft --export led.kicad_pcb
 cargo run -p pcbcraft-cli -- checks --project led.pcbcraft
