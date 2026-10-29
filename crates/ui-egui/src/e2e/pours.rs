@@ -94,6 +94,7 @@ fn pour_app(wall: bool, blocked: bool) -> Result<(App, egui::Context, Id), Strin
             position: at,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::default(),
