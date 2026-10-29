@@ -1,4 +1,5 @@
 use super::*;
+use crate::a11y::Named;
 use egui::{Pos2, Sense};
 use pcbcraft_geom::point_segment;
 use pcbcraft_library::{
@@ -204,20 +205,22 @@ fn new_footprint() -> FootprintDefinition {
 fn point(ui: &mut egui::Ui, label: &str, p: &mut Point) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(&mut p.x).speed(0.1).prefix("X "));
-        ui.add(egui::DragValue::new(&mut p.y).speed(0.1).prefix("Y "));
+        ui.add(egui::DragValue::new(&mut p.x).speed(0.1).prefix("X "))
+            .named(&format!("{label} X"));
+        ui.add(egui::DragValue::new(&mut p.y).speed(0.1).prefix("Y "))
+            .named(&format!("{label} Y"));
     });
 }
 fn text(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.text_edit_singleline(value);
+        ui.text_edit_singleline(value).named(label);
     });
 }
 fn number(ui: &mut egui::Ui, label: &str, value: &mut f64) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(value).speed(0.1));
+        ui.add(egui::DragValue::new(value).speed(0.1)).named(label);
     });
 }
 fn graphic(ui: &mut egui::Ui, g: &mut Graphic) {
@@ -1141,7 +1144,8 @@ impl App {
         ui.label("Saved here, live with the design; everything above is shared collections. Placed components retain their embedded copies.");
         ui.horizontal(|ui| {
             ui.label("Collection file");
-            ui.text_edit_singleline(&mut self.library.editor.path);
+            ui.text_edit_singleline(&mut self.library.editor.path)
+                .named("Collection file");
             if ui
                 .button("Save library")
                 .on_hover_text("Write the authored collections to a reusable library file.")
@@ -1274,7 +1278,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label("Set")
                         .on_hover_text("Optional group name, like Power bits. Parts that share a set are grouped together when you add parts, and the group can be hidden.");
-                    ui.text_edit_singleline(&mut def.set);
+                    ui.text_edit_singleline(&mut def.set).named("Set name");
                 });
                 if let Err(e) = def.validate() {
                     ui.colored_label(Color32::LIGHT_RED, e.to_string());
@@ -1371,7 +1375,7 @@ impl App {
                                 egui::DragValue::new(&mut pin.unit)
                                     .range(1..=32)
                                     .prefix("Unit "),
-                            );
+                            ).named("Pin unit");
                             egui::ComboBox::from_id_salt("pin-type")
                                 .selected_text(&pin.electrical_type)
                                 .show_ui(ui, |ui| {
@@ -1389,7 +1393,7 @@ impl App {
                                     ] {
                                         ui.selectable_value(&mut pin.electrical_type, t.into(), t);
                                     }
-                                });
+                                }).response.named("Pin type");
                             if ui
                                 .button("Delete pin")
                                 .on_hover_text("Remove this pin.")
@@ -1420,7 +1424,7 @@ impl App {
                                 egui::DragValue::new(&mut g.unit)
                                     .range(0..=32)
                                     .prefix("Unit (0 shared) "),
-                            );
+                            ).named("Graphic unit");
                             graphic(ui, &mut g.primitive);
                             if ui
                                 .button("Delete graphic")
@@ -1499,7 +1503,7 @@ impl App {
                                     .on_hover_text(
                                         "A bare drilled hole for a locating peg or screw. It has no copper and no net.",
                                     );
-                                });
+                                }).response.named("Pad type");
                             if before != pad.pad_type {
                                 if pad.pad_type == "unplated" {
                                     apply_unplated_defaults(pad);
@@ -1524,14 +1528,14 @@ impl App {
                                                 "Copper outline of the pad; the mask follows it.",
                                             );
                                     }
-                                });
+                                }).response.named("Pad shape");
                             if pad.shape == "roundrect" {
                                 ui.add(
                                     egui::DragValue::new(pad.roundrect_ratio.get_or_insert(0.25))
                                         .range(0.0..=0.5)
                                         .speed(0.01)
                                         .prefix("Corner ratio "),
-                                );
+                                ).named("Corner rounding");
                             } else {
                                 pad.roundrect_ratio = None;
                             }

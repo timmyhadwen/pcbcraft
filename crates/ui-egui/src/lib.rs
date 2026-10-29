@@ -14,6 +14,7 @@ mod reference_panel;
 mod sources;
 mod via_covering;
 mod via_span;
+use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
@@ -1538,6 +1539,7 @@ impl App {
                                 }
                             })
                             .response
+                            .named("Layer kind")
                             .on_hover_text("Pick what this layer is made of and does.");
                         ui.add(
                             egui::DragValue::new(thickness)
@@ -1545,6 +1547,7 @@ impl App {
                                 .range(0.0..=100.0)
                                 .suffix(" mm"),
                         )
+                        .named("Layer thickness")
                         .on_hover_text("How thick this layer is, in millimetres.");
                     });
                     let apply = ui
@@ -1590,6 +1593,7 @@ impl App {
                     .desired_width(70.0)
                     .hint_text("layer name"),
             )
+            .named("New layer name")
             .on_hover_text("Name this layer, for example Core, Prepreg or L2.");
             egui::ComboBox::from_id_salt("stack-add-kind")
                 .selected_text(self.stack_kind.clone())
@@ -1606,6 +1610,7 @@ impl App {
                     }
                 })
                 .response
+                .named("New layer kind")
                 .on_hover_text("Pick what this layer is made of and does.");
             ui.add(
                 egui::DragValue::new(&mut self.stack_thickness)
@@ -1613,6 +1618,7 @@ impl App {
                     .range(0.0..=100.0)
                     .suffix(" mm"),
             )
+            .named("New layer thickness")
             .on_hover_text("How thick this layer is, in millimetres.");
             if ui
                 .add_enabled(
@@ -1662,6 +1668,7 @@ impl App {
                     }
                 })
                 .response
+                .named("Surface finish")
                 .on_hover_text(
                     "The coating on exposed copper; it goes on the factory notes and reports.",
                 );
@@ -1675,6 +1682,7 @@ impl App {
                     .range(0.2..=100.0)
                     .suffix(" mm"),
             )
+            .named("Thickness")
             .on_hover_text("How thick the whole board is; the factory uses this to pick bits.");
             if ui
                 .button("Set thickness")
@@ -1692,6 +1700,7 @@ impl App {
                     .speed(0.05)
                     .range(1.0..=20.0),
             )
+            .named("Substrate dielectric constant")
             .on_hover_text(
                 "How the material between layers slows signals; it tunes impedance estimates.",
             );
@@ -1747,7 +1756,7 @@ impl App {
                             .speed(0.05)
                             .range(0.05..=25.0)
                             .suffix(" mm"),
-                    )
+                    ).named("Hole size")
                     .on_hover_text("How wide this hole is drilled.");
                     if ui
                         .button("Apply")
@@ -1837,6 +1846,7 @@ impl App {
                             .range(0.2..=10.0)
                             .suffix(" mm"),
                     )
+                    .named("Assembly mark size")
                     .on_hover_text("How wide the bare copper disc is.");
                     if ui
                         .selectable_label(front, "Top")
@@ -1934,7 +1944,7 @@ impl App {
                 egui::TextEdit::singleline(&mut self.tree_query)
                     .hint_text("Search the whole board")
                     .desired_width(150.0),
-            )
+            ).named("Search the board")
             .on_hover_text(
                 "Type a part reference, a net name or a layer name; the tree keeps only matching rows.",
             );
@@ -2981,7 +2991,7 @@ impl App {
                                         egui::TextEdit::singleline(&mut self.path)
                                             .hint_text("design file path")
                                             .desired_width(240.0),
-                                    )
+                                    ).named("Design file path")
                                     .on_hover_text(
                                         "The file that Open on this page, and in the File menu, uses.",
                                     );
@@ -3352,7 +3362,7 @@ impl App {
                             egui::TextEdit::singleline(&mut self.part_search)
                                 .hint_text("Search parts by name")
                                 .desired_width(f32::INFINITY),
-                        )
+                        ).named("Search parts")
                         .on_hover_text("Type any part name; the list below narrows as you type.");
                     if self.part_search_focus {
                         query_box.request_focus();
@@ -3585,7 +3595,7 @@ impl App {
                                     }
                                 }
                             })
-                            .response
+                            .response.named("Renumber prefix")
                             .on_hover_text(
                                 "Renumber one kind of part, or every part at once.",
                             );
@@ -3742,7 +3752,7 @@ impl App {
                         egui::TextEdit::singleline(draft)
                             .desired_width(120.0)
                             .hint_text("net name"),
-                    )
+                    ).named("Net name")
                     .on_hover_text("1 to 128 characters; every net needs its own name.");
                     if ui
                         .button("Use name")
@@ -3877,7 +3887,7 @@ impl App {
                                     }
                                 }
                             })
-                            .response
+                            .response.named("Pin to connect")
                             .on_hover_text("Pick a pin to add to this connection.");
                         if ui
                             .add_enabled(
@@ -4027,7 +4037,8 @@ impl App {
                 egui::DragValue::new(&mut self.width)
                     .speed(0.5)
                     .suffix(" mm"),
-            );
+            )
+            .named("Board width");
         });
         ui.horizontal(|ui| {
             ui.label("H");
@@ -4035,7 +4046,8 @@ impl App {
                 egui::DragValue::new(&mut self.height)
                     .speed(0.5)
                     .suffix(" mm"),
-            );
+            )
+            .named("Board height");
         });
         if ui
             .button("Apply board dimensions")
@@ -4066,13 +4078,15 @@ impl App {
                 egui::DragValue::new(&mut self.cut_x)
                     .speed(0.5)
                     .suffix(" mm"),
-            );
+            )
+            .named("Cutout X");
             ui.label("Y");
             ui.add(
                 egui::DragValue::new(&mut self.cut_y)
                     .speed(0.5)
                     .suffix(" mm"),
-            );
+            )
+            .named("Cutout Y");
         });
         ui.horizontal(|ui| {
             ui.label("Radius");
@@ -4081,7 +4095,8 @@ impl App {
                     .speed(0.1)
                     .range(0.1..=50.0)
                     .suffix(" mm"),
-            );
+            )
+            .named("Cutout radius");
         });
         if ui
             .button("Add hole")
@@ -4118,13 +4133,15 @@ impl App {
                 egui::DragValue::new(&mut self.pour_x)
                     .speed(0.5)
                     .suffix(" mm"),
-            );
+            )
+            .named("Pour X");
             ui.label("Y");
             ui.add(
                 egui::DragValue::new(&mut self.pour_y)
                     .speed(0.5)
                     .suffix(" mm"),
-            );
+            )
+            .named("Pour Y");
         });
         ui.horizontal(|ui| {
             ui.label("W");
@@ -4133,14 +4150,16 @@ impl App {
                     .speed(0.5)
                     .range(1.0..=500.0)
                     .suffix(" mm"),
-            );
+            )
+            .named("Pour width");
             ui.label("H");
             ui.add(
                 egui::DragValue::new(&mut self.pour_h)
                     .speed(0.5)
                     .range(1.0..=500.0)
                     .suffix(" mm"),
-            );
+            )
+            .named("Pour height");
         });
         let pour_net = self.pour_net;
         let net_choices: Vec<(Id, String)> = self
@@ -4156,7 +4175,9 @@ impl App {
                 for (id, name) in net_choices {
                     ui.selectable_value(&mut self.pour_net, id, name);
                 }
-            });
+            })
+            .response
+            .named("Pour connection");
         if ui
             .button("Pour copper")
             .on_hover_text(
@@ -4192,6 +4213,7 @@ impl App {
                     .desired_width(110.0)
                     .hint_text("what to print"),
             )
+            .named("Text to print")
             .on_hover_text("The words to print on the board.");
         });
         ui.horizontal(|ui| {
@@ -4200,18 +4222,21 @@ impl App {
                 egui::DragValue::new(&mut self.label_x)
                     .speed(0.5)
                     .suffix(" mm"),
-            );
+            )
+            .named("Text X");
             ui.add(
                 egui::DragValue::new(&mut self.label_y)
                     .speed(0.5)
                     .suffix(" mm"),
-            );
+            )
+            .named("Text Y");
             ui.add(
                 egui::DragValue::new(&mut self.label_size)
                     .range(0.3..=20.0)
                     .speed(0.1)
                     .suffix(" mm"),
             )
+            .named("Text size")
             .on_hover_text("How tall the letters are.");
         });
         ui.horizontal(|ui| {
@@ -4293,7 +4318,7 @@ impl App {
                 egui::TextEdit::singleline(&mut self.svg_path)
                     .hint_text("drawing file path (.svg)")
                     .desired_width(150.0),
-            )
+            ).named("Drawing file path")
             .on_hover_text(
                 "A vector drawing whose edge can become the board outline, or whose shapes can be laid onto the board as artwork.",
             );
@@ -4326,7 +4351,8 @@ impl App {
                 egui::DragValue::new(&mut self.cutout_radius)
                     .speed(0.1)
                     .suffix(" mm"),
-            );
+            )
+            .named("Cutout radius");
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
         ui.add_space(12.0);
@@ -4374,7 +4400,7 @@ impl App {
             egui::TextEdit::singleline(&mut self.make_dir)
                 .hint_text("folder for the files (blank means \"outputs\" beside the design)")
                 .desired_width(220.0),
-        )
+        ).named("Output folder")
         .on_hover_text(
             "Where the make files land. Leave blank to use a folder named outputs next to the design file.",
         );
@@ -4515,6 +4541,7 @@ impl App {
                     .suffix(" across")
                     .speed(1.0),
             )
+            .named("Copies across")
             .on_hover_text("How many copies of the board sit side by side.");
             ui.add(
                 egui::DragValue::new(&mut self.panel_rows)
@@ -4522,6 +4549,7 @@ impl App {
                     .suffix(" down")
                     .speed(1.0),
             )
+            .named("Copies down")
             .on_hover_text("How many copies of the board sit top to bottom.");
         });
         ui.horizontal(|ui| {
@@ -4531,6 +4559,7 @@ impl App {
                     .speed(0.5)
                     .suffix(" mm gap"),
             )
+            .named("Gap between copies")
             .on_hover_text(
                 "Empty space between neighbouring copies, room for cutting them apart later.",
             );
@@ -4540,6 +4569,7 @@ impl App {
                     .speed(0.5)
                     .suffix(" mm rail"),
             )
+            .named("Rail width")
             .on_hover_text(
                 "Solid border left around the edge of the panel, where the factory grips it.",
             );
@@ -4658,7 +4688,7 @@ impl App {
                                 .speed(0.01)
                                 .range(0.001..=100.0)
                                 .suffix(" mm"),
-                        )
+                        ).named("Gap")
                         .on_hover_text(
                             "Smallest allowed clear space between this group's copper and everything else.",
                         );
@@ -4670,7 +4700,7 @@ impl App {
                                 .speed(0.01)
                                 .range(0.001..=100.0)
                                 .suffix(" mm"),
-                        )
+                        ).named("Wire width")
                         .on_hover_text(
                             "Width new tracks on these connections start with.",
                         );
@@ -4740,7 +4770,7 @@ impl App {
                                     }
                                 }
                             })
-                            .response
+                            .response.named("Rule set for connection")
                             .on_hover_text(
                                 "Pick a connection, then Assign: its wiring follows this rule set.",
                             );
@@ -4826,7 +4856,7 @@ impl App {
                     .range(0.05..=5.0)
                     .speed(0.05)
                     .suffix(" mm deep"),
-            )
+            ).named("Teardrop depth")
             .on_hover_text(
                 "How far each teardrop runs along the wire from the joint. Bigger stems are sturdier but eat board space.",
             );
@@ -4897,7 +4927,7 @@ impl App {
                     egui::TextEdit::singleline(&mut self.custom_name)
                         .hint_text("What this check means, in your words")
                         .desired_width(150.0),
-                );
+                ).named("Check name");
                 response
                     .on_hover_text("The name this check reports under, e.g. \"keep power wires meaty\".");
                 egui::ComboBox::from_id_salt("custom-measure")
@@ -4907,7 +4937,7 @@ impl App {
                             ui.selectable_value(&mut self.custom_measure, i, *label);
                         }
                     })
-                    .response
+                    .response.named("Custom check measure")
                     .on_hover_text(
                         "The one thing this check measures. Every check stays a plain sentence, never a puzzle.",
                     );
@@ -4924,7 +4954,7 @@ impl App {
                         .range(0.01..=100000.0)
                         .speed(0.05)
                         .suffix(unit),
-                )
+                ).named("Custom check limit")
                 .on_hover_text(
                     "The limit: millimetres for wire measures, a plain number of things otherwise.",
                 );
@@ -5062,7 +5092,9 @@ impl App {
                             ui.selectable_value(&mut self.pair_a, *id, name)
                                 .on_hover_text("Pick the first net of the pair.");
                         }
-                    });
+                    })
+                    .response
+                    .named("First net of the pair");
                 ui.label("away from");
                 egui::ComboBox::from_id_salt("pair_b")
                     .selected_text(name_of(self.pair_b))
@@ -5071,7 +5103,9 @@ impl App {
                             ui.selectable_value(&mut self.pair_b, *id, name)
                                 .on_hover_text("Pick the second net of the pair.");
                         }
-                    });
+                    })
+                    .response
+                    .named("Second net of the pair");
             });
             ui.horizontal(|ui| {
                 ui.label("Keep apart by");
@@ -5081,6 +5115,7 @@ impl App {
                         .speed(0.05)
                         .suffix(" mm"),
                 )
+                .named("Keep apart by")
                 .on_hover_text(
                     "The least distance the two connections' copper may sit from each other.",
                 );
@@ -5161,6 +5196,7 @@ impl App {
                         .hint_text("USB")
                         .desired_width(90.0),
                 )
+                .named("Pair name")
                 .on_hover_text("A name you will recognise, like USB or HDMI.");
             });
             ui.horizontal(|ui| {
@@ -5171,7 +5207,9 @@ impl App {
                             ui.selectable_value(&mut self.dp_p, *id, name)
                                 .on_hover_text("Pick the net that carries the positive side.");
                         }
-                    });
+                    })
+                    .response
+                    .named("Positive net");
                 ui.label("+");
                 egui::ComboBox::from_id_salt("dp_n")
                     .selected_text(name_of(self.dp_n))
@@ -5180,7 +5218,9 @@ impl App {
                             ui.selectable_value(&mut self.dp_n, *id, name)
                                 .on_hover_text("Pick the net that carries the negative side.");
                         }
-                    });
+                    })
+                    .response
+                    .named("Negative net");
             });
             ui.horizontal(|ui| {
                 ui.label("Run together with a gap of");
@@ -5189,7 +5229,7 @@ impl App {
                         .range(0.02..=10.0)
                         .speed(0.02)
                         .suffix(" mm"),
-                )
+                ).named("Run together gap")
                 .on_hover_text(
                     "How closely the two sides should hug each other; copper nearer than this gets reported.",
                 );
@@ -5256,25 +5296,29 @@ impl App {
                 egui::DragValue::new(&mut self.area_x)
                     .speed(0.5)
                     .suffix(" mm"),
-            );
+            )
+            .named("Area corner X");
             ui.add(
                 egui::DragValue::new(&mut self.area_y)
                     .speed(0.5)
                     .suffix(" mm"),
-            );
+            )
+            .named("Area corner Y");
             ui.label("Size");
             ui.add(
                 egui::DragValue::new(&mut self.area_w)
                     .speed(0.5)
                     .range(1.0..=500.0)
                     .suffix(" mm"),
-            );
+            )
+            .named("Area width");
             ui.add(
                 egui::DragValue::new(&mut self.area_h)
                     .speed(0.5)
                     .range(1.0..=500.0)
                     .suffix(" mm"),
-            );
+            )
+            .named("Area height");
         });
         ui.horizontal(|ui| {
             ui.label("Copper stays apart by at least");
@@ -5284,6 +5328,7 @@ impl App {
                     .speed(0.05)
                     .suffix(" mm"),
             )
+            .named("Copper stays apart by")
             .on_hover_text(
                 "The minimum separation demanded between copper pieces inside this area.",
             );
@@ -5299,7 +5344,7 @@ impl App {
                         .range(0.1..=100.0)
                         .speed(0.5)
                         .suffix(" mm"),
-                );
+                ).named("Tallest part allowed");
             }
         });
         if ui
@@ -5451,7 +5496,7 @@ impl App {
                         egui::TextEdit::multiline(&mut text)
                             .desired_width(200.0)
                             .hint_text("what this build changes"),
-                    )
+                    ).named("Build note")
                     .on_hover_text("A sentence or two, saved with the design.");
                     let save = ui
                         .button("Save note")
@@ -5529,7 +5574,7 @@ impl App {
                                     }
                                 }
                             })
-                            .response
+                            .response.named("Part to populate")
                             .on_hover_text(
                                 "Pick a part, then Leave off: this build skips it and its parts list leaves it out.",
                             );
@@ -5611,7 +5656,7 @@ impl App {
                                     }
                                 }
                             })
-                            .response
+                            .response.named("Part to swap")
                             .on_hover_text(
                                 "Pick a part, name its other package, then Swap package.",
                             );
@@ -5619,7 +5664,7 @@ impl App {
                             egui::TextEdit::singleline(&mut self.swap_name)
                                 .desired_width(80.0)
                                 .hint_text("package name"),
-                        )
+                        ).named("Swap package name")
                         .on_hover_text(
                             "The package this build uses instead, for example a smaller size.",
                         );
@@ -5794,7 +5839,7 @@ impl App {
                                         )
                                         .on_hover_text("Edit or move this half of the part on its own.");
                                     }
-                                });
+                                }).response.named("Part unit");
                             if before != self.selected_unit {
                                 self.load_properties();
                             }
@@ -5807,7 +5852,7 @@ impl App {
                         );
                         ui.add_space(10.0);
                         ui.label("Value");
-                        ui.text_edit_singleline(&mut self.value);
+                        ui.text_edit_singleline(&mut self.value).named("Value");
                         field_help(ui, FIELD_HELP_VALUE, self.muted());
                         if ui.button("Apply value").on_hover_text(command_tip("component.value")).clicked() {
                             self.run("component.value", json!({"id":c.id,"value":self.value}));
@@ -5817,9 +5862,9 @@ impl App {
                         field_help(ui, FIELD_HELP_POSITION, self.muted());
                         ui.horizontal(|ui| {
                             ui.label("X");
-                            ui.add(egui::DragValue::new(&mut self.x).speed(0.1));
+                            ui.add(egui::DragValue::new(&mut self.x).speed(0.1)).named("X position");
                             ui.label("Y");
-                            ui.add(egui::DragValue::new(&mut self.y).speed(0.1));
+                            ui.add(egui::DragValue::new(&mut self.y).speed(0.1)).named("Y position");
                         });
                         if ui.button("Apply position").on_hover_text("Move the selected symbol or footprint to the position typed above.").clicked() {
                             let mut params = json!({"id":id,"position":{"x":self.x,"y":self.y}});
@@ -5981,7 +6026,7 @@ impl App {
                                     .range(0.05..=10.0)
                                     .speed(0.05)
                                     .suffix(" mm"),
-                            )
+                            ).named("Wire width")
                             .on_hover_text(
                                 "How wide this stretch of copper is. Thicker wires carry more current.",
                             );
@@ -6029,7 +6074,7 @@ impl App {
                                         .range(0.05..=1.5)
                                         .speed(0.05)
                                         .suffix(" mm"),
-                                )
+                                ).named("Corner size")
                                 .on_hover_text(
                                     "How far back from the sharp corner the diagonal cut starts.",
                                 );
@@ -6084,7 +6129,7 @@ impl App {
                                     .range(0.5..=50.0)
                                     .speed(0.5)
                                     .suffix(" mm"),
-                            )
+                            ).named("Stitch spacing")
                             .on_hover_text(
                                 "How far apart the little connecting holes sit. Smaller numbers pack more in.",
                             );
@@ -6254,7 +6299,7 @@ impl App {
                             egui::TextEdit::singleline(&mut self.command_query)
                                 .hint_text("filter command names and descriptions")
                                 .desired_width(300.0),
-                        );
+                        ).named("Command filter");
                         if self.command_focus {
                             search.request_focus();
                             self.command_focus = false;
@@ -6270,7 +6315,7 @@ impl App {
                                 .desired_width(380.0)
                                 .desired_rows(3)
                                 .interactive(true),
-                        )
+                        ).named("Command parameters")
                         .on_hover_text(
                             "Edit the parameters here; Enter adds a new line so long lists stay readable, and Ctrl+Enter or Execute runs the command.",
                         );
@@ -6771,7 +6816,9 @@ impl App {
                         ui.radio_value(&mut self.art_layer, Some(*id), name.as_str())
                             .on_hover_text("New figures land on this layer.");
                     }
-                });
+                })
+                .response
+                .named("Drawing layer");
             if ui
                 .button("New layer")
                 .on_hover_text(
@@ -6810,6 +6857,7 @@ impl App {
                         .hint_text("words to print")
                         .desired_width(f32::INFINITY),
                 )
+                .named("Layer text")
                 .on_hover_text("The words a click will print on the active layer.");
             }
             ui.separator();
@@ -6822,6 +6870,7 @@ impl App {
                     .range(0.05..=25.0)
                     .suffix(" mm"),
             )
+            .named("Mounting hole size")
             .on_hover_text("Drill size for new holes; an M3 spacer usually wants 3.2 mm.");
             ui.separator();
         }
@@ -6833,6 +6882,7 @@ impl App {
                     .range(0.2..=10.0)
                     .suffix(" mm"),
             )
+            .named("Assembly mark size")
             .on_hover_text("Disc size for new marks; 1 mm is the usual size.");
             ui.separator();
         }
