@@ -263,6 +263,19 @@ fn connections(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
                     remove = Some(c.id.clone());
                 }
             });
+            let mut images = c.images;
+            if ui
+                .checkbox(&mut images, text::TAKES_PICTURES)
+                .on_hover_text(text::TAKES_PICTURES_TIP)
+                .changed()
+                && let Some(row) = app
+                    .preferences
+                    .assistant_connections
+                    .iter_mut()
+                    .find(|x| x.id == c.id)
+            {
+                row.images = images;
+            }
             let current: Mode = app
                 .preferences
                 .assistant_modes
@@ -525,6 +538,7 @@ fn finish(app: &mut App, d: &Dialog) -> Result<(), String> {
         base_url: url,
         model: d.model.trim().to_string(),
         has_key,
+        images: false,
     });
     if app.preferences.assistant_default.is_empty()
         || !app

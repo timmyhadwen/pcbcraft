@@ -8,6 +8,7 @@ pub mod recents;
 pub use dry_run::{ChangeSummary, DryRun};
 mod route;
 mod selection_clip;
+mod summary;
 mod tuning;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
@@ -63,6 +64,11 @@ fn pin_schema() -> Value {
 }
 pub fn commands() -> Vec<CommandSpec> {
     let entries = [
+        (
+            "design.summary",
+            "A short summary of the design for people and assistants: counts, board, nets, parts, findings. Read it first; it is far smaller than inspect_design",
+            schema(json!({}), &[]),
+        ),
         (
             "project.rename",
             "Rename the current project",
@@ -7661,6 +7667,7 @@ fn run_command(
             };
             Ok(json!({"name": a.name, "shape": a.shape, "replaced": replaced}))
         }
+        "design.summary" => Ok(summary::build(p)),
         "padstack.report" => {
             let mut stacks = Vec::with_capacity(p.padstacks.len());
             let mut used_total = 0usize;

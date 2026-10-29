@@ -25,6 +25,9 @@ pub struct Connection {
     /// True when a key is stored in the keychain for this connection.
     #[serde(default)]
     pub has_key: bool,
+    /// True when the model takes pictures (Attach view sends one).
+    #[serde(default)]
+    pub images: bool,
 }
 
 /// A starting point offered by the Add connection dialog.
@@ -138,6 +141,7 @@ mod tests {
             base_url: String::new(),
             model: String::new(),
             has_key: false,
+            images: false,
         };
         assert_eq!(new_id(&[c("api-1"), c("api-2")], "api"), "api-3");
     }
@@ -151,6 +155,7 @@ mod tests {
             base_url: "http://localhost:11434/v1".into(),
             model: "m".into(),
             has_key: true,
+            images: false,
         };
         let text = serde_json::to_string(&c).map_err(|e| e.to_string())?;
         assert!(text.contains("\"has_key\":true"));

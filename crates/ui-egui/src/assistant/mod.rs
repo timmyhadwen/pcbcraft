@@ -12,7 +12,7 @@ pub(crate) mod pane;
 pub(crate) mod settings;
 mod text;
 
-use super::App;
+use super::{App, Tab};
 use pcbcraft_assistant::{
     ApiBackend, ChatBackend, Event, HttpFn, Item, PromptPart, Secrets, StartContext, ToolRequest,
     Transcript, Turn, Verdict,
@@ -49,6 +49,12 @@ struct Waiting {
 pub(crate) struct State {
     pub(crate) transcript: Transcript,
     pub(crate) input: String,
+    /// Send a picture of the view with the next message.
+    pub(crate) attach: bool,
+    /// What the last message told the model, to send only changes next time.
+    sent: Option<pcbcraft_assistant::Sent>,
+    /// The text of the last context note (shown under "Show what was sent").
+    pub(crate) last_note: String,
     pub(crate) host: Host,
     backend: Option<Box<dyn ChatBackend>>,
     ready: bool,
@@ -72,6 +78,9 @@ impl Default for State {
         Self {
             transcript: Transcript::default(),
             input: String::new(),
+            attach: false,
+            sent: None,
+            last_note: String::new(),
             host: Host::default(),
             backend: None,
             ready: false,
@@ -267,8 +276,97 @@ impl App {
             .transcript
             .push(Item::User { text: text.clone() });
         self.assistant.busy = true;
+        let parts = self.assistant_parts(&text);
         if let Some(b) = self.assistant.backend.as_mut() {
-            b.prompt(&[PromptPart::Text(text)]);
+            b.prompt(&parts);
+        }
+    }
+
+    /// The parts of a message: the context note (whole the first time, then only changes) with
+    /// the user's words, and a picture of the view when Attach view is on.
+    fn assistant_parts(&mut self, text: &str) -> Vec<PromptPart> {
+        let context = self.assistant_context();
+        let note = pcbcraft_assistant::note(&context, self.assistant.sent.as_ref());
+        self.assistant.sent = Some(context.sent());
+        self.assistant.last_note = note.clone();
+        let body = if note.is_empty() {
+            text.to_string()
+        } else {
+            format!("{note}\n\n{text}")
+        };
+        self.assistant.transcript.push(Item::Note {
+            text: format!("context: {} bytes", note.len()),
+            error: false,
+        });
+        let mut parts = vec![PromptPart::Text(body)];
+        if self.assistant.attach {
+            let view = if matches!(self.tab, Tab::Pcb) { "pcb" } else { "schematic" };
+            let reply = pcbcraft_mcp::call_tool(&self.session, "screenshot", &json!({"view": view}));
+            let data = reply.pointer("/content/0/data").and_then(Value::as_str);
+            let takes = self
+                .preferences
+                .assistant_connections
+                .iter()
+                .find(|c| Some(&c.id) == self.assistant.active.as_ref())
+                .is_some_and(|c| c.images);
+            match pcbcraft_assistant::picture(takes, data) {
+                Ok(part) => parts.push(part),
+                Err(reason) => self.assistant.transcript.push(Item::Note {
+                    text: reason,
+                    error: false,
+                }),
+            }
+        }
+        parts
+    }
+
+    /// What the model should know now: the design summary, the view and the selection.
+    fn assistant_context(&self) -> pcbcraft_assistant::Context {
+        let summary = self
+            .session
+            .lock()
+            .map_or(Value::Null, |s| s.summary());
+        let tab = match self.tab {
+            Tab::Schematic => "schematic",
+            Tab::Pcb => "pcb",
+            Tab::Board3d => "3d",
+            Tab::Rules => "rules",
+            Tab::Checks => "checks",
+            Tab::Libraries => "libraries",
+            Tab::PlotFiles => "output files",
+            Tab::Files => "files",
+            Tab::Settings => "settings",
+        };
+        let selection = self.selected.map(|id| {
+            let part = self.project.component(id).or_else(|| {
+                self.project
+                    .footprint(id)
+                    .and_then(|f| self.project.component(f.component))
+            });
+            let mut nets: Vec<String> = Vec::new();
+            if let Some(c) = part {
+                for pin in &c.pins {
+                    if let Some(n) = pin.net.and_then(|n| self.project.nets.iter().find(|x| x.id == n))
+                        && !nets.contains(&n.name)
+                    {
+                        nets.push(n.name.clone());
+                    }
+                }
+            }
+            pcbcraft_assistant::Selection {
+                kind: part.map_or_else(|| "object".to_string(), |c| c.kind.clone()),
+                id,
+                reference: part.map(|c| c.reference.clone()).unwrap_or_default(),
+                value: part.map(|c| c.value.clone()).unwrap_or_default(),
+                net: nets.join(", "),
+                position: part.map(|c| (c.position.x, c.position.y)),
+                layer: String::new(),
+            }
+        });
+        pcbcraft_assistant::Context {
+            tab,
+            selection,
+            summary,
         }
     }
 
@@ -287,6 +385,7 @@ impl App {
     pub(crate) fn assistant_new_chat(&mut self) {
         self.assistant_stop();
         self.assistant.transcript.items.clear();
+        self.assistant.sent = None;
         self.assistant.busy = false;
         if let Some(b) = self.assistant.backend.as_mut() {
             b.new_session();

@@ -387,3 +387,39 @@ fn with_the_assistant_switched_off_nothing_is_probed() -> Result<(), String> {
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     Ok(())
 }
+
+#[test]
+fn a_newcomer_selects_a_part_and_the_assistant_already_knows_which_one() -> Result<(), String> {
+    let session = pcbcraft_engine::Session::sample().map_err(|e| e.to_string())?;
+    let shared = pcbcraft_mcp::shared(session);
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.preferences.aside_lower_tab = 1;
+    let script = pcbcraft_assistant::ScriptBackend::default();
+    script.report(Event::Ready {
+        agent: "script".into(),
+        images: false,
+    });
+    app.assistant_use(Box::new(script.clone()));
+    let r1 = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "R1")
+        .map(|c| c.id)
+        .ok_or("the sample has R1")?;
+    app.selected = Some(r1);
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "move this part right by 5 mm".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    let prompts = script.prompts();
+    let first = prompts.first().ok_or("a prompt was sent")?;
+    let Some(pcbcraft_assistant::PromptPart::Text(text)) = first.first() else {
+        return Err("the prompt starts with text".into());
+    };
+    assert!(text.contains("Selected: ") && text.contains("R1"), "{text}");
+    assert!(text.ends_with("move this part right by 5 mm"), "the user's words come last");
+    Ok(())
+}

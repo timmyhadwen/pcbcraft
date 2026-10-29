@@ -200,7 +200,10 @@ pub fn request(
     if READS.contains(&tool) {
         return Verdict::Run { change: false };
     }
-    if tool == "dry_run" {
+    if tool == "dry_run"
+        || (tool == "execute"
+            && args.get("command").and_then(Value::as_str) == Some("design.summary"))
+    {
         return Verdict::Run { change: false };
     }
     if tool == "undo" || tool == "redo" {

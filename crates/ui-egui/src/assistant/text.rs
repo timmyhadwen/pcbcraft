@@ -116,3 +116,9 @@ pub(super) fn models_found(n: usize) -> String {
     }
 }
 pub(super) const SWITCH_TIP: &str = "Choose which connection the chat uses.";
+pub(super) const TAKES_PICTURES: &str = "Model takes pictures";
+pub(super) const TAKES_PICTURES_TIP: &str = "Turn on only if this model can read images. Attach view then sends one.";
+pub(super) const ATTACH: &str = "Attach view";
+pub(super) const ATTACH_TIP: &str = "Send a picture of the current view with this message.";
+pub(super) const SHOW_SENT: &str = "Show what was sent";
+pub(super) const SHOW_SENT_TIP: &str = "The design notes that went to the model with your last message.";

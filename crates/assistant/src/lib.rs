@@ -2,6 +2,7 @@
 mod api;
 mod backend;
 mod connections;
+mod context;
 mod describe;
 mod gate;
 mod prompt;
@@ -20,6 +21,7 @@ pub use backend::{
     PromptPart, Secrets, StartContext, ToolStatus, base64, content_blocks,
 };
 pub use connections::{Connection, PRESETS, Preset, config_for, key_id, new_id, normalize_url};
+pub use context::{Context, MAX_NOTE, MAX_PICTURE_BYTES, Selection, Sent, note, picture};
 pub use describe::summary_text;
 pub use gate::{
     AMBIGUOUS_KEYS, FILE_EXTENSIONS, FILE_KEYS, Mode, Verdict, describe, edits_design, request,

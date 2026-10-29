@@ -144,6 +144,15 @@ fn header(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
 }
 
 fn composer(app: &mut App, ui: &mut egui::Ui) {
+    if !app.assistant.last_note.is_empty() {
+        egui::CollapsingHeader::new(text::SHOW_SENT)
+            .id_salt("assistant-sent")
+            .show(ui, |ui| {
+                ui.add(egui::Label::new(egui::RichText::new(app.assistant.last_note.as_str()).small()).wrap());
+            })
+            .header_response
+            .on_hover_text(text::SHOW_SENT_TIP);
+    }
     let edit = ui.add(
         egui::TextEdit::multiline(&mut app.assistant.input)
             .desired_rows(2)
@@ -152,6 +161,10 @@ fn composer(app: &mut App, ui: &mut egui::Ui) {
     );
     edit.on_hover_text(text::INPUT_TIP);
     let send_key = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut app.assistant.attach, text::ATTACH)
+            .on_hover_text(text::ATTACH_TIP);
+    });
     ui.horizontal(|ui| {
         let busy = matches!(app.assistant.phase(), Phase::Working | Phase::Waiting);
         if ui
