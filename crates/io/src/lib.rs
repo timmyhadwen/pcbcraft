@@ -47,8 +47,6 @@ pub use gerber::{gerber_copper, gerber_silk};
 /// - crates/io/src/gerber_job.rs
 pub use gerber_job::{gerber_job, gerber_zip};
 /// Re-export of the RGBA image type from the image crate for use by callers.
-/// # Dependencies
-/// - image crate (Cargo.toml)
 pub use image::RgbaImage;
 /// Laser marking job types, profiles, and export functions.
 /// # Dependencies
