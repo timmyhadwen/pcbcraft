@@ -3091,6 +3091,7 @@ mod tests {
             drill: 0.4,
             from_layer: from.and_then(|i| Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| Layer::from_index(i).ok()),
+            covering: None,
         });
     }
     fn span_track(p: &mut Project, id: Id, layer: u8) {

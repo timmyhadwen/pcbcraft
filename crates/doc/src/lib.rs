@@ -4967,6 +4967,8 @@ mod via_covering_tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill,
+            from_layer: None,
+            to_layer: None,
             covering,
         });
         p

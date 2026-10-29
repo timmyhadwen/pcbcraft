@@ -12309,6 +12309,7 @@ mod tests {
             drill: 0.3,
             from_layer: from.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
+            covering: None,
         };
         project.board.vias.push(via(10, 5.0, None, None));
         project.board.vias.push(via(11, 7.0, None, Some(1)));
@@ -12445,6 +12446,8 @@ mod tests {
                 position: Point::new(x, 10.0),
                 diameter: 0.6,
                 drill: 0.3,
+                from_layer: None,
+                to_layer: None,
                 covering,
             });
         }
