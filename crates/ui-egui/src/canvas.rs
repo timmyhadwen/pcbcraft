@@ -1101,7 +1101,50 @@ impl App {
                 self.load_properties();
             }
         }
+        self.edit.menu_at = Some(pos);
         self.canvas_menu = Some((screen, kind));
+    }
+    /// "Assign layers": the spans this board allows for a via, each running
+    /// `via.set_span`. The span the via already has is marked in text.
+    fn assign_span_menu(&mut self, ui: &mut egui::Ui, id: Id) -> bool {
+        let Some(via) = self.project.board.vias.iter().find(|v| v.id == id).cloned() else {
+            return false;
+        };
+        let current = self.project.via_span(&via);
+        let last = self.project.copper_layer_count().saturating_sub(1);
+        let tip = command_tip("via.set_span");
+        let mut done = false;
+        ui.menu_button("Assign layers", |ui| {
+            for (a, b) in self.project.allowed_via_spans() {
+                let mut label = if a.index() == 0 && b.index() >= last {
+                    "Top to bottom".to_string()
+                } else {
+                    format!(
+                        "{} to {}",
+                        self.project.layer_name(a),
+                        self.project.layer_name(b)
+                    )
+                };
+                if (a, b) == current {
+                    label.push_str(" (current)");
+                }
+                if Self::canvas_menu_button(ui, &label, &tip) {
+                    self.run(
+                        "via.set_span",
+                        json!({
+                            "id": id,
+                            "from_layer": self.project.layer_name(a),
+                            "to_layer": self.project.layer_name(b),
+                        }),
+                    );
+                    done = true;
+                    ui.close();
+                }
+            }
+        })
+        .response
+        .on_hover_text("Choose which copper layers this via connects.");
+        done
     }
     fn canvas_menu_button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
         ui.button(label).on_hover_text(tip).clicked()
@@ -1160,10 +1203,23 @@ impl App {
                     self.needs_fit = true;
                     return true;
                 }
-                ui.add_enabled(false, egui::Button::new("Paste"))
-                    .on_hover_text(
-                        "Nothing is ready to paste here yet; duplicate a selected part instead.",
-                    );
+                let ready = self.edit.clip.is_some();
+                let paste_tip = if ready {
+                    command_tip("selection.paste")
+                } else {
+                    "Copy something first".to_string()
+                };
+                if ui
+                    .add_enabled(ready, egui::Button::new("Paste"))
+                    .on_hover_text(&paste_tip)
+                    .on_disabled_hover_text(&paste_tip)
+                    .clicked()
+                {
+                    if let Some(at) = self.edit.menu_at {
+                        self.paste_last_copy_at(at);
+                    }
+                    return true;
+                }
                 if Self::canvas_menu_button(
                     ui,
                     "Clear selection",
@@ -1265,6 +1321,17 @@ impl App {
                 }
             }
             CanvasMenuKind::Object(id) => {
+                let copy_tip = command_tip("selection.copy_text");
+                if Self::canvas_menu_button(ui, "Copy", &copy_tip) {
+                    let ctx = ui.ctx().clone();
+                    self.copy_selection(&ctx);
+                    return true;
+                }
+                if self.project.board.vias.iter().any(|v| v.id == *id)
+                    && self.assign_span_menu(ui, *id)
+                {
+                    return true;
+                }
                 let is_track = self.project.board.tracks.iter().any(|t| t.id == *id);
                 let component = self.project.component(*id).is_some();
                 let footprint = self.project.footprint(*id).is_some();
