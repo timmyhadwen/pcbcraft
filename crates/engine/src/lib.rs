@@ -2858,70 +2858,70 @@ fn translate_object(p: &mut Project, id: Id, dx: f64, dy: f64) -> Result<(), Err
         g.points = points;
         return Ok(());
     }
-            if let Some(t) = p.board.tracks.iter_mut().find(|t| t.id == id) {
-                let (start, end) = (shift(t.start), shift(t.end));
-                if !start.valid() || !end.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                let arc = t.arc.map(shift);
-                if arc.is_some_and(|m| !m.valid()) {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                (t.start, t.end, t.arc) = (start, end, arc);
-                return Ok(());
-            }
-            if let Some(v) = p.board.vias.iter_mut().find(|v| v.id == id) {
-                let position = shift(v.position);
-                if !position.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                v.position = position;
-                return Ok(());
-            }
-            if let Some(f) = p.board.footprints.iter_mut().find(|f| f.id == id) {
-                let position = shift(f.position);
-                if !position.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                f.position = position;
-                return Ok(());
-            }
-            if let Some(z) = p.board.zones.iter_mut().find(|z| z.id == id) {
-                let mut outline = z.outline.clone();
-                shift_all(&mut outline)?;
-                let mut cutouts = z.cutouts.clone();
-                for cut in &mut cutouts {
-                    shift_all(cut)?;
-                }
-                z.outline = outline;
-                z.cutouts = cutouts;
-                return Ok(());
-            }
-            if let Some(c) = p.board.cutouts.iter_mut().find(|c| c.id == id) {
-                let center = shift(c.center);
-                if !center.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                c.center = center;
-                return Ok(());
-            }
-            if let Some(d) = p.board.datums.iter_mut().find(|d| d.id == id) {
-                let position = shift(d.position);
-                if !position.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                d.position = position;
-                d.hole = None;
-                return Ok(());
-            }
-            if let Some(t) = p.board.texts.iter_mut().find(|t| t.id == id) {
-                let position = shift(t.position);
-                if !position.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                t.position = position;
-                return Ok(());
-            }
+    if let Some(t) = p.board.tracks.iter_mut().find(|t| t.id == id) {
+        let (start, end) = (shift(t.start), shift(t.end));
+        if !start.valid() || !end.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        let arc = t.arc.map(shift);
+        if arc.is_some_and(|m| !m.valid()) {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        (t.start, t.end, t.arc) = (start, end, arc);
+        return Ok(());
+    }
+    if let Some(v) = p.board.vias.iter_mut().find(|v| v.id == id) {
+        let position = shift(v.position);
+        if !position.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        v.position = position;
+        return Ok(());
+    }
+    if let Some(f) = p.board.footprints.iter_mut().find(|f| f.id == id) {
+        let position = shift(f.position);
+        if !position.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        f.position = position;
+        return Ok(());
+    }
+    if let Some(z) = p.board.zones.iter_mut().find(|z| z.id == id) {
+        let mut outline = z.outline.clone();
+        shift_all(&mut outline)?;
+        let mut cutouts = z.cutouts.clone();
+        for cut in &mut cutouts {
+            shift_all(cut)?;
+        }
+        z.outline = outline;
+        z.cutouts = cutouts;
+        return Ok(());
+    }
+    if let Some(c) = p.board.cutouts.iter_mut().find(|c| c.id == id) {
+        let center = shift(c.center);
+        if !center.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        c.center = center;
+        return Ok(());
+    }
+    if let Some(d) = p.board.datums.iter_mut().find(|d| d.id == id) {
+        let position = shift(d.position);
+        if !position.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        d.position = position;
+        d.hole = None;
+        return Ok(());
+    }
+    if let Some(t) = p.board.texts.iter_mut().find(|t| t.id == id) {
+        let position = shift(t.position);
+        if !position.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        t.position = position;
+        return Ok(());
+    }
     Err(missing())
 }
 fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
@@ -19825,12 +19825,19 @@ mod tests {
         let after = s.project.board.footprints[0].position;
         assert_eq!((after.x - before.x, after.y - before.y), (2.0, 3.0));
         let t = &s.project.board.tracks[0];
-        assert_eq!((t.start.x, t.start.y, t.end.x, t.end.y), (2.0, 3.0, 7.0, 3.0));
+        assert_eq!(
+            (t.start.x, t.start.y, t.end.x, t.end.y),
+            (2.0, 3.0, 7.0, 3.0)
+        );
         s.execute("object.ungroup", json!({"id":group}), None)?;
         assert!(s.project.object_groups.is_empty());
         assert!(
-            s.execute("object.group_translate", json!({"id":group,"delta":{"x":1.0,"y":0.0}}), None)
-                .is_err()
+            s.execute(
+                "object.group_translate",
+                json!({"id":group,"delta":{"x":1.0,"y":0.0}}),
+                None
+            )
+            .is_err()
         );
         Ok(())
     }
@@ -19855,19 +19862,25 @@ mod tests {
         }
         let rev = s.revision;
         s.execute("object.group", json!({"members":[fp,track,extra]}), None)?;
-        assert!(s.execute("object.group", json!({"members":[fp,extra]}), None).is_err());
+        assert!(
+            s.execute("object.group", json!({"members":[fp,extra]}), None)
+                .is_err()
+        );
         assert_eq!(s.revision, rev + 1, "a refused group changes nothing");
         s.execute("object.delete", json!({"id":extra}), None)?;
         assert_eq!(s.project.object_groups[0].members.len(), 2);
         s.execute("object.delete", json!({"id":track}), None)?;
-        assert!(s.project.object_groups.is_empty(), "a one-member group dissolves");
+        assert!(
+            s.project.object_groups.is_empty(),
+            "a one-member group dissolves"
+        );
         Ok(())
     }
     #[test]
     fn object_set_locked_blocks_nudge_and_move() -> Result<(), Error> {
         let (mut s, fp, track, _) = group_fixture()?;
-        let out = s.execute("object.set_locked", json!({"id":fp,"locked":true}), None)?["result"]
-            .clone();
+        let out =
+            s.execute("object.set_locked", json!({"id":fp,"locked":true}), None)?["result"].clone();
         assert_eq!(out["locked"], true);
         assert_eq!(s.project.board.footprints[0].locked, Some(true));
         for (cmd, params) in [
@@ -19875,27 +19888,42 @@ mod tests {
             ("footprint.move", json!({"id":fp,"position":[20,20]})),
             ("footprint.rotate", json!({"id":fp,"degrees":90})),
         ] {
-            assert!(s.execute(cmd, params, None).is_err(), "{cmd} refuses a locked part");
+            assert!(
+                s.execute(cmd, params, None).is_err(),
+                "{cmd} refuses a locked part"
+            );
         }
         s.execute("object.set_locked", json!({"id":track,"locked":true}), None)?;
         assert!(s.project.locked_objects.contains(&track));
         assert!(
-            s.execute("object.nudge", json!({"id":track,"dx":1.0,"dy":0.0}), None).is_err(),
+            s.execute("object.nudge", json!({"id":track,"dx":1.0,"dy":0.0}), None)
+                .is_err(),
             "a locked track refuses a nudge"
         );
         let group = s.execute("object.group", json!({"members":[track,fp]}), None)?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
         assert!(
-            s.execute("object.group_translate", json!({"id":group,"delta":{"x":1.0,"y":0.0}}), None)
-                .is_err(),
+            s.execute(
+                "object.group_translate",
+                json!({"id":group,"delta":{"x":1.0,"y":0.0}}),
+                None
+            )
+            .is_err(),
             "a group with a locked member does not move"
         );
         s.execute("object.set_locked", json!({"id":fp,"locked":false}), None)?;
-        s.execute("object.set_locked", json!({"id":track,"locked":false}), None)?;
+        s.execute(
+            "object.set_locked",
+            json!({"id":track,"locked":false}),
+            None,
+        )?;
         assert!(s.project.locked_objects.is_empty());
         s.execute("object.nudge", json!({"id":track,"dx":1.0,"dy":0.0}), None)?;
-        assert!(s.execute("object.set_locked", json!({"id":9999,"locked":true}), None).is_err());
+        assert!(
+            s.execute("object.set_locked", json!({"id":9999,"locked":true}), None)
+                .is_err()
+        );
         Ok(())
     }
     #[test]
@@ -19910,7 +19938,8 @@ mod tests {
         )?;
         assert_eq!(s.project.graphic_groups.len(), 1);
         let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
-        let back: Project = serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        let back: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         assert_eq!(back.object_groups, s.project.object_groups);
         assert_eq!(back.locked_objects, s.project.locked_objects);
         assert_eq!(back.graphic_groups, s.project.graphic_groups);
