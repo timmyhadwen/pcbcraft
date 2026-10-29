@@ -27950,7 +27950,12 @@ mod tests {
                 .map(|v| v.diameter),
             Some(1.0)
         );
-        s.project.board.rules.as_mut().unwrap().min_drill = Some(0.45);
+        s.project
+            .board
+            .rules
+            .as_mut()
+            .ok_or_else(missing)?
+            .min_drill = Some(0.45);
         let findings = pcbcraft_rules::drc(&s.project);
         assert!(
             findings
