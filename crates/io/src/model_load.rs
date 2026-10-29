@@ -4,8 +4,8 @@
 //! the footprint matrix. Every limit returns a plain-sentence [`ModelError`]
 //! that the 3D View shows beside the part, so a bad file never panics.
 //!
-//! Formats: glTF and GLB (slice 1). VRML and STEP return a plain "not
-//! supported yet" reason until their slices land (issue 542).
+//! Formats: glTF and GLB, and a bounded VRML subset (`vrml_read.rs`). STEP
+//! returns a plain "not supported yet" reason until its slice lands (#542).
 //! Units: glTF is metres and Y up, so it is scaled by 1000 and turned to Z up.
 use base64::Engine;
 use std::path::Path;
@@ -93,7 +93,7 @@ pub fn model_cache_key(
 
 /// True when the extension names a format this tool can read now.
 pub fn model_extension_supported(path: &str) -> bool {
-    matches!(extension(path).as_str(), "gltf" | "glb")
+    matches!(extension(path).as_str(), "gltf" | "glb" | "wrl" | "vrml")
 }
 fn extension(path: &str) -> String {
     Path::new(path)
@@ -123,7 +123,7 @@ pub fn load_model(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     }
     match extension(path).as_str() {
         "gltf" | "glb" => load_gltf(path, bytes),
-        "wrl" | "vrml" => err("VRML model files are not read yet."),
+        "wrl" | "vrml" => crate::vrml_read::read_vrml(bytes),
         "step" | "stp" => err("STEP model files are not read yet."),
         "" => err("The model file has no extension, so its format is unknown."),
         other => err(format!("The model format .{other} is not supported.")),
@@ -381,6 +381,31 @@ mod tests {
         // Vertex (0,3,0): turn -90 about Z -> (3,0,0); offset -> (13,0,0).
         assert!(close(at(3), [13.0, 0.0, 0.0]), "{:?}", at(3));
         Ok(())
+    }
+
+    const VRML: &str = "#VRML V2.0 utf8\nDEF A Transform { translation 1 0 0 children [ Shape { appearance Appearance { material Material { diffuseColor 0 1 0 } } geometry IndexedFaceSet { coord Coordinate { point [ 0 0 0, 1 0 0, 0 2 0, 0 0 3 ] } coordIndex [ 0 1 2 -1 0 3 1 -1 ] } } ] }\nUSE A\n";
+
+    #[test]
+    fn vrml_unit_is_a_tenth_of_an_inch() -> Check {
+        let m = load_model("p.wrl", VRML.as_bytes()).map_err(|e| e.to_string())?;
+        assert_eq!(m.positions.len(), 8, "the shape is drawn twice through USE");
+        assert_eq!(m.indices.len(), 12);
+        let (lo, hi) = m.bounds().ok_or("bounds")?;
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(near(lo[0], 2.54) && near(hi[0], 5.08), "x {lo:?} {hi:?}");
+        assert!(near(hi[1], 5.08) && near(hi[2], 7.62), "y and z {hi:?}");
+        assert_eq!(m.color, Some([0.0, 1.0, 0.0]));
+        Ok(())
+    }
+
+    #[test]
+    fn vrml_inline_is_refused() {
+        let t = "#VRML V2.0 utf8\nInline { url \"other.wrl\" }\n";
+        let e = load_model("p.wrl", t.as_bytes())
+            .err()
+            .map(|e| e.0)
+            .unwrap_or_default();
+        assert!(e.contains("Inline"), "{e}");
     }
 
     #[test]
