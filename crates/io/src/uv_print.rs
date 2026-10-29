@@ -291,28 +291,24 @@ fn erode_matte(img: &mut GrayImage, choke_mm: f64, dpi: u32) {
 }
 
 fn encode_rgba_png(img: &RgbaImage, dpi: u32) -> Result<Vec<u8>, String> {
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder, PngMetadata};
+    use image::{DimensionUnit, ExtendedColorType, PixelDimensions};
     let (w, h) = (img.width(), img.height());
     let xppu = (f64::from(dpi) / 0.0254).round() as u32;
     let mut out = Vec::new();
-    let mut enc = png::Encoder::new(&mut out, w, h);
-    enc.set_color(png::ColorType::Rgba);
-    enc.set_depth(png::BitDepth::Eight);
-    enc.set_pixel_dims(Some(png::PixelDimensions {
-        xppu,
-        yppu: xppu,
-        unit: png::Unit::Meter,
-    }));
-    {
-        let mut writer = enc.write_header().map_err(|e| e.to_string())?;
-        for y in 0..h {
-            let mut row = Vec::with_capacity(w as usize * 4);
-            for x in 0..w {
-                let px = img.get_pixel(x, y);
-                row.extend_from_slice(&px.0);
-            }
-            writer.write_image_data(&row).map_err(|e| e.to_string())?;
-        }
-    }
+    let encoder =
+        PngEncoder::new_with_quality(&mut out, CompressionType::Default, FilterType::NoFilter);
+    let meta = PngMetadata {
+        pixel_dimensions: Some(PixelDimensions {
+            x_pixel_per_unit: xppu,
+            y_pixel_per_unit: xppu,
+            unit: DimensionUnit::Meter,
+        }),
+        ..PngMetadata::default()
+    };
+    encoder
+        .encode_with_metadata(img.as_raw(), w, h, ExtendedColorType::Rgba8, meta)
+        .map_err(|e| e.to_string())?;
     Ok(out)
 }
 
@@ -601,7 +597,7 @@ mod tests {
         let mut p = small_board(30.0, 30.0)?;
         p.components.push(pcbcraft_doc::Component {
             sheet: 0,
-            id: 1,
+            id: 9402,
             reference: "R1".into(),
             value: "1k".into(),
             kind: "resistor".into(),
@@ -623,8 +619,8 @@ mod tests {
             fields: vec![],
         });
         p.board.footprints.push(Footprint {
-            id: 1,
-            component: 1,
+            id: 9401,
+            component: 9402,
             position: Point::default(),
             rotation: 0.0,
             locked: None,
@@ -672,8 +668,8 @@ mod tests {
             polygon: Vec::new(),
         };
         p.board.footprints.push(Footprint {
-            id: 1,
-            component: 1,
+            id: 9201,
+            component: 9202,
             position: Point::new(15.0, 15.0),
             rotation: 0.0,
             locked: None,
@@ -683,28 +679,40 @@ mod tests {
                 diameter: 4.0,
                 net: None,
                 castellated: None,
-                geometry: Some(pad),
+                geometry: Some(pad.clone()),
             }],
         });
         p.components.push(pcbcraft_doc::Component {
             sheet: 0,
-            id: 1,
+            id: 9202,
             reference: "U1".into(),
             value: "test".into(),
             kind: "ic".into(),
             position: Point::default(),
             rotation: 0.0,
-            pins: vec![],
+            pins: vec![pcbcraft_doc::Pin {
+                number: "1".into(),
+                name: String::new(),
+                offset: Point::default(),
+                net: None,
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+            }],
             units: vec![],
             library_symbol: None,
             library_footprint: Some(pcbcraft_doc::LibraryFootprint {
                 library: "proj".into(),
-                definition: test_fp(vec![Graphic::Line {
-                    start: Point::new(-5.0, 0.0),
-                    end: Point::new(5.0, 0.0),
-                    width: 0.15,
-                    layer: "F.SilkS".into(),
-                }]),
+                definition: {
+                    let mut def = test_fp(vec![Graphic::Line {
+                        start: Point::new(-5.0, 0.0),
+                        end: Point::new(5.0, 0.0),
+                        width: 0.15,
+                        layer: "F.SilkS".into(),
+                    }]);
+                    def.pads = vec![pad];
+                    def
+                },
             }),
             fields: vec![],
         });
@@ -792,7 +800,7 @@ mod tests {
         let mut p = small_board(25.0, 25.0)?;
         p.components.push(pcbcraft_doc::Component {
             sheet: 0,
-            id: 1,
+            id: 9302,
             reference: "R1".into(),
             value: "1k".into(),
             kind: "resistor".into(),
@@ -813,8 +821,8 @@ mod tests {
             fields: vec![],
         });
         p.board.footprints.push(Footprint {
-            id: 1,
-            component: 1,
+            id: 9301,
+            component: 9302,
             position: Point::new(5.0, 5.0),
             rotation: 0.0,
             locked: None,

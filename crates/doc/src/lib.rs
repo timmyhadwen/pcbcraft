@@ -1000,7 +1000,7 @@ impl UvPrinterProfile {
     }
 
     pub fn allows_dpi(&self, dpi: u32) -> bool {
-        self.dpi_options.iter().any(|d| *d == dpi)
+        self.dpi_options.contains(&dpi)
     }
 
     pub fn has_gloss_channel(&self) -> bool {

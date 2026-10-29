@@ -10972,6 +10972,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                             | "stackup"
                             | "drill_chart"
                             | "stats"
+                            | "uv_print"
                     )
                 })
             {
