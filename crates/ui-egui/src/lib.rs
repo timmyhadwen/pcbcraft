@@ -1430,7 +1430,7 @@ impl App {
             cursor: None,
             canvas_rect: Rect::NOTHING,
             canvas_menu: None,
-            message: "Ready · A add · W wire · X route · M move · R rotate · E properties".into(),
+            message: t!("status.ready"),
             value: String::new(),
             x: 0.0,
             y: 0.0,
@@ -1856,7 +1856,7 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             ui.add(
                 crate::targets::text_field(&mut self.stack_name)
-                    .desired_width(70.0)
+                    .desired_width(150.0)
                     .hint_text(t!("board.stackup_section.layer_name")),
             )
             .named(&t!("board.stackup_section.layer_name"))
@@ -3112,114 +3112,59 @@ impl App {
                         ui.separator();
                         self.file_menu(ui);
                         self.edit_menu(ui);
+                        self.view_menu(ui);
                         self.help_menu(ui);
                     }
                 });
             });
     }
+    /// The tab row: Files, Schematic, Layout, 3D and Manufacture, left-aligned
+    /// with the active tab underlined. Rules, Checks and Settings are reached
+    /// from the File, Edit and View menus and the status bar.
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
-        let optional = [Tab::Rules, Tab::Checks, Tab::Settings];
-        let mut shown: Vec<(Tab, String)> = vec![
+        let shown: [(Tab, String); 5] = [
             (Tab::Files, t!("docks.workbench_tabs.files")),
             (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
             (Tab::Pcb, t!("docks.workbench_tabs.layout")),
             (Tab::Board3d, t!("docks.workbench_tabs.3d_view")),
+            (Tab::PlotFiles, t!("docks.workbench_tabs.manufacture")),
         ];
-        if self.tab == Tab::Libraries {
-            shown.push((Tab::Libraries, t!("docks.workbench_tabs.libraries")));
-        }
-        for (tab, label) in [
-            (Tab::Rules, t!("docks.workbench_tabs.rules")),
-            (Tab::Checks, t!("docks.workbench_tabs.checks")),
-            (Tab::PlotFiles, t!("docks.workbench_tabs.plot_files")),
-            (Tab::Settings, t!("docks.workbench_tabs.settings")),
-        ] {
-            if !self.closed_tabs.contains(&tab) {
-                shown.push((tab, label));
-            }
-        }
-        let mut close = None;
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 20.0;
             ui.add_space(Self::PAGE_GUTTER);
-            for (tab, label) in shown.iter().cloned() {
+            for (tab, label) in shown {
                 let selected = self.tab == tab;
-                let response = ui.selectable_label(selected, label.clone()).on_hover_text(
-                    if optional.contains(&tab) {
-                        t!(
-                            "docks.workbench_tabs.switch_to_the_label_view",
-                            label = label
-                        )
-                    } else {
-                        t!(
-                            "docks.workbench_tabs.switch_to_the_label_view2",
-                            label = label
-                        )
-                    },
-                );
+                let text = egui::RichText::new(label.clone());
+                let text = if selected {
+                    text.strong().color(self.ink())
+                } else {
+                    text.color(self.muted())
+                };
+                let response = ui
+                    .add(
+                        egui::Button::new(text)
+                            .frame(false)
+                            .min_size(egui::vec2(0.0, 32.0)),
+                    )
+                    .on_hover_text(t!(
+                        "docks.workbench_tabs.switch_to_the_label_view2",
+                        label = label
+                    ));
+                if selected {
+                    let r = response.rect;
+                    ui.painter().line_segment(
+                        [
+                            egui::pos2(r.left() + 4.0, r.bottom()),
+                            egui::pos2(r.right() - 4.0, r.bottom()),
+                        ],
+                        Stroke::new(2.0, self.accent()),
+                    );
+                }
                 if response.clicked() {
                     self.change_tab(tab);
                 }
-                if optional.contains(&tab) {
-                    response.context_menu(|ui| {
-                        if ui
-                            .button(t!("docks.workbench_tabs.close"))
-                            .on_hover_text(t!("docks.workbench_tabs.close.tip"))
-                            .clicked()
-                        {
-                            close = Some(tab);
-                            ui.close();
-                        }
-                    });
-                }
-            }
-            let closed = self.closed_tabs.clone();
-            ui.menu_button(t!("docks.workbench_tabs.text"), |ui| {
-                if closed.is_empty() {
-                    ui.add_enabled(
-                        false,
-                        egui::Label::new(t!("docks.workbench_tabs.every_view_is_open")),
-                    );
-                }
-                for tab in closed {
-                    let name = match tab {
-                        Tab::Rules => t!("docks.workbench_tabs.rules"),
-                        Tab::Checks => t!("docks.workbench_tabs.checks"),
-                        _ => t!("docks.workbench_tabs.settings"),
-                    };
-                    if ui
-                        .button(name)
-                        .on_hover_text(t!("docks.workbench_tabs.open_this_view_again.tip"))
-                        .clicked()
-                    {
-                        self.change_tab(tab);
-                        ui.close();
-                    }
-                }
-            })
-            .response
-            .on_hover_text(t!("docks.workbench_tabs.open_a_view_you_closed.tip"));
-            ui.separator();
-            if ui
-                .selectable_label(
-                    self.preferences.library_dock_open,
-                    t!("docks.workbench_tabs.library_toggle"),
-                )
-                .on_hover_text(t!("library.browser.lib.tip"))
-                .clicked()
-            {
-                if Self::narrow_window(ui.ctx()) {
-                    self.change_tab(Tab::Libraries);
-                } else {
-                    self.preferences.library_dock_open = !self.preferences.library_dock_open;
-                }
             }
         });
-        if let Some(tab) = close {
-            self.closed_tabs.push(tab);
-            if self.tab == tab {
-                self.change_tab(Tab::Schematic);
-            }
-        }
         if !matches!(self.tool, Tool::Select) && !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
             ui.horizontal(|ui| {
                 ui.add_space(Self::PAGE_GUTTER);
@@ -3483,6 +3428,14 @@ impl App {
                 self.paste_last_copy();
             }
             if ui
+                .button(t!("menu.edit.preferences"))
+                .on_hover_text(t!("menu.edit.preferences.tip"))
+                .clicked()
+            {
+                self.change_tab(Tab::Settings);
+                ui.close();
+            }
+            if ui
                 .button(t!("menu.edit.renumber"))
                 .on_hover_text(t!("menu.edit.renumber.tip"))
                 .clicked()
@@ -3567,6 +3520,24 @@ impl App {
             self.set_language(&tag);
             ui.ctx().request_repaint();
         }
+    }
+    /// The View menu: pages that are not tabs.
+    fn view_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button(t!("menu.view"), |ui| {
+            for (tab, label, tip) in [
+                (
+                    Tab::Checks,
+                    t!("menu.view.checks"),
+                    t!("menu.view.checks.tip"),
+                ),
+                (Tab::Rules, t!("menu.view.rules"), t!("menu.view.rules.tip")),
+            ] {
+                if ui.button(label).on_hover_text(tip).clicked() {
+                    self.change_tab(tab);
+                    ui.close();
+                }
+            }
+        });
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.help"), |ui| {
@@ -6052,8 +6023,7 @@ impl App {
     /// narrow window, in the strip under the drawing. `top_h` is the height
     /// the layers tree gets.
     fn inspector_body(&mut self, ui: &mut egui::Ui, _top_h: f32) {
-        let drawing = matches!(self.tab, Tab::Schematic | Tab::Pcb | Tab::Board3d);
-        if !drawing && self.preferences.aside_lower_tab == 2 {
+        if self.preferences.aside_lower_tab == 2 {
             self.preferences.aside_lower_tab = 0;
         }
         ui.horizontal(|ui| {
@@ -6063,14 +6033,6 @@ impl App {
                 t!("board.inspector.properties"),
             )
             .on_hover_text(t!("board.inspector.properties.tip"));
-            if drawing {
-                ui.selectable_value(
-                    &mut self.preferences.aside_lower_tab,
-                    2,
-                    t!("board.inspector.layers"),
-                )
-                .on_hover_text(t!("board.inspector.layers.tip"));
-            }
             if assistant::shown(self) {
                 ui.selectable_value(
                     &mut self.preferences.aside_lower_tab,
@@ -6081,12 +6043,6 @@ impl App {
             }
         });
         ui.separator();
-        if self.preferences.aside_lower_tab == 2 {
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| self.layers_tab(ui));
-            return;
-        }
         if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
             assistant::pane::show(self, ui);
             return;
@@ -6986,8 +6942,12 @@ impl App {
         message: String,
         objects: Vec<Id>,
     ) {
+        let fill = self.colours().icon_fill;
+        let edge = Stroke::new(1.0, self.ink().gamma_multiply(0.35));
         let button = |text: String| {
             egui::Button::new(egui::RichText::new(text).size(Self::BODY))
+                .fill(fill)
+                .stroke(edge)
                 .min_size(egui::vec2(Self::ACTION_WIDTH, Self::MIN_TARGET))
         };
         if ui
