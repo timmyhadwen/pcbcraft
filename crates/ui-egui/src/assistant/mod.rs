@@ -14,7 +14,7 @@ mod text;
 
 use super::App;
 use pcbcraft_assistant::{
-    ApiBackend, ChatBackend, Event, HttpFn, Item, Mode, PromptPart, Secrets, StartContext,
+    ApiBackend, ChatBackend, Event, HttpFn, Item, PromptPart, Secrets, StartContext,
     ToolRequest, Transcript, Turn, Verdict,
 };
 use serde_json::{Value, json};
@@ -100,10 +100,6 @@ pub(crate) enum Phase {
 }
 
 impl State {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "Settings connects a backend in the next change")
-    )]
     /// A start context for a backend that runs its own tool loop; tool calls come back to `poll`.
     pub(crate) fn start_context(&self, work_dir: std::path::PathBuf) -> StartContext {
         StartContext {
@@ -199,7 +195,7 @@ impl App {
         let context = self.assistant.start_context(std::path::PathBuf::new());
         match ApiBackend::start(config, context, http) {
             Ok(backend) => {
-                self.assistant.backend = Some(Box::new(backend));
+                self.assistant_use(Box::new(backend));
                 self.assistant.active = Some(connection.id);
                 self.assistant.ready = true;
             }
@@ -228,10 +224,6 @@ impl App {
         self
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "Settings connects a backend in the next change")
-    )]
     /// Use `backend` for the conversation. It reports `Ready` when it can take a message.
     pub(crate) fn assistant_use(&mut self, backend: Box<dyn ChatBackend>) {
         self.assistant.backend = Some(backend);

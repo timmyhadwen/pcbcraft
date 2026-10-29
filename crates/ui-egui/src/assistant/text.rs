@@ -101,7 +101,6 @@ pub(super) const ADD_TIP: &str = "Save this connection.";
 pub(super) const CANCEL: &str = "Cancel";
 pub(super) const CANCEL_TIP: &str = "Close without saving.";
 pub(super) const TESTING: &str = "Testing";
-pub(super) const NO_SENDER: &str = "This version cannot reach a server.";
 
 /// The result line after a successful list of models.
 pub(super) fn models_found(n: usize) -> String {
