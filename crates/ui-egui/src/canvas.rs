@@ -2040,6 +2040,7 @@ mod library_render_tests {
             position: Point::new(5.0, 5.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "7".into(),
                 offset: Point::new(1.0, 0.0),

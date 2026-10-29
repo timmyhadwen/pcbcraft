@@ -1113,13 +1113,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
         let c = refs
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
-        let back = f.pads.iter().any(|pad| {
-            pad.geometry.as_ref().is_some_and(|g| {
-                g.pad_type == "smd"
-                    && !g.layers.is_empty()
-                    && !g.layers.iter().any(|l| l.starts_with("F."))
-            })
-        });
+        let back = f.board_side() == pcbcraft_doc::Layer::Back;
         placed += 1;
         let side = if back {
             &mut comps_bottom
@@ -1154,9 +1148,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
                 .geometry
                 .as_ref()
                 .is_some_and(|g| g.drill.is_some() || g.pad_type.starts_with("thru_hole"));
-            let on_back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
-            });
+            let on_back = f.board_side() == pcbcraft_doc::Layer::Back;
             let name = match &pad.geometry {
                 Some(g) => {
                     let w = um(g.size.x);
@@ -1702,7 +1694,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                         },
                         g.size,
                         f.rotation + g.rotation,
-                        g.layers
+                        f.pad_geometry_layers(pad)
                             .iter()
                             .map(|l| quote(l))
                             .collect::<Vec<_>>()
@@ -2104,9 +2096,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                 .geometry
                 .as_ref()
                 .is_some_and(|g| g.drill.is_some() || g.pad_type.starts_with("thru_hole"));
-            let is_back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
-            });
+            let is_back = f.board_side() == pcbcraft_doc::Layer::Back;
             let ap = match &pad.geometry {
                 Some(g) => {
                     let w = (g.size.x * 1_000.0).round() as u64;
@@ -2484,13 +2474,7 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
         let c = refs
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
-        let back = f.pads.iter().any(|pad| {
-            pad.geometry.as_ref().is_some_and(|g| {
-                g.pad_type == "smd"
-                    && !g.layers.is_empty()
-                    && !g.layers.iter().any(|l| l.starts_with("F."))
-            })
-        });
+        let back = f.board_side() == pcbcraft_doc::Layer::Back;
         let side = if back { "bottom" } else { "top" };
         out.push_str(&format!(
             "<COMPONENT ref=\"{}\" package=\"{}\" x=\"{:.3}\" y=\"{:.3}\" rotation=\"{:.1}\" side=\"{}\"/>\n",
@@ -2565,6 +2549,9 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
         }
         for f in &p.board.footprints {
             for pad in &f.pads {
+                if !f.pad_on_copper(pad, layer) {
+                    continue;
+                }
                 let position = f.position.offset(pad.offset.rotate(f.rotation));
                 let (w, h) = pad
                     .geometry
@@ -3066,13 +3053,7 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
         let c = refs
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
-        let back = f.pads.iter().any(|pad| {
-            pad.geometry.as_ref().is_some_and(|g| {
-                g.pad_type == "smd"
-                    && !g.layers.is_empty()
-                    && !g.layers.iter().any(|l| l.starts_with("F."))
-            })
-        });
+        let back = f.board_side() == pcbcraft_doc::Layer::Back;
         let tht = f.pads.iter().any(|pad| {
             pad.geometry
                 .as_ref()
@@ -3174,7 +3155,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
             };
             let centre = f.position.offset(geometry.position.rotate(-f.rotation));
             let points = [(centre.x, centre.y)];
-            for layer in &geometry.layers {
+            for layer in f.pad_geometry_layers(pad) {
                 let name = match layer.as_str() {
                     "F.Cu" | "B.Cu" => Some(layer.as_str()),
                     "*.Cu" => None,
@@ -3292,14 +3273,7 @@ pub fn cmp_text(p: &Project) -> Result<String, String> {
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
         for pad in &f.pads {
-            let back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty()
-                    && if g.pad_type == "smd" {
-                        !g.layers.iter().any(|l| l.starts_with("F."))
-                    } else {
-                        g.layers.iter().any(|l| l == "B.Cu")
-                    }
-            });
+            let back = f.board_side() == pcbcraft_doc::Layer::Back;
             let at = f.position.offset(pad.offset.rotate(-f.rotation));
             components.push(format!(
                 "$CD {}\t{}\t{}\t{}\t{}\t{}\t0",
@@ -3385,14 +3359,7 @@ pub fn gencad_text(p: &Project) -> Result<String, String> {
                 return Err("interchange file exceeds the record limit".into());
             }
             let at = f.position.offset(pad.offset.rotate(-f.rotation));
-            let back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty()
-                    && if g.pad_type == "smd" {
-                        !g.layers.iter().any(|l| l.starts_with("F."))
-                    } else {
-                        true
-                    }
-            });
+            let back = f.board_side() == pcbcraft_doc::Layer::Back;
             let shape = match pad
                 .geometry
                 .as_ref()
@@ -3469,13 +3436,7 @@ pub fn idf_board(p: &Project) -> Result<String, String> {
         let c = refs
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
-        let back = f.pads.iter().any(|pad| {
-            pad.geometry.as_ref().is_some_and(|g| {
-                g.pad_type == "smd"
-                    && !g.layers.is_empty()
-                    && !g.layers.iter().any(|l| l.starts_with("F."))
-            })
-        });
+        let back = f.board_side() == pcbcraft_doc::Layer::Back;
         body.push_str(&format!(
             ".END_BODY {}\t{}\t{}\t{}\t{}\t{}\n",
             c.reference,
@@ -3911,9 +3872,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
     for f in &p.board.footprints {
         for pad in &f.pads {
             let world = f.position.offset(pad.offset.rotate(-f.rotation));
-            let back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
-            });
+            let back = f.board_side() == pcbcraft_doc::Layer::Back;
             let layer = if back { "B_Pads" } else { "F_Pads" };
             let geometry = match &pad.geometry {
                 Some(g) => g,
@@ -7581,6 +7540,7 @@ mod tests {
             position: Point::new(0.0, 0.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![through_pad, pad2],
         });
         project.components.push(pcbcraft_doc::Component {
@@ -7744,6 +7704,7 @@ mod tests {
             },
             rotation: if component == 1 { 0.0 } else { 90.0 },
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
@@ -7893,6 +7854,7 @@ mod tests {
                 position: Point::new(x, y),
                 rotation,
                 locked: None,
+                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
@@ -8100,6 +8062,7 @@ mod tests {
                 position: Point::new(x, y),
                 rotation,
                 locked: None,
+                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
@@ -8255,6 +8218,7 @@ mod tests {
                 position: Point::new(x, y),
                 rotation: 0.0,
                 locked: None,
+                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
@@ -8446,6 +8410,7 @@ mod tests {
             position: Point::new(12.5, 8.25),
             rotation: 90.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(-1.0, 0.0),
@@ -8461,6 +8426,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
@@ -8599,6 +8565,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, Some(5))],
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
@@ -8607,6 +8574,7 @@ mod tests {
             position: Point::new(30.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, None)],
         });
         project.board.tracks.push(pcbcraft_doc::Track {
@@ -8740,6 +8708,7 @@ mod tests {
             position: Point::new(20.0, 10.0),
             rotation: 90.0,
             locked: None,
+            side: None,
             pads: vec![pad("1", -1.0, 0.0, None), pad("2", 1.0, 0.0, Some(9))],
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
@@ -8748,6 +8717,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pad("1", 0.0, 0.0, Some(5)), pad("2", 2.0, 0.0, Some(9))],
         });
         let text = ipc356_netlist(&project)?;
@@ -9645,6 +9615,7 @@ mod tests {
                 position: Point::new(x, y),
                 rotation,
                 locked: None,
+                side: None,
                 pads: vec![
                     pcbcraft_doc::Pad {
                         number: "1".into(),
@@ -9787,6 +9758,7 @@ mod tests {
             position: Point::new(10.0, 20.0),
             rotation: 90.0,
             locked: None,
+            side: None,
             pads: vec![
                 pcbcraft_doc::Pad {
                     number: "1".into(),
