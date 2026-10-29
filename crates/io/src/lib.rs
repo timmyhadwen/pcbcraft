@@ -1762,7 +1762,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                 t.end.x,
                 t.end.y,
                 t.width,
-                quote(t.layer.name()),
+                quote(&p.layer_name(t.layer)),
                 ordinal(Some(t.net)),
                 uuid(t.id, 1)
             )),
@@ -1773,7 +1773,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                 t.end.x,
                 t.end.y,
                 t.width,
-                quote(t.layer.name()),
+                quote(&p.layer_name(t.layer)),
                 ordinal(Some(t.net)),
                 uuid(t.id, 1)
             )),
@@ -3280,7 +3280,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points = [(track.start.x, track.start.y), (track.end.x, track.end.y)];
         touch(
             &mut layers,
-            track.layer.name(),
+            &p.layer_name(track.layer),
             &mut |plot| plot.tracks += 1,
             &points,
         )?;
@@ -3295,7 +3295,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points: Vec<(f64, f64)> = zone.outline.iter().map(|pt| (pt.x, pt.y)).collect();
         touch(
             &mut layers,
-            zone.layer.name(),
+            &p.layer_name(zone.layer),
             &mut |plot| plot.zones += 1,
             &points,
         )?;
@@ -3304,7 +3304,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points = [(text.position.x, text.position.y)];
         touch(
             &mut layers,
-            text.layer.name(),
+            &p.layer_name(text.layer),
             &mut |plot| plot.texts += 1,
             &points,
         )?;
@@ -3313,7 +3313,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points = [(fiducial.position.x, fiducial.position.y)];
         touch(
             &mut layers,
-            fiducial.layer.name(),
+            &p.layer_name(fiducial.layer),
             &mut |plot| plot.fiducials += 1,
             &points,
         )?;
@@ -11752,6 +11752,18 @@ mod tests {
         );
         let pen = plots.files.get("labels.hpg").ok_or("pen path")?;
         assert!(!pen.contains("A1"), "the pen path leaves the label out");
+        Ok(())
+    }
+
+    #[test]
+    fn examples_validate_after_load() -> Result<(), String> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples");
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if path.extension().is_some_and(|e| e == "json" || e == "pcbcraft") {
+                load(&path)?;
+            }
+        }
         Ok(())
     }
 }
