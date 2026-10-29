@@ -56,7 +56,6 @@ pub(crate) struct ThemeColours {
     pub icon_fill: Color32,
     pub ink: Color32,
     pub muted: Color32,
-    pub border: Color32,
     pub warn: Color32,
     pub error: Color32,
     pub link: Color32,
@@ -95,8 +94,7 @@ pub(crate) fn palette(dark: bool, accent: [u8; 3]) -> ThemeColours {
 }
 
 fn build(dark: bool, accent: [u8; 3]) -> ThemeColours {
-    let (panel, surface, hover, icon_fill, ink, muted, border, warn, error, link, canvas) = if dark
-    {
+    let (panel, surface, hover, icon_fill, ink, muted, warn, error, link, canvas) = if dark {
         (
             Color32::from_rgb(17, 24, 36),
             Color32::from_rgb(20, 29, 43),
@@ -104,7 +102,6 @@ fn build(dark: bool, accent: [u8; 3]) -> ThemeColours {
             Color32::from_rgb(28, 40, 56),
             Color32::from_rgb(225, 234, 247),
             Color32::from_rgb(140, 157, 182),
-            Color32::from_rgb(120, 140, 170),
             Color32::from_rgb(255, 190, 90),
             Color32::from_rgb(255, 130, 120),
             Color32::from_rgb(110, 190, 255),
@@ -118,7 +115,6 @@ fn build(dark: bool, accent: [u8; 3]) -> ThemeColours {
             Color32::from_rgb(236, 240, 246),
             Color32::from_rgb(34, 48, 68),
             Color32::from_rgb(78, 94, 118),
-            Color32::from_rgb(100, 114, 136),
             Color32::from_rgb(138, 78, 0),
             Color32::from_rgb(178, 28, 28),
             Color32::from_rgb(0, 90, 170),
@@ -152,7 +148,6 @@ fn build(dark: bool, accent: [u8; 3]) -> ThemeColours {
         icon_fill,
         ink,
         muted,
-        border,
         warn,
         error,
         link,
@@ -241,7 +236,5 @@ pub(crate) fn visuals(colours: &ThemeColours) -> egui::Visuals {
         egui::CornerRadius::same(6),
         egui::Stroke::new(1.0, colours.ink),
     );
-    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, colours.border);
-    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, colours.border);
     visuals
 }

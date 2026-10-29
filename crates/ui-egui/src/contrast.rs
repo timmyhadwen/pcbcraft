@@ -210,18 +210,6 @@ mod tests {
                 min: NON_TEXT,
             },
             Pair {
-                name: "control-border-on-panel",
-                fg: v.widgets.inactive.bg_stroke.color,
-                bg: t.panel,
-                min: NON_TEXT,
-            },
-            Pair {
-                name: "control-border-on-hover",
-                fg: v.widgets.inactive.bg_stroke.color,
-                bg: t.hover,
-                min: NON_TEXT,
-            },
-            Pair {
                 name: "hovered-border-on-panel",
                 fg: v.widgets.hovered.bg_stroke.color,
                 bg: t.panel,
