@@ -347,7 +347,7 @@ fn a_newcomer_makes_print_art_for_the_silkscreen() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "Print art, top silkscreen", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "Print art, top silkscreen", 700.0)?,
         "the make files list offers print art for the top silkscreen: {}",
         app.message
     );
