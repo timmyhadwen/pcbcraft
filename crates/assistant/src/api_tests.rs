@@ -432,7 +432,10 @@ fn every_outgoing_tool_name_matches_the_hosted_name_pattern() -> Result<(), Stri
         let sent = posts(&log);
         let names = every_name_in(sent.first().ok_or("no request")?, protocol);
         assert!(!names.is_empty());
-        assert!(names.iter().any(|n| n.contains("__")), "no dotted tool seen");
+        assert!(
+            names.iter().any(|n| n.contains("__")),
+            "no dotted tool seen"
+        );
         if let Some(bad) = names.iter().find(|n| !is_hosted_legal(n)) {
             return Err(format!("{protocol:?} sent the illegal name {bad}"));
         }
@@ -444,7 +447,9 @@ fn every_outgoing_tool_name_matches_the_hosted_name_pattern() -> Result<(), Stri
 fn two_different_mcp_tool_names_never_share_a_wire_name() -> Result<(), String> {
     ToolNames::from_list(&pcbcraft_mcp::tool_list())?;
     let clash = json!({"tools": [{"name": "a.b"}, {"name": "a__b"}]});
-    let err = ToolNames::from_list(&clash).err().ok_or("no collision found")?;
+    let err = ToolNames::from_list(&clash)
+        .err()
+        .ok_or("no collision found")?;
     assert!(err.contains("a.b") && err.contains("a__b"));
     Ok(())
 }
@@ -461,16 +466,18 @@ fn a_reply_that_calls_the_wire_name_runs_the_dotted_tool() -> Result<(), String>
                 json!({"content": [{"type": "tool_use", "id": "a", "name": wire, "input": {}}]}),
             ),
             (_, Protocol::OpenAi) => (200, openai_text("done")),
-            (_, Protocol::Anthropic) => (200, json!({"content": [{"type": "text", "text": "done"}]})),
+            (_, Protocol::Anthropic) => {
+                (200, json!({"content": [{"type": "text", "text": "done"}]}))
+            }
         });
         let (ctx, names) = host("ok");
         let mut b = ApiBackend::start(cfg(protocol), ctx, http)?;
         say(&mut b, "find");
         let events = run_until(&mut b, ended)?;
         assert_eq!(*lock(&names), vec!["library.search".to_string()]);
-        let titled = events.iter().any(
-            |e| matches!(e, Event::Tool { title: Some(t), .. } if t == "library.search"),
-        );
+        let titled = events
+            .iter()
+            .any(|e| matches!(e, Event::Tool { title: Some(t), .. } if t == "library.search"));
         assert!(titled, "the UI should show the MCP name");
     }
     Ok(())
