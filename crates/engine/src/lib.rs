@@ -5462,7 +5462,7 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
     let on_layer = pad
         .geometry
         .as_ref()
-        .map(|g| {
+        .map(|_| {
             f.pad_geometry_layers(pad).iter().any(|l| {
                 l == "*.Cu"
                     || l == &layer_name
@@ -15209,17 +15209,17 @@ fn run_command(
             };
             let on_bottom = footprint.board_side() == Layer::Back;
             for pad in &mut footprint.pads {
-                if let Some(sources) = &sources {
-                    if let Some(source) = sources.iter().find(|s| s.number == pad.number) {
-                        let geometry = if on_bottom {
-                            pcbcraft_doc::mirrored_pad_for_bottom(source)
-                        } else {
-                            source.clone()
-                        };
-                        pad.offset = geometry.position;
-                        pad.geometry = Some(geometry);
-                        continue;
-                    }
+                if let Some(sources) = &sources
+                    && let Some(source) = sources.iter().find(|s| s.number == pad.number)
+                {
+                    let geometry = if on_bottom {
+                        pcbcraft_doc::mirrored_pad_for_bottom(source)
+                    } else {
+                        source.clone()
+                    };
+                    pad.offset = geometry.position;
+                    pad.geometry = Some(geometry);
+                    continue;
                 }
                 pad.offset = Point::new(-pad.offset.x, pad.offset.y);
             }
@@ -17465,9 +17465,13 @@ mod tests {
             "bottom copper carries the mirrored pad flash"
         );
         assert!(
-            !gerber["pcb-F.Cu.gbr"].contains(&format!("{:.6}", centre.x)),
+            !gerber["pcb-F.Cu.gbr"]
+                .lines()
+                .any(|l| l.ends_with("D03*") && l.contains(&format!("X{:.6}Y", centre.x))),
             "the front copper file no longer flashes that pad"
         );
+        // The last step was the bottom route; the second undo is the flip.
+        s.undo()?;
         s.undo()?;
         let restored = s.project.footprint(fp).ok_or_else(missing)?;
         assert_eq!(restored.board_side(), pcbcraft_doc::Layer::Front);

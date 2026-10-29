@@ -11859,6 +11859,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: placed,
         });
         project.validate()?;
@@ -12472,6 +12473,7 @@ mod tests {
             position: Point::new(12.0, 8.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
@@ -12891,6 +12893,7 @@ mod tests {
             position: Point::new(20.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::default(),

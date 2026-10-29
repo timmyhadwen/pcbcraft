@@ -971,7 +971,9 @@ pub struct Footprint {
     pub pads: Vec<Pad>,
 }
 /// Swap `F.` and `B.` layer name prefixes; other names are unchanged.
-pub fn mirrored_pad_for_bottom(source: &pcbcraft_library::FootprintPad) -> pcbcraft_library::FootprintPad {
+pub fn mirrored_pad_for_bottom(
+    source: &pcbcraft_library::FootprintPad,
+) -> pcbcraft_library::FootprintPad {
     let mut pad = source.clone();
     pad.position = Point::new(-pad.position.x, pad.position.y);
     pad.rotation = -pad.rotation;
@@ -5394,6 +5396,7 @@ mod drill_tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![
                 Pad {
                     number: "1".into(),

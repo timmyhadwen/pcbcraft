@@ -968,6 +968,7 @@ mod tests {
             position: front.position,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: front_pads.iter().map(placed).collect(),
         });
         project.board.footprints.push(Footprint {
@@ -976,6 +977,7 @@ mod tests {
             position: through.position,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![placed(&through_pad())],
         });
         front.id = 1;

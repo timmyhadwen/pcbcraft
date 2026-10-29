@@ -2753,6 +2753,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![
                 Pad {
                     number: "1".into(),
@@ -2948,6 +2949,7 @@ mod tests {
             position: Point::new(20.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),
@@ -3475,6 +3477,7 @@ mod pour_tests {
             position: at,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),
