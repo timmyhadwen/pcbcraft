@@ -218,6 +218,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
         position: Point::new(30.0, 20.0),
         rotation: 0.0,
         locked: None,
+        side: None,
         pads: pads
             .into_iter()
             .map(|g| Pad {

@@ -10,6 +10,7 @@
 | [assistant-backends.md](assistant-backends.md) | Assistant wire formats checked against each API, with gaps |
 | [mcp-conformance.md](mcp-conformance.md) | MCP spec conformance table and test list |
 | [ci.md](ci.md) | GitHub Actions jobs |
+| [adr-0001-simulation.md](adr-0001-simulation.md) | Decision record (Proposed): how circuit simulation will work |
 | [tooltips.md](tooltips.md) | What every control tooltip must say |
 | [validation.md](validation.md) | How the first subset was verified |
 | [kicad-libraries.md](kicad-libraries.md) | Library formats, limits, fixture licenses |

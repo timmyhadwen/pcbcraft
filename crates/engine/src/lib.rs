@@ -3,6 +3,7 @@ mod authoring;
 mod dry_run;
 mod images;
 pub mod library;
+mod outline;
 pub mod profiles;
 pub mod recents;
 pub use dry_run::{ChangeSummary, DryRun};
@@ -157,6 +158,35 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"path":{"type":"string"},"symbol":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),
                 &["path", "symbol", "position"],
+            ),
+        ),
+        (
+            "object.group",
+            "Group two to 512 objects of any kind (parts, footprints, copper, text, graphics) so they move together; each object joins at most one group",
+            schema(
+                json!({"members":{"type":"array","items":id_schema(),"minItems":2,"maxItems":512}}),
+                &["members"],
+            ),
+        ),
+        (
+            "object.ungroup",
+            "Dissolve an object group, leaving its members exactly where they are",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "object.group_translate",
+            "Move every member of an object group by the same offset in millimetres in one undoable step; refused when any member is locked",
+            schema(
+                json!({"id":id_schema(),"delta":point_schema()}),
+                &["id", "delta"],
+            ),
+        ),
+        (
+            "object.set_locked",
+            "Lock or unlock one object of any kind so moves and nudges refuse it; footprints keep the same lock as footprint.set_locked",
+            schema(
+                json!({"id":id_schema(),"locked":{"type":"boolean"}}),
+                &["id", "locked"],
             ),
         ),
         (
@@ -682,6 +712,19 @@ pub fn commands() -> Vec<CommandSpec> {
                 json!({"id":id_schema(),"move_to":{"type":"integer","minimum":0}}),
                 &["id"],
             ),
+        ),
+        (
+            "schematic.set_sheet_parent",
+            "Record which page a schematic page sits under and where its box belongs on that parent; clearing the parent clears the entry too",
+            schema(
+                json!({"id":id_schema(),"parent":{"type":["integer","null"],"minimum":0},"entry":point_schema()}),
+                &["id"],
+            ),
+        ),
+        (
+            "schematic.net_pages",
+            "List the schematic pages that carry a net through a component pin or a hierarchy port",
+            schema(json!({"net":id_schema()}), &["net"]),
         ),
         (
             "schematic.move_component",
@@ -1242,7 +1285,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "footprint.set_locked",
-            "Lock or unlock a placed footprint; a locked footprint refuses move, rotate, mirror, array and edge docking until it is unlocked again",
+            "Lock or unlock a placed footprint; a locked footprint refuses move, rotate, mirror, flip, array and edge docking until it is unlocked again",
             schema(
                 json!({"id":id_schema(),"locked":{"type":"boolean"}}),
                 &["id", "locked"],
@@ -1339,6 +1382,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "track.drag",
+            "Drag one end of an existing track to a new position with clearance: the other end stays put and the track is re-laid as 45-degree copper around pads, cutouts and other nets' tracks. Mode octilinear (default) never moves other copper; mode octilinear_shove pushes other nets' tracks aside within fixed iteration limits. A refusal says why and changes nothing. track.set_end is the unchecked move",
+            schema(
+                json!({"id":id_schema(),"end":{"type":"string","enum":["start","end"],"description":"which end of the segment to drag"},"position":point_schema(),"mode":{"type":"string","enum":["octilinear","octilinear_shove"]}}),
+                &["id", "end", "position"],
+            ),
+        ),
+        (
             "via.set_size",
             "Change the pad and drill diameters of an existing via",
             schema(
@@ -1409,6 +1460,11 @@ pub fn commands() -> Vec<CommandSpec> {
                 json!({"id":id_schema(),"axis":{"type":"string","enum":["horizontal","vertical"]}}),
                 &["id", "axis"],
             ),
+        ),
+        (
+            "footprint.flip",
+            "Move a placed footprint to the opposite board side, mirroring its pad layout about the vertical axis in one undo step",
+            schema(json!({"id":id_schema()}), &["id"]),
         ),
         (
             "pad.table",
@@ -1490,9 +1546,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.set_outline",
-            "Trace a free-form closed board outline of 3 to 64 distinct vertices; the rectangular width and height follow the outline's bounding box, and fabrication layers cut the board to the traced shape",
+            "Trace a free-form closed board outline of 3 to 64 distinct vertices, optionally bending segments into arcs; the rectangular width and height follow the outline's bounding box, and fabrication layers cut the board to the traced shape",
             schema(
-                json!({"points":{"type":"array","items":point_schema(),"minItems":3,"maxItems":64}}),
+                json!({"points":{"type":"array","items":point_schema(),"minItems":3,"maxItems":64},"arcs":{"type":"array","maxItems":64,"description":"optional, one entry per segment (vertex i to i+1, the last closing to vertex 0): a point the arc passes through, or null for a straight segment","items":{"oneOf":[point_schema(),{"type":"null"}]}}}),
                 &["points"],
             ),
         ),
@@ -1641,9 +1697,22 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
             ),
+        ),
+        (
+            "erc.matrix_set",
+            "Set one cell of the pin-type connection matrix used by ERC",
+            schema(
+                json!({"type_a":{"type":"string","enum":["bidirectional","free","input","no_connect","open_collector","open_emitter","output","passive","power_in","power_out","tri_state","unspecified"]},"type_b":{"type":"string","enum":["bidirectional","free","input","no_connect","open_collector","open_emitter","output","passive","power_in","power_out","tri_state","unspecified"]},"level":{"type":"string","enum":["ok","warning","error"]}}),
+                &["type_a", "type_b", "level"],
+            ),
+        ),
+        (
+            "erc.matrix_reset",
+            "Restore the default pin-type connection matrix, clearing every override",
+            schema(json!({}), &[]),
         ),
         (
             "rules.exclude",
@@ -2130,6 +2199,7 @@ pub fn commands() -> Vec<CommandSpec> {
         })
         .chain(authoring::commands())
         .chain(images::commands())
+        .chain(outline::commands())
         .chain(tuning::commands())
         .collect()
 }
@@ -2197,6 +2267,7 @@ impl Session {
                 &command.command,
                 &command.params,
             )?);
+            candidate.prune_object_refs();
             candidate.validate()?;
         }
         self.commit(candidate);
@@ -2297,7 +2368,7 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -2793,12 +2864,119 @@ struct LockParams {
     id: Id,
     locked: bool,
 }
+/// Move one object by (dx, dy) millimetres: a part, footprint, track, via,
+/// zone, cutout, datum, board text or drawn graphic. Shared by `object.nudge`
+/// and `object.group_translate` so both honour the same lock and range rules.
+///
+/// # Rules
+/// - A locked object (`Project::is_locked`) is refused, never skipped.
+/// - A result outside the valid coordinate range is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs#is_locked
+///
+/// # Do not
+/// - Bound the distance here; the calling command owns that check.
+fn translate_object(p: &mut Project, id: Id, dx: f64, dy: f64) -> Result<(), Error> {
+    if p.is_groupable(id) && p.is_locked(id) {
+        return Err(Error::Invalid("the object is locked".into()));
+    }
+    let shift = |pt: Point| Point::new(pt.x + dx, pt.y + dy);
+    let shift_all = |pts: &mut Vec<Point>| -> Result<(), Error> {
+        for pt in pts.iter_mut() {
+            *pt = shift(*pt);
+            if !pt.valid() {
+                return Err(Error::Invalid("nudged position is out of range".into()));
+            }
+        }
+        Ok(())
+    };
+    if let Some(c) = p.components.iter_mut().find(|c| c.id == id) {
+        let mut positions: Vec<Point> = std::iter::once(c.position)
+            .chain(c.units.iter().map(|u| u.position))
+            .collect();
+        shift_all(&mut positions)?;
+        let mut moved = positions.into_iter();
+        c.position = moved.next().unwrap_or(c.position);
+        for (unit, position) in c.units.iter_mut().zip(moved) {
+            unit.position = position;
+        }
+        return Ok(());
+    }
+    if let Some(g) = p.graphics.iter_mut().find(|g| g.id == id) {
+        let mut points = g.points.clone();
+        shift_all(&mut points)?;
+        g.points = points;
+        return Ok(());
+    }
+    if let Some(t) = p.board.tracks.iter_mut().find(|t| t.id == id) {
+        let (start, end) = (shift(t.start), shift(t.end));
+        if !start.valid() || !end.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        let arc = t.arc.map(shift);
+        if arc.is_some_and(|m| !m.valid()) {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        (t.start, t.end, t.arc) = (start, end, arc);
+        return Ok(());
+    }
+    if let Some(v) = p.board.vias.iter_mut().find(|v| v.id == id) {
+        let position = shift(v.position);
+        if !position.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        v.position = position;
+        return Ok(());
+    }
+    if let Some(f) = p.board.footprints.iter_mut().find(|f| f.id == id) {
+        let position = shift(f.position);
+        if !position.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        f.position = position;
+        return Ok(());
+    }
+    if let Some(z) = p.board.zones.iter_mut().find(|z| z.id == id) {
+        let mut outline = z.outline.clone();
+        shift_all(&mut outline)?;
+        let mut cutouts = z.cutouts.clone();
+        for cut in &mut cutouts {
+            shift_all(cut)?;
+        }
+        z.outline = outline;
+        z.cutouts = cutouts;
+        return Ok(());
+    }
+    if let Some(c) = p.board.cutouts.iter_mut().find(|c| c.id == id) {
+        let center = shift(c.center);
+        if !center.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        c.center = center;
+        return Ok(());
+    }
+    if let Some(d) = p.board.datums.iter_mut().find(|d| d.id == id) {
+        let position = shift(d.position);
+        if !position.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        d.position = position;
+        d.hole = None;
+        return Ok(());
+    }
+    if let Some(t) = p.board.texts.iter_mut().find(|t| t.id == id) {
+        let position = shift(t.position);
+        if !position.valid() {
+            return Err(Error::Invalid("nudged position is out of range".into()));
+        }
+        t.position = position;
+        return Ok(());
+    }
+    Err(missing())
+}
 fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
-    project
-        .board
-        .footprints
-        .iter()
-        .any(|f| f.id == id && f.locked.unwrap_or(false))
+    project.is_locked(id)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3956,6 +4134,13 @@ struct RuleSeverityParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ErcMatrixSetParams {
+    type_a: String,
+    type_b: String,
+    level: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RuleExcludeParams {
     code: String,
     ids: Vec<Id>,
@@ -4195,6 +4380,8 @@ struct DrillOriginParams {
 #[serde(deny_unknown_fields)]
 struct OutlineParams {
     points: Vec<Point>,
+    #[serde(default)]
+    arcs: Vec<Option<Point>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4457,6 +4644,20 @@ struct RemoveSheet {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SetSheetParent {
+    id: Id,
+    #[serde(default)]
+    parent: Option<Value>,
+    #[serde(default)]
+    entry: Option<Point>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetPagesParams {
+    net: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PortParams {
     name: String,
     net: Id,
@@ -4589,6 +4790,18 @@ struct TrackEndParams {
     end: TrackEnd,
     position: Point,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrackDragParams {
+    id: Id,
+    end: TrackEnd,
+    position: Point,
+    #[serde(default = "drag_mode")]
+    mode: route::Mode,
+}
+fn drag_mode() -> route::Mode {
+    route::Mode::Octilinear
+}
 #[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum TrackEnd {
@@ -4690,6 +4903,11 @@ struct ZoneFillQuery {
 struct MirrorParams {
     id: Id,
     axis: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FlipParams {
+    id: Id,
 }
 /// Mirror a library graphic primitive about the local origin; horizontal
 /// flips left-to-right, vertical flips top-to-bottom. Arcs keep their three
@@ -4800,6 +5018,11 @@ struct DeltaParams {
 struct GraphicMoveParams {
     id: Id,
     delta: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ObjectGroupParams {
+    members: Vec<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5472,15 +5695,15 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
     let on_layer = pad
         .geometry
         .as_ref()
-        .map(|g| {
-            g.layers.iter().any(|l| {
+        .map(|_| {
+            f.pad_geometry_layers(pad).iter().any(|l| {
                 l == "*.Cu"
                     || l == &layer_name
                     || l == layer.name()
                     || p.resolve_copper_layer(l).ok() == Some(layer)
             })
         })
-        .unwrap_or(layer == Layer::Front);
+        .unwrap_or(layer == f.board_side());
     if !on_layer {
         return Err(Error::Invalid(format!(
             "pad {} has no copper on {}",
@@ -6312,6 +6535,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = images::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = outline::run(p, next, command, params) {
         return result;
     }
     match command {
@@ -8437,6 +8663,7 @@ fn run_command(
                 }
                 offset = pcbcraft_geom::Point::new(min_x, min_y);
                 p.board.outline = Some(shifted);
+                p.board.outline_arcs.clear();
                 p.board.width = max_x - min_x;
                 p.board.height = max_y - min_y;
                 outline_index = Some(index);
@@ -8711,6 +8938,7 @@ fn run_command(
                     return Err(Error::Invalid("the imported outline has no area".into()));
                 }
                 p.board.outline = Some(shifted);
+                p.board.outline_arcs.clear();
                 p.board.width = max_x - min_x;
                 p.board.height = max_y - min_y;
                 outline_index = Some(index);
@@ -9214,6 +9442,94 @@ fn run_command(
             graphic.points = moved;
             Ok(json!({"id": a.id}))
         }
+        "object.group" => {
+            let a: ObjectGroupParams = parse(params)?;
+            if a.members.len() < 2 || a.members.len() > 512 {
+                return Err(Error::Invalid("a group holds two to 512 objects".into()));
+            }
+            let unique: BTreeSet<Id> = a.members.iter().copied().collect();
+            if unique.len() != a.members.len() {
+                return Err(Error::Invalid("an object joins a group once".into()));
+            }
+            for id in &a.members {
+                if !p.is_groupable(*id) || p.object_groups.iter().any(|g| g.members.contains(id)) {
+                    return Err(Error::Invalid(
+                        "every grouped object must exist and be in no other group".into(),
+                    ));
+                }
+            }
+            if p.object_groups.len() >= 256 {
+                return Err(Error::Invalid(
+                    "a project defines at most 256 object groups".into(),
+                ));
+            }
+            let id = allocate(next)?;
+            p.object_groups.push(pcbcraft_doc::ObjectGroup {
+                id,
+                members: a.members.clone(),
+            });
+            Ok(json!({"id": id, "count": a.members.len()}))
+        }
+        "object.ungroup" => {
+            let a: GraphicGroupIdParams = parse(params)?;
+            let index = p
+                .object_groups
+                .iter()
+                .position(|g| g.id == a.id)
+                .ok_or_else(missing)?;
+            p.object_groups.remove(index);
+            Ok(json!({"id": a.id}))
+        }
+        "object.group_translate" => {
+            let a: GraphicTranslateParams = parse(params)?;
+            if !a.delta.x.is_finite()
+                || !a.delta.y.is_finite()
+                || a.delta.x.abs() > 1000.0
+                || a.delta.y.abs() > 1000.0
+            {
+                return Err(Error::Invalid("move distance is out of range".into()));
+            }
+            if a.delta.x == 0.0 && a.delta.y == 0.0 {
+                return Err(Error::Invalid("a group move must move something".into()));
+            }
+            let members = p
+                .object_groups
+                .iter()
+                .find(|g| g.id == a.id)
+                .ok_or_else(missing)?
+                .members
+                .clone();
+            if members.iter().any(|id| p.is_locked(*id)) {
+                return Err(Error::Invalid(
+                    "the group has a locked member; unlock it first".into(),
+                ));
+            }
+            for id in &members {
+                translate_object(p, *id, a.delta.x, a.delta.y)?;
+            }
+            Ok(json!({"id": a.id, "moved": members.len()}))
+        }
+        "object.set_locked" => {
+            let a: LockParams = parse(params)?;
+            if !p.is_groupable(a.id) {
+                return Err(missing());
+            }
+            if let Some(f) = p.board.footprints.iter_mut().find(|f| f.id == a.id) {
+                f.locked = a.locked.then_some(true);
+            } else if a.locked {
+                if !p.locked_objects.contains(&a.id) {
+                    if p.locked_objects.len() >= 4096 {
+                        return Err(Error::Invalid(
+                            "a project locks at most 4096 objects".into(),
+                        ));
+                    }
+                    p.locked_objects.push(a.id);
+                }
+            } else {
+                p.locked_objects.retain(|id| *id != a.id);
+            }
+            Ok(json!({"id": a.id, "locked": a.locked}))
+        }
         "graphic.group" => {
             let a: GraphicGroupParams = parse(params)?;
             if a.graphics.len() < 2 || a.graphics.len() > 512 {
@@ -9567,7 +9883,12 @@ fn run_command(
                 return Err(Error::Invalid("sheet name already in use".into()));
             }
             let id = allocate(next)?;
-            p.sheets.push(Sheet { id, name: a.name });
+            p.sheets.push(Sheet {
+                id,
+                name: a.name,
+                parent: None,
+                entry: None,
+            });
             Ok(json!({"id":id}))
         }
         "schematic.rename_sheet" => {
@@ -9623,6 +9944,87 @@ fn run_command(
             }
             p.sheets.remove(index);
             Ok(json!({"removed":a.id,"moved":moved}))
+        }
+        "schematic.set_sheet_parent" => {
+            let a: SetSheetParent = parse(params)?;
+            if a.id == 0 {
+                return Err(Error::Invalid("the root sheet has no parent record".into()));
+            }
+            let index = p
+                .sheets
+                .iter()
+                .position(|s| s.id == a.id)
+                .ok_or_else(missing)?;
+            let previous_parent = p.sheets[index].parent;
+            let previous_entry = p.sheets[index].entry;
+            if let Some(parent) = &a.parent {
+                if parent.is_null() {
+                    p.sheets[index].parent = None;
+                    p.sheets[index].entry = None;
+                } else {
+                    let parent_id: Id = serde_json::from_value(parent.clone())
+                        .map_err(|_| Error::Invalid("parent must be a page id".into()))?;
+                    if parent_id == a.id {
+                        return Err(Error::Invalid("a sheet cannot be its own parent".into()));
+                    }
+                    if parent_id != 0 && !p.sheets.iter().any(|s| s.id == parent_id) {
+                        return Err(Error::Invalid("the parent page does not exist".into()));
+                    }
+                    let mut walk = parent_id;
+                    for _ in 0..=8 {
+                        if walk == a.id {
+                            return Err(Error::Invalid(
+                                "that parent would cycle the hierarchy".into(),
+                            ));
+                        }
+                        if walk == 0 {
+                            break;
+                        }
+                        let Some(node) = p.sheets.iter().find(|s| s.id == walk) else {
+                            return Err(Error::Invalid("the parent page does not exist".into()));
+                        };
+                        walk = node.parent.unwrap_or(0);
+                    }
+                    if let Some(entry) = a.entry {
+                        if !entry.valid() {
+                            return Err(Error::Invalid(
+                                "sheet entry position is out of range".into(),
+                            ));
+                        }
+                        p.sheets[index].entry = Some(entry);
+                    } else if p.sheets[index].entry.is_none() {
+                        return Err(Error::Invalid(
+                            "pass entry where the child box sits on the parent page".into(),
+                        ));
+                    }
+                    p.sheets[index].parent = Some(parent_id);
+                }
+            } else if let Some(entry) = a.entry {
+                if !entry.valid() {
+                    return Err(Error::Invalid(
+                        "sheet entry position is out of range".into(),
+                    ));
+                }
+                if p.sheets[index].parent.is_none() {
+                    return Err(Error::Invalid("sheet entry needs a parent page".into()));
+                }
+                p.sheets[index].entry = Some(entry);
+            }
+            Ok(json!({
+                "id": a.id,
+                "parent": p.sheets[index].parent,
+                "entry": p.sheets[index].entry,
+                "previous_parent": previous_parent,
+                "previous_entry": previous_entry,
+            }))
+        }
+        "schematic.net_pages" => {
+            let a: NetPagesParams = parse(params)?;
+            if !p.nets.iter().any(|n| n.id == a.net) {
+                return Err(Error::Invalid("unknown net".into()));
+            }
+            let pages = p.net_pages(a.net);
+            Ok(json!({"net": a.net, "pages": pages}))
         }
         "schematic.move_component" => {
             let a: MoveToSheet = parse(params)?;
@@ -9806,6 +10208,8 @@ fn run_command(
             p.sheets.push(Sheet {
                 id: sheet,
                 name: name.clone(),
+                parent: None,
+                entry: None,
             });
             let components = file.components.len();
             let ports = file.ports.len();
@@ -11175,6 +11579,7 @@ fn run_command(
                 outline.insert(insert + offset, point);
             }
             p.board.outline = Some(outline);
+            p.board.outline_arcs.clear();
             Ok(json!({"vertices": p.board.outline.as_ref().map(Vec::len).unwrap_or(0)}))
         }
         "board.hole_set_size" => {
@@ -12563,18 +12968,28 @@ fn run_command(
             if pcbcraft_doc::outline_area(&a.points) < 0.01 {
                 return Err(Error::Invalid("the traced outline has no area".into()));
             }
-            let min_x = a.points.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
-            let min_y = a.points.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
-            let max_x = a.points.iter().map(|p| p.x).fold(0.0, f64::max);
-            let max_y = a.points.iter().map(|p| p.y).fold(0.0, f64::max);
-            let shifted: Vec<Point> = a
-                .points
-                .iter()
-                .map(|p| Point::new(p.x - min_x, p.y - min_y))
-                .collect();
-            let area = (pcbcraft_doc::outline_area(&shifted) * 100.0).round() / 100.0;
+            if !a.arcs.is_empty() && a.arcs.len() != a.points.len() {
+                return Err(Error::Invalid(
+                    "arcs needs one entry per segment, null for a straight one".into(),
+                ));
+            }
+            pcbcraft_doc::validate_outline_arcs(&a.points, &a.arcs).map_err(Error::Invalid)?;
+            let (lo, hi) = pcbcraft_doc::outline_extent(&a.points, &a.arcs)
+                .ok_or_else(|| Error::Invalid("an outline needs 3 to 64 vertices".into()))?;
+            let (min_x, min_y) = (lo.x, lo.y);
+            let (max_x, max_y) = (hi.x, hi.y);
+            let shift = |q: &Point| Point::new(q.x - min_x, q.y - min_y);
+            let shifted: Vec<Point> = a.points.iter().map(shift).collect();
+            let arcs: Vec<Option<Point>> = a.arcs.iter().map(|m| m.as_ref().map(shift)).collect();
+            let ring = pcbcraft_doc::flatten_outline(&shifted, &arcs, 0.01);
+            let area = (pcbcraft_doc::outline_area(&ring) * 100.0).round() / 100.0;
             let vertices = shifted.len();
             p.board.outline = Some(shifted);
+            p.board.outline_arcs = if arcs.iter().all(Option::is_none) {
+                Vec::new()
+            } else {
+                arcs
+            };
             p.board.width = max_x - min_x;
             p.board.height = max_y - min_y;
             Ok(json!({
@@ -12593,6 +13008,7 @@ fn run_command(
             if p.board.outline.take().is_none() {
                 return Err(missing());
             }
+            p.board.outline_arcs.clear();
             Ok(json!({"width": p.board.width, "height": p.board.height}))
         }
         "board.set_layer_record" => {
@@ -12943,6 +13359,52 @@ fn run_command(
             Ok(json!({"preset":a.name,"rules":p.board.rules}))
         }
         "rules.preset_list" => Ok(json!({"presets":fab_preset_list()})),
+        "erc.matrix_set" => {
+            let a: ErcMatrixSetParams = parse(params)?;
+            if !Project::pin_electrical_type_valid(&a.type_a)
+                || !Project::pin_electrical_type_valid(&a.type_b)
+            {
+                return Err(Error::Invalid("pin type is not recognised".into()));
+            }
+            if !matches!(a.level.as_str(), "ok" | "warning" | "error") {
+                return Err(Error::Invalid(
+                    "matrix level must be ok, warning or error".into(),
+                ));
+            }
+            let key = pcbcraft_doc::pin_matrix_key(&a.type_a, &a.type_b);
+            let default = pcbcraft_doc::default_pin_matrix_level(&a.type_a, &a.type_b);
+            let set = if a.level == default {
+                if p.pin_matrix.remove(&key).is_none() {
+                    return Err(Error::Invalid(
+                        "that matrix cell already matches the default".into(),
+                    ));
+                }
+                false
+            } else {
+                if p.pin_matrix.len() >= 78 && !p.pin_matrix.contains_key(&key) {
+                    return Err(Error::Invalid(
+                        "pin matrix overrides cover at most 78 cells".into(),
+                    ));
+                }
+                let previous = p.pin_matrix.insert(key.clone(), a.level.clone());
+                if previous.as_deref() == Some(a.level.as_str()) {
+                    return Err(Error::Invalid(
+                        "that matrix cell already has this level".into(),
+                    ));
+                }
+                true
+            };
+            Ok(json!({"key": key, "level": a.level, "set": set}))
+        }
+        "erc.matrix_reset" => {
+            if p.pin_matrix.is_empty() {
+                return Err(Error::Invalid(
+                    "the pin matrix already matches the default table".into(),
+                ));
+            }
+            p.pin_matrix.clear();
+            Ok(json!({"reset": true}))
+        }
         "rules.severity" => {
             let a: RuleSeverityParams = parse(params)?;
             if a.code.is_empty() || a.code.len() > 32 {
@@ -14489,6 +14951,7 @@ fn run_command(
                         ),
                         rotation: 0.0,
                         locked: None,
+                        side: None,
                         pads: component_pads(c),
                     });
                 }
@@ -15327,6 +15790,69 @@ fn run_command(
             }
             Ok(json!({"id": a.id, "axis": a.axis}))
         }
+        "footprint.flip" => {
+            let a: FlipParams = parse(params)?;
+            if footprint_locked(p, a.id) {
+                return Err(Error::Invalid(
+                    "that footprint is locked against placement changes".into(),
+                ));
+            }
+            let index = p
+                .board
+                .footprints
+                .iter()
+                .position(|f| f.id == a.id)
+                .ok_or_else(missing)?;
+            let footprint = &p.board.footprints[index];
+            let only_tht = !footprint.pads.is_empty()
+                && footprint.pads.iter().all(|pad| {
+                    pad.geometry
+                        .as_ref()
+                        .is_some_and(|g| g.pad_type == "thru_hole")
+                });
+            if only_tht {
+                let unchanged = footprint.pads.iter().all(|pad| {
+                    pad.offset.x.abs() <= 1e-9
+                        && pad
+                            .geometry
+                            .as_ref()
+                            .is_none_or(|g| g.rotation.abs() <= 1e-9 && g.position.x.abs() <= 1e-9)
+                });
+                if unchanged {
+                    return Err(Error::Invalid(
+                        "that footprint is only plated through-hole pads and a flip would change nothing".into(),
+                    ));
+                }
+            }
+            let component = p.board.footprints[index].component;
+            let sources = p
+                .component(component)
+                .and_then(|c| c.library_footprint.as_ref())
+                .map(|l| l.definition.pads.clone());
+            let footprint = &mut p.board.footprints[index];
+            footprint.side = if footprint.board_side() == Layer::Front {
+                Some(Layer::Back)
+            } else {
+                None
+            };
+            let on_bottom = footprint.board_side() == Layer::Back;
+            for pad in &mut footprint.pads {
+                if let Some(sources) = &sources
+                    && let Some(source) = sources.iter().find(|s| s.number == pad.number)
+                {
+                    let geometry = if on_bottom {
+                        pcbcraft_doc::mirrored_pad_for_bottom(source)
+                    } else {
+                        source.clone()
+                    };
+                    pad.offset = geometry.position;
+                    pad.geometry = Some(geometry);
+                    continue;
+                }
+                pad.offset = Point::new(-pad.offset.x, pad.offset.y);
+            }
+            Ok(json!({"id": a.id, "side": footprint.board_side().name()}))
+        }
         "align.distribute" => {
             let a: AlignParams = parse(params)?;
             let mode = a.mode.as_str();
@@ -15542,77 +16068,8 @@ fn run_command(
             if a.dx == 0.0 && a.dy == 0.0 {
                 return Err(Error::Invalid("a nudge must move something".into()));
             }
-            let shift = |pt: Point| Point::new(pt.x + a.dx, pt.y + a.dy);
-            let shift_all = |pts: &mut Vec<Point>| -> Result<(), Error> {
-                for pt in pts.iter_mut() {
-                    *pt = shift(*pt);
-                    if !pt.valid() {
-                        return Err(Error::Invalid("nudged position is out of range".into()));
-                    }
-                }
-                Ok(())
-            };
-            if let Some(t) = p.board.tracks.iter_mut().find(|t| t.id == a.id) {
-                let (start, end) = (shift(t.start), shift(t.end));
-                if !start.valid() || !end.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                (t.start, t.end) = (start, end);
-                return Ok(json!({"id": a.id}));
-            }
-            if let Some(v) = p.board.vias.iter_mut().find(|v| v.id == a.id) {
-                let position = shift(v.position);
-                if !position.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                v.position = position;
-                return Ok(json!({"id": a.id}));
-            }
-            if let Some(f) = p.board.footprints.iter_mut().find(|f| f.id == a.id) {
-                let position = shift(f.position);
-                if !position.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                f.position = position;
-                return Ok(json!({"id": a.id}));
-            }
-            if let Some(z) = p.board.zones.iter_mut().find(|z| z.id == a.id) {
-                let mut outline = z.outline.clone();
-                shift_all(&mut outline)?;
-                let mut cutouts = z.cutouts.clone();
-                for cut in &mut cutouts {
-                    shift_all(cut)?;
-                }
-                z.outline = outline;
-                z.cutouts = cutouts;
-                return Ok(json!({"id": a.id}));
-            }
-            if let Some(c) = p.board.cutouts.iter_mut().find(|c| c.id == a.id) {
-                let center = shift(c.center);
-                if !center.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                c.center = center;
-                return Ok(json!({"id": a.id}));
-            }
-            if let Some(d) = p.board.datums.iter_mut().find(|d| d.id == a.id) {
-                let position = shift(d.position);
-                if !position.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                d.position = position;
-                d.hole = None;
-                return Ok(json!({"id": a.id}));
-            }
-            if let Some(t) = p.board.texts.iter_mut().find(|t| t.id == a.id) {
-                let position = shift(t.position);
-                if !position.valid() {
-                    return Err(Error::Invalid("nudged position is out of range".into()));
-                }
-                t.position = position;
-                return Ok(json!({"id": a.id}));
-            }
-            Err(missing())
+            translate_object(p, a.id, a.dx, a.dy)?;
+            Ok(json!({"id": a.id}))
         }
         "object.duplicate" => {
             let a: DuplicateParams = parse(params)?;
@@ -15853,6 +16310,17 @@ fn run_command(
                 "end": a.end,
                 "position": *moved,
             }))
+        }
+        "track.drag" => {
+            let a: TrackDragParams = parse(params)?;
+            route::drag(
+                p,
+                next,
+                a.id,
+                matches!(a.end, TrackEnd::End),
+                a.position,
+                a.mode,
+            )
         }
         "via.set_covering" => {
             let a: ViaCoveringParams = parse(params)?;
@@ -17466,6 +17934,143 @@ mod tests {
                 .drawing_points(),
             outline_after
         );
+        Ok(())
+    }
+    #[test]
+    fn flipping_a_surface_mount_footprint_moves_its_copper_to_the_bottom() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let component = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[20,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":component,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":component,"pin":"1"},{"component":component,"pin":"2"}]}),
+            None,
+        )?;
+        let fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == component)
+            .ok_or_else(missing)?
+            .id;
+        let before = s.project.footprint(fp).ok_or_else(missing)?.clone();
+        s.execute(
+            "track.route",
+            json!({"from":{"footprint":fp,"pad":"1"},"to":{"footprint":fp,"pad":"2"},"layer":"F.Cu"}),
+            None,
+        )?;
+        assert!(
+            pcbcraft_rules::airwires(&s.project).is_empty(),
+            "a front route between the pads leaves no airwires"
+        );
+        s.execute("footprint.flip", json!({"id":fp}), None)?;
+        assert_eq!(
+            s.project.footprint(fp).ok_or_else(missing)?.board_side(),
+            pcbcraft_doc::Layer::Back
+        );
+        assert!(
+            !pcbcraft_rules::airwires(&s.project).is_empty(),
+            "bottom pads no longer meet the front copper"
+        );
+        assert!(
+            s.execute(
+                "track.route",
+                json!({"from":{"footprint":fp,"pad":"1"},"to":{"footprint":fp,"pad":"2"},"layer":"F.Cu"}),
+                None,
+            )
+            .is_err(),
+            "front routing refuses bottom pads"
+        );
+        s.execute(
+            "track.route",
+            json!({"from":{"footprint":fp,"pad":"1"},"to":{"footprint":fp,"pad":"2"},"layer":"B.Cu"}),
+            None,
+        )?;
+        assert!(
+            pcbcraft_rules::airwires(&s.project).is_empty(),
+            "a bottom route reconnects the net"
+        );
+        let placement = pcbcraft_io::placement_text(&s.project).map_err(Error::Invalid)?;
+        assert!(
+            placement.contains("SMT,\"R1\","),
+            "pick-and-place still lists the part"
+        );
+        assert!(
+            placement.contains(",B,\"R_0805_2012Metric\""),
+            "the flipped part exports on the bottom side"
+        );
+        let gerber = pcbcraft_io::gerber_files(&s.project).map_err(Error::Invalid)?;
+        let centre = s
+            .project
+            .footprint(fp)
+            .ok_or_else(missing)?
+            .pad_position("1")
+            .ok_or_else(missing)?;
+        let mirrored_x = -centre.x;
+        assert!(
+            gerber["pcb-B.Cu.gbr"].contains(&format!("{mirrored_x:.6}")),
+            "bottom copper carries the mirrored pad flash"
+        );
+        assert!(
+            !gerber["pcb-F.Cu.gbr"]
+                .lines()
+                .any(|l| l.ends_with("D03*") && l.contains(&format!("X{:.6}Y", centre.x))),
+            "the front copper file no longer flashes that pad"
+        );
+        // The last step was the bottom route; the second undo is the flip.
+        s.undo()?;
+        s.undo()?;
+        let restored = s.project.footprint(fp).ok_or_else(missing)?;
+        assert_eq!(restored.board_side(), pcbcraft_doc::Layer::Front);
+        assert_eq!(restored.pads, before.pads);
+        assert!(
+            pcbcraft_rules::airwires(&s.project).is_empty(),
+            "undo puts the front route back in contact"
+        );
+        Ok(())
+    }
+    #[test]
+    fn flipping_a_locked_footprint_leaves_the_document_unchanged() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.inspect()["project"]["board"]["footprints"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("footprint.set_locked", json!({"id":fp,"locked":true}), None)?;
+        let snapshot = s.project.clone();
+        assert!(
+            s.execute("footprint.flip", json!({"id":fp}), None).is_err(),
+            "a locked footprint refuses flip"
+        );
+        assert_eq!(s.project, snapshot);
         Ok(())
     }
     #[test]
@@ -19802,6 +20407,165 @@ mod tests {
         assert_eq!(s.project.board.tracks[0].arc, Some(Point::new(15.0, 10.0)));
         Ok(())
     }
+    fn group_fixture() -> Result<(Session, u64, u64, u64), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","position":[10,10],"reference":"J1","value":"x"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.project.board.footprints.first().ok_or_else(missing)?.id;
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let track = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":5.0,"y":0.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        Ok((s, fp, track, net))
+    }
+    #[test]
+    fn object_group_translate_moves_all_members() -> Result<(), Error> {
+        let (mut s, fp, track, _) = group_fixture()?;
+        let before = s.project.board.footprints[0].position;
+        let group = s.execute("object.group", json!({"members":[fp,track]}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute(
+            "object.group_translate",
+            json!({"id":group,"delta":{"x":2.0,"y":3.0}}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["moved"], 2);
+        let after = s.project.board.footprints[0].position;
+        assert_eq!((after.x - before.x, after.y - before.y), (2.0, 3.0));
+        let t = &s.project.board.tracks[0];
+        assert_eq!(
+            (t.start.x, t.start.y, t.end.x, t.end.y),
+            (2.0, 3.0, 7.0, 3.0)
+        );
+        s.execute("object.ungroup", json!({"id":group}), None)?;
+        assert!(s.project.object_groups.is_empty());
+        assert!(
+            s.execute(
+                "object.group_translate",
+                json!({"id":group,"delta":{"x":1.0,"y":0.0}}),
+                None
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn object_group_rejects_bad_input_and_forgets_deleted_members() -> Result<(), Error> {
+        let (mut s, fp, track, net) = group_fixture()?;
+        let extra = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":4.0},"end":{"x":5.0,"y":4.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for bad in [
+            json!({"members":[fp]}),
+            json!({"members":[fp,fp]}),
+            json!({"members":[fp,9999]}),
+            json!({"members":[net,fp]}),
+            json!({}),
+        ] {
+            assert!(s.execute("object.group", bad, None).is_err());
+        }
+        let rev = s.revision;
+        s.execute("object.group", json!({"members":[fp,track,extra]}), None)?;
+        assert!(
+            s.execute("object.group", json!({"members":[fp,extra]}), None)
+                .is_err()
+        );
+        assert_eq!(s.revision, rev + 1, "a refused group changes nothing");
+        s.execute("object.delete", json!({"id":extra}), None)?;
+        assert_eq!(s.project.object_groups[0].members.len(), 2);
+        s.execute("object.delete", json!({"id":track}), None)?;
+        assert!(
+            s.project.object_groups.is_empty(),
+            "a one-member group dissolves"
+        );
+        Ok(())
+    }
+    #[test]
+    fn object_set_locked_blocks_nudge_and_move() -> Result<(), Error> {
+        let (mut s, fp, track, _) = group_fixture()?;
+        let out =
+            s.execute("object.set_locked", json!({"id":fp,"locked":true}), None)?["result"].clone();
+        assert_eq!(out["locked"], true);
+        assert_eq!(s.project.board.footprints[0].locked, Some(true));
+        for (cmd, params) in [
+            ("object.nudge", json!({"id":fp,"dx":1.0,"dy":0.0})),
+            ("footprint.move", json!({"id":fp,"position":[20,20]})),
+            ("footprint.rotate", json!({"id":fp,"degrees":90})),
+        ] {
+            assert!(
+                s.execute(cmd, params, None).is_err(),
+                "{cmd} refuses a locked part"
+            );
+        }
+        s.execute("object.set_locked", json!({"id":track,"locked":true}), None)?;
+        assert!(s.project.locked_objects.contains(&track));
+        assert!(
+            s.execute("object.nudge", json!({"id":track,"dx":1.0,"dy":0.0}), None)
+                .is_err(),
+            "a locked track refuses a nudge"
+        );
+        let group = s.execute("object.group", json!({"members":[track,fp]}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute(
+                "object.group_translate",
+                json!({"id":group,"delta":{"x":1.0,"y":0.0}}),
+                None
+            )
+            .is_err(),
+            "a group with a locked member does not move"
+        );
+        s.execute("object.set_locked", json!({"id":fp,"locked":false}), None)?;
+        s.execute(
+            "object.set_locked",
+            json!({"id":track,"locked":false}),
+            None,
+        )?;
+        assert!(s.project.locked_objects.is_empty());
+        s.execute("object.nudge", json!({"id":track,"dx":1.0,"dy":0.0}), None)?;
+        assert!(
+            s.execute("object.set_locked", json!({"id":9999,"locked":true}), None)
+                .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn graphic_group_still_round_trips_after_object_group_added() -> Result<(), Error> {
+        let (mut s, fp, track, _) = group_fixture()?;
+        s.execute("object.group", json!({"members":[fp,track]}), None)?;
+        s.execute("object.set_locked", json!({"id":track,"locked":true}), None)?;
+        s.execute(
+            "dimension.add",
+            json!({"start":[0,0],"end":[30,0],"layer":"schematic"}),
+            None,
+        )?;
+        assert_eq!(s.project.graphic_groups.len(), 1);
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let back: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(back.object_groups, s.project.object_groups);
+        assert_eq!(back.locked_objects, s.project.locked_objects);
+        assert_eq!(back.graphic_groups, s.project.graphic_groups);
+        assert!(back.validate().is_ok());
+        Ok(())
+    }
     #[test]
     fn locked_footprints_refuse_placement_and_unlock_again() -> Result<(), Error> {
         let mut s = Session::default();
@@ -19832,6 +20596,7 @@ mod tests {
                 json!({"footprint":fp,"columns":2,"rows":1,"dx":5,"dy":5}),
             ),
             ("footprint.dock_edge", json!({"id":fp,"edge":"left"})),
+            ("footprint.flip", json!({"id":fp})),
         ] {
             assert!(
                 s.execute(cmd, params, None).is_err(),
@@ -22934,6 +23699,79 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn erc_pin_matrix_set_reset_and_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"BUS"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let u1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"U1","position":{"x":0.0,"y":0.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let u2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"U2","position":{"x":10.0,"y":0.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net": net, "pins": [{"component": u1, "pin": "1"}, {"component": u2, "pin": "1"}]}),
+            None,
+        )?;
+        for component in [u1, u2] {
+            let Some(c) = s.project.components.iter_mut().find(|c| c.id == component) else {
+                return Err(Error::Invalid("component missing".into()));
+            };
+            let Some(p) = c.pins.iter_mut().find(|p| p.number == "1") else {
+                return Err(Error::Invalid("pin missing".into()));
+            };
+            p.electrical_type = "output".into();
+        }
+        s.project.validate().map_err(Error::Invalid)?;
+        let has_conflict = |s: &Session| {
+            s.checks()["erc"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|f| f["code"] == json!("pin_conflict")))
+        };
+        assert!(
+            has_conflict(&s),
+            "two outputs should conflict before override"
+        );
+        s.execute(
+            "erc.matrix_set",
+            json!({"type_a":"output","type_b":"output","level":"ok"}),
+            None,
+        )?;
+        assert!(!has_conflict(&s), "matrix ok should silence the conflict");
+        assert_eq!(
+            s.project
+                .pin_matrix
+                .get("output|output")
+                .map(String::as_str),
+            Some("ok")
+        );
+        s.undo()?;
+        assert!(has_conflict(&s), "undo should restore the conflict");
+        s.execute(
+            "erc.matrix_set",
+            json!({"type_a":"output","type_b":"output","level":"ok"}),
+            None,
+        )?;
+        s.execute("erc.matrix_reset", json!({}), None)?;
+        assert!(has_conflict(&s), "reset should restore default error level");
+        s.undo()?;
+        assert!(
+            !has_conflict(&s),
+            "undo after reset should restore the ok override"
+        );
+        Ok(())
+    }
+    #[test]
     fn check_findings_can_be_excluded_per_object_and_restored() -> Result<(), Error> {
         let mut s = Session::default();
         let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
@@ -25121,6 +25959,79 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn sheet_parent_records_refuse_cycles_and_missing_parents() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let child =
+            s.execute("schematic.new_sheet", json!({"name":"Child"}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+        let other =
+            s.execute("schematic.new_sheet", json!({"name":"Other"}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+        s.execute(
+            "schematic.set_sheet_parent",
+            json!({"id":child,"parent":0,"entry":{"x":10.0,"y":12.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.sheets[0].parent, Some(0));
+        assert!(
+            s.execute(
+                "schematic.set_sheet_parent",
+                json!({"id":child,"parent":child + 500,"entry":{"x":1.0,"y":1.0}}),
+                None
+            )
+            .is_err(),
+            "a missing parent is refused with a plain reason"
+        );
+        s.execute(
+            "schematic.set_sheet_parent",
+            json!({"id":other,"parent":child,"entry":{"x":2.0,"y":3.0}}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "schematic.set_sheet_parent",
+                json!({"id":child,"parent":other,"entry":{"x":4.0,"y":5.0}}),
+                None
+            )
+            .is_err(),
+            "a cycle is refused with a plain reason"
+        );
+        s.undo()?;
+        assert_eq!(s.project.sheets[1].parent, None);
+        s.undo()?;
+        assert_eq!(s.project.sheets[0].parent, None);
+        Ok(())
+    }
+
+    #[test]
+    fn net_pages_lists_every_page_that_carries_the_net() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let page = s.execute("schematic.new_sheet", json!({"name":"Audio"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let net = 4;
+        s.execute(
+            "schematic.place_port",
+            json!({"name":"VCC_IN","net":net,"sheet":0,"position":{"x":5.0,"y":40.0}}),
+            None,
+        )?;
+        s.execute(
+            "schematic.place_port",
+            json!({"name":"VCC_IN","net":net,"sheet":page,"position":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        let report = s.execute("schematic.net_pages", json!({"net":net}), None)?;
+        let pages = report["result"]["pages"].as_array().ok_or_else(missing)?;
+        assert_eq!(pages.len(), 2);
+        assert!(pages.iter().any(|p| p.as_u64() == Some(0)));
+        assert!(pages.iter().any(|p| p.as_u64() == Some(page)));
+        Ok(())
+    }
+
     #[test]
     fn undo_branch_never_reuses_ids() {
         let mut s = Session::default();
