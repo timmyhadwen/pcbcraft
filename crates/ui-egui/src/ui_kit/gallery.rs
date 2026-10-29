@@ -12,8 +12,14 @@
 //! # Do not
 //! - Add a component here that the kit does not export.
 use super::button::{self, Kind, Look, Size, State};
+use super::card;
 use super::chip::{self, BadgeKind};
+use super::empty_state;
 use super::icons;
+use super::panel_header;
+use super::segmented::{self, Segment};
+use super::status_item;
+use super::tab_bar::{self, TabItem, TabSize};
 use crate::fonts;
 use crate::theme::{CanvasColors, Tokens};
 use egui::{Color32, Sense, Stroke, Vec2};
@@ -27,6 +33,8 @@ pub enum Page {
     Type,
     /// Buttons in every kind, size and state, plus chips and badges.
     Buttons,
+    /// Segmented control, tab bars, panel header, card, empty state, status items.
+    Tabs,
 }
 
 impl Page {
@@ -36,6 +44,7 @@ impl Page {
             "swatches" => Some(Page::Swatches),
             "type" => Some(Page::Type),
             "buttons" => Some(Page::Buttons),
+            "tabs" => Some(Page::Tabs),
             _ => None,
         }
     }
@@ -48,6 +57,12 @@ pub struct GalleryState {
     pub tokens: Tokens,
     /// The page on show.
     pub page: Page,
+    /// Selected index of each demo tab bar (nav, aside, sheet).
+    pub tab: [usize; 3],
+    /// Selected index of each demo segmented control.
+    pub seg: [usize; 3],
+    /// Frames shown, used to put keyboard focus on one demo control once.
+    pub frames: u32,
 }
 
 impl GalleryState {
@@ -56,6 +71,9 @@ impl GalleryState {
         Self {
             tokens: Tokens::for_dark(dark),
             page: Page::Swatches,
+            tab: [1, 0, 0],
+            seg: [0, 0, 1],
+            frames: 0,
         }
     }
 }
@@ -378,12 +396,222 @@ pub fn buttons(ui: &mut egui::Ui, state: &GalleryState) {
     });
 }
 
+/// Draw the tabs page: segmented controls, the three tab bars, a panel header,
+/// a card with form content, an empty state and status items.
+///
+/// Why: the visual proof for ticket #762; keyboard focus is shown on the first
+/// segmented item and on the aside tab so the ring is visible in a screenshot.
+pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
+    let t = state.tokens;
+    state.frames += 1;
+    ui.label(fonts::title(format!(
+        "Tabs, segmented, cards, {:?}",
+        t.theme
+    )));
+    ui.add_space(8.0);
+    ui.label(fonts::caption("Segmented control").color(t.muted));
+    ui.horizontal(|ui| {
+        segmented::segmented(
+            ui,
+            "seg-side",
+            &mut state.seg[0],
+            &[
+                Segment {
+                    label: "Top",
+                    tip: "Show the top side",
+                },
+                Segment {
+                    label: "Bottom",
+                    tip: "Show the bottom side",
+                },
+            ],
+        );
+        ui.add_space(16.0);
+        segmented::segmented(
+            ui,
+            "seg-units",
+            &mut state.seg[1],
+            &[
+                Segment {
+                    label: "mm",
+                    tip: "Show millimetres",
+                },
+                Segment {
+                    label: "mil",
+                    tip: "Show thousandths of an inch",
+                },
+            ],
+        );
+        ui.add_space(16.0);
+        segmented::segmented(
+            ui,
+            "seg-corners",
+            &mut state.seg[2],
+            &[
+                Segment {
+                    label: "45",
+                    tip: "Cut corners at 45 degrees",
+                },
+                Segment {
+                    label: "90",
+                    tip: "Square corners",
+                },
+                Segment {
+                    label: "Free",
+                    tip: "Any angle",
+                },
+            ],
+        );
+    });
+    if state.frames == 2 {
+        let id = segmented::item_id(ui, "seg-side", 0);
+        ui.memory_mut(|m| m.request_focus(id));
+    }
+    ui.add_space(16.0);
+    ui.label(fonts::caption("Tab nav (40), aside tabs (40), sheet tabs (36)").color(t.muted));
+    let nav = [
+        TabItem::new("Files", "Project files"),
+        TabItem::new("Schematic", "Draw the circuit"),
+        TabItem::new("Layout", "Place and route the board"),
+        TabItem::new("3D", "See the board in 3D"),
+        TabItem::new("Manufacture", "Make fabrication files"),
+    ];
+    ui.allocate_ui(Vec2::new(520.0, 40.0), |ui| {
+        tab_bar::tab_bar(ui, "nav", &mut state.tab[0], &nav, TabSize::Nav);
+    });
+    let aside = [
+        TabItem {
+            icon: Some(icons::EYE),
+            ..TabItem::new("Layers", "Layers of the board")
+        },
+        TabItem {
+            icon: Some(icons::SEARCH),
+            ..TabItem::new("Library", "Parts library")
+        },
+    ];
+    ui.allocate_ui(Vec2::new(320.0, 40.0), |ui| {
+        tab_bar::tab_bar(ui, "aside", &mut state.tab[1], &aside, TabSize::Aside);
+    });
+    let sheet = [
+        TabItem {
+            badge: Some(("3".to_owned(), BadgeKind::Warning)),
+            ..TabItem::new("Findings", "Problems found by the checks")
+        },
+        TabItem::new("Output", "Messages from long jobs"),
+        TabItem {
+            badge: Some(("12".to_owned(), BadgeKind::Neutral)),
+            ..TabItem::new("Console", "Commands and their results")
+        },
+    ];
+    ui.allocate_ui(Vec2::new(420.0, 36.0), |ui| {
+        tab_bar::tab_bar(ui, "sheet", &mut state.tab[2], &sheet, TabSize::Sheet);
+    });
+    if state.frames == 2 {
+        let id = tab_bar::tab_id(ui, "aside", 0);
+        ui.memory_mut(|m| m.request_focus(id));
+    }
+    ui.add_space(16.0);
+    ui.horizontal_top(|ui| {
+        ui.allocate_ui(Vec2::new(360.0, 0.0), |ui| {
+            ui.label(fonts::caption("Panel header (36)").color(t.muted));
+            panel_header::panel_header(ui, "Layers", |ui| {
+                button::icon_button(
+                    ui,
+                    icons::PLUS,
+                    "Add layer",
+                    "Add a layer",
+                    Size::Small,
+                    true,
+                );
+            });
+            ui.add_space(24.0);
+            ui.label(fonts::caption("Status items (24)").color(t.muted));
+            ui.horizontal(|ui| {
+                status_item::status_item(
+                    ui,
+                    Some(icons::OK),
+                    "Ready",
+                    "The project is saved",
+                    false,
+                );
+                status_item::status_item(
+                    ui,
+                    Some(icons::ERROR),
+                    "0 errors",
+                    "Open the findings",
+                    false,
+                );
+                status_item::status_item(
+                    ui,
+                    Some(icons::WARNING),
+                    "3 warnings",
+                    "Open the findings",
+                    false,
+                );
+                status_item::status_item(
+                    ui,
+                    None,
+                    "X 44.00 Y 20.00 mm",
+                    "Pointer position on the board",
+                    true,
+                );
+            });
+        });
+        ui.add_space(24.0);
+        ui.allocate_ui(Vec2::new(520.0, 0.0), |ui| {
+            card::card(
+                ui,
+                "Board outline",
+                Some("60 by 40 mm"),
+                |ui| {
+                    button::ghost_button(
+                        ui,
+                        None,
+                        "Reset",
+                        "Restore the default outline",
+                        Size::Small,
+                        true,
+                    );
+                },
+                |ui| {
+                    ui.label(
+                        fonts::text(fonts::Role::Body, "Corners are cut at 45 degrees.")
+                            .color(t.text),
+                    );
+                    ui.label(
+                        fonts::caption("Change the corner style in the Layout tool bar.")
+                            .color(t.muted),
+                    );
+                },
+            );
+            ui.add_space(16.0);
+            card::card(
+                ui,
+                "Fabrication files",
+                None,
+                |_| {},
+                |ui| {
+                    empty_state::empty_state(
+                        ui,
+                        icons::FIT,
+                        "No fabrication files yet",
+                        "Plot files appear here once you run the output set.",
+                        "Go to Plot files",
+                        "Open the Plot files output",
+                    );
+                },
+            );
+        });
+    });
+}
+
 /// Draw the page named in `state`.
 pub fn show(ui: &mut egui::Ui, state: &mut GalleryState) {
     match state.page {
         Page::Swatches => swatches(ui, state),
         Page::Type => type_scale(ui, state),
         Page::Buttons => buttons(ui, state),
+        Page::Tabs => tabs(ui, state),
     }
 }
 
@@ -402,7 +630,7 @@ mod tests {
         theme::apply(&ctx, &state.tokens);
         crate::fonts::install(&ctx);
         let mut nodes = Vec::new();
-        for page in [Page::Swatches, Page::Type, Page::Buttons] {
+        for page in [Page::Swatches, Page::Type, Page::Buttons, Page::Tabs] {
             state.page = page;
             for pass in 0..2 {
                 let mut out = ctx.run_ui(

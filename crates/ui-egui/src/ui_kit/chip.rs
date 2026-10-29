@@ -88,6 +88,33 @@ pub fn chip(ui: &mut Ui, text: &str, tip: &str) -> Response {
     response.on_hover_text(tip)
 }
 
+/// Width a badge needs for `text`, at the badge height.
+pub fn badge_size(ui: &Ui, text: &str) -> Vec2 {
+    let w = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), Role::Caption.font(), Color32::PLACEHOLDER)
+        .size()
+        .x;
+    Vec2::new((w + 12.0).max(BADGE_HEIGHT), BADGE_HEIGHT)
+}
+
+/// Paint a badge into `rect` without allocating space.
+///
+/// Why: tabs and rows draw a badge inside their own layout.
+pub fn paint_badge(ui: &Ui, rect: egui::Rect, text: &str, kind: BadgeKind, t: &Tokens) {
+    let (fill, ink) = badge_colors(kind, t);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), Role::Caption.font(), ink);
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same((BADGE_HEIGHT / 2.0) as u8), fill);
+    let pos = egui::pos2(
+        rect.center().x - galley.size().x / 2.0,
+        rect.center().y - galley.size().y / 2.0,
+    );
+    ui.painter().galley(pos, galley, ink);
+}
+
 /// A badge: an 18 high pill with a count or a status word.
 ///
 /// Why: finding counts on tabs and Current or Stale on outputs.
@@ -96,20 +123,9 @@ pub fn chip(ui: &mut Ui, text: &str, tip: &str) -> Response {
 /// - Not interactive; the accessible name is its text.
 pub fn badge(ui: &mut Ui, text: &str, kind: BadgeKind, tip: &str) -> Response {
     let t = theme::tokens(ui.ctx());
-    let (fill, ink) = badge_colors(kind, &t);
-    let galley = ui
-        .painter()
-        .layout_no_wrap(text.to_owned(), Role::Caption.font(), ink);
-    let width = (galley.size().x + 12.0).max(BADGE_HEIGHT);
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, BADGE_HEIGHT), Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(badge_size(ui, text), Sense::hover());
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, text));
-    ui.painter()
-        .rect_filled(rect, CornerRadius::same((BADGE_HEIGHT / 2.0) as u8), fill);
-    let pos = egui::pos2(
-        rect.center().x - galley.size().x / 2.0,
-        rect.center().y - galley.size().y / 2.0,
-    );
-    ui.painter().galley(pos, galley, ink);
+    paint_badge(ui, rect, text, kind, &t);
     response.on_hover_text(tip)
 }
 

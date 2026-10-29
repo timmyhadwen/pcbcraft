@@ -13,12 +13,26 @@
 //! - crates/ui-egui/src/ui_kit/chip.rs
 //! - crates/ui-egui/src/ui_kit/focus.rs
 //! - crates/ui-egui/src/ui_kit/icons.rs
+//! - crates/ui-egui/src/ui_kit/card.rs
+//! - crates/ui-egui/src/ui_kit/empty_state.rs
+//! - crates/ui-egui/src/ui_kit/panel_header.rs
+//! - crates/ui-egui/src/ui_kit/segmented.rs
+//! - crates/ui-egui/src/ui_kit/status_item.rs
+//! - crates/ui-egui/src/ui_kit/tab_bar.rs
 //!
 //! # Do not
 //! - Touch `crates/ui-egui/src/lib.rs` from here; pages call into the kit, not the reverse.
 
 pub mod button;
+pub mod card;
 pub mod chip;
+pub mod empty_state;
 pub mod focus;
 pub mod gallery;
 pub mod icons;
+pub mod panel_header;
+pub mod segmented;
+pub mod status_item;
+pub mod tab_bar;
+#[cfg(test)]
+mod testing;
