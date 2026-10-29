@@ -122,6 +122,14 @@ fn run() -> Result<(), String> {
                 session,
                 option(&args, "--project").map(str::to_string),
             )?;
+            if let Some(address) = option(&args, "--http") {
+                // The endpoint and token go to stderr (or a 0600 file); stdout stays unused.
+                let token_file = option(&args, "--token-file").map(Path::new);
+                let (listener, token) =
+                    pcbcraft_mcp::http::start_http(address, token_file, &mut std::io::stderr())?;
+                pcbcraft_mcp::http::serve_listener(&hub, &listener, &token);
+                return Ok(());
+            }
             pcbcraft_mcp::serve(
                 &mut std::io::stdin().lock(),
                 &mut std::io::stdout().lock(),
@@ -205,7 +213,7 @@ Common: --sample or --project FILE\n\
 new: pcbcraft-cli new --out design.pcbcraft [--name TITLE]\n\
 init: pcbcraft-cli init DIRECTORY [--name TITLE] [--force]\n\
 Tool: pcbcraft-cli tool NAME --args JSON [--save FILE]\n\
-MCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991]\n\
+MCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991 | --http 127.0.0.1:PORT [--token-file FILE]]\n\
 Desktop: pcbcraft --sample --control 127.0.0.1:7991\n\
 See README.md and docs/mcp.md for schemas and examples."
         ),
