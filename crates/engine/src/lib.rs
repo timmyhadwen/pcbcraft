@@ -1,9 +1,11 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
+mod dry_run;
 mod images;
 pub mod library;
 pub mod profiles;
 pub mod recents;
+pub use dry_run::{ChangeSummary, DryRun};
 mod route;
 mod selection_clip;
 mod tuning;
