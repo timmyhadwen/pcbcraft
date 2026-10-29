@@ -14,6 +14,7 @@ mod gerber_job;
 mod layers;
 mod library_render;
 mod package;
+mod part_bodies;
 mod panel_export;
 mod raster;
 pub use board_mesh::{
@@ -1473,6 +1474,10 @@ impl StepDoc {
     /// Extrude a closed polygon from z=0 to z=depth, returning the advanced
     /// face ids that close the prism.
     fn prism(&mut self, ring: &[Point], depth: f64) -> Result<Vec<u32>, String> {
+        self.prism_between(ring, 0.0, depth)
+    }
+    /// Extrude a closed polygon from z0 to z1.
+    fn prism_between(&mut self, ring: &[Point], z0: f64, z1: f64) -> Result<Vec<u32>, String> {
         let ring = thin_ring(ring);
         let count = ring.len();
         if count < 3 {
@@ -1490,10 +1495,10 @@ impl StepDoc {
                 continue;
             }
             let corners = [
-                (a.x, a.y, 0.0),
-                (b.x, b.y, 0.0),
-                (b.x, b.y, depth),
-                (a.x, a.y, depth),
+                (a.x, a.y, z0),
+                (b.x, b.y, z0),
+                (b.x, b.y, z1),
+                (a.x, a.y, z1),
             ];
             faces.push(self.face(
                 &corners,
@@ -1501,8 +1506,8 @@ impl StepDoc {
                 (dx / length, dy / length, 0.0),
             )?);
         }
-        let bottom: Vec<Coords> = ring.iter().map(|p| (p.x, p.y, 0.0)).collect();
-        let mut top: Vec<Coords> = ring.iter().map(|p| (p.x, p.y, depth)).collect();
+        let bottom: Vec<Coords> = ring.iter().map(|p| (p.x, p.y, z0)).collect();
+        let mut top: Vec<Coords> = ring.iter().map(|p| (p.x, p.y, z1)).collect();
         top.reverse();
         faces.push(self.face(&bottom, (0.0, 0.0, -1.0), (1.0, 0.0, 0.0))?);
         faces.push(self.face(&top, (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))?);
@@ -1528,7 +1533,7 @@ fn thin_ring(points: &[Point]) -> Vec<Point> {
 }
 
 /// Export the board as an AP214 STEP file: the outline and every placed pad
-/// as a solid prism, in millimetres.
+/// as a solid prism, plus one box solid per placed part, in millimetres.
 pub fn step_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let depth = p.board.thickness;
@@ -1572,6 +1577,16 @@ pub fn step_board(p: &Project) -> Result<String, String> {
             items.extend(doc.prism(&ring, depth)?);
         }
     }
+    for body in part_bodies::part_boxes(p) {
+        let faces = doc.prism_between(&body.ring, body.z0, body.z1)?;
+        if faces.is_empty() {
+            continue;
+        }
+        let listed: Vec<String> = faces.iter().map(|f| format!("#{f}")).collect();
+        let shell = doc.add(&format!("CLOSED_SHELL('',({}))", listed.join(",")))?;
+        let name = body.name.replace('\'', "''");
+        items.push(doc.add(&format!("MANIFOLD_SOLID_BREP('{name}',#{shell})"))?);
+    }
     let listed: Vec<String> = items.iter().map(|i| format!("#{i}")).collect();
     doc.set(
         shape,
@@ -1608,16 +1623,21 @@ pub fn vrml_board(p: &Project) -> Result<String, String> {
             Point::new(0.0, p.board.height),
         ],
     };
-    let mut rings = vec![outline];
+    let mut rings = vec![(outline, 0.0, depth)];
     for footprint in &p.board.footprints {
         for pad in &footprint.pads {
-            rings.push(
+            rings.push((
                 pad.outline_points()
                     .into_iter()
                     .map(|pos| footprint.position.offset(pos.rotate(-footprint.rotation)))
                     .collect(),
-            );
+                0.0,
+                depth,
+            ));
         }
+    }
+    for body in part_bodies::part_boxes(p) {
+        rings.push((body.ring, body.z0, body.z1));
     }
     if rings.len() > MAX_PRISMS {
         return Err("mechanical scene exceeds the solid limit".into());
@@ -1625,9 +1645,10 @@ pub fn vrml_board(p: &Project) -> Result<String, String> {
     let mut out = String::new();
     out.push_str("#VRML V2.0 utf8\n# pcbcraft board\n");
     let mut faces = 0usize;
-    for ring in &rings {
+    for (ring, z0, z1) in &rings {
         let base = 0usize;
         let ring = thin_ring(ring);
+        let (z0, z1) = (*z0, *z1);
         let count = ring.len();
         if count < 3 {
             continue;
@@ -1645,16 +1666,16 @@ pub fn vrml_board(p: &Project) -> Result<String, String> {
                 "{} {} {},{} {} {},{} {} {},{} {} {},",
                 f64s(a.x),
                 f64s(a.y),
-                "0",
+                f64s(z0),
                 f64s(b.x),
                 f64s(b.y),
-                "0",
+                f64s(z0),
                 f64s(b.x),
                 f64s(b.y),
-                f64s(depth),
+                f64s(z1),
                 f64s(a.x),
                 f64s(a.y),
-                f64s(depth),
+                f64s(z1),
             ));
         }
 
@@ -7301,6 +7322,150 @@ mod tests {
             thin_ring(&ring).len() <= 32,
             "long rounded rings are thinned for one file"
         );
+        Ok(())
+    }
+
+    /// Two parts of the same footprint: R1 with no model on the top side and
+    /// R2 with a model reference. R2 is placed at (30, 15), optionally on the
+    /// bottom side and rotated.
+    fn two_part_project(bottom: bool, rotation: f64) -> Result<Project, String> {
+        let mut project = real_library_project()?;
+        let mut component = project.components[0].clone();
+        component.id = 3;
+        component.reference = "R2".into();
+        if let Some(lib) = component.library_footprint.as_mut() {
+            lib.definition.model = Some(pcbcraft_library::Model3D {
+                path: "R_0805.step".into(),
+                offset: [0.0; 3],
+                scale: [1.0; 3],
+                rotate: [0.0; 3],
+                raw_source: String::new(),
+            });
+        }
+        let mut footprint = project.board.footprints[0].clone();
+        footprint.id = 4;
+        footprint.component = 3;
+        footprint.position = Point::new(30.0, 15.0);
+        footprint.rotation = rotation;
+        if bottom {
+            for pad in &mut footprint.pads {
+                if let Some(g) = pad.geometry.as_mut() {
+                    g.layers = vec!["B.Cu".into(), "B.Mask".into()];
+                }
+            }
+        }
+        project.components.push(component);
+        project.board.footprints.push(footprint);
+        project.validate()?;
+        Ok(project)
+    }
+    fn bounds(ring: &[Point]) -> (Point, Point) {
+        let mut lo = ring[0];
+        let mut hi = ring[0];
+        for p in ring {
+            lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
+            hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
+        }
+        (lo, hi)
+    }
+
+    #[test]
+    fn step_board_places_a_box_for_a_part_without_a_model() -> Result<(), String> {
+        let project = two_part_project(false, 0.0)?;
+        let step = step_board(&project)?;
+        assert_eq!(
+            step.matches("MANIFOLD_SOLID_BREP(").count(),
+            2,
+            "one solid for each placed part"
+        );
+        assert!(step.contains("MANIFOLD_SOLID_BREP('R1',"));
+        assert!(step.contains("MANIFOLD_SOLID_BREP('R2',"));
+        let boxes = part_bodies::part_boxes(&project);
+        assert_eq!(boxes.len(), 2);
+        let first = &boxes[0];
+        let (lo, hi) = bounds(&first.ring);
+        // The 0805 courtyard is 3.5 by 1.9 millimetres around the part origin.
+        assert!(((hi.x - lo.x) - 3.5).abs() < 0.01, "{lo:?} {hi:?}");
+        assert!(((hi.y - lo.y) - 1.9).abs() < 0.01, "{lo:?} {hi:?}");
+        assert!(((lo.x + hi.x) / 2.0 - 10.0).abs() < 0.01);
+        let thickness = project.board.thickness;
+        assert!((first.z0 - thickness).abs() < 1e-9);
+        assert!((first.z1 - thickness - part_bodies::DEFAULT_BODY_HEIGHT_MM).abs() < 1e-9);
+        // The part with a model gets the same box shape for now.
+        let (mlo, mhi) = bounds(&boxes[1].ring);
+        assert!(((mhi.x - mlo.x) - 3.5).abs() < 0.01);
+        assert!(((mlo.x + mhi.x) / 2.0 - 30.0).abs() < 0.01);
+        Ok(())
+    }
+
+    #[test]
+    fn step_board_places_bottom_side_parts_below_the_board() -> Result<(), String> {
+        let mut project = two_part_project(true, 90.0)?;
+        // An off-centre courtyard makes the x mirror visible.
+        if let Some(lib) = project.components[1].library_footprint.as_mut() {
+            lib.definition.graphics = vec![pcbcraft_library::Graphic::Rectangle {
+                start: Point::new(-1.0, -1.0),
+                end: Point::new(3.0, 1.0),
+                width: 0.05,
+                fill: "none".into(),
+                layer: "F.CrtYd".into(),
+            }];
+        }
+        let step = step_board(&project)?;
+        assert_eq!(step.matches("MANIFOLD_SOLID_BREP(").count(), 2);
+        let boxes = part_bodies::part_boxes(&project);
+        let bottom = &boxes[1];
+        assert!((bottom.z1 - 0.0).abs() < 1e-9, "top of the box is the bottom face");
+        assert!(bottom.z0 < -1.0, "the box hangs below the board");
+        // Mirrored in x the courtyard spans x -3..1; turned 90 degrees it
+        // spans y of the part from -3..1 around the origin at (30, 15).
+        let (lo, hi) = bounds(&bottom.ring);
+        assert!(((hi.x - lo.x) - 2.0).abs() < 0.01, "{lo:?} {hi:?}");
+        assert!(((hi.y - lo.y) - 4.0).abs() < 0.01, "{lo:?} {hi:?}");
+        assert!(((lo.x + hi.x) / 2.0 - 30.0).abs() < 0.01);
+        assert!(((lo.y + hi.y) / 2.0 - 13.0).abs() < 0.01, "{lo:?} {hi:?}");
+        let mut area = 0.0;
+        for i in 0..bottom.ring.len() {
+            let a = bottom.ring[i];
+            let b = bottom.ring[(i + 1) % bottom.ring.len()];
+            area += a.x * b.y - b.x * a.y;
+        }
+        assert!(area > 0.0, "the ring stays counter-clockwise");
+        Ok(())
+    }
+
+    #[test]
+    fn vrml_board_lists_the_same_bodies_as_step() -> Result<(), String> {
+        let project = two_part_project(false, 0.0)?;
+        let plain = {
+            let mut p = project.clone();
+            p.board.footprints.clear();
+            p
+        };
+        let with = vrml_board(&project)?;
+        let without = vrml_board(&plain)?;
+        assert_eq!(
+            with.matches("IndexedFaceSet").count(),
+            without.matches("IndexedFaceSet").count() + 2 + 4,
+            "two bodies and the four pads of the parts"
+        );
+        let top = project.board.thickness + part_bodies::DEFAULT_BODY_HEIGHT_MM;
+        assert!(with.contains(&f64s(top)), "body tops are written");
+        // The parts' pads are the only other solids besides the bodies.
+        let step = step_board(&project)?;
+        assert_eq!(step.matches("MANIFOLD_SOLID_BREP(").count(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn step_board_with_no_parts_writes_no_bodies() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.width = 40.0;
+        project.board.height = 30.0;
+        let step = step_board(&project)?;
+        assert_eq!(step.matches("MANIFOLD_SOLID_BREP(").count(), 0);
+        assert_eq!(step.matches("CLOSED_SHELL(").count(), 0);
+        assert_eq!(step.matches("ADVANCED_FACE(").count(), 6, "only the board slab");
         Ok(())
     }
 
