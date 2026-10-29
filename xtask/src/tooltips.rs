@@ -12,6 +12,14 @@
 //! or any exemption that no longer matches. Tips built at run time (a
 //! `command_tip(..)` call, a variable) have no literal and are skipped.
 //! The e2e gate (#393) calls `run` with `--strict` once the audit is clean.
+//!
+//! # Dependencies
+//! - docs/tooltips.md
+//! - crates/ui-egui/tooltip-exemptions.txt
+//! - crates/ui-egui/src
+//!
+//! # Do not
+//! - Add an exemption without a reason, or make the default run fatal before #631.
 use std::path::{Path, PathBuf};
 
 /// Tips with fewer words than this say too little to be a sentence.
