@@ -8638,6 +8638,7 @@ mod tests {
             target_length: None,
             length_tolerance: None,
             nets: vec![5],
+            profile: None,
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
@@ -8722,6 +8723,7 @@ mod tests {
                 width: 10.0,
                 height: 8.0,
             },
+            profile: None,
         });
         let dsn = specctra_dsn(&project)?;
         assert!(
