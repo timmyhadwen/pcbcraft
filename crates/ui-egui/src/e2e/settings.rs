@@ -64,3 +64,50 @@ fn a_newcomer_finds_appearance_on_the_settings_page() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// Click the board width box, type `text`, press Enter, and give the frame
+/// that follows.
+fn type_into_the_width_box(
+    ctx: &egui::Context,
+    app: &mut App,
+    shown: &str,
+    text: &str,
+) -> Result<(), String> {
+    authoring::tests::tap(ctx, app, shown)?;
+    let enter = egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: Some(egui::Key::Enter),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::Text(text.to_string()), enter],
+        egui::Modifiers::NONE,
+    );
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_types_a_decimal_comma_in_german() -> Result<(), String> {
+    let mut app = fresh();
+    let ctx = egui::Context::default();
+    app.set_language("de");
+    app.change_tab(Tab::Settings);
+    app.width = 12.5;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "12,5")?,
+        "a German install shows the board width with a comma"
+    );
+    type_into_the_width_box(&ctx, &mut app, "12,5 mm", "1,6")?;
+    assert_eq!(app.width, 1.6, "typing 1,6 stores 1.6");
+    assert!(paints_text(&ctx, &mut app, "1,6 mm")?, "the box shows 1,6");
+    type_into_the_width_box(&ctx, &mut app, "1,6 mm", "2.4")?;
+    assert_eq!(app.width, 2.4, "typing a point from habit also works");
+    assert!(paints_text(&ctx, &mut app, "2,4 mm")?, "the box shows 2,4");
+    Ok(())
+}

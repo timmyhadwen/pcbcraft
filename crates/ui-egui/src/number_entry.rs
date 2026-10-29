@@ -105,4 +105,22 @@ mod tests {
         );
         assert_eq!(trim_zeros("de", fmt_ui("de", typed, 3), 0), "0,25");
     }
+
+    #[test]
+    fn every_numeric_box_in_lib_rs_uses_the_localized_helper() {
+        // Integer counters stay plain; every other box goes through the helper.
+        const COUNTERS: [&str; 2] = ["&mut self.panel_columns", "&mut self.panel_rows"];
+        let source = include_str!("lib.rs");
+        let production = source.split("\n#[cfg(test)]").next().unwrap_or(source);
+        let mut plain = Vec::new();
+        for (at, _) in production.match_indices("egui::DragValue::new(") {
+            let before = production[..at].trim_end();
+            let rest = &production[at + "egui::DragValue::new(".len()..];
+            let arg = rest.split(')').next().unwrap_or("");
+            if !before.ends_with("localized_active(") && !COUNTERS.contains(&arg) {
+                plain.push(arg.to_string());
+            }
+        }
+        assert!(plain.is_empty(), "boxes not localized: {plain:?}");
+    }
 }
