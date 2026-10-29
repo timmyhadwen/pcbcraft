@@ -11,7 +11,7 @@
 use serde_json::Value;
 
 /// How much the assistant may do without asking.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub enum Mode {
     /// Ask before every edit.
     #[default]
@@ -20,6 +20,34 @@ pub enum Mode {
     Edits,
     /// Everything runs.
     All,
+}
+
+impl Mode {
+    /// Every mode, in the order Settings lists them.
+    pub const ALL: [Mode; 3] = [Mode::Ask, Mode::Edits, Mode::All];
+
+    /// The short id kept in files.
+    pub fn id(self) -> &'static str {
+        match self {
+            Mode::Ask => "ask",
+            Mode::Edits => "edits",
+            Mode::All => "all",
+        }
+    }
+
+    /// The mode for an id from [`Mode::id`].
+    pub fn parse(id: &str) -> Option<Mode> {
+        Mode::ALL.into_iter().find(|m| m.id() == id)
+    }
+
+    /// The words Settings shows.
+    pub fn label(self) -> &'static str {
+        match self {
+            Mode::Ask => "Ask every time",
+            Mode::Edits => "Auto-allow design edits",
+            Mode::All => "Allow everything",
+        }
+    }
 }
 
 /// What to do with one tool call.

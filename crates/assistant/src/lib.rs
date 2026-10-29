@@ -1,6 +1,7 @@
 //! Assistant conversation model: backend seam, transcript, and turn accounting (no UI).
 mod api;
 mod backend;
+mod connections;
 mod describe;
 mod gate;
 mod prompt;
@@ -18,6 +19,7 @@ pub use backend::{
     AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PermissionOption,
     PromptPart, Secrets, StartContext, ToolStatus, base64, content_blocks,
 };
+pub use connections::{Connection, PRESETS, Preset, config_for, key_id, new_id, normalize_url};
 pub use describe::summary_text;
 pub use gate::{
     AMBIGUOUS_KEYS, FILE_EXTENSIONS, FILE_KEYS, Mode, Verdict, describe, edits_design, request,

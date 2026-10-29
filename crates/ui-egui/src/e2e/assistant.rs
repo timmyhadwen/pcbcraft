@@ -230,3 +230,146 @@ fn a_newcomer_sees_a_malformed_change_refused_with_the_reason() -> Result<(), St
     );
     Ok(())
 }
+
+/// A server stand-in that lists two models and counts how often it is asked.
+fn fake_http(calls: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> pcbcraft_assistant::HttpFn {
+    std::sync::Arc::new(move |_| {
+        calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok((
+            200,
+            br#"{"data":[{"id":"small-model"},{"id":"big-model"}]}"#.to_vec(),
+        ))
+    })
+}
+
+/// A keychain that remembers keys in memory.
+#[derive(Default)]
+struct FakeKeychain(std::sync::Mutex<std::collections::BTreeMap<String, String>>);
+
+impl pcbcraft_assistant::Secrets for FakeKeychain {
+    fn get(&self, id: &str) -> Result<Option<String>, String> {
+        let map = self.0.lock().map_err(|e| e.to_string())?;
+        Ok(map.get(id).cloned())
+    }
+    fn set(&self, id: &str, secret: &str) -> Result<(), String> {
+        let mut map = self.0.lock().map_err(|e| e.to_string())?;
+        map.insert(id.into(), secret.into());
+        Ok(())
+    }
+    fn delete(&self, id: &str) -> Result<(), String> {
+        let mut map = self.0.lock().map_err(|e| e.to_string())?;
+        map.remove(id);
+        Ok(())
+    }
+}
+
+fn settings_app(
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    keys: std::sync::Arc<FakeKeychain>,
+) -> App {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None).with_host(Host {
+        http: Some(fake_http(calls)),
+        secrets: Some(keys),
+    });
+    app.refresh();
+    app.change_tab(Tab::Settings);
+    app
+}
+
+#[test]
+fn a_newcomer_adds_a_local_model_server_and_tests_it() -> Result<(), String> {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut app = settings_app(calls.clone(), std::sync::Arc::new(FakeKeychain::default()));
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Add connection")?;
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Test")?;
+    for _ in 0..30 {
+        settle(&ctx, &mut app);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(paints_text(&ctx, &mut app, "2 models")?, "the test result is shown");
+    authoring::tests::tap(&ctx, &mut app, "Add")?;
+    settle(&ctx, &mut app);
+    assert_eq!(app.preferences.assistant_connections.len(), 1);
+    assert_eq!(
+        app.preferences.assistant_default,
+        app.preferences.assistant_connections[0].id,
+        "the first connection is the one in use"
+    );
+    assert!(paints_text(&ctx, &mut app, "Local model server")?, "the row is listed");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_cannot_type_a_key_for_a_plain_http_server_on_another_computer() -> Result<(), String> {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut app = settings_app(calls, std::sync::Arc::new(FakeKeychain::default()));
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Add connection")?;
+    settle(&ctx, &mut app);
+    if let Some(d) = app.assistant.dialog.as_mut() {
+        d.set_url("http://10.0.0.5:1234/v1");
+    }
+    settle(&ctx, &mut app);
+    assert!(paints_text(&ctx, &mut app, "only sent over https")?, "the reason is painted");
+    assert!(!paints_text(&ctx, &mut app, "Kept in the system keychain")?);
+    Ok(())
+}
+
+#[test]
+fn a_key_is_stored_in_the_keychain_and_never_in_the_preferences_file() -> Result<(), String> {
+    let keys = std::sync::Arc::new(FakeKeychain::default());
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut app = settings_app(calls, keys.clone());
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Add connection")?;
+    settle(&ctx, &mut app);
+    if let Some(d) = app.assistant.dialog.as_mut() {
+        d.set_key("sk-secret-123");
+    }
+    authoring::tests::tap(&ctx, &mut app, "Add")?;
+    settle(&ctx, &mut app);
+    let text = serde_json::to_string(&app.preferences).map_err(|e| e.to_string())?;
+    assert!(!text.contains("sk-secret-123"), "the key is not in the preferences");
+    assert!(text.contains("\"has_key\":true"));
+    let id = app.preferences.assistant_connections[0].id.clone();
+    assert_eq!(
+        pcbcraft_assistant::Secrets::get(&*keys, &pcbcraft_assistant::key_id(&id))?,
+        Some("sk-secret-123".to_string())
+    );
+    assistant::settings::remove_connection(&mut app, &id);
+    assert_eq!(
+        pcbcraft_assistant::Secrets::get(&*keys, &pcbcraft_assistant::key_id(&id))?,
+        None,
+        "remove deletes the keychain entry"
+    );
+    Ok(())
+}
+
+#[test]
+fn with_the_assistant_switched_off_nothing_is_probed() -> Result<(), String> {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut app = settings_app(calls.clone(), std::sync::Arc::new(FakeKeychain::default()));
+    app.preferences.assistant_enabled = false;
+    app.preferences.assistant_connections.push(pcbcraft_assistant::Connection {
+        id: "api-1".into(),
+        name: "Home".into(),
+        protocol: pcbcraft_assistant::Protocol::OpenAi,
+        base_url: "http://localhost:11434/v1".into(),
+        model: "m".into(),
+        has_key: false,
+    });
+    app.preferences.assistant_default = "api-1".into();
+    let ctx = egui::Context::default();
+    for _ in 0..10 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(!assistant::shown(&app));
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    Ok(())
+}

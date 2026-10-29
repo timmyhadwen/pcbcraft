@@ -510,6 +510,30 @@ struct Preferences {
     aside_lower_tab: u8,
     #[serde(default = "default_true")]
     library_dock_open: bool,
+    /// Show the Assistant tab and its shortcut; off starts nothing.
+    #[serde(default = "default_true")]
+    assistant_enabled: bool,
+    /// Saved model connections. Keys are never kept here, only in the system keychain.
+    #[serde(default)]
+    assistant_connections: Vec<pcbcraft_assistant::Connection>,
+    /// Id of the connection used by default.
+    #[serde(default)]
+    assistant_default: String,
+    /// What the assistant may do without asking.
+    #[serde(default)]
+    assistant_mode: pcbcraft_assistant::Mode,
+    /// Per-connection override of the mode, by connection id.
+    #[serde(default)]
+    assistant_modes: std::collections::BTreeMap<String, pcbcraft_assistant::Mode>,
+    /// Tool keys the user chose to always allow, by connection id.
+    #[serde(default)]
+    assistant_always_allow: std::collections::BTreeMap<String, Vec<String>>,
+    /// Changes one message may make before the model is told to stop.
+    #[serde(default = "default_turn_limit")]
+    assistant_turn_limit: u32,
+}
+fn default_turn_limit() -> u32 {
+    pcbcraft_assistant::DEFAULT_TURN_LIMIT
 }
 fn default_aside_split() -> f32 {
     0.45
@@ -528,6 +552,13 @@ impl Default for Preferences {
             aside_split: default_aside_split(),
             aside_lower_tab: 0,
             library_dock_open: true,
+            assistant_enabled: true,
+            assistant_connections: Vec::new(),
+            assistant_default: String::new(),
+            assistant_mode: pcbcraft_assistant::Mode::Ask,
+            assistant_modes: Default::default(),
+            assistant_always_allow: Default::default(),
+            assistant_turn_limit: default_turn_limit(),
         }
     }
 }
@@ -3900,6 +3931,8 @@ impl App {
                 .color(self.muted()),
         );
         ui.add_space(16.0);
+        assistant::settings::section(self, ui);
+        ui.add_space(16.0);
         ui.label(
             egui::RichText::new("BOARD GEOMETRY")
                 .size(10.0)
@@ -5596,14 +5629,16 @@ impl App {
                         "Properties",
                     )
                     .on_hover_text("Details for whatever is selected on the drawing.");
-                    ui.selectable_value(
-                        &mut self.preferences.aside_lower_tab,
-                        1,
-                        assistant::tab_label(self.assistant.waiting()),
-                    )
-                    .on_hover_text(assistant::TAB_TIP);
+                    if assistant::shown(self) {
+                        ui.selectable_value(
+                            &mut self.preferences.aside_lower_tab,
+                            1,
+                            assistant::tab_label(self.assistant.waiting()),
+                        )
+                        .on_hover_text(assistant::TAB_TIP);
+                    }
                 });
-                if self.preferences.aside_lower_tab == 1 {
+                if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
                     assistant::pane::show(self, ui);
                     return;
                 }
@@ -6846,7 +6881,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
-        self.assistant_poll();
+        self.assistant_frame(&ctx);
         self.style(&ctx);
         self.shortcuts(&ctx);
         self.edit_events(&ctx);

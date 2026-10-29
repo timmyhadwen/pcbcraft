@@ -21,7 +21,14 @@ pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
             if app.assistant.phase() == Phase::Off {
                 ui.label(egui::RichText::new(text::NO_MODEL_TITLE).strong());
                 ui.add_space(6.0);
-                ui.add(egui::Label::new(text::NO_MODEL_BODY).wrap());
+                let body = if app.preferences.assistant_connections.is_empty() {
+                    text::NO_MODEL_BODY
+                } else if app.assistant.host.http.is_none() {
+                    text::NO_HTTP_BODY
+                } else {
+                    text::NO_MODEL_BODY
+                };
+                ui.add(egui::Label::new(body).wrap());
                 return;
             }
             let waiting = app.assistant.waiting();
@@ -89,6 +96,33 @@ fn header(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
         ui.label(egui::RichText::new("●").color(dot))
             .on_hover_text(text::STATE_TIP);
         ui.label(word).on_hover_text(text::STATE_TIP);
+        if app.preferences.assistant_connections.len() > 1 {
+            let current = app
+                .preferences
+                .assistant_connections
+                .iter()
+                .find(|c| c.id == app.preferences.assistant_default)
+                .map_or_else(String::new, |c| c.name.clone());
+            let mut chosen = None;
+            egui::ComboBox::from_id_salt("assistant-connection")
+                .selected_text(current)
+                .show_ui(ui, |ui| {
+                    for c in &app.preferences.assistant_connections {
+                        if ui
+                            .selectable_label(c.id == app.preferences.assistant_default, &c.name)
+                            .clicked()
+                        {
+                            chosen = Some(c.id.clone());
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(text::SWITCH_TIP);
+            if let Some(id) = chosen {
+                app.preferences.assistant_default = id;
+                app.assistant_reconnect();
+            }
+        }
         if ui
             .add_enabled(phase != Phase::Off, egui::Button::new(text::NEW_CHAT))
             .on_hover_text(text::NEW_CHAT_TIP)

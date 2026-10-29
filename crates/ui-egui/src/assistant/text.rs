@@ -49,3 +49,66 @@ pub(super) fn tab_label(waiting: usize) -> String {
         format!("{TAB} ({waiting})")
     }
 }
+
+pub(super) const NO_HTTP_BODY: &str = "This version of the app cannot send requests to a model. \
+Use the desktop app to talk to one.";
+pub(super) const SETTINGS_HEADING: &str = "ASSISTANT";
+pub(super) const SHOW: &str = "Show assistant";
+pub(super) const SHOW_TIP: &str = "Hide every assistant control and start nothing.";
+pub(super) const CONNECTIONS: &str = "Connections";
+pub(super) const NO_CONNECTIONS: &str = "No connection yet. Nothing is sent anywhere until you add one.";
+pub(super) const ADD_CONNECTION: &str = "Add connection";
+pub(super) const ADD_CONNECTION_TIP: &str = "Add the address of a model server.";
+pub(super) const TEST: &str = "Test";
+pub(super) const TEST_TIP: &str = "Ask the server which models it offers.";
+pub(super) const MAKE_DEFAULT: &str = "Use";
+pub(super) const MAKE_DEFAULT_TIP: &str = "Use this connection for the chat.";
+pub(super) const IN_USE: &str = "In use";
+pub(super) const IN_USE_TIP: &str = "The chat uses this connection.";
+pub(super) const REMOVE: &str = "Remove";
+pub(super) const REMOVE_TIP: &str = "Forget this connection and delete its stored key.";
+pub(super) const KEY_STORED: &str = "key stored";
+pub(super) const NO_KEY: &str = "no key";
+pub(super) const PERMISSIONS: &str = "What it may do without asking";
+pub(super) const MODE_ASK_TIP: &str = "Every change waits for your answer.";
+pub(super) const MODE_EDITS_TIP: &str =
+    "Changes to the design run at once and can be undone. Files and sessions still ask.";
+pub(super) const MODE_ALL_TIP: &str = "Everything runs without asking, including saving and opening files.";
+pub(super) const MODE_ALL_WARNING: &str =
+    "Allow everything lets the model save over files and replace the design. Use it with care.";
+pub(super) const SAME_AS_DEFAULT: &str = "Same as above";
+pub(super) const MODE_OVERRIDE_TIP: &str = "Use a different permission for this connection.";
+pub(super) const LIMIT: &str = "Changes per message";
+pub(super) const LIMIT_TIP: &str = "After this many changes the model is told to stop and report.";
+pub(super) const RESET_ALWAYS: &str = "Forget Always allow";
+pub(super) const RESET_ALWAYS_TIP: &str = "Ask again for every kind of change you allowed for good.";
+pub(super) const DIALOG_TITLE: &str = "Add connection";
+pub(super) const PRESET: &str = "Start from";
+pub(super) const PRESET_TIP: &str = "Fill in the address of a common kind of server.";
+pub(super) const NAME: &str = "Name";
+pub(super) const NAME_TIP: &str = "How this connection is listed.";
+pub(super) const URL: &str = "Address";
+pub(super) const URL_TIP: &str = "The address of the model server, for example http://localhost:11434/v1.";
+pub(super) const MODEL: &str = "Model";
+pub(super) const MODEL_TIP: &str = "The model name to ask for. Test fills the list when the server offers one.";
+pub(super) const KEY: &str = "Key";
+pub(super) const KEY_TIP: &str = "Kept in the system keychain, never in the design or the settings file.";
+pub(super) const KEY_REFUSED: &str =
+    "A key is only sent over https, or to this computer, so the key field is hidden for this address.";
+pub(super) const KEY_NEEDS_DESKTOP: &str = "Keys need the desktop app.";
+pub(super) const ADD: &str = "Add";
+pub(super) const ADD_TIP: &str = "Save this connection.";
+pub(super) const CANCEL: &str = "Cancel";
+pub(super) const CANCEL_TIP: &str = "Close without saving.";
+pub(super) const TESTING: &str = "Testing";
+pub(super) const NO_SENDER: &str = "This version cannot reach a server.";
+
+/// The result line after a successful list of models.
+pub(super) fn models_found(n: usize) -> String {
+    if n == 1 {
+        "Connected. 1 model.".to_string()
+    } else {
+        format!("Connected. {n} models.")
+    }
+}
+pub(super) const SWITCH_TIP: &str = "Choose which connection the chat uses.";

@@ -9,11 +9,12 @@
 
 mod cards;
 pub(crate) mod pane;
+pub(crate) mod settings;
 mod text;
 
 use super::App;
 use pcbcraft_assistant::{
-    ChatBackend, DEFAULT_TURN_LIMIT, Event, HttpFn, Item, Mode, PromptPart, Secrets, StartContext,
+    ApiBackend, ChatBackend, Event, HttpFn, Item, Mode, PromptPart, Secrets, StartContext,
     ToolRequest, Transcript, Turn, Verdict,
 };
 use serde_json::{Value, json};
@@ -56,9 +57,12 @@ pub(crate) struct State {
     tools: (Sender<ToolRequest>, Receiver<ToolRequest>),
     waiting: Vec<Waiting>,
     next_id: u64,
-    always: Vec<String>,
-    mode: Mode,
-    turn_limit: u32,
+    /// Id of the connection the running backend was started from.
+    active: Option<String>,
+    /// Set once a start was tried for the current settings, so a failure is not retried each frame.
+    tried: bool,
+    pub(crate) dialog: Option<settings::Dialog>,
+    pub(crate) row_test: Option<(String, settings::SharedTest)>,
     /// History length right after the last message's changes were merged into one undo step.
     undo_len: Option<usize>,
 }
@@ -76,9 +80,10 @@ impl Default for State {
             tools: channel(),
             waiting: Vec::new(),
             next_id: 1,
-            always: Vec::new(),
-            mode: Mode::default(),
-            turn_limit: DEFAULT_TURN_LIMIT,
+            active: None,
+            tried: false,
+            dialog: None,
+            row_test: None,
             undo_len: None,
         }
     }
@@ -146,7 +151,77 @@ fn error_result(reason: &str) -> Value {
     json!({"isError": true, "content": [{"type": "text", "text": reason}]})
 }
 
+/// True when the assistant is switched on in Settings.
+pub(crate) fn shown(app: &App) -> bool {
+    app.preferences.assistant_enabled
+}
+
 impl App {
+    /// Once per frame: connect when a default connection is ready, apply what the backend
+    /// reported, and draw the Add connection window.
+    pub(crate) fn assistant_frame(&mut self, ctx: &egui::Context) {
+        if shown(self) {
+            self.assistant_autoconnect();
+            self.assistant_poll();
+            settings::dialog(self, ctx);
+        }
+    }
+
+    /// Start the default connection's backend, once per change of settings. Nothing starts
+    /// without a saved connection and a way to send requests.
+    fn assistant_autoconnect(&mut self) {
+        if self.assistant.backend.is_some() || self.assistant.tried {
+            return;
+        }
+        let Some(http) = self.assistant.host.http.clone() else {
+            return;
+        };
+        let Some(connection) = self
+            .preferences
+            .assistant_connections
+            .iter()
+            .find(|c| c.id == self.preferences.assistant_default)
+            .cloned()
+        else {
+            return;
+        };
+        self.assistant.tried = true;
+        let key = if connection.has_key {
+            self.assistant
+                .host
+                .secrets
+                .as_ref()
+                .and_then(|s| s.get(&pcbcraft_assistant::key_id(&connection.id)).ok().flatten())
+        } else {
+            None
+        };
+        let config = pcbcraft_assistant::config_for(&connection, key, String::new());
+        let context = self.assistant.start_context(std::path::PathBuf::new());
+        match ApiBackend::start(config, context, http) {
+            Ok(backend) => {
+                self.assistant.backend = Some(Box::new(backend));
+                self.assistant.active = Some(connection.id);
+                self.assistant.ready = true;
+            }
+            Err(reason) => self.assistant.transcript.push(Item::Note {
+                text: reason,
+                error: true,
+            }),
+        }
+    }
+
+    /// Drop the running backend so the next frame starts the default connection again.
+    pub(crate) fn assistant_reconnect(&mut self) {
+        self.assistant_stop();
+        if let Some(mut b) = self.assistant.backend.take() {
+            b.shutdown(false);
+        }
+        self.assistant.active = None;
+        self.assistant.ready = false;
+        self.assistant.busy = false;
+        self.assistant.tried = false;
+    }
+
     /// Give the assistant what the shell offers (an HTTP sender, a keychain).
     pub fn with_host(mut self, host: Host) -> Self {
         self.assistant.host = host;
@@ -233,7 +308,11 @@ impl App {
         };
         let held = self.assistant.waiting.remove(at);
         if allow && always {
-            self.assistant.always.push(held.key.clone());
+            let id = self.assistant.active.clone().unwrap_or_default();
+            let keys = self.preferences.assistant_always_allow.entry(id).or_default();
+            if !keys.contains(&held.key) {
+                keys.push(held.key.clone());
+            }
         }
         for item in &mut self.assistant.transcript.items {
             if let Item::Approval { id: x, answer, .. } = item
@@ -252,7 +331,7 @@ impl App {
 
     /// Count the call against the turn's limits, then run it, or tell the model to stop.
     fn assistant_admit_and_run(&mut self, request: ToolRequest, change: bool) {
-        let limit = self.assistant.turn_limit;
+        let limit = self.preferences.assistant_turn_limit;
         let admitted = match self.assistant.turn.as_mut() {
             Some(turn) => turn.admit(change, limit),
             None => Ok(()),
@@ -274,13 +353,21 @@ impl App {
             .turn
             .as_ref()
             .map_or(0, |t| t.changes as usize);
-        let verdict = pcbcraft_assistant::request(
-            &request.name,
-            &request.args,
-            self.assistant.mode,
-            undo_left,
-            &self.assistant.always,
-        );
+        let id = self.assistant.active.clone().unwrap_or_default();
+        let mode = self
+            .preferences
+            .assistant_modes
+            .get(&id)
+            .copied()
+            .unwrap_or(self.preferences.assistant_mode);
+        let always = self
+            .preferences
+            .assistant_always_allow
+            .get(&id)
+            .cloned()
+            .unwrap_or_default();
+        let verdict =
+            pcbcraft_assistant::request(&request.name, &request.args, mode, undo_left, &always);
         let word = match &verdict {
             Verdict::Run { .. } => "runs",
             Verdict::Ask(_) => "asks",
