@@ -37,7 +37,9 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// A stored answer to a listing request, with the second it was stored.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredListing {
+    /// Seconds since the Unix epoch when the answer was stored.
     pub stored_at: u64,
+    /// The stored text.
     pub body: String,
 }
 
