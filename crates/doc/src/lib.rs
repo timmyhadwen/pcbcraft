@@ -965,9 +965,55 @@ pub struct Footprint {
     /// to move it. Absent means unlocked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locked: Option<bool>,
+    /// Which board side the footprint is soldered on. Absent means the top.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<Layer>,
     pub pads: Vec<Pad>,
 }
+/// Swap `F.` and `B.` layer name prefixes; other names are unchanged.
+pub fn mirrored_pad_for_bottom(source: &pcbcraft_library::FootprintPad) -> pcbcraft_library::FootprintPad {
+    let mut pad = source.clone();
+    pad.position = Point::new(-pad.position.x, pad.position.y);
+    pad.rotation = -pad.rotation;
+    if let Some(drill) = &mut pad.drill {
+        drill.offset = Point::new(-drill.offset.x, drill.offset.y);
+    }
+    pad
+}
+pub fn swap_board_side_layer(name: &str) -> String {
+    if let Some(rest) = name.strip_prefix("F.") {
+        return format!("B.{rest}");
+    }
+    if let Some(rest) = name.strip_prefix("B.") {
+        return format!("F.{rest}");
+    }
+    name.to_string()
+}
 impl Footprint {
+    pub fn board_side(&self) -> Layer {
+        self.side.unwrap_or(Layer::Front)
+    }
+    /// Copper layer for a surface-mount pad; through-hole pads are handled on
+    /// both layers by callers that iterate copper.
+    pub fn pad_layer(&self, _pad: &Pad) -> Layer {
+        self.board_side()
+    }
+    pub fn pad_on_copper(&self, pad: &Pad, layer: Layer) -> bool {
+        match pad.geometry.as_ref() {
+            None => layer == Layer::Front,
+            Some(g) if g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu") => true,
+            Some(_) => self.board_side() == layer,
+        }
+    }
+    pub fn pad_geometry_layers(&self, pad: &Pad) -> Vec<String> {
+        let Some(g) = pad.geometry.as_ref() else {
+            return vec!["F.Cu".into(), "F.Mask".into()];
+        };
+        if self.board_side() == Layer::Front {
+            return g.layers.clone();
+        }
+        g.layers.iter().map(|l| swap_board_side_layer(l)).collect()
+    }
     pub fn drawing_points(&self, project: &Project) -> Vec<Point> {
         let mut points: Vec<Point> = self.pads.iter().flat_map(|p| p.outline_points()).collect();
         if let Some(library) = project
@@ -4356,12 +4402,11 @@ impl Project {
                         .component(f.component)
                         .and_then(|c| c.library_footprint.as_ref())
                         .ok_or("pad geometry requires an embedded footprint definition")?;
-                    if !definition
-                        .definition
-                        .pads
-                        .iter()
-                        .any(|source| source == geometry)
-                    {
+                    if !definition.definition.pads.iter().any(|source| {
+                        source == geometry
+                            || (f.board_side() == Layer::Back
+                                && geometry == &mirrored_pad_for_bottom(source))
+                    }) {
                         return Err("pad geometry is not present in embedded definition".into());
                     }
                 }

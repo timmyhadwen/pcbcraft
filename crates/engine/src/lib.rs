@@ -1242,7 +1242,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "footprint.set_locked",
-            "Lock or unlock a placed footprint; a locked footprint refuses move, rotate, mirror, array and edge docking until it is unlocked again",
+            "Lock or unlock a placed footprint; a locked footprint refuses move, rotate, mirror, flip, array and edge docking until it is unlocked again",
             schema(
                 json!({"id":id_schema(),"locked":{"type":"boolean"}}),
                 &["id", "locked"],
@@ -1409,6 +1409,11 @@ pub fn commands() -> Vec<CommandSpec> {
                 json!({"id":id_schema(),"axis":{"type":"string","enum":["horizontal","vertical"]}}),
                 &["id", "axis"],
             ),
+        ),
+        (
+            "footprint.flip",
+            "Move a placed footprint to the opposite board side, mirroring its pad layout about the vertical axis in one undo step",
+            schema(json!({"id":id_schema()}), &["id"]),
         ),
         (
             "pad.table",
@@ -4671,6 +4676,11 @@ struct MirrorParams {
     id: Id,
     axis: String,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FlipParams {
+    id: Id,
+}
 /// Mirror a library graphic primitive about the local origin; horizontal
 /// flips left-to-right, vertical flips top-to-bottom. Arcs keep their three
 /// defining points, so the mirrored arc is the reflected curve.
@@ -5453,14 +5463,14 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .geometry
         .as_ref()
         .map(|g| {
-            g.layers.iter().any(|l| {
+            f.pad_geometry_layers(pad).iter().any(|l| {
                 l == "*.Cu"
                     || l == &layer_name
                     || l == layer.name()
                     || p.resolve_copper_layer(l).ok() == Some(layer)
             })
         })
-        .unwrap_or(layer == Layer::Front);
+        .unwrap_or(layer == f.board_side());
     if !on_layer {
         return Err(Error::Invalid(format!(
             "pad {} has no copper on {}",
@@ -14313,6 +14323,7 @@ fn run_command(
                         ),
                         rotation: 0.0,
                         locked: None,
+                        side: None,
                         pads: component_pads(c),
                     });
                 }
@@ -15150,6 +15161,69 @@ fn run_command(
                 }
             }
             Ok(json!({"id": a.id, "axis": a.axis}))
+        }
+        "footprint.flip" => {
+            let a: FlipParams = parse(params)?;
+            if footprint_locked(p, a.id) {
+                return Err(Error::Invalid(
+                    "that footprint is locked against placement changes".into(),
+                ));
+            }
+            let index = p
+                .board
+                .footprints
+                .iter()
+                .position(|f| f.id == a.id)
+                .ok_or_else(missing)?;
+            let footprint = &p.board.footprints[index];
+            let only_tht = !footprint.pads.is_empty()
+                && footprint.pads.iter().all(|pad| {
+                    pad.geometry
+                        .as_ref()
+                        .is_some_and(|g| g.pad_type == "thru_hole")
+                });
+            if only_tht {
+                let unchanged = footprint.pads.iter().all(|pad| {
+                    pad.offset.x.abs() <= 1e-9
+                        && pad
+                            .geometry
+                            .as_ref()
+                            .is_none_or(|g| g.rotation.abs() <= 1e-9 && g.position.x.abs() <= 1e-9)
+                });
+                if unchanged {
+                    return Err(Error::Invalid(
+                        "that footprint is only plated through-hole pads and a flip would change nothing".into(),
+                    ));
+                }
+            }
+            let component = p.board.footprints[index].component;
+            let sources = p
+                .component(component)
+                .and_then(|c| c.library_footprint.as_ref())
+                .map(|l| l.definition.pads.clone());
+            let footprint = &mut p.board.footprints[index];
+            footprint.side = if footprint.board_side() == Layer::Front {
+                Some(Layer::Back)
+            } else {
+                None
+            };
+            let on_bottom = footprint.board_side() == Layer::Back;
+            for pad in &mut footprint.pads {
+                if let Some(sources) = &sources {
+                    if let Some(source) = sources.iter().find(|s| s.number == pad.number) {
+                        let geometry = if on_bottom {
+                            pcbcraft_doc::mirrored_pad_for_bottom(source)
+                        } else {
+                            source.clone()
+                        };
+                        pad.offset = geometry.position;
+                        pad.geometry = Some(geometry);
+                        continue;
+                    }
+                }
+                pad.offset = Point::new(-pad.offset.x, pad.offset.y);
+            }
+            Ok(json!({"id": a.id, "side": footprint.board_side().name()}))
         }
         "align.distribute" => {
             let a: AlignParams = parse(params)?;
@@ -17290,6 +17364,139 @@ mod tests {
                 .drawing_points(),
             outline_after
         );
+        Ok(())
+    }
+    #[test]
+    fn flipping_a_surface_mount_footprint_moves_its_copper_to_the_bottom() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let component = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[20,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":component,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":component,"pin":"1"},{"component":component,"pin":"2"}]}),
+            None,
+        )?;
+        let fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == component)
+            .ok_or_else(missing)?
+            .id;
+        let before = s.project.footprint(fp).ok_or_else(missing)?.clone();
+        s.execute(
+            "track.route",
+            json!({"from":{"footprint":fp,"pad":"1"},"to":{"footprint":fp,"pad":"2"},"layer":"F.Cu"}),
+            None,
+        )?;
+        assert!(
+            pcbcraft_rules::airwires(&s.project).is_empty(),
+            "a front route between the pads leaves no airwires"
+        );
+        s.execute("footprint.flip", json!({"id":fp}), None)?;
+        assert_eq!(
+            s.project.footprint(fp).ok_or_else(missing)?.board_side(),
+            pcbcraft_doc::Layer::Back
+        );
+        assert!(
+            !pcbcraft_rules::airwires(&s.project).is_empty(),
+            "bottom pads no longer meet the front copper"
+        );
+        assert!(
+            s.execute(
+                "track.route",
+                json!({"from":{"footprint":fp,"pad":"1"},"to":{"footprint":fp,"pad":"2"},"layer":"F.Cu"}),
+                None,
+            )
+            .is_err(),
+            "front routing refuses bottom pads"
+        );
+        s.execute(
+            "track.route",
+            json!({"from":{"footprint":fp,"pad":"1"},"to":{"footprint":fp,"pad":"2"},"layer":"B.Cu"}),
+            None,
+        )?;
+        assert!(
+            pcbcraft_rules::airwires(&s.project).is_empty(),
+            "a bottom route reconnects the net"
+        );
+        let placement = pcbcraft_io::placement_text(&s.project).map_err(Error::Invalid)?;
+        assert!(
+            placement.contains("SMT,\"R1\","),
+            "pick-and-place still lists the part"
+        );
+        assert!(
+            placement.contains(",B,\"R_0805_2012Metric\""),
+            "the flipped part exports on the bottom side"
+        );
+        let gerber = pcbcraft_io::gerber_files(&s.project).map_err(Error::Invalid)?;
+        let centre = s
+            .project
+            .footprint(fp)
+            .ok_or_else(missing)?
+            .pad_position("1")
+            .ok_or_else(missing)?;
+        let mirrored_x = -centre.x;
+        assert!(
+            gerber["pcb-B.Cu.gbr"].contains(&format!("{mirrored_x:.6}")),
+            "bottom copper carries the mirrored pad flash"
+        );
+        assert!(
+            !gerber["pcb-F.Cu.gbr"].contains(&format!("{:.6}", centre.x)),
+            "the front copper file no longer flashes that pad"
+        );
+        s.undo()?;
+        let restored = s.project.footprint(fp).ok_or_else(missing)?;
+        assert_eq!(restored.board_side(), pcbcraft_doc::Layer::Front);
+        assert_eq!(restored.pads, before.pads);
+        assert!(
+            pcbcraft_rules::airwires(&s.project).is_empty(),
+            "undo puts the front route back in contact"
+        );
+        Ok(())
+    }
+    #[test]
+    fn flipping_a_locked_footprint_leaves_the_document_unchanged() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.inspect()["project"]["board"]["footprints"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("footprint.set_locked", json!({"id":fp,"locked":true}), None)?;
+        let snapshot = s.project.clone();
+        assert!(
+            s.execute("footprint.flip", json!({"id":fp}), None).is_err(),
+            "a locked footprint refuses flip"
+        );
+        assert_eq!(s.project, snapshot);
         Ok(())
     }
     #[test]
@@ -19656,6 +19863,7 @@ mod tests {
                 json!({"footprint":fp,"columns":2,"rows":1,"dx":5,"dy":5}),
             ),
             ("footprint.dock_edge", json!({"id":fp,"edge":"left"})),
+            ("footprint.flip", json!({"id":fp})),
         ] {
             assert!(
                 s.execute(cmd, params, None).is_err(),
