@@ -6,9 +6,15 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod board_mesh;
 mod gerber;
 mod library_render;
+mod board_mesh;
 mod machine_profile;
+pub use board_mesh::{
+    BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
+    ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
+};
 pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,
