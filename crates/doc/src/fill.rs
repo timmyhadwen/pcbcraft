@@ -416,11 +416,7 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
     let mut items = Vec::new();
     for footprint in &project.board.footprints {
         for (id, pad, rotation, at, piece) in pad_items(footprint) {
-            let plated = pad
-                .geometry
-                .as_ref()
-                .is_some_and(|geometry| geometry.pad_type == "thru_hole");
-            if layer == Layer::Back && !plated {
+            if !pad_reaches(project, footprint, &pad, layer) {
                 continue;
             }
             items.push(Item {
@@ -434,6 +430,11 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
         }
     }
     for via in &project.board.vias {
+        // A via is copper only on the layers of its span: outside it, the
+        // layer neither clears an antipad nor joins the via.
+        if !project.via_span_layers(via).contains(&layer) {
+            continue;
+        }
         items.push(Item {
             id: via.id,
             net: via.net,
@@ -513,6 +514,32 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
         });
     }
     Ok(items)
+}
+
+/// Whether a pad has copper on `layer` of this board: a through-hole pad on
+/// every copper layer, a surface pad only on the face its part sits on, where
+/// the bottom face is the last copper layer of the stackup.
+///
+/// # Rules
+/// - Never compare against `Layer::Back`: on a board with inner copper that
+///   constant is the second layer, not the bottom.
+///
+/// # Dependencies
+/// - `Footprint::board_side` and `Project::copper_layer_count` in `lib.rs`.
+fn pad_reaches(project: &Project, footprint: &Footprint, pad: &Pad, layer: Layer) -> bool {
+    let through = match pad.geometry.as_ref() {
+        None => false,
+        Some(g) => g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu"),
+    };
+    if through {
+        return true;
+    }
+    let face = if footprint.board_side() == Layer::Front {
+        Layer::Front
+    } else {
+        Layer::from_index(project.copper_layer_count().saturating_sub(1)).unwrap_or(Layer::Back)
+    };
+    face == layer
 }
 
 /// A footprint's pads as world-space copper, with the combined part and pad
@@ -628,12 +655,12 @@ impl KeepoutKind {
     }
 }
 
-/// Every track, via, pad and zone that enters a keepout area, on either copper
-/// side. One hit per object and area, so a via that crosses on both sides is
-/// reported once.
+/// Every track, via, pad and zone that enters a keepout area, on every copper
+/// layer of the board. One hit per object and area, so a via that crosses on
+/// several layers is reported once.
 pub fn keepout_hits(project: &Project) -> Result<Vec<KeepoutHit>, String> {
     let mut hits: Vec<KeepoutHit> = Vec::new();
-    for layer in [Layer::Front, Layer::Back] {
+    for layer in project.copper_layers() {
         let items = items(project, layer)?;
         for area in &project.board.rule_areas {
             let Some(keepout) = area.keepout else {

@@ -238,12 +238,18 @@ fn a_foreign_via_gets_an_antipad_and_a_same_net_via_a_thermal_connection() -> Re
     p.board.zones[1].net = 2;
     let zone = p.board.zones[1].clone();
     let own = zone_fill(&p, &zone)?;
-    assert!(own.contains(Point::new(20.0, 10.0)), "same-net via joins the pour");
+    assert!(
+        own.contains(Point::new(20.0, 10.0)),
+        "same-net via joins the pour"
+    );
     // The same pour on another net clears an antipad around it.
     p.board.zones[1].net = 9;
     let zone = p.board.zones[1].clone();
     let foreign = zone_fill(&p, &zone)?;
-    assert!(!foreign.contains(Point::new(20.0, 10.0)), "foreign via gets an antipad");
+    assert!(
+        !foreign.contains(Point::new(20.0, 10.0)),
+        "foreign via gets an antipad"
+    );
     // Thermal connection: spokes instead of solid.
     p.board.zones[1].net = 2;
     p.board.zones[1].pour = Some(pcbcraft_doc::ZonePour {
