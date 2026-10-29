@@ -1633,6 +1633,11 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"net":id_schema()}), &[]),
         ),
         (
+            "net.members",
+            "List every member of one net: board tracks, zones and vias grouped by copper layer, the layers the net runs on, vias with their spans, pads, schematic pins, wires and labels. Read only",
+            schema(json!({"net":id_schema()}), &["net"]),
+        ),
+        (
             "net.chain",
             "Trace a net chain from a starting pin through two-pin parts in series, reporting each hop's component, reference, pin and net, and how the walk ended: open, branch, multi or loop",
             schema(
@@ -4328,6 +4333,11 @@ struct RuleAreaParams {
     /// come within the clearance of the rectangle.
     #[serde(default)]
     keepout: Option<bool>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetMembersParams {
+    net: Id,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -12928,6 +12938,11 @@ fn run_command(
             let removed = p.board.layer_records.len();
             p.board.layer_records.clear();
             Ok(json!({"removed": removed}))
+        }
+        "net.members" => {
+            let a: NetMembersParams = parse(params)?;
+            let members = p.net_members(a.net).ok_or_else(missing)?;
+            serde_json::to_value(members).map_err(|e| Error::Invalid(e.to_string()))
         }
         "net.lengths" => {
             let a: NetLengthsParams = parse(params)?;

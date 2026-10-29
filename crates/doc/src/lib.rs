@@ -18,6 +18,8 @@ use std::fmt;
 pub type Id = u64;
 pub const MAX_ITEMS: usize = 2048;
 
+mod net_members;
+pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub mod fill;
 pub use fill::{KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, zone_fill, zone_fills};
 

@@ -39,8 +39,17 @@ pub(crate) fn list() -> Value {
 /// The resource templates `resources/templates/list` returns.
 pub(crate) fn templates() -> Value {
     json!({"resourceTemplates":[
+        {"uriTemplate":"pcbcraft://net/{id}/members","name":"net_members","title":"Net members","description":"Every member of one net: tracks, zones and vias per copper layer, pads, pins, wires and labels","mimeType":"application/json","annotations":annotations(0.5)},
         {"uriTemplate":"pcbcraft://design/preview/{view}","name":"design_preview","title":"Design preview","description":"PNG preview of the schematic or the pcb view","mimeType":"image/png","annotations":annotations(0.4)}
     ]})
+}
+
+/// The net id in `pcbcraft://net/<id>/members`, if the uri has that shape.
+fn net_members_id(uri: &str) -> Option<u64> {
+    uri.strip_prefix("pcbcraft://net/")?
+        .strip_suffix("/members")?
+        .parse()
+        .ok()
 }
 
 fn not_found(uri: &str) -> ReadError {
@@ -92,6 +101,16 @@ pub(crate) fn read(hub: &DocumentHub, uri: &str) -> Result<Value, ReadError> {
             &run_tool(hub, "list_commands", &json!({}))?,
         )),
         "pcbcraft://checks" => Ok(json_contents(uri, &run_tool(hub, "checks", &json!({}))?)),
+        _ if net_members_id(uri).is_some() => {
+            let id = net_members_id(uri).ok_or_else(|| not_found(uri))?;
+            let reply = run_tool(
+                hub,
+                "execute",
+                &json!({"command":"net.members","params":{"net":id}}),
+            )?;
+            let result = &reply["structuredContent"]["result"];
+            Ok(json!({"contents":[{"uri":uri,"mimeType":"application/json","text":result.to_string()}]}))
+        }
         _ => {
             let Some(view) = uri.strip_prefix(PREVIEW_PREFIX) else {
                 return Err(not_found(uri));
