@@ -29,12 +29,11 @@ mod pages;
 mod palette;
 mod plot_viewer;
 mod pour_panel;
-#[cfg(test)]
-mod properties;
 mod properties;
 mod reference_panel;
 mod route_drag;
 mod sources;
+#[cfg(test)]
 mod target_size;
 mod targets;
 pub mod theme;
