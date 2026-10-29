@@ -841,7 +841,6 @@ fn a_newcomer_right_clicks_a_part_to_rotate_lock_or_delete_it() -> Result<(), St
         .first()
         .map(|f| (f.id, f.position, f.rotation))
         .ok_or("the sample board has parts")?;
-    let screen = pcb_screen(&app, at);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let screen = pcb_screen(&app, at);
     right_click(&ctx, &mut app, screen);
