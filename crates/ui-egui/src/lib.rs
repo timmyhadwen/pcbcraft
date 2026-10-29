@@ -1,5 +1,6 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod authoring;
+mod board3d;
 mod canvas;
 mod library;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
@@ -578,6 +579,7 @@ pub struct App {
     tab: Tab,
     tool: Tool,
     selected: Option<Id>,
+    view3d: board3d::View3d,
     highlight_net: Option<Id>,
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
@@ -908,6 +910,7 @@ impl App {
             tab: match tab {
                 Some("pcb") => Tab::Pcb,
                 Some("checks") => Tab::Checks,
+                Some("3d") => Tab::Board3d,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
                     Tab::Libraries
                 }
@@ -915,6 +918,7 @@ impl App {
             },
             tool: Tool::Select,
             selected: None,
+            view3d: board3d::View3d::default(),
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
@@ -6748,12 +6752,17 @@ impl App {
         });
     }
     fn board3d_tab(&mut self, ui: &mut egui::Ui) {
-        Self::margined(ui, |ui| {
-            ui.heading("3D view");
-            ui.label(
-                "A Rust-native 3D board viewer is on the way. Until then, use fabrication previews and mesh export from Settings.",
-            );
-        });
+        let env = board3d::Env {
+            project: &self.project,
+            revision: self.revision,
+            selected: self.selected,
+            dark: self.preferences.dark,
+            bg: self.surface(),
+            muted: self.muted(),
+        };
+        if let Some(id) = board3d::show(&mut self.view3d, ui, &env) {
+            self.select(Some(id));
+        }
     }
 
     fn show(&mut self, ui: &mut egui::Ui) {
@@ -6782,11 +6791,7 @@ impl App {
                                 .show(ui, |ui| self.files_tab(ui))
                                 .inner
                         }
-                        Tab::Board3d => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.board3d_tab(ui))
-                                .inner
-                        }
+                        Tab::Board3d => self.board3d_tab(ui),
                         Tab::Libraries => {
                             egui::ScrollArea::vertical()
                                 .show(ui, |ui| self.library(ui))
