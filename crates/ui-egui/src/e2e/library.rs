@@ -141,7 +141,11 @@ fn a_newcomer_makes_a_qfn_from_its_datasheet_numbers() -> Result<(), String> {
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Generate footprint")?;
     assert!(
-        paints_text(&ctx, &mut app, "Type the numbers from the package drawing in the datasheet. Dimensions are millimetres.")?,
+        paints_text(
+            &ctx,
+            &mut app,
+            "Type the numbers from the package drawing in the datasheet. Dimensions are millimetres."
+        )?,
         "the form tells a newcomer what to type"
     );
     // The datasheet says: 0.5 mm pitch, 32 pins, 5 by 5 mm body.
@@ -174,14 +178,23 @@ fn a_newcomer_makes_a_qfn_from_its_datasheet_numbers() -> Result<(), String> {
 #[test]
 fn a_newcomer_sees_why_impossible_numbers_cannot_make_a_footprint() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let mut app = App::create(shared, Preferences::default(), None, Some("footprint-editor"));
+    let mut app = App::create(
+        shared,
+        Preferences::default(),
+        None,
+        Some("footprint-editor"),
+    );
     app.refresh();
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Generate footprint")?;
     app.library.editor.wizard.pitch = 40.0;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "pitch must be between 0.1 and 25.4 millimetres")?,
+        paints_text(
+            &ctx,
+            &mut app,
+            "pitch must be between 0.1 and 25.4 millimetres"
+        )?,
         "a pitch that no package has is explained in plain words"
     );
     Ok(())

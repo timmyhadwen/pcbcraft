@@ -366,7 +366,9 @@ impl App {
             }
             if ui
                 .button("Generate footprint")
-                .on_hover_text("Build a footprint from a package family and the numbers in its datasheet.")
+                .on_hover_text(
+                    "Build a footprint from a package family and the numbers in its datasheet.",
+                )
                 .clicked()
             {
                 self.library.editor.wizard.open = true;
