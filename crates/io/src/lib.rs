@@ -10550,8 +10550,8 @@ mod tests {
             .to_rgb8();
         let anchor = project.components[0].position.offset(definition.position);
         let (min, max) = preview_bounds(&project, "schematic");
-        let scale = (880.0 / (max.x - min.x + 8.0).max(1.0))
-            .min(560.0 / (max.y - min.y + 8.0).max(1.0));
+        let scale =
+            (880.0 / (max.x - min.x + 8.0).max(1.0)).min(560.0 / (max.y - min.y + 8.0).max(1.0));
         let px = (60.0 + (anchor.x - (min.x - 4.0)) * scale).round() as u32;
         let py = (60.0 + (anchor.y - (min.y - 4.0)) * scale).round() as u32;
         let pixel = image.get_pixel(px.min(999), py.min(679));
