@@ -17946,6 +17946,79 @@ mod tests {
     }
 
     #[test]
+    fn footprint_generate_upserts_qfn_and_lists_commands() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "library.footprint.generate",
+            json!({"family": "qfn", "density": "B", "name": "QFN48", "pitch": 0.5,
+                   "pin_count": 48, "body_x": 7.0, "body_y": 7.0, "thermal": true}),
+            None,
+        )?;
+        assert_eq!(s.project.library.footprints.len(), 1);
+        assert_eq!(s.project.library.footprints[0].name, "QFN48");
+        assert_eq!(s.project.library.footprints[0].pads.len(), 49);
+        s.execute(
+            "library.footprint.generate",
+            json!({"family": "qfn", "name": "QFN48", "pitch": 0.5,
+                   "pin_count": 32, "body_x": 5.0, "body_y": 5.0}),
+            None,
+        )?;
+        assert_eq!(s.project.library.footprints.len(), 1);
+        assert_eq!(s.project.library.footprints[0].pads.len(), 33);
+        let ids: Vec<&str> = commands().iter().map(|c| c.id).collect();
+        assert!(ids.contains(&"library.footprint.generate"));
+        assert!(ids.contains(&"library.footprint.check"));
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_generate_refuses_bad_family_and_pitch() -> Result<(), Error> {
+        let mut s = Session::default();
+        let before = s.revision;
+        let bad = [
+            json!({"family": "nope", "name": "X", "pitch": 0.5, "pin_count": 8}),
+            json!({"family": "qfn", "name": "Q", "pitch": 30.0, "pin_count": 32,
+                   "body_x": 5.0, "body_y": 5.0}),
+            json!({"family": "qfn", "name": "Q", "pitch": 0.0, "pin_count": 32,
+                   "body_x": 5.0, "body_y": 5.0}),
+        ];
+        for params in bad {
+            assert!(s.execute("library.footprint.generate", params, None).is_err());
+            assert_eq!(s.revision, before);
+            assert_eq!(s.project.library.footprints.len(), 0);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_check_flags_overlap_and_passes_generated() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "library.footprint.generate",
+            json!({"family": "qfn", "name": "QFN32", "pitch": 0.5,
+                   "pin_count": 32, "body_x": 5.0, "body_y": 5.0, "thermal": true}),
+            None,
+        )?;
+        let out = s.execute("library.footprint.check", json!({"name": "QFN32"}), None)?;
+        let clean = out["result"]["findings"].as_array().cloned().unwrap_or_default();
+        assert!(
+            !clean.iter().any(|f| f["code"] == "lib_pad_overlap"),
+            "fresh QFN must not overlap: {clean:?}"
+        );
+        let mut def = s.project.library.footprints[0].clone();
+        let (x, y) = (def.pads[0].x, def.pads[0].y);
+        def.pads[1].x = x;
+        def.pads[1].y = y;
+        let out = s.execute("library.footprint.check", json!({"definition": def}), None)?;
+        let found = out["result"]["findings"].as_array().cloned().unwrap_or_default();
+        assert!(
+            found.iter().any(|f| f["code"] == "lib_pad_overlap"),
+            "moved pad must overlap: {found:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn pad_renumbering_follows_embedded_copies_and_refuses_collisions() -> Result<(), Error> {
         let mut s = Session::default();
         let definition = library::footprint(std::path::Path::new(&library_fixture(
