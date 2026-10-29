@@ -1384,7 +1384,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, unrouted, missing_footprint"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
             ),
         ),
@@ -9660,73 +9660,40 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "board.panel" => {
             let a: PanelParams = parse(params)?;
-            if a.columns < 1
-                || a.rows < 1
-                || a.columns > 32
-                || a.rows > 32
-                || a.columns * a.rows > 1024
-            {
-                return Err(Error::Invalid(
-                    "panels run 1 to 32 copies per side and at most 1024 in total".into(),
-                ));
-            }
-            let (board_w, board_h) = match p.board.outline.as_deref() {
-                Some(outline) if outline.len() >= 3 => {
-                    let min_x = outline.iter().map(|v| v.x).fold(f64::INFINITY, f64::min);
-                    let max_x = outline
-                        .iter()
-                        .map(|v| v.x)
-                        .fold(f64::NEG_INFINITY, f64::max);
-                    let min_y = outline.iter().map(|v| v.y).fold(f64::INFINITY, f64::min);
-                    let max_y = outline
-                        .iter()
-                        .map(|v| v.y)
-                        .fold(f64::NEG_INFINITY, f64::max);
-                    (max_x - min_x, max_y - min_y)
-                }
-                _ => (p.board.width, p.board.height),
+            let settings = pcbcraft_doc::PanelSettings {
+                enabled: false,
+                columns: a.columns,
+                rows: a.rows,
+                pitch_x: a.pitch_x,
+                pitch_y: a.pitch_y,
+                rail: a.rail,
+                separation: pcbcraft_doc::PanelSeparation::Tab,
+                tab_channel: pcbcraft_doc::PANEL_TAB_CHANNEL_MIN_MM,
             };
-            if !board_w.is_finite() || !board_h.is_finite() || board_w <= 0.0 || board_h <= 0.0 {
-                return Err(Error::Invalid("the board has no size to panelise".into()));
-            }
-            if !a.pitch_x.is_finite()
-                || !a.pitch_y.is_finite()
-                || a.pitch_x < 0.0
-                || a.pitch_y < 0.0
-            {
-                return Err(Error::Invalid(
-                    "gaps between copies cannot be negative".into(),
-                ));
-            }
-            if !(0.0..=25.0).contains(&a.rail) {
-                return Err(Error::Invalid("rails must be 0 to 25 millimetres".into()));
-            }
-            let panel_w =
-                a.columns as f64 * board_w + (a.columns - 1) as f64 * a.pitch_x + 2.0 * a.rail;
-            let panel_h = a.rows as f64 * board_h + (a.rows - 1) as f64 * a.pitch_y + 2.0 * a.rail;
-            let copies: Vec<serde_json::Value> = (0..a.rows)
-                .flat_map(|row| (0..a.columns).map(move |column| (row, column)))
-                .map(|(row, column)| {
-                    let x = a.rail + column as f64 * (board_w + a.pitch_x);
-                    let y = a.rail + row as f64 * (board_h + a.pitch_y);
+            let layout = pcbcraft_doc::panel_layout_with_settings(&p.board, &settings)
+                .map_err(Error::Invalid)?;
+            let copies: Vec<serde_json::Value> = layout
+                .copies
+                .iter()
+                .map(|copy| {
                     json!({
-                        "row": row,
-                        "column": column,
-                        "x": x,
-                        "y": y,
-                        "center_x": x + board_w / 2.0,
-                        "center_y": y + board_h / 2.0,
+                        "row": copy.row,
+                        "column": copy.column,
+                        "x": copy.x,
+                        "y": copy.y,
+                        "center_x": copy.center_x,
+                        "center_y": copy.center_y,
                     })
                 })
                 .collect();
             Ok(json!({
-                "columns": a.columns,
-                "rows": a.rows,
+                "columns": layout.columns,
+                "rows": layout.rows,
                 "copies": copies.len(),
-                "board": {"width": board_w, "height": board_h},
-                "pitch": {"x": a.pitch_x, "y": a.pitch_y},
-                "rail": a.rail,
-                "panel": {"width": panel_w, "height": panel_h},
+                "board": {"width": layout.board_width, "height": layout.board_height},
+                "pitch": {"x": layout.pitch_x, "y": layout.pitch_y},
+                "rail": layout.rail,
+                "panel": {"width": layout.width, "height": layout.height},
                 "layout": copies,
             }))
         }
