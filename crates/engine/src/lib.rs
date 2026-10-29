@@ -27886,7 +27886,8 @@ mod tests {
         assert!(s.project.board.rules.is_none());
         s.execute("rules.preset_apply", json!({"name":"JLCPCB 1-2L"}), None)?;
         assert_eq!(s.project.board.rules.as_ref().and_then(|r| r.min_track), before);
-        let list = s.execute("rules.preset_list", json!({}), None)?["result"]["presets"]
+        let presets = s.execute("rules.preset_list", json!({}), None)?;
+        let list = presets["result"]["presets"]
             .as_array()
             .ok_or_else(missing)?;
         assert!(list.iter().any(|v| v == "JLCPCB 1-2L"));
