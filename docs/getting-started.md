@@ -1,11 +1,16 @@
-# Getting started with PCBCraft
+# Getting started
 
-## Getting started
+Code of record is [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft)
+branch `main` until the maintainer opens an upstream pull request.
 
-PCBCraft on the fork is the codebase of record until the maintainer opens an
-upstream pull request. Clone [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft)
-branch `main`, install Rust 1.95+ and the window libraries listed in
-[README.md](../README.md), then run the sample desktop session:
+## Install and run
+
+Need Rust 1.95 or newer. Ubuntu window libraries:
+
+```sh
+sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev \
+  libx11-dev libxi-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev
+```
 
 ```sh
 git clone https://github.com/wdunn001/pcbcraft.git
@@ -13,54 +18,103 @@ cd pcbcraft
 cargo run -p pcbcraft -- --sample
 ```
 
-For headless automation, build the CLI and start MCP on stdio:
+Open a saved project, or a specific tab:
 
 ```sh
-cargo build -p pcbcraft-cli
-cargo run -p pcbcraft-cli -- mcp
+cargo run -p pcbcraft -- --project led.pcbcraft --tab pcb
 ```
 
-Agents and contributors branch from fork `main`, merge the latest `origin/main`
-before the final push, and push a feature branch only. Green GitHub Actions on
-that branch is the required proof; local `cargo xtask ci` is optional on the
-fork. Full pipeline rules live in [CONTRIBUTING.md](../CONTRIBUTING.md) and
-[AGENTS.md](../AGENTS.md). Fork onboarding summary:
+Headless capture without a desktop (Xvfb):
+
+```sh
+xvfb-run -a -s '-screen 0 1600x1100x24' \
+  env -u WAYLAND_DISPLAY WGPU_BACKEND=vulkan \
+  cargo run -p pcbcraft -- --sample --capture /tmp/pcbcraft.png
+```
+
+Windows uses the same `cargo run -p pcbcraft -- --sample` line natively.
+
+## CLI and MCP
+
+```sh
+cargo run -p pcbcraft-cli -- commands
+cargo run -p pcbcraft-cli -- sample --out led.pcbcraft
+cargo run -p pcbcraft-cli -- run examples/led-indicator.json --save led.pcbcraft
+cargo run -p pcbcraft-cli -- checks --project led.pcbcraft
+cargo run -p pcbcraft-cli -- snapshot --sample --view pcb --out led.png
+cargo run -p pcbcraft-cli -- mcp
+cargo run -p pcbcraft-cli -- mcp --connect 127.0.0.1:7991
+```
+
+`commands` prints the engine command list. MCP is JSON-RPC over newline-delimited
+stdio; logs go to stderr. Client setup: [mcp.md](mcp.md).
+
+Bridge the CLI into a running desktop with `--control 127.0.0.1:7991` on the
+app and `--connect` on `pcbcraft-cli mcp`. Bind loopback only.
+
+## First circuit
+
+1. Load **LED example**, or press **A**, pick a symbol, click to place.
+2. Press **W**, click two pin circles. A net is created when neither pin has
+   one; conflicting nets are refused.
+3. **Sync to PCB** builds footprints for parts that have an assignment.
+4. Press **X**, click two same-net pads. The track is orthogonal pad-to-pad.
+5. Open **Checks**. Save `.pcbcraft`.
+
+Limits you will hit on this path: the router does not avoid obstacles; inspect
+clearance findings. Footprint moves do not drag copper. Wire crossings do not
+join logical nets.
+
+`examples/dual-amplifier.pcbcraft` is a larger native sample (multi-unit op-amp,
+edited DIP8, front and back copper).
+
+## Libraries
+
+Open **Libraries**. Search a symbol, preview it, **Place in schematic**. Select
+the placed part, **Assign footprint**, pick a package whose pad numbers match
+the pins. **Sync to PCB** keeps existing placements and reports symbols that
+still need a package. Used geometry is embedded in the project file.
+
+**Edit a copy**, **New symbol**, or **New footprint** writes into the project
+library. `.pcbcraft-lib` collections are reusable. Placed definitions do not
+change until you reassign. Formats, pad limits and fixture licenses:
+[kicad-libraries.md](kicad-libraries.md).
+
+## Keyboard
+
+| Shortcut | Action |
+| --- | --- |
+| A | Add-symbol chooser (schematic) |
+| W | Wire between pins (schematic) |
+| X | Route between pads (PCB) |
+| M | Move selection, then click destination |
+| R | Rotate selection 90 degrees |
+| E | Properties |
+| Delete | Delete selection |
+| Escape | Cancel tool |
+| Ctrl+Z / Ctrl+Y | Undo / redo (Ctrl+Shift+Z also redoes) |
+| Ctrl+S | Save |
+| Ctrl+K | Command panel |
+| Home | Fit the active canvas |
+
+These are the shipping defaults, not a full user keymap.
+
+## Contribute on the fork
+
+Branch from fork `main`, merge latest `origin/main` before the last push, push
+the feature branch only. Green GitHub Actions on that branch is the proof. Do
+not run `cargo xtask ci` on a machine that freezes under a full workspace
+build; push and read the Actions run. Rules: [CONTRIBUTING.md](../CONTRIBUTING.md),
+[AGENTS.md](../AGENTS.md), [ci.md](ci.md). Onboarding:
 [issue #1](https://github.com/wdunn001/pcbcraft/issues/1).
 
-Your first edit in the UI: load the LED example, place symbols with **A**, wire
-with **W**, **Sync to PCB**, route with **X**, then open **Checks**. Step-by-step
-detail is under **First circuit** in the README.
+## What to read next
 
-## Details
-
-| Goal | Where to read |
+| Goal | Page |
 | --- | --- |
-| What is implemented today | [README.md](../README.md) **What works** |
-| Planned work and checkboxes | [ROADMAP.md](../ROADMAP.md) |
-| Layering and MCP-first design | [architecture.md](architecture.md) |
-| MCP tools, batches and live bridge | [mcp.md](mcp.md) |
-| CI jobs and fork branch pushes | [ci.md](ci.md) |
-| Agent roles and leases | [agents/README.md](agents/README.md) |
-| KiCad library reading limits | [kicad-libraries.md](kicad-libraries.md) |
-
-Engine and MCP surface area on fork `main`: **306** typed engine commands (each
-also a direct MCP tool) plus **53** session, library, export and inspection MCP
-tools (**359** tools total). Counts come from `pcbcraft_engine::commands()` and
-`tool_list()` in the MCP crate.
-
-## Limits
-
-PCBCraft is a first working foundation, not a full production EDA replacement.
-Routing defaults to simple orthogonal pad-to-pad paths; optional octilinear modes
-avoid some obstacles on one layer but do not replace an interactive router. Checks
-are initial ERC/DRC, not a complete manufacturing sign-off. Browser host
-open/save/export and many roadmap items in ROADMAP.md remain open.
-
-Do not run the full workspace CI suite on a shared laptop if it freezes the
-machine; push the branch and read the Actions result instead.
-
-## See also
-
-- [validation.md](validation.md) for how the initial subset was verified
-- [ATTRIBUTION.md](../ATTRIBUTION.md) for GPL adaptations and library licenses
-- Upstream tracker: [tangency-labs/pcbcraft](https://github.com/tangency-labs/pcbcraft)
+| Feature inventory | [capabilities.md](capabilities.md) |
+| Planned work | [ROADMAP.md](../ROADMAP.md) |
+| Crate layers | [architecture.md](architecture.md) |
+| How the first subset was checked | [validation.md](validation.md) |
+| Adapted code and library licenses | [ATTRIBUTION.md](../ATTRIBUTION.md) |
+| Doc map | [README.md](README.md) |

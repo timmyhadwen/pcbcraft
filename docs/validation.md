@@ -5,7 +5,7 @@
 This page records evidence for the first vertical slice, not full workflow
 equivalence or manufacturing readiness for arbitrary boards. For day-to-day setup,
 see [getting-started.md](getting-started.md). For what shipped since this pass,
-compare fork `main` with README **What works**.
+compare fork `main` with [capabilities.md](capabilities.md).
 
 ## Details
 

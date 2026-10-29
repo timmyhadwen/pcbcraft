@@ -3,21 +3,21 @@
 ## Getting started
 
 Read [getting-started.md](getting-started.md) for clone and run commands, then
-skim README **What works** for the user-visible slice. This page explains why the
-crates are layered and where mutations must go. Agents must follow
-[AGENTS.md](../AGENTS.md) invariants before editing Rust.
+[capabilities.md](capabilities.md) for the user-visible slice. This page
+explains why the crates are layered and where mutations must go. Agents must
+follow [AGENTS.md](../AGENTS.md) invariants before editing Rust.
 
 ## Details
 
 PCBCraft follows the Craft application structure, with a headless design engine
-that is the sole mutation boundary. GPL-3.0-or-later permits future attributable
-KiCad implementation ports. Rust-only applies to the delivered application.
+that is the sole mutation boundary. The delivered application is Rust-only.
+GPL-3.0-or-later.
 
 | Layer | Crates | Responsibility |
 |---|---|---|
 | L0 | geom | Bounded millimetre geometry and distance operations |
 | L1 | doc, library | Stable-ID project model; bounded pure Rust library parsers/DTOs |
-| L2 | rules, io | Connectivity and initial checks; native project, KiCad board and SVG export |
+| L2 | rules, io | Connectivity and initial checks; native project, board interchange and SVG export |
 | L3 | engine | Typed command registry, transactions, revisions, undo/redo |
 | L4 | assistant, mcp, ui-egui | Assistant backend seam and transcript; MCP over stdio / live bridge; thin tabbed Rust UI using craft-ui |
 | Apps | pcbcraft, pcbcraft-cli, pcbcraft-web | Desktop, headless and browser entry points |
