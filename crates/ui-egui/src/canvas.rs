@@ -2034,16 +2034,19 @@ impl App {
         for v in p.board.vias.iter().filter(|_| shown("Vias")) {
             let at = camera.screen(v.position, rect);
             let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
-            painter.circle_filled(
-                at,
-                radius,
-                if self.selected == Some(v.id) {
-                    self.accent()
-                } else {
-                    self.copper(Some(v.net), Color32::from_rgb(245, 141, 121))
-                },
-            );
-            if v.drill > 0.0 {
+            let base = if self.selected == Some(v.id) {
+                self.accent()
+            } else {
+                self.copper(Some(v.net), Color32::from_rgb(245, 141, 121))
+            };
+            if via_on_layer(p, v, self.route_layer) {
+                painter.circle_filled(at, radius, base);
+            } else {
+                // The via has no copper on the active layer: show a faint ring
+                // so it is still found, without looking like copper here.
+                painter.circle_stroke(at, radius, Stroke::new(1.0, base.linear_multiply(0.35)));
+            }
+            if v.drill > 0.0 && via_on_layer(p, v, self.route_layer) {
                 painter.circle_filled(
                     at,
                     (v.drill as f32 / 2.0 * camera.zoom).max(1.0),
@@ -2247,6 +2250,23 @@ fn pad_shape(mut outline: Vec<Pos2>, convex: bool, color: Color32) -> egui::Shap
         }
     }
     egui::Shape::convex_polygon(outline, color, Stroke::NONE)
+}
+
+/// Whether a via has copper on the layer being worked on. The "Bottom" choice
+/// always means the last copper layer of the board.
+pub(crate) fn via_on_layer(
+    p: &pcbcraft_doc::Project,
+    v: &pcbcraft_doc::Via,
+    active: pcbcraft_doc::Layer,
+) -> bool {
+    let last = p.copper_layer_count().saturating_sub(1);
+    let index = if active == Layer::Back {
+        last
+    } else {
+        active.index()
+    };
+    let (a, b) = p.via_span(v);
+    (a.index()..=b.index()).contains(&index)
 }
 
 #[cfg(test)]
