@@ -8,6 +8,7 @@ mod contrast;
 mod datums;
 mod editing;
 mod footprint_wizard;
+mod icons;
 mod impedance_panel;
 mod library;
 mod library_dock;
@@ -7131,13 +7132,12 @@ impl App {
         &mut self,
         ui: &mut egui::Ui,
         id: &str,
+        icon: &str,
         label: String,
         tip: String,
         selected: bool,
     ) -> egui::Response {
-        let response = ui
-            .selectable_label(selected, label.clone())
-            .on_hover_text(tip);
+        let response = icons::icon_label_button(ui, icon, &label, &tip, selected);
         self.record_icon(id, response.rect);
         response
     }
@@ -7270,6 +7270,7 @@ impl App {
             return;
         }
         egui::ScrollArea::horizontal()
+            .id_salt("tool-strip-scroll")
             .auto_shrink([false, true])
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .show(ui, |ui| {
@@ -7282,6 +7283,7 @@ impl App {
                         .tool_strip_button(
                             ui,
                             "tool-select",
+                            "select",
                             t!("board.tool_strip.select"),
                             t!("board.tool_strip.select_objects_on_the_drawing"),
                             matches!(self.tool, Tool::Select),
@@ -7294,6 +7296,7 @@ impl App {
                         .tool_strip_button(
                             ui,
                             "tool-move",
+                            "move",
                             t!("board.tool_strip.move"),
                             t!("board.tool_strip.move_tool_drop_the_selection"),
                             matches!(self.tool, Tool::Move),
@@ -7302,11 +7305,13 @@ impl App {
                     {
                         self.tool = Tool::Move;
                     }
+                    ui.separator();
                     if self.tab == Tab::Schematic {
                         if self
                             .tool_strip_button(
                                 ui,
                                 "tool-wire",
+                                "wire",
                                 t!("board.tool_strip.wire"),
                                 t!("board.tool_strip.wire_tool_click_two_pins"),
                                 matches!(self.tool, Tool::Wire(_)),
@@ -7319,6 +7324,7 @@ impl App {
                             .tool_strip_button(
                                 ui,
                                 "tool-noconnect",
+                                "no-connect",
                                 t!("board.tool_strip.no_connect"),
                                 t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
                                 matches!(self.tool, Tool::NoConnect),
@@ -7333,6 +7339,7 @@ impl App {
                             .tool_strip_button(
                                 ui,
                                 "tool-route",
+                                "route",
                                 t!("board.tool_strip.route"),
                                 t!("board.tool_strip.route_tool_click_two_pads"),
                                 matches!(self.tool, Tool::Route(_)),
@@ -7341,87 +7348,101 @@ impl App {
                         {
                             self.tool = Tool::Route(None);
                         }
-                        for (shape, id, glyph, tip) in [
+                        ui.separator();
+                        for (shape, id, icon, glyph, tip) in [
                             (
                                 DrawShape::Line,
                                 "tool-line",
+                                "line",
                                 t!("board.tool_strip.line"),
                                 t!("board.tool_strip.draw_a_straight_line_on"),
                             ),
                             (
                                 DrawShape::Rect,
                                 "tool-box",
+                                "box",
                                 t!("board.tool_strip.box"),
                                 t!("board.tool_strip.draw_a_box_on_a"),
                             ),
                             (
                                 DrawShape::Circle,
                                 "tool-circle",
+                                "circle",
                                 t!("board.tool_strip.circle"),
                                 t!("board.tool_strip.draw_a_circle_on_a"),
                             ),
                             (
                                 DrawShape::Poly,
                                 "tool-outline",
+                                "board-outline",
                                 t!("board.tool_strip.outline"),
                                 t!("board.tool_strip.draw_an_outline_on_a"),
                             ),
                             (
                                 DrawShape::Words,
                                 "tool-words",
+                                "text",
                                 t!("board.tool_strip.text"),
                                 t!("board.tool_strip.print_words_on_a_user"),
                             ),
                         ] {
                             let armed =
                                 matches!(self.tool, Tool::DrawLayer) && self.art_shape == shape;
-                            if self.tool_strip_button(ui, id, glyph, tip, armed).clicked() {
+                            if self
+                                .tool_strip_button(ui, id, icon, glyph, tip, armed)
+                                .clicked()
+                            {
                                 self.tool = Tool::DrawLayer;
                                 self.art_shape = shape;
                                 self.art_start = None;
                                 self.art_points.clear();
                             }
                         }
-                        if ui
-                            .selectable_label(
-                                matches!(self.tool, Tool::DrawLayer),
-                                t!("board.tool_strip.draw_shape"),
-                            )
-                            .on_hover_text(t!("board.tool_strip.draw_shape.tip"))
-                            .clicked()
+                        if icons::icon_label_button(
+                            ui,
+                            "shapes",
+                            &t!("board.tool_strip.draw_shape"),
+                            &t!("board.tool_strip.draw_shape.tip"),
+                            matches!(self.tool, Tool::DrawLayer),
+                        )
+                        .clicked()
                         {
                             self.tool = Tool::DrawLayer;
                             self.art_shape = DrawShape::Line;
                             self.art_start = None;
                             self.art_points.clear();
                         }
-                        if ui
-                            .selectable_label(
-                                matches!(self.tool, Tool::Cutout),
-                                t!("board.tool_strip.cutout"),
-                            )
-                            .on_hover_text(command_tip("board.cutout.add"))
-                            .clicked()
+                        ui.separator();
+                        if icons::icon_label_button(
+                            ui,
+                            "cutout",
+                            &t!("board.tool_strip.cutout"),
+                            &command_tip("board.cutout.add"),
+                            matches!(self.tool, Tool::Cutout),
+                        )
+                        .clicked()
                         {
                             self.tool = Tool::Cutout;
                         }
-                        if ui
-                            .selectable_label(
-                                matches!(self.tool, Tool::Hole),
-                                t!("board.tool_strip.mounting_hole"),
-                            )
-                            .on_hover_text(t!("board.tool_strip.mounting_hole.tip"))
-                            .clicked()
+                        if icons::icon_label_button(
+                            ui,
+                            "mounting-hole",
+                            &t!("board.tool_strip.mounting_hole"),
+                            &t!("board.tool_strip.mounting_hole.tip"),
+                            matches!(self.tool, Tool::Hole),
+                        )
+                        .clicked()
                         {
                             self.tool = Tool::Hole;
                         }
-                        if ui
-                            .selectable_label(
-                                matches!(self.tool, Tool::Fiducial),
-                                t!("board.tool_strip.assembly_mark"),
-                            )
-                            .on_hover_text(t!("board.tool_strip.assembly_mark.tip"))
-                            .clicked()
+                        if icons::icon_label_button(
+                            ui,
+                            "focus",
+                            &t!("board.tool_strip.assembly_mark"),
+                            &t!("board.tool_strip.assembly_mark.tip"),
+                            matches!(self.tool, Tool::Fiducial),
+                        )
+                        .clicked()
                         {
                             self.tool = Tool::Fiducial;
                         }
@@ -7485,6 +7506,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
+        icons::install(&ctx);
         a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
         self.assistant_frame(&ctx);
         self.style(&ctx);

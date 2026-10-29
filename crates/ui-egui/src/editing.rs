@@ -703,12 +703,14 @@ impl App {
 
     /// The pick filter chips and the measure button, in the tool strip.
     pub(super) fn editing_controls(&mut self, ui: &mut egui::Ui) {
-        if ui
-            .selectable_label(matches!(self.tool, Tool::Measure), "Measure")
-            .on_hover_text(
-                "Click two points to read the distance, the across and up-down parts and the angle. Holes, pads and pins snap. Shortcut U; Esc clears.",
-            )
-            .clicked()
+        if crate::icons::icon_label_button(
+            ui,
+            "measure",
+            "Measure",
+            "Click two points to read the distance, the across and up-down parts and the angle. Holes, pads and pins snap. Shortcut U; Esc clears.",
+            matches!(self.tool, Tool::Measure),
+        )
+        .clicked()
         {
             self.arm_measure();
         }
