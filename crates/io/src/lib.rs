@@ -8,12 +8,22 @@ use std::io::Write;
 use std::path::Path;
 mod board_mesh;
 mod gerber;
+mod layers;
 mod library_render;
+mod raster;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use gerber::gerber_copper;
+pub use layers::{
+    FabLayer, LayerShapes, Shape, ShapePolarity, copper_shape_counts, fabrication_point,
+    gerber_copper_counts, layer_shapes,
+};
+pub use raster::{
+    RegMarkShape, RegistrationMarks, Raster, RasterDepth, RasterOptions, RasterPixels,
+    layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg,
+};
 use library_render::*;
 pub use pcbcraft_doc::Layer;
 

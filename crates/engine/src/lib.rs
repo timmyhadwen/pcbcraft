@@ -1568,7 +1568,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.add",
             "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics) that can be re-run after any edit",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats","raster"]},"minItems":1,"maxItems":24}}),
                 &["name", "kinds"],
             ),
         ),
@@ -10926,6 +10926,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                             | "stackup"
                             | "drill_chart"
                             | "stats"
+                            | "raster"
                     )
                 })
             {
@@ -11134,6 +11135,13 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         )
                         .map_err(Error::Invalid)?;
                         written.push("board-stats.csv".into());
+                    }
+                    "raster" => {
+                        for (name, bytes) in pcbcraft_io::raster_job_pngs(p)? {
+                            pcbcraft_io::atomic_write(&directory.join(&name), &bytes)
+                                .map_err(Error::Invalid)?;
+                            written.push(name);
+                        }
                     }
                     other => {
                         return Err(Error::Invalid(format!("unknown export kind {other}")));
@@ -23408,6 +23416,39 @@ mod tests {
             "netlist.csv",
             "plot-report.csv",
             "board-report.txt",
+        ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn raster_job_writes_six_pngs_into_the_folder() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-raster-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"layers","kinds":["raster"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"layers","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        for name in [
+            "layer-copper-top.png",
+            "layer-copper-bottom.png",
+            "layer-mask-top.png",
+            "layer-mask-bottom.png",
+            "layer-legend-top.png",
+            "layer-legend-bottom.png",
         ] {
             assert!(
                 directory.join(name).exists(),
