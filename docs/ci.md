@@ -2,7 +2,7 @@
 
 Every CI job runs one `cargo xtask` subcommand, so any failure reproduces on a
 workstation with the same command. `cargo xtask ci` runs policy, fmt, clippy,
-tests, wasm and docs in one go and must be green before pushing.
+tests, wasm, docs and `docs check` in one go and must be green before pushing.
 
 ## Pull request gate (`.github/workflows/ci.yml`)
 
@@ -10,6 +10,7 @@ tests, wasm and docs in one go and must be green before pushing.
 | --- | --- | --- |
 | Format and policy | `cargo xtask policy`, `cargo xtask fmt` | Crate dependency layers, workspace lints keep `unwrap_used`, `expect_used`, `panic`, `unimplemented`, `todo` and `unreachable` at deny (AGENTS.md), no source `allow` of them, rustfmt |
 | Clippy and docs | `cargo xtask clippy`, `cargo xtask docs` | Clippy with `-D warnings` on all targets, rustdoc with warnings denied |
+| Documentation standard | `cargo xtask docs check` | Contract and dependency paths exist, trait implementation lists match the code, AGENTS.md is 60 lines or fewer, missing-docs warnings do not rise above xtask/doc-ratchet.toml |
 | Tests | `cargo xtask test` | Workspace tests with cargo-nextest (profile `ci`, JUnit report uploaded) plus doctests. Includes the headless `a_newcomer_*` end-to-end tests in crates/ui-egui |
 | WebAssembly | `cargo xtask wasm` | The shared UI and the browser entry point build for wasm32 |
 | Minimum Rust version | `cargo xtask msrv` | Builds with the `rust-version` in Cargo.toml |
