@@ -231,7 +231,9 @@ impl FootprintDefinition {
                     }
                 }
                 ("chamfered", None) => return Err(bad("chamfered pad is missing its chamfer")),
-                (_, Some(_)) => return Err(bad("chamfer is only valid on a chamfered pad")),
+                (shape, Some(_)) if shape != "chamfered" => {
+                    return Err(bad("chamfer is only valid on a chamfered pad"));
+                }
                 _ => {}
             }
             if !p.polygon.is_empty() {

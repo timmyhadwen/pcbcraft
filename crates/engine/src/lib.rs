@@ -1248,6 +1248,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "panel.set",
+            "Record manufacturing panel settings on the project: grid size, gaps, rails, tab channel width and separation method",
+            schema(
+                json!({"enabled":{"type":"boolean"},"columns":{"type":"integer","minimum":1,"maximum":32},"rows":{"type":"integer","minimum":1,"maximum":32},"pitch_x":{"type":"number","minimum":0,"maximum":10000},"pitch_y":{"type":"number","minimum":0,"maximum":10000},"rail":{"type":"number","minimum":0,"maximum":25},"separation":{"type":"string","enum":["tab","v_score"]},"tab_channel":{"type":"number","minimum":1.6,"maximum":2.0}}),
+                &[],
+            ),
+        ),
+        (
+            "panel.clear",
+            "Turn off panel settings and return them to defaults",
+            schema(json!({}), &[]),
+        ),
+        (
+            "panel.export",
+            "Write panel fabrication files (duplicated gerbers, drill with breakaway and tooling holes, pick-and-place per copy) into a directory",
+            schema(
+                json!({"directory":{"type":"string","minLength":1,"maxLength":4096}}),
+                &["directory"],
+            ),
+        ),
+        (
             "board.set_finish",
             "Record the board's surface finish (for example HASL, ENIG or OSP) for reports and fabrication notes",
             schema(
@@ -3110,6 +3131,31 @@ struct PanelParams {
     pitch_y: f64,
     #[serde(default = "default_rail")]
     rail: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PanelSetParams {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    columns: Option<usize>,
+    #[serde(default)]
+    rows: Option<usize>,
+    #[serde(default)]
+    pitch_x: Option<f64>,
+    #[serde(default)]
+    pitch_y: Option<f64>,
+    #[serde(default)]
+    rail: Option<f64>,
+    #[serde(default)]
+    separation: Option<String>,
+    #[serde(default)]
+    tab_channel: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PanelExportParams {
+    directory: String,
 }
 fn default_rail() -> f64 {
     3.0
@@ -9697,6 +9743,73 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 "layout": copies,
             }))
         }
+        "panel.set" => {
+            let a: PanelSetParams = parse(params)?;
+            if let Some(enabled) = a.enabled {
+                p.panel.enabled = enabled;
+            }
+            if let Some(columns) = a.columns {
+                p.panel.columns = columns;
+            }
+            if let Some(rows) = a.rows {
+                p.panel.rows = rows;
+            }
+            if let Some(pitch_x) = a.pitch_x {
+                p.panel.pitch_x = pitch_x;
+            }
+            if let Some(pitch_y) = a.pitch_y {
+                p.panel.pitch_y = pitch_y;
+            }
+            if let Some(rail) = a.rail {
+                p.panel.rail = rail;
+            }
+            if let Some(tab_channel) = a.tab_channel {
+                p.panel.tab_channel = tab_channel;
+            }
+            if let Some(separation) = a.separation {
+                p.panel.separation = match separation.as_str() {
+                    "tab" => pcbcraft_doc::PanelSeparation::Tab,
+                    "v_score" => pcbcraft_doc::PanelSeparation::VScore,
+                    other => {
+                        return Err(Error::Invalid(format!(
+                            "separation must be tab or v_score, not {other}"
+                        )));
+                    }
+                };
+            }
+            if p.panel.enabled {
+                p.panel.validate_fields().map_err(Error::Invalid)?;
+            }
+            Ok(json!({"panel": p.panel}))
+        }
+        "panel.clear" => {
+            p.panel = pcbcraft_doc::PanelSettings::default();
+            Ok(json!({"panel": p.panel}))
+        }
+        "panel.export" => {
+            let a: PanelExportParams = parse(params)?;
+            if a.directory.is_empty() || a.directory.len() > 4096 {
+                return Err(Error::Invalid("output directory is out of range".into()));
+            }
+            if !p.panel.enabled {
+                return Err(Error::Invalid(
+                    "panel export needs enabled panel settings".into(),
+                ));
+            }
+            let directory = std::path::Path::new(&a.directory);
+            let mut written: Vec<String> = vec![];
+            let files = pcbcraft_io::panel_fabrication_files(p)?;
+            for (name, text) in &files {
+                pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
+                    .map_err(Error::Invalid)?;
+                written.push(name.clone());
+            }
+            let placement = pcbcraft_io::panel_placement_text(p)?;
+            pcbcraft_io::atomic_write(&directory.join("panel-placement.txt"), placement.as_bytes())
+                .map_err(Error::Invalid)?;
+            written.push("panel-placement.txt".into());
+            Ok(json!({"directory": a.directory, "files": written}))
+        }
         "board.set_finish" => {
             let a: FinishParams = parse(params)?;
             if a.finish.is_empty() || a.finish.len() > 64 {
@@ -11161,6 +11274,21 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         )
                         .map_err(Error::Invalid)?;
                         written.push("board-stats.csv".into());
+                    }
+                    "panel" => {
+                        let files = pcbcraft_io::panel_fabrication_files(p)?;
+                        for (name, text) in &files {
+                            pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
+                                .map_err(Error::Invalid)?;
+                            written.push(name.clone());
+                        }
+                        let placement = pcbcraft_io::panel_placement_text(p)?;
+                        pcbcraft_io::atomic_write(
+                            &directory.join("panel-placement.txt"),
+                            placement.as_bytes(),
+                        )
+                        .map_err(Error::Invalid)?;
+                        written.push("panel-placement.txt".into());
                     }
                     other => {
                         return Err(Error::Invalid(format!("unknown export kind {other}")));
@@ -16765,6 +16893,32 @@ mod tests {
             "the replacement undoes"
         );
         assert!(clear(&s), "and the finding returns with it");
+        Ok(())
+    }
+    #[test]
+    fn panel_settings_save_load_round_trip() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "panel.set",
+            json!({
+                "enabled": true,
+                "columns": 2,
+                "rows": 2,
+                "pitch_x": 60.0,
+                "pitch_y": 40.0,
+                "rail": 3.0,
+                "separation": "tab",
+                "tab_channel": 1.8
+            }),
+            None,
+        )?;
+        let saved = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: pcbcraft_doc::Project =
+            serde_json::from_str(&saved).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate().map_err(Error::Invalid)?;
+        assert!(loaded.panel.enabled);
+        assert_eq!(loaded.panel.columns, 2);
+        assert_eq!(loaded.panel.tab_channel, 1.8);
         Ok(())
     }
     #[test]
