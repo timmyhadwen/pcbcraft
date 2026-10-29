@@ -1645,6 +1645,7 @@ impl App {
                     self.selected = Some(id);
                     if command == "component.add" {
                         self.refresh();
+                        self.adopt_active_layer(&known);
                         self.attach_pending_source(id);
                         return;
                     }
@@ -1653,9 +1654,9 @@ impl App {
             Err(e) => self.message = e,
         }
         self.refresh();
-        if command == "board.sync" {
-            self.adopt_active_layer(&known);
-        }
+        // Automatic sync can add a footprint inside any schematic edit, so a
+        // part new to the board follows the active layer after every command.
+        self.adopt_active_layer(&known);
     }
     /// Run a command and hand back its result object, for commands whose
     /// answer is worth reading (a dry run, a plan, a count).
