@@ -25,7 +25,7 @@ fn a_newcomer_copies_a_part_with_one_click() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Duplicate")?,
+        scrolled_to(&ctx, &mut app, "Duplicate")?,
         "a chosen part offers to be copied: {}",
         app.message
     );
