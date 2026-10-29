@@ -32,6 +32,9 @@ image = { version = "0.25", default-features = false, features = ["png", "bmp"] 
 png = "0.18.1"
 base64 = "0.22"
 # glTF reader for 3D model files; MIT OR Apache-2.0, pure Rust. No image decoding.
+# STEP reading and tessellation for 3D model files; Apache-2.0, pure Rust.
+truck-stepio = "0.3"
+truck-meshalgo = "0.4"
 gltf = { version = "1", default-features = false, features = ["utils"] }
 tempfile = "3"
 

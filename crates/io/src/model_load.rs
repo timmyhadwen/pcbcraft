@@ -4,8 +4,8 @@
 //! the footprint matrix. Every limit returns a plain-sentence [`ModelError`]
 //! that the 3D View shows beside the part, so a bad file never panics.
 //!
-//! Formats: glTF and GLB, and a bounded VRML subset (`vrml_read.rs`). STEP
-//! returns a plain "not supported yet" reason until its slice lands (#542).
+//! Formats: glTF and GLB, a bounded VRML subset
+//! (`vrml_read.rs`) and STEP solids (`step_read.rs`, millimetres).
 //! Units: glTF is metres and Y up, so it is scaled by 1000 and turned to Z up.
 use base64::Engine;
 use std::path::Path;
@@ -93,7 +93,10 @@ pub fn model_cache_key(
 
 /// True when the extension names a format this tool can read now.
 pub fn model_extension_supported(path: &str) -> bool {
-    matches!(extension(path).as_str(), "gltf" | "glb" | "wrl" | "vrml")
+    matches!(
+        extension(path).as_str(),
+        "gltf" | "glb" | "wrl" | "vrml" | "step" | "stp"
+    )
 }
 fn extension(path: &str) -> String {
     Path::new(path)
@@ -124,7 +127,7 @@ pub fn load_model(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     match extension(path).as_str() {
         "gltf" | "glb" => load_gltf(path, bytes),
         "wrl" | "vrml" => crate::vrml_read::read_vrml(bytes),
-        "step" | "stp" => err("STEP model files are not read yet."),
+        "step" | "stp" => crate::step_read::read_step(bytes),
         "" => err("The model file has no extension, so its format is unknown."),
         other => err(format!("The model format .{other} is not supported.")),
     }
@@ -406,6 +409,23 @@ mod tests {
             .map(|e| e.0)
             .unwrap_or_default();
         assert!(e.contains("Inline"), "{e}");
+    }
+
+    #[test]
+    fn step_solid_loads_in_millimetres() -> Check {
+        let m = load_model("box.step", include_bytes!("../tests/fixtures/box.step"))
+            .map_err(|e| e.to_string())?;
+        assert!(m.indices.len() / 3 >= 12, "six faces make at least 12 triangles");
+        let (lo, hi) = m.bounds().ok_or("bounds")?;
+        let near = |a: [f64; 3], b: [f64; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
+        assert!(near(lo, [0.0, 0.0, 0.0]), "low corner {lo:?}");
+        assert!(near(hi, [10.0, 5.0, 2.0]), "a 10 x 5 x 2 mm box: {hi:?}");
+        let broken = load_model("x.step", b"ISO-10303-21; garbage")
+            .err()
+            .map(|e| e.0)
+            .unwrap_or_default();
+        assert!(broken.contains("STEP"), "{broken}");
+        Ok(())
     }
 
     #[test]

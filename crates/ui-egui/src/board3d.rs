@@ -12,7 +12,7 @@ use model_cache::ModelCache;
 
 type V = [f64; 3];
 
-const NOTE_BODIES: &str = "Part bodies are default boxes sized from the pads. A part with a glTF or VRML model file shows that model instead.";
+const NOTE_BODIES: &str = "Part bodies are default boxes sized from the pads. A part with a glTF, VRML or STEP model file shows that model instead.";
 const NOTE_LOADING: &str = "Loading models. Parts show default boxes until their files are read.";
 
 /// Above this many triangles only the board and the part bodies are drawn,
