@@ -4,7 +4,7 @@
 //! squashes everything one message changed into a single undo step. Both live beside `batch()`
 //! in `lib.rs` and use the same `run()`.
 //! Rules: a dry run never touches the session (revision, project, undo, redo and `next_id` stay);
-//! lists are bounded at [`LIST_LIMIT`] entries with the overflow counted in `more`.
+//! lists are bounded at `LIST_LIMIT` entries with the overflow counted in `more`.
 //! Do not: turn `squash_undo_since` into a tool; outside agents must not rewrite history.
 
 use super::{Command, Error, Session, run};
@@ -28,7 +28,7 @@ pub struct ChangeSummary {
     /// Nets added, removed or changed.
     pub nets_changed: usize,
     pub board_changed: bool,
-    /// Entries left out of the lists above because of [`LIST_LIMIT`].
+    /// Entries left out of the lists above because of `LIST_LIMIT`.
     pub more: usize,
 }
 
