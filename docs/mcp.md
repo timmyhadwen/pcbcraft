@@ -16,7 +16,9 @@ cargo run -p pcbcraft-cli -- mcp
 
 The executable `pcbcraft-cli mcp` implements a stdio MCP server. It negotiates
 2025-11-25, 2025-06-18 or 2024-11-05 protocol versions, advertises tools, and returns
-tool failures as `isError` responses. Messages are capped at 1 MiB.
+tool failures as `isError` responses. Messages are capped at 1 MiB. Until a
+successful `initialize`, the stdio server answers every request except `initialize` and
+`ping` with error -32002; notifications get no reply.
 
 Example client configuration after `cargo build -p pcbcraft-cli`:
 

@@ -820,6 +820,18 @@ fn read_message(reader: &mut impl BufRead) -> Result<Option<String>, String> {
         .map(Some)
         .map_err(|e| e.to_string())
 }
+/// Run the stdio server loop: one JSON-RPC message per line in, one reply per request out.
+///
+/// # Rules
+/// Before a successful `initialize`, every request except `initialize` and `ping` gets
+/// -32002 "initialize the MCP session first" (lifecycle page of the 2025-11-25 spec).
+/// Notifications never get a reply. A failed `initialize` does not open the session.
+///
+/// # Dependencies
+/// `crates/mcp/src/lib.rs` (`handle_rpc`, `read_message`).
+///
+/// # Do not
+/// Do not gate `ping`. The HTTP transport in `http.rs` is stateless and does not use this gate.
 pub fn serve(
     reader: &mut impl BufRead,
     writer: &mut impl Write,
@@ -831,7 +843,7 @@ pub fn serve(
         let response = match serde_json::from_str::<Value>(&line) {
             Ok(request) => {
                 let method = request.get("method").and_then(Value::as_str);
-                if !initialized && method.is_some_and(|m| m.starts_with("tools/")) {
+                if !initialized && method.is_some_and(|m| m != "initialize" && m != "ping") {
                     request
                         .get("id")
                         .map(|id| rpc_error(id.clone(), -32002, "initialize the MCP session first"))
@@ -918,6 +930,55 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn run_session(lines: &[Value]) -> Result<Vec<Value>, String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let input: String = lines.iter().map(|line| format!("{line}\n")).collect();
+        let mut output = vec![];
+        serve(&mut input.as_bytes(), &mut output, &hub, None)?;
+        String::from_utf8(output)
+            .map_err(|e| e.to_string())?
+            .lines()
+            .map(|line| serde_json::from_str(line).map_err(|e| e.to_string()))
+            .collect()
+    }
+    fn initialize_request(id: u64) -> Value {
+        json!({"jsonrpc":"2.0","id":id,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"t","version":"1"}}})
+    }
+    #[test]
+    fn methods_other_than_initialize_and_ping_are_refused_before_initialize() -> Result<(), String>
+    {
+        let replies = run_session(&[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}),
+            json!({"jsonrpc":"2.0","id":2,"method":"resources/list"}),
+            json!({"jsonrpc":"2.0","id":3,"method":"prompts/list"}),
+            json!({"jsonrpc":"2.0","id":4,"method":"foo"}),
+        ])?;
+        assert_eq!(replies.len(), 4);
+        for reply in &replies {
+            assert_eq!(reply["error"]["code"], -32002, "{reply}");
+        }
+        Ok(())
+    }
+    #[test]
+    fn ping_works_before_initialize() -> Result<(), String> {
+        let replies = run_session(&[json!({"jsonrpc":"2.0","id":1,"method":"ping"})])?;
+        assert_eq!(replies[0]["result"], json!({}));
+        Ok(())
+    }
+    #[test]
+    fn a_failed_initialize_does_not_open_the_session() -> Result<(), String> {
+        let replies = run_session(&[
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+            initialize_request(3),
+            json!({"jsonrpc":"2.0","id":4,"method":"tools/list"}),
+        ])?;
+        assert_eq!(replies[0]["error"]["code"], -32602);
+        assert_eq!(replies[1]["error"]["code"], -32002);
+        assert!(replies[2]["result"].is_object());
+        assert!(replies[3]["result"]["tools"].is_array());
+        Ok(())
+    }
     fn listed_tools() -> Result<Vec<Value>, String> {
         tool_list()["tools"]
             .as_array()
