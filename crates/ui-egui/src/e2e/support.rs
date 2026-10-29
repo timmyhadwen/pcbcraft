@@ -121,7 +121,7 @@ pub(crate) fn frame(
 /// - Runs two frames so the tree is complete; only roles a pointer can press.
 ///
 /// # Dependencies
-/// - `../target_size.rs` consumes the result.
+/// - `crates/ui-egui/src/target_size.rs` consumes the result.
 ///
 /// # Do not
 /// - Use it to find text; it returns controls only.

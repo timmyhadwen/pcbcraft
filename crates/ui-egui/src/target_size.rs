@@ -5,7 +5,7 @@
 //! which are too small. Test-only; the app itself keeps the rules by sizing
 //! controls with `App::MIN_TARGET`.
 //! Local rules: an undersized control is fixed in the UI or listed with a
-//! reason in `../target-size-exemptions.txt`; the minimum is never lowered.
+//! reason in `crates/ui-egui/target-size-exemptions.txt`; the minimum is never lowered.
 use egui::Rect;
 
 /// Names of the rectangles with a side under `minimum` logical pixels.
@@ -17,7 +17,7 @@ use egui::Rect;
 /// - Output is sorted and deduplicated so the failure message is stable.
 ///
 /// # Dependencies
-/// - `./e2e/support.rs` `interactive_rects` supplies the input.
+/// - `crates/ui-egui/src/e2e/support.rs` `interactive_rects` supplies the input.
 ///
 /// # Do not
 /// - Pass the painted size of a control whose hit area is larger; pass the hit area.
@@ -38,7 +38,7 @@ pub(crate) fn undersized_targets(rects: &[(String, Rect)], minimum: f32) -> Vec<
 /// - A line is `control id = reason`; a missing reason is an error.
 ///
 /// # Dependencies
-/// - `../target-size-exemptions.txt`.
+/// - `crates/ui-egui/target-size-exemptions.txt`.
 ///
 /// # Do not
 /// - Match by prefix; an exemption names one control.
