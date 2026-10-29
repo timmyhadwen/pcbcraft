@@ -223,17 +223,19 @@ impl FootprintDefinition {
             {
                 return Err(bad("invalid pad drill"));
             }
+            #[allow(clippy::collapsible_match)]
             match (p.shape.as_str(), &p.chamfer) {
-                ("chamfered", Some(c))
+                ("chamfered", Some(c)) => {
                     if !c.ratio.is_finite()
                         || c.ratio <= 0.0
                         || c.ratio > 0.5
                         || !c.corners.any()
-                        || p.roundrect_ratio.is_some() =>
-                {
-                    return Err(bad(
-                        "chamfered pad needs a ratio in (0, 0.5], at least one corner and no corner rounding",
-                    ));
+                        || p.roundrect_ratio.is_some()
+                    {
+                        return Err(bad(
+                            "chamfered pad needs a ratio in (0, 0.5], at least one corner and no corner rounding",
+                        ));
+                    }
                 }
                 ("chamfered", None) => return Err(bad("chamfered pad is missing its chamfer")),
                 (_, Some(_)) => return Err(bad("chamfer is only valid on a chamfered pad")),
