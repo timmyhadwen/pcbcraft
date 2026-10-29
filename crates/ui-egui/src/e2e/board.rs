@@ -488,7 +488,7 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     app.tab = Tab::Pcb;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Mounting hole")?;
+    tap_strip(&ctx, &mut app, "button:Mounting hole")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.canvas_click(Point::new(-25.0, -17.0), 1.0);
     assert_eq!(
@@ -1518,21 +1518,28 @@ fn sample_on(tab: Tab) -> (App, egui::Context) {
 #[test]
 fn a_newcomer_hides_and_shows_each_kind_of_thing_on_the_board() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Pcb);
-    for (id, name) in [
-        ("checkbox:Top copper", "Top copper"),
-        ("checkbox:Bottom copper", "Bottom copper"),
-        ("checkbox:Pads", "Pads"),
-        ("checkbox:Vias", "Vias"),
-        ("checkbox:Copper zones", "Copper zones"),
-        ("checkbox:Cutouts", "Cutouts"),
-        ("checkbox:Package artwork", "Package artwork"),
+    // The Vias group only lists when the board has a via.
+    app.tool_call(
+        "via.place",
+        json!({"net":4,"position":{"x":20.0,"y":30.0},"diameter":0.8,"drill":0.4}),
+    );
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // Each kind of thing has an eye on its row in the Layers tree.
+    for (row, name) in [
+        ("Top copper", "Top copper"),
+        ("Bottom copper", "Bottom copper"),
+        ("Pads", "Pads"),
+        ("Vias", "Vias"),
+        ("Zones", "Copper zones"),
+        ("Board outline", "Cutouts"),
+        ("Courtyards", "Package artwork"),
     ] {
-        tap_id(&ctx, &mut app, id)?;
+        tap_id(&ctx, &mut app, &format!("button:Hide {row}"))?;
         assert!(
             !app.layer_shown(name),
             "ticking {name} off hides it from the drawing"
         );
-        tap_id(&ctx, &mut app, id)?;
+        tap_id(&ctx, &mut app, &format!("button:Show {row}"))?;
         assert!(app.layer_shown(name), "ticking {name} again shows it");
     }
     Ok(())
@@ -1558,7 +1565,7 @@ fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), S
             "{id} arms its shape on the machine layer"
         );
     }
-    tap_id(&ctx, &mut app, "button:Cutout")?;
+    tap_strip(&ctx, &mut app, "button:Cutout")?;
     assert!(
         matches!(app.tool, Tool::Cutout),
         "Cutout arms the hole tool"
@@ -1593,7 +1600,7 @@ fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), Str
 fn a_newcomer_zooms_out_and_fits_the_whole_design() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Schematic);
     let before = app.schematic.zoom;
-    tap_id(&ctx, &mut app, "button:\u{2212}")?;
+    tap_id(&ctx, &mut app, "icon:canvas-zoom-out")?;
     assert!(app.schematic.zoom < before, "the minus button zooms out");
     tap_id(&ctx, &mut app, "icon:canvas-fit")?;
     assert!(
