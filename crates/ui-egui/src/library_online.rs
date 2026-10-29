@@ -79,8 +79,9 @@ pub(crate) fn peek_open(source: &OpenLibrarySource, sku: &str) -> Result<Value, 
         .into_iter()
         .find(|d| d.name == name)
         .ok_or_else(|| "the symbol file does not hold this part".to_owned())?;
-    let footprint = footprint_ref_from_field(&def.footprint)
-        .and_then(|f| source.fetch_footprint(&f).ok())
-        .and_then(|f| f.text().ok().and_then(|t| read_footprint(t).ok()));
+    let footprint = footprint_ref_from_field(&def.footprint).and_then(|f| {
+        let file = source.fetch_footprint(&f).ok()?;
+        read_footprint(file.text().ok()?).ok()
+    });
     Ok(json!({"symbol": def, "footprint": footprint}))
 }

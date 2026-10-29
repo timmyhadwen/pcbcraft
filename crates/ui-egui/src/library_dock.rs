@@ -1120,6 +1120,15 @@ impl App {
                     return None;
                 }
             }
+            Card::Online(p, _) => {
+                let def = self
+                    .dock
+                    .online
+                    .get(&p.sku)
+                    .and_then(Option::as_ref)
+                    .and_then(|(_, f)| f.clone())?;
+                (format!("online/{}", p.sku), Some(def))
+            }
             Card::BuiltIn(kind, _) => {
                 (format!("built-in/{kind}"), library_builtin::footprint(kind))
             }
@@ -1287,12 +1296,31 @@ impl App {
                     );
                 }
                 None => {
-                    icons::icon_at(
-                        ui,
-                        Rect::from_center_size(spot.center(), spot.size() * 0.45),
-                        "footprint",
-                        self.muted(),
-                    );
+                    // A part with no footprint of its own shows its symbol,
+                    // never the generic chip.
+                    let symbol = facts
+                        .symbol
+                        .as_ref()
+                        .and_then(|k| self.dock.drawings.get(k))
+                        .filter(|p| !p.is_empty())
+                        .cloned();
+                    if let (Card::Online(..), Some(paths)) = (card, symbol) {
+                        let (center, extent) = library::library_paths_extent(&paths);
+                        let camera = Camera {
+                            center,
+                            zoom: ((spot.width() - 12.0) / extent.x as f32)
+                                .min((spot.height() - 12.0) / extent.y as f32)
+                                .clamp(0.01, 40.0),
+                        };
+                        library::paint_library_paths(&painter, spot, camera, &paths, accent);
+                    } else {
+                        icons::icon_at(
+                            ui,
+                            Rect::from_center_size(spot.center(), spot.size() * 0.45),
+                            "footprint",
+                            self.muted(),
+                        );
+                    }
                 }
             }
         }
@@ -1370,12 +1398,16 @@ impl App {
             .filter(|l| !l.is_empty())
         {
             if y + 12.0 < rect.bottom() {
-                let galley = painter.layout(
+                let mut job = egui::text::LayoutJob::simple(
                     line,
                     egui::FontId::proportional(10.5),
                     self.muted(),
                     text_width,
                 );
+                job.wrap.max_rows = 1;
+                job.wrap.break_anywhere = true;
+                job.wrap.overflow_character = Some('\u{2026}');
+                let galley = painter.layout_job(job);
                 let h = galley.size().y;
                 painter.galley(egui::pos2(text_left, y), galley, Color32::WHITE);
                 y += h + 1.0;
