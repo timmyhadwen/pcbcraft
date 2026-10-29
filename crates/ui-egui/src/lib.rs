@@ -2,6 +2,7 @@
 mod authoring;
 mod canvas;
 mod library;
+mod sources;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use std::collections::BTreeMap;
@@ -660,6 +661,8 @@ pub struct App {
     net_draft: Option<(pcbcraft_doc::Id, String)>,
     palette: bool,
     part_search: String,
+    part_sources: sources::PartSources,
+    pending_source: Option<pcbcraft_library::sources::PartResult>,
     hidden_sets: Vec<String>,
     svg_path: String,
     part_search_focus: bool,
@@ -996,6 +999,8 @@ impl App {
             net_draft: None,
             palette: false,
             part_search: String::new(),
+            part_sources: sources::PartSources::default(),
+            pending_source: None,
             hidden_sets: Vec::new(),
             svg_path: String::new(),
             part_search_focus: false,
@@ -1118,6 +1123,11 @@ impl App {
                         self.selected_unit = 1;
                     }
                     self.selected = Some(id);
+                    if command == "component.add" {
+                        self.refresh();
+                        self.attach_pending_source(id);
+                        return;
+                    }
                 }
             }
             Err(e) => self.message = e,
@@ -3309,6 +3319,7 @@ impl App {
                                     self.part_card(ui, &definition);
                                 }
                             }
+                            self.source_section(ui);
                         });
                 }
                 ui.add_space(12.0);
