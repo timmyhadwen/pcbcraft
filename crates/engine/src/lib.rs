@@ -17808,7 +17808,7 @@ mod tests {
             s.project.library.footprints[0].name,
             "QFN50P500X500X100-33N"
         );
-        assert_eq!(s.project.library.footprints[0].pads.len(), 32);
+        assert_eq!(s.project.library.footprints[0].pads.len(), 33);
         assert!(
             commands()
                 .iter()
