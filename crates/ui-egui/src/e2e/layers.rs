@@ -48,7 +48,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     let net = app.project.nets[0].clone();
     app.tree.query = net.name.clone();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, &net.name)?;
+    tap_left(&ctx, &mut app, &net.name)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.highlight_net,
@@ -59,7 +59,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     app.tree.query.clear();
     // Focus a layer: the others dim.
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Top copper")?;
+    tap_left(&ctx, &mut app, "Top copper")?;
     key(&ctx, &mut app, egui::Key::F);
     assert_eq!(
         app.focus_layer.as_deref(),
@@ -75,7 +75,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     key(&ctx, &mut app, egui::Key::F);
     assert_eq!(app.focus_layer, None, "F again brings everything back");
     // The board outline row opens the board settings in Properties.
-    authoring::tests::tap(&ctx, &mut app, "Board outline")?;
+    tap_left(&ctx, &mut app, "Board outline")?;
     assert!(
         paints_text(&ctx, &mut app, "Board settings")?,
         "the board row opens board settings: {}",
@@ -87,7 +87,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
 #[test]
 fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
-    authoring::tests::tap(&ctx, &mut app, "Top copper")?;
+    tap_left(&ctx, &mut app, "Top copper")?;
     key(&ctx, &mut app, egui::Key::Space);
     assert!(
         app.preferences

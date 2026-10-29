@@ -7261,16 +7261,16 @@ mod tests {
         let ctx = egui::Context::default();
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        // The Layers tree lists wires as its own row, with an eye on it.
         assert!(
-            scrolled_to(&ctx, &mut app, "Wires")?,
-            "the layers page lists wires as its own row"
+            paints_text(&ctx, &mut app, "Wires")?,
+            "the layers tree lists wires as its own row"
         );
-        authoring::tests::tap(&ctx, &mut app, "Wires")?;
+        e2e::support::tap_id(&ctx, &mut app, "button:Hide Wires")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.preferences.hidden_layers.iter().any(|h| h == "Wires"),
-            "unticking the row hides the wires layer"
+            "the eye on the row hides the wires layer"
         );
         let after = wire_count(&mut app, &ctx)?;
         assert!(
@@ -7350,7 +7350,8 @@ mod tests {
         let before = app.project.nets.len();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        // The Nets section's properties hold the connection editor.
+        open_tree_row(&ctx, &mut app, "sec:nets");
         assert!(
             scrolled_to(&ctx, &mut app, "New net")?,
             "the layers tree offers a way to add a connection"
@@ -7935,7 +7936,8 @@ mod tests {
         );
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        app.change_tab(Tab::Pcb);
+        open_tree_row(&ctx, &mut app, "sec:nets");
         assert!(
             scrolled_to(&ctx, &mut app, "of 3 nets routed")?,
             "the dock totals the routing at a glance: {}",

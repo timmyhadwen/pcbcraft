@@ -1966,7 +1966,7 @@ fn paint_row(
     }
     // Chevron cell.
     let mut chevron_clicked = false;
-    let chevron_rect = Rect::from_center_size(Pos2::new(x0 + 8.0, cy), Vec2::new(16.0, ROW_HEIGHT));
+    let chevron_rect = Rect::from_center_size(Pos2::new(x0 + 8.0, cy), Vec2::new(24.0, ROW_HEIGHT));
     if r.expandable {
         let cr = ui.interact(chevron_rect, id.with("chevron"), Sense::click());
         glyph(

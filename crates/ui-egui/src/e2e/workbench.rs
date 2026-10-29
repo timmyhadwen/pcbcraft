@@ -117,7 +117,8 @@ fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), S
         })
     };
     let errors = find("2 errors").ok_or("the status strip reads 2 errors")?;
-    find("1 warning").ok_or("the status strip reads 1 warning")?;
+    // Notes count with the warnings in the bar: 1 warning and 4 notes.
+    find("5 warnings").ok_or("the status strip reads 5 warnings")?;
     click(&ctx, &mut app, errors);
     assert_eq!(app.tab, Tab::Checks, "the error count opens the Checks page");
     Ok(())

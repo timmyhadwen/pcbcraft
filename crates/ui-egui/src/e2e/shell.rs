@@ -201,8 +201,8 @@ fn no_user_visible_literal_outside_the_catalog() -> Result<(), String> {
 fn board_layout_strings_are_all_catalog_keys() -> Result<(), String> {
     let listed = pcbcraft_text::scan::converted_fns();
     for (file, function) in [
-        ("lib.rs", "layers_tab"),
-        ("lib.rs", "board_anatomy_section"),
+        // The layers tab and the anatomy section became the layers tree.
+        ("layers_tree.rs", "tree_row_properties"),
         ("lib.rs", "stackup_section"),
         ("lib.rs", "holes_section"),
         ("lib.rs", "fiducials_section"),
@@ -567,7 +567,7 @@ fn a_newcomer_cannot_undo_before_the_first_edit() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(), String> {
+fn a_newcomer_reads_plain_tool_names_and_reaches_rules_from_the_view_menu() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
@@ -582,43 +582,13 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     for cryptic in ["Sel", "Mv", "Rt", "Ln", "Bx", "Cr", "Pl", "Tx"] {
         assert!(text_row(&ctx, &mut app, cryptic).is_none(), "no {cryptic}");
     }
-    app.closed_tabs.push(Tab::Rules);
+    // Rules is not a tab any more; it opens from the View menu.
     assert!(
         text_row(&ctx, &mut app, "Rules").is_none(),
-        "a closed view leaves the row"
+        "no Rules tab sits in the row"
     );
-    // Other panels carry a "+" too; the one in the tab row is the highest.
-    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let plus = output
-        .shapes
-        .iter()
-        .filter_map(|shape| match &shape.shape {
-            egui::Shape::Text(text) if text.galley.text() == "+" => {
-                Some(text.pos + text.galley.size() / 2.0)
-            }
-            _ => None,
-        })
-        .min_by(|a, b| a.y.total_cmp(&b.y))
-        .ok_or("the tab row has a + menu")?;
-    for pressed in [true, false] {
-        frame(
-            &ctx,
-            &mut app,
-            vec![
-                egui::Event::PointerMoved(plus),
-                egui::Event::PointerButton {
-                    pos: plus,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-    }
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::open_page(&ctx, &mut app, "Rules")?;
-    assert!(matches!(app.tab, Tab::Rules), "the + menu reopens it");
+    assert!(matches!(app.tab, Tab::Rules), "View > Rules opens it");
     authoring::tests::tap(&ctx, &mut app, "Files")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;
     assert!(
@@ -732,7 +702,8 @@ fn tab_to(ctx: &egui::Context, app: &mut App, name: &str) -> Result<Vec<String>,
 #[test]
 fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result<(), String> {
     let (ctx, mut app) = practice_app();
-    let seen = tab_to(&ctx, &mut app, "Settings")?;
+    // Settings is Edit > Preferences now; reach both stops with Tab.
+    let seen = tab_to(&ctx, &mut app, "Edit")?;
     assert_eq!(
         seen.first().map(String::as_str),
         Some("PCBCraft start screen"),
@@ -748,6 +719,17 @@ fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result
             egui::Shape::Rect(r) if r.stroke.width >= 2.0 && r.stroke.color == app.accent())),
         "the focused control wears a visible ring"
     );
+    frame(
+        &ctx,
+        &mut app,
+        vec![key(egui::Key::Enter)],
+        egui::Modifiers::NONE,
+    );
+    assert!(
+        !matches!(app.tab, Tab::Settings),
+        "Enter on Edit opens the menu, not the page"
+    );
+    tab_to(&ctx, &mut app, "Preferences")?;
     frame(
         &ctx,
         &mut app,

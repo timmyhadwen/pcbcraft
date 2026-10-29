@@ -343,3 +343,47 @@ pub(crate) fn open_tree_row(ctx: &egui::Context, app: &mut App, key: &str) {
 pub(crate) fn open_library_dock(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
     tap_id(ctx, app, "button:Library")
 }
+
+/// Click the row of the left aside whose words read exactly `label`, ignoring
+/// the same words painted on the drawing (net names and part references
+/// appear in both places).
+pub(crate) fn tap_left(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let at = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(t) if t.galley.text() == label => {
+                let c = t.pos + t.galley.size() / 2.0;
+                (c.x < 320.0 && shape.clip_rect.contains(c)).then_some(c)
+            }
+            _ => None,
+        })
+        .next_back()
+        .ok_or_else(|| format!("{label} is not in the left aside"))?;
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::PointerMoved(at)],
+        egui::Modifiers::NONE,
+    );
+    for pressed in [true, false] {
+        frame(
+            ctx,
+            app,
+            vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
