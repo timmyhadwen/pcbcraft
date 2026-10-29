@@ -3106,7 +3106,6 @@ pub(crate) fn layers_tab(ui: &mut Ui, app: &mut crate::App) {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
