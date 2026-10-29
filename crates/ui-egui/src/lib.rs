@@ -8088,7 +8088,7 @@ mod tests {
                 .filter(|shape| {
                     matches!(
                         &shape.shape,
-                        egui::Shape::Path(path) if (path.stroke.width - 1.8).abs() < 0.01
+                        egui::Shape::Path(path) if (path.stroke.width - 2.5).abs() < 0.01
                     )
                 })
                 .count())

@@ -1560,3 +1560,10 @@ rules.rules_tab.where_the_left_edge_of.tip = Where the left edge of the stricter
 rules.rules_tab.how_wide_the_stricter_area.tip = How wide the stricter area is, in millimetres. It accepts 1 to 500 mm.
 rules.rules_tab.how_tall_the_stricter_area.tip = How tall the stricter area is, in millimetres. It accepts 1 to 500 mm.
 library.browser.show_or_hide_the_starter.tip = Show or hide the starter symbols that ship with the app. Each one can be placed straight into the schematic.
+
+# canvas/sheet.rs title block of the schematic sheet
+schematic.sheet.title = Title
+schematic.sheet.sheet = Sheet
+schematic.sheet.page = {page} of {pages}
+schematic.sheet.date = Date
+schematic.sheet.size = Size

@@ -3,6 +3,7 @@ use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Layer, PinRef};
 use pcbcraft_geom::point_segment;
 mod board_art;
+mod sheet;
 mod underlay;
 
 pub(super) enum CanvasMenuKind {
@@ -14,35 +15,18 @@ pub(super) enum CanvasMenuKind {
 }
 
 /// The world rectangle each tab should show by default: the board outline on
-/// the PCB tab, everything drawn on the schematic tab, falling back to the
-/// default sheet area so a fresh project still frames sensibly.
+/// the PCB tab, the whole drawing sheet on the schematic tab.
 fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
+    if !pcb {
+        return sheet::sheet_bounds(project);
+    }
     let mut pts: Vec<Point> = Vec::new();
-    if pcb {
-        if let Some(ring) = &project.board.outline {
-            pts.extend(ring.iter().copied());
-        }
-        if pts.is_empty() {
-            pts.push(Point::new(0.0, 0.0));
-            pts.push(Point::new(project.board.width, project.board.height));
-        }
-    } else {
-        for c in &project.components {
-            pts.push(c.position);
-        }
-        for w in &project.drawn_wires {
-            pts.extend(w.points.iter().copied());
-        }
-        for l in &project.labels {
-            pts.push(l.position);
-        }
-        for g in &project.graphics {
-            pts.extend(g.points.iter().copied());
-        }
-        if pts.is_empty() {
-            pts.push(Point::new(0.0, 0.0));
-            pts.push(Point::new(80.0, 48.0));
-        }
+    if let Some(ring) = &project.board.outline {
+        pts.extend(ring.iter().copied());
+    }
+    if pts.is_empty() {
+        pts.push(Point::new(0.0, 0.0));
+        pts.push(Point::new(project.board.width, project.board.height));
     }
     let mut lo = pts[0];
     let mut hi = pts[0];
@@ -450,7 +434,7 @@ impl App {
             Self::apply_layer_focus(&mut visible, focus);
         }
         painter.rect_filled(rect, 0.0, self.surface());
-        if self.preferences.grid && self.layer_shown("Grid") {
+        if self.tab != Tab::Schematic && self.preferences.grid && self.layer_shown("Grid") {
             let grid = if camera.zoom < 5.0 { 5.0 } else { 1.0 };
             let step = grid * camera.zoom;
             let zero = camera.screen(Point::default(), rect);
@@ -1837,44 +1821,64 @@ impl App {
     }
     fn paint_schematic(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
         let shown = |name: &str| self.layer_shown(name);
+        let sc = sheet::SheetColours::for_theme(self.colours().dark);
+        let sheet_frame = sheet::sheet_for(p);
+        sheet::paint_sheet(
+            painter,
+            rect,
+            camera,
+            &sheet_frame,
+            &sc,
+            self.preferences.grid && shown("Grid"),
+        );
         underlay::paint(painter, rect, camera, p, "schematic");
+        let kinds = sheet::power_nets(p);
+        let wire = Stroke::new(2.5, sc.wire);
         for w in p.wires.iter().filter(|_| shown("Wires")) {
-            if let Some(path) = p.wire_path(w) {
-                painter.add(egui::Shape::line(
-                    path.iter()
-                        .map(|point| camera.screen(*point, rect))
-                        .collect(),
-                    Stroke::new(1.8, self.accent()),
-                ));
-                let pair = path.windows(2).max_by(|a, b| {
-                    let length = |p: &[Point]| {
-                        p.first()
-                            .zip(p.get(1))
-                            .map(|(a, b)| a.distance(*b))
-                            .unwrap_or(0.0)
-                    };
-                    length(a).total_cmp(&length(b))
-                });
-                let Some((a, b)) = pair.and_then(|pair| pair.first().zip(pair.get(1))) else {
-                    continue;
-                };
-                let mid = camera.screen(Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0), rect);
-                painter.text(
-                    mid + Vec2::new(6.0, -7.0),
-                    Align2::LEFT_BOTTOM,
-                    p.net_name(w.net),
-                    FontId::monospace(10.0),
-                    self.accent(),
-                );
+            // A ground net is drawn as stubs and symbols, not as a wire.
+            if kinds.get(&w.net) == Some(&sheet::PowerKind::Ground) {
+                continue;
             }
+            let Some(path) = p.wire_path(w) else {
+                continue;
+            };
+            painter.add(egui::Shape::line(
+                path.iter()
+                    .map(|point| camera.screen(*point, rect))
+                    .collect(),
+                wire,
+            ));
+            let Some(run) = sheet::longest_run(&path) else {
+                continue;
+            };
+            let fraction = if kinds.contains_key(&w.net) {
+                0.72
+            } else {
+                0.5
+            };
+            let at = camera.screen(sheet::run_point(run, fraction), rect);
+            let vertical = (run.0.x - run.1.x).abs() < 1e-6;
+            let (anchor, offset) = if vertical {
+                (Align2::LEFT_CENTER, Vec2::new(7.0, 0.0))
+            } else {
+                (Align2::CENTER_BOTTOM, Vec2::new(0.0, -6.0))
+            };
+            painter.text(
+                at + offset,
+                anchor,
+                p.net_name(w.net),
+                FontId::monospace(12.0),
+                sc.wire,
+            );
         }
+        sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"));
         for w in p.drawn_wires.iter().filter(|_| shown("Wires")) {
             painter.add(egui::Shape::line(
                 w.points
                     .iter()
                     .map(|point| camera.screen(*point, rect))
                     .collect(),
-                Stroke::new(1.8, self.accent()),
+                wire,
             ));
         }
         for g in p
@@ -1888,7 +1892,7 @@ impl App {
                         .iter()
                         .map(|point| camera.screen(*point, rect))
                         .collect(),
-                    Stroke::new(1.6, self.accent()),
+                    Stroke::new(1.6, sc.body),
                 ));
             } else if let Some(anchor) = g.points.first() {
                 painter.text(
@@ -1896,15 +1900,15 @@ impl App {
                     Align2::LEFT_TOP,
                     &g.text,
                     FontId::proportional(g.width as f32),
-                    self.accent(),
+                    sc.text,
                 );
             }
         }
         for l in p.labels.iter().filter(|_| shown("Net labels")) {
             let at = camera.screen(l.position, rect);
             if l.kind == "junction" {
-                painter.circle_filled(at, 3.0, self.accent());
-            } else {
+                painter.circle_filled(at, 4.5, sc.wire);
+            } else if l.kind != "power" {
                 let text = match l.kind.as_str() {
                     "global" => format!("{{{}}}", p.net_name(l.net)),
                     "hierarchical" => format!("/{}", p.net_name(l.net)),
@@ -1915,8 +1919,8 @@ impl App {
                     at,
                     Align2::CENTER_BOTTOM,
                     text,
-                    FontId::monospace(11.0),
-                    self.accent(),
+                    FontId::monospace(12.0),
+                    sc.wire,
                 );
             }
         }
@@ -1926,8 +1930,8 @@ impl App {
                 at,
                 Align2::CENTER_CENTER,
                 format!("[{}]", port.name),
-                FontId::monospace(11.0),
-                self.accent(),
+                FontId::monospace(12.0),
+                sc.wire,
             );
         }
         for f in &p.no_connects {
@@ -1959,6 +1963,8 @@ impl App {
                 false,
             );
         }
+        let outlines = sheet::hit_outlines(p, rect, camera, &kinds);
+        sheet::hover_outline(painter, &outlines, sc.select);
         if p.components.is_empty() {
             painter.text(
                 rect.center() - Vec2::new(0.0, 25.0),
@@ -1985,23 +1991,19 @@ impl App {
         selected: bool,
         ghost: bool,
     ) {
+        let sc = sheet::SheetColours::for_theme(self.colours().dark);
         let at = |p: Point| camera.screen(c.position.offset(p.rotate(-c.rotation)), rect);
-        let color = if selected || ghost {
-            self.accent()
-        } else {
-            self.ink()
+        let color = if ghost { self.accent() } else { sc.body };
+        let text_colour = if ghost { self.accent() } else { sc.text };
+        let stroke = Stroke::new(2.2, color);
+        let is_connector = c.library_symbol.is_none() && c.kind == "connector";
+        // Half extent of the body across the pin axis, in millimetres.
+        let half_height = match c.kind.as_str() {
+            "connector" => 2.5,
+            "capacitor" => 2.0,
+            "led" => 4.0,
+            _ => 1.0,
         };
-        let stroke = Stroke::new(1.8, color);
-        if selected {
-            painter.rect_filled(
-                Rect::from_center_size(
-                    camera.screen(c.position, rect),
-                    Vec2::new(13.0 * camera.zoom, 8.0 * camera.zoom),
-                ),
-                6.0,
-                self.accent().gamma_multiply(0.10),
-            );
-        }
         if let Some(library) = &c.library_symbol {
             for g in library
                 .definition
@@ -2053,7 +2055,7 @@ impl App {
                         Align2::LEFT_BOTTOM,
                         &pin.name,
                         FontId::monospace(10.0),
-                        self.muted(),
+                        sc.muted,
                     );
                 }
             }
@@ -2088,20 +2090,53 @@ impl App {
                         painter
                             .line_segment([at(Point::new(a, 0.0)), at(Point::new(b, 0.0))], stroke);
                     }
+                    // Two emission arrows leaving the diode, each with a head.
+                    let arrow = Stroke::new(1.6, color);
                     for x in [0.0, 1.8] {
-                        painter.line_segment(
-                            [at(Point::new(x, -2.5)), at(Point::new(x + 1.3, -3.8))],
-                            Stroke::new(1.2, color),
+                        let (tail, tip) = (Point::new(x, -2.4), Point::new(x + 1.4, -3.9));
+                        painter.line_segment([at(tail), at(tip)], arrow);
+                        for head in [
+                            Point::new(tip.x - 0.9, tip.y),
+                            Point::new(tip.x, tip.y + 0.9),
+                        ] {
+                            painter.line_segment([at(tip), at(head)], arrow);
+                        }
+                    }
+                    for (x, name) in [(-3.6, "A"), (3.6, "K")] {
+                        painter.text(
+                            at(Point::new(x, 1.4)),
+                            Align2::CENTER_TOP,
+                            name,
+                            FontId::monospace(10.0),
+                            text_colour,
                         );
+                    }
+                }
+                "connector" => {
+                    painter.add(egui::Shape::closed_line(
+                        vec![
+                            at(Point::new(-3.5, -2.5)),
+                            at(Point::new(3.5, -2.5)),
+                            at(Point::new(3.5, 2.5)),
+                            at(Point::new(-3.5, 2.5)),
+                        ],
+                        stroke,
+                    ));
+                    for (a, b) in [(-5.0, -3.5), (3.5, 5.0)] {
+                        painter
+                            .line_segment([at(Point::new(a, 0.0)), at(Point::new(b, 0.0))], stroke);
+                    }
+                    for edge in [-3.5, 3.5] {
+                        painter.circle_filled(at(Point::new(edge, 0.0)), 4.0, color);
                     }
                 }
                 _ => {
                     painter.add(egui::Shape::closed_line(
                         vec![
-                            at(Point::new(-3.0, -1.5)),
-                            at(Point::new(3.0, -1.5)),
-                            at(Point::new(3.0, 1.5)),
-                            at(Point::new(-3.0, 1.5)),
+                            at(Point::new(-3.0, -1.0)),
+                            at(Point::new(3.0, -1.0)),
+                            at(Point::new(3.0, 1.0)),
+                            at(Point::new(-3.0, 1.0)),
                         ],
                         stroke,
                     ));
@@ -2112,30 +2147,45 @@ impl App {
                 }
             }
         }
+        let center = camera.screen(c.position, rect);
         for pin in &c.pins {
             let position = at(pin.offset);
-            painter.circle_filled(position, 3.0, self.surface());
-            painter.circle_stroke(
-                position,
-                3.0,
-                Stroke::new(
-                    1.2,
-                    if pin.net.is_some() {
-                        self.accent()
-                    } else {
-                        color
-                    },
-                ),
-            );
+            painter.circle_filled(position, 3.5, sc.sheet);
+            painter.circle_stroke(position, 3.5, Stroke::new(1.6, sc.pin));
+            let toward = center - position;
+            let spot = if toward.x.abs() >= toward.y.abs() {
+                position + Vec2::new(toward.x.signum() * 7.0, -10.0)
+            } else {
+                position + Vec2::new(9.0, toward.y.signum() * 9.0)
+            };
             painter.text(
-                position + Vec2::new(0.0, 10.0),
-                Align2::CENTER_TOP,
+                spot,
+                Align2::CENTER_CENTER,
                 &pin.number,
-                FontId::monospace(9.0),
-                self.muted(),
+                FontId::monospace(11.0),
+                sc.pin,
             );
+            if is_connector {
+                // A connector names each pin by the net it carries.
+                let generic = pin.name.len() <= 1 || pin.name.starts_with("Pin");
+                let name = match pin.net {
+                    Some(net) if generic => self.project.net_name(net).to_string(),
+                    _ => pin.name.clone(),
+                };
+                let inward = toward.x.signum();
+                painter.text(
+                    at(Point::new(pin.offset.x.signum() * 2.7, 0.0)),
+                    if inward > 0.0 {
+                        Align2::LEFT_CENTER
+                    } else {
+                        Align2::RIGHT_CENTER
+                    },
+                    name,
+                    FontId::monospace(10.0),
+                    text_colour,
+                );
+            }
         }
-        let center = camera.screen(c.position, rect);
         let (sine, cosine) = c.rotation.to_radians().sin_cos();
         let label_offset = if c.library_symbol.is_some() {
             c.drawing_points()
@@ -2145,23 +2195,32 @@ impl App {
                 * camera.zoom
                 + 14.0
         } else {
-            (5.0 * sine.abs() + 2.0 * cosine.abs() + 1.5) as f32 * camera.zoom
+            (5.0 * sine.abs() + half_height * cosine.abs() + 1.5) as f32 * camera.zoom
         };
         painter.text(
             center - Vec2::new(0.0, label_offset),
             Align2::CENTER_BOTTOM,
             &c.reference,
-            FontId::proportional(14.0),
-            color,
+            FontId::monospace(15.0),
+            text_colour,
         );
         if !ghost {
             painter.text(
                 center + Vec2::new(0.0, label_offset),
                 Align2::CENTER_TOP,
                 &c.value,
-                FontId::proportional(12.0),
-                self.muted(),
+                FontId::monospace(12.0),
+                text_colour,
             );
+        }
+        if selected && !ghost {
+            let mut bounds = Rect::from_center_size(center, Vec2::ZERO);
+            for pin in &c.pins {
+                bounds.extend_with(at(pin.offset));
+            }
+            bounds.extend_with(center - Vec2::new(0.0, label_offset + 22.0));
+            bounds.extend_with(center + Vec2::new(0.0, label_offset + 20.0));
+            sheet::paint_selection(painter, bounds.expand(9.0), &sc);
         }
     }
     fn paint_board(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
