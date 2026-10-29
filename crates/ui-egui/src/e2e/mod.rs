@@ -20,6 +20,7 @@ mod nets;
 mod pairs;
 mod route_drag;
 mod rules;
+mod schematic_pages;
 mod settings;
 mod shell;
 mod via_covering;

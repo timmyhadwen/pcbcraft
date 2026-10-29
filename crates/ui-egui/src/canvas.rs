@@ -1,9 +1,13 @@
 use super::*;
 use egui::{Pos2, Sense};
-use pcbcraft_doc::{Component, Layer, PinRef};
+use pcbcraft_doc::{Component, Id, Layer, PinRef, Project};
 use pcbcraft_geom::point_segment;
 mod board_art;
 mod underlay;
+
+fn on_page(p: &Project, page: Id, object: Id) -> bool {
+    p.on_schematic_page(page, object)
+}
 
 pub(super) enum CanvasMenuKind {
     Empty,
@@ -285,6 +289,7 @@ impl App {
             && let Some(view) = c
                 .schematic_views()
                 .into_iter()
+                .filter(|view| view.sheet == self.schematic_page())
                 .filter(|view| {
                     let local = Point::new(pos.x - view.position.x, pos.y - view.position.y)
                         .rotate(view.rotation);
@@ -388,6 +393,9 @@ impl App {
         }
     }
     pub(super) fn canvas(&mut self, ui: &mut egui::Ui) {
+        if self.tab == Tab::Schematic {
+            self.page_switcher(ui);
+        }
         let (response, painter) = ui.allocate_painter(
             ui.available_size(),
             Sense::click_and_drag().union(Sense::hover()),
@@ -1071,10 +1079,12 @@ impl App {
     }
     fn pick_object_any(&self, pos: Point, zoom: f32) -> Option<Id> {
         if self.tab == Tab::Schematic {
+            let page = self.schematic_page();
             self.project
                 .components
                 .iter()
                 .flat_map(|c| c.schematic_views())
+                .filter(|c| c.sheet == page)
                 .filter(|c| {
                     let local =
                         Point::new(pos.x - c.position.x, pos.y - c.position.y).rotate(c.rotation);
@@ -1163,7 +1173,8 @@ impl App {
         }
     }
     fn pick_pin(&self, pos: Point, zoom: f32) -> Option<PinRef> {
-        for c in &self.project.components {
+        let page = self.schematic_page();
+        for c in self.project.components.iter().filter(|c| c.sheet == page) {
             for pin in &c.pins {
                 if c.pin_position(&pin.number)
                     .is_some_and(|p| p.distance(pos) * (zoom as f64) < 12.0)
@@ -1883,10 +1894,22 @@ impl App {
             stroke,
         ));
     }
-    fn paint_schematic(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
+    pub(crate) fn paint_schematic(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        camera: Camera,
+        p: &Project,
+    ) {
+        let page = self.schematic_page();
         let shown = |name: &str| self.layer_shown(name);
         underlay::paint(painter, rect, camera, p, "schematic");
-        for w in p.wires.iter().filter(|_| shown("Wires")) {
+        for w in p
+            .wires
+            .iter()
+            .filter(|w| on_page(p, page, w.id))
+            .filter(|_| shown("Wires"))
+        {
             if let Some(path) = p.wire_path(w) {
                 painter.add(egui::Shape::line(
                     path.iter()
@@ -1916,7 +1939,12 @@ impl App {
                 );
             }
         }
-        for w in p.drawn_wires.iter().filter(|_| shown("Wires")) {
+        for w in p
+            .drawn_wires
+            .iter()
+            .filter(|w| on_page(p, page, w.id))
+            .filter(|_| shown("Wires"))
+        {
             painter.add(egui::Shape::line(
                 w.points
                     .iter()
@@ -1928,7 +1956,8 @@ impl App {
         for g in p
             .graphics
             .iter()
-            .filter(|g| g.layer == "schematic" && shown("Graphics"))
+            .filter(|g| g.layer == "schematic" && on_page(p, page, g.id))
+            .filter(|_| shown("Graphics"))
         {
             if let Some(outline) = g.outline() {
                 painter.add(egui::Shape::line(
@@ -1948,7 +1977,12 @@ impl App {
                 );
             }
         }
-        for l in p.labels.iter().filter(|_| shown("Net labels")) {
+        for l in p
+            .labels
+            .iter()
+            .filter(|l| on_page(p, page, l.id))
+            .filter(|_| shown("Net labels"))
+        {
             let at = camera.screen(l.position, rect);
             if l.kind == "junction" {
                 painter.circle_filled(at, 3.0, self.accent());
@@ -1968,7 +2002,7 @@ impl App {
                 );
             }
         }
-        for port in &p.ports {
+        for port in p.ports.iter().filter(|port| port.sheet == page) {
             let at = camera.screen(port.position, rect);
             painter.text(
                 at,
@@ -1978,7 +2012,7 @@ impl App {
                 self.accent(),
             );
         }
-        for f in &p.no_connects {
+        for f in p.no_connects.iter().filter(|f| on_page(p, page, f.id)) {
             if let Some(anchor) = p.pin_position(&f.pin) {
                 let at = camera.screen(anchor, rect);
                 painter.line_segment(
@@ -1995,6 +2029,7 @@ impl App {
             .components
             .iter()
             .flat_map(|c| c.schematic_views())
+            .filter(|c| c.sheet == page)
             .filter(|_| shown("Symbols"))
         {
             self.symbol(
@@ -2007,7 +2042,7 @@ impl App {
                 false,
             );
         }
-        if p.components.is_empty() {
+        if p.components.iter().all(|c| c.sheet != page) {
             painter.text(
                 rect.center() - Vec2::new(0.0, 25.0),
                 Align2::CENTER_CENTER,
