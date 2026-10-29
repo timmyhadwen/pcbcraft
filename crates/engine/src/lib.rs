@@ -1240,6 +1240,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "panel.set",
+            "Record manufacturing panel settings on the project: grid size, gaps, rails, tab channel width and separation method",
+            schema(
+                json!({"enabled":{"type":"boolean"},"columns":{"type":"integer","minimum":1,"maximum":32},"rows":{"type":"integer","minimum":1,"maximum":32},"pitch_x":{"type":"number","minimum":0,"maximum":10000},"pitch_y":{"type":"number","minimum":0,"maximum":10000},"rail":{"type":"number","minimum":0,"maximum":25},"separation":{"type":"string","enum":["tab","v_score"]},"tab_channel":{"type":"number","minimum":1.6,"maximum":2.0}}),
+                &[],
+            ),
+        ),
+        (
+            "panel.clear",
+            "Turn off panel settings and return them to defaults",
+            schema(json!({}), &[]),
+        ),
+        (
+            "panel.export",
+            "Write panel fabrication files (duplicated gerbers, drill with breakaway and tooling holes, pick-and-place per copy) into a directory",
+            schema(
+                json!({"directory":{"type":"string","minLength":1,"maxLength":4096}}),
+                &["directory"],
+            ),
+        ),
+        (
             "board.set_finish",
             "Record the board's surface finish (for example HASL, ENIG or OSP) for reports and fabrication notes",
             schema(
@@ -2004,32 +2025,24 @@ fn custom_findings(p: &Project) -> Vec<Value> {
                     }
                 }
             }
-            "part count above" => {
-                if p.components.len() as f64 > c.limit {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} parts, over the limit of {} in \"{}\"",
-                            p.components.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
-            }
-            "via count above" => {
-                if p.board.vias.len() as f64 > c.limit {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} vias, over the limit of {} in \"{}\"",
-                            p.board.vias.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
-            }
+            "part count above" if p.components.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} parts, over the limit of {} in \"{}\"",
+                    p.components.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
+            "via count above" if p.board.vias.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} vias, over the limit of {} in \"{}\"",
+                    p.board.vias.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
             "net track count above" => {
                 for n in &p.nets {
                     let count = p.board.tracks.iter().filter(|t| t.net == n.id).count();
@@ -3110,6 +3123,31 @@ struct PanelParams {
     pitch_y: f64,
     #[serde(default = "default_rail")]
     rail: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PanelSetParams {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    columns: Option<usize>,
+    #[serde(default)]
+    rows: Option<usize>,
+    #[serde(default)]
+    pitch_x: Option<f64>,
+    #[serde(default)]
+    pitch_y: Option<f64>,
+    #[serde(default)]
+    rail: Option<f64>,
+    #[serde(default)]
+    separation: Option<String>,
+    #[serde(default)]
+    tab_channel: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PanelExportParams {
+    directory: String,
 }
 fn default_rail() -> f64 {
     3.0
@@ -5439,7 +5477,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.tolerance
-                .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
+                .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
             {
                 return Err(Error::Invalid(
                     "length tolerance must be between 0 and 100000 millimetres".into(),
@@ -5669,7 +5707,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.length_tolerance
-                .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
+                .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
             {
                 return Err(Error::Invalid(
                     "length tolerance must be between 0 and 1000 mm".into(),
@@ -5903,7 +5941,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.drill
-                .is_some_and(|d| !d.is_finite() || d < 0.05 || d > 100.0)
+                .is_some_and(|d| !d.is_finite() || !(0.05..=100.0).contains(&d))
             {
                 return Err(Error::Invalid(
                     "padstack drill must be within 0.05 to 100 mm".into(),
@@ -6863,7 +6901,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             wire.points = moved;
             for label in &mut p.labels {
                 if label.kind != "junction"
-                    || !net.is_some_and(|n| label.net == n)
+                    || net.is_none_or(|n| label.net != n)
                     || !old.contains(&label.position)
                 {
                     continue;
@@ -6948,7 +6986,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if a.text.len() > 1024 {
                 return Err(Error::Invalid("graphic text is too long".into()));
             }
-            if (a.shape == "text") != !a.text.is_empty() {
+            if (a.shape == "text") == a.text.is_empty() {
                 return Err(Error::Invalid("only text graphics may carry text".into()));
             }
             let id = allocate(next)?;
@@ -7994,13 +8032,13 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             let height = a.height.unwrap_or(3.0);
-            if !height.is_finite() || height < 0.5 || height > 50.0 {
+            if !height.is_finite() || !(0.5..=50.0).contains(&height) {
                 return Err(Error::Invalid(
                     "barcode height must be between 0.5 and 50 mm".into(),
                 ));
             }
             let module = a.module.unwrap_or(0.25);
-            if !module.is_finite() || module < 0.05 || module > 2.0 {
+            if !module.is_finite() || !(0.05..=2.0).contains(&module) {
                 return Err(Error::Invalid(
                     "barcode module width must be between 0.05 and 2 mm".into(),
                 ));
@@ -9209,7 +9247,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
                 if item
                     .size
-                    .is_some_and(|s| !s.is_finite() || s < 0.1 || s > 50.0)
+                    .is_some_and(|s| !s.is_finite() || !(0.1..=50.0).contains(&s))
                 {
                     return Err(Error::Invalid(
                         "text size must be between 0.1 and 50 mm".into(),
@@ -9607,75 +9645,105 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "board.panel" => {
             let a: PanelParams = parse(params)?;
-            if a.columns < 1
-                || a.rows < 1
-                || a.columns > 32
-                || a.rows > 32
-                || a.columns * a.rows > 1024
-            {
-                return Err(Error::Invalid(
-                    "panels run 1 to 32 copies per side and at most 1024 in total".into(),
-                ));
-            }
-            let (board_w, board_h) = match p.board.outline.as_deref() {
-                Some(outline) if outline.len() >= 3 => {
-                    let min_x = outline.iter().map(|v| v.x).fold(f64::INFINITY, f64::min);
-                    let max_x = outline
-                        .iter()
-                        .map(|v| v.x)
-                        .fold(f64::NEG_INFINITY, f64::max);
-                    let min_y = outline.iter().map(|v| v.y).fold(f64::INFINITY, f64::min);
-                    let max_y = outline
-                        .iter()
-                        .map(|v| v.y)
-                        .fold(f64::NEG_INFINITY, f64::max);
-                    (max_x - min_x, max_y - min_y)
-                }
-                _ => (p.board.width, p.board.height),
+            let grid = pcbcraft_doc::PanelGrid {
+                columns: a.columns,
+                rows: a.rows,
+                pitch_x: a.pitch_x,
+                pitch_y: a.pitch_y,
+                rail: a.rail,
             };
-            if !board_w.is_finite() || !board_h.is_finite() || board_w <= 0.0 || board_h <= 0.0 {
-                return Err(Error::Invalid("the board has no size to panelise".into()));
-            }
-            if !a.pitch_x.is_finite()
-                || !a.pitch_y.is_finite()
-                || a.pitch_x < 0.0
-                || a.pitch_y < 0.0
-            {
-                return Err(Error::Invalid(
-                    "gaps between copies cannot be negative".into(),
-                ));
-            }
-            if !(0.0..=25.0).contains(&a.rail) {
-                return Err(Error::Invalid("rails must be 0 to 25 millimetres".into()));
-            }
-            let panel_w =
-                a.columns as f64 * board_w + (a.columns - 1) as f64 * a.pitch_x + 2.0 * a.rail;
-            let panel_h = a.rows as f64 * board_h + (a.rows - 1) as f64 * a.pitch_y + 2.0 * a.rail;
-            let copies: Vec<serde_json::Value> = (0..a.rows)
-                .flat_map(|row| (0..a.columns).map(move |column| (row, column)))
-                .map(|(row, column)| {
-                    let x = a.rail + column as f64 * (board_w + a.pitch_x);
-                    let y = a.rail + row as f64 * (board_h + a.pitch_y);
+            let layout = pcbcraft_doc::panel_layout_from_grid(p, &grid)?;
+            let copies: Vec<serde_json::Value> = layout
+                .copies
+                .iter()
+                .map(|c| {
                     json!({
-                        "row": row,
-                        "column": column,
-                        "x": x,
-                        "y": y,
-                        "center_x": x + board_w / 2.0,
-                        "center_y": y + board_h / 2.0,
+                        "row": c.row,
+                        "column": c.column,
+                        "x": c.x,
+                        "y": c.y,
+                        "center_x": c.center_x,
+                        "center_y": c.center_y,
                     })
                 })
                 .collect();
             Ok(json!({
-                "columns": a.columns,
-                "rows": a.rows,
+                "columns": layout.columns,
+                "rows": layout.rows,
                 "copies": copies.len(),
-                "board": {"width": board_w, "height": board_h},
-                "pitch": {"x": a.pitch_x, "y": a.pitch_y},
-                "rail": a.rail,
-                "panel": {"width": panel_w, "height": panel_h},
+                "board": {"width": layout.board_width, "height": layout.board_height},
+                "pitch": {"x": layout.pitch_x, "y": layout.pitch_y},
+                "rail": layout.rail,
+                "panel": {"width": layout.panel_width, "height": layout.panel_height},
                 "layout": copies,
             }))
+        }
+        "panel.set" => {
+            let a: PanelSetParams = parse(params)?;
+            if let Some(enabled) = a.enabled {
+                p.panel.enabled = enabled;
+            }
+            if let Some(columns) = a.columns {
+                p.panel.columns = columns;
+            }
+            if let Some(rows) = a.rows {
+                p.panel.rows = rows;
+            }
+            if let Some(pitch_x) = a.pitch_x {
+                p.panel.pitch_x = pitch_x;
+            }
+            if let Some(pitch_y) = a.pitch_y {
+                p.panel.pitch_y = pitch_y;
+            }
+            if let Some(rail) = a.rail {
+                p.panel.rail = rail;
+            }
+            if let Some(tab_channel) = a.tab_channel {
+                p.panel.tab_channel = tab_channel;
+            }
+            if let Some(separation) = a.separation {
+                p.panel.separation = match separation.as_str() {
+                    "tab" => pcbcraft_doc::PanelSeparation::Tab,
+                    "v_score" => pcbcraft_doc::PanelSeparation::VScore,
+                    other => {
+                        return Err(Error::Invalid(format!(
+                            "separation must be tab or v_score, not {other}"
+                        )));
+                    }
+                };
+            }
+            if p.panel.enabled {
+                p.panel.validate_fields().map_err(Error::Invalid)?;
+            }
+            Ok(json!({"panel": p.panel}))
+        }
+        "panel.clear" => {
+            p.panel = pcbcraft_doc::PanelSettings::default();
+            Ok(json!({"panel": p.panel}))
+        }
+        "panel.export" => {
+            let a: PanelExportParams = parse(params)?;
+            if a.directory.is_empty() || a.directory.len() > 4096 {
+                return Err(Error::Invalid("output directory is out of range".into()));
+            }
+            if !p.panel.enabled {
+                return Err(Error::Invalid(
+                    "panel export needs enabled panel settings".into(),
+                ));
+            }
+            let directory = std::path::Path::new(&a.directory);
+            let mut written: Vec<String> = vec![];
+            let files = pcbcraft_io::panel_fabrication_files(p)?;
+            for (name, text) in &files {
+                pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
+                    .map_err(Error::Invalid)?;
+                written.push(name.clone());
+            }
+            let placement = pcbcraft_io::panel_placement_text(p)?;
+            pcbcraft_io::atomic_write(&directory.join("panel-placement.txt"), placement.as_bytes())
+                .map_err(Error::Invalid)?;
+            written.push("panel-placement.txt".into());
+            Ok(json!({"directory": a.directory, "files": written}))
         }
         "board.set_finish" => {
             let a: FinishParams = parse(params)?;
@@ -10346,7 +10414,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if a.net.is_some_and(|n| !p.nets.iter().any(|x| x.id == n)) {
                 return Err(Error::Invalid("area references an unknown net".into()));
             }
-            if a.max_height.is_some_and(|h| h < 0.1 || h > 100.0) {
+            if a.max_height.is_some_and(|h| !(0.1..=100.0).contains(&h)) {
                 return Err(Error::Invalid(
                     "area height limits must be 0.1 to 100 millimetres".into(),
                 ));
@@ -10381,7 +10449,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "rules.area_set_height" => {
             let a: AreaHeightParams = parse(params)?;
-            if a.height.is_some_and(|h| h < 0.1 || h > 100.0) {
+            if a.height.is_some_and(|h| !(0.1..=100.0).contains(&h)) {
                 return Err(Error::Invalid(
                     "area height limits must be 0.1 to 100 millimetres".into(),
                 ));
@@ -11141,6 +11209,21 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         )
                         .map_err(Error::Invalid)?;
                         written.push("board-stats.csv".into());
+                    }
+                    "panel" => {
+                        let files = pcbcraft_io::panel_fabrication_files(p)?;
+                        for (name, text) in &files {
+                            pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
+                                .map_err(Error::Invalid)?;
+                            written.push(name.clone());
+                        }
+                        let placement = pcbcraft_io::panel_placement_text(p)?;
+                        pcbcraft_io::atomic_write(
+                            &directory.join("panel-placement.txt"),
+                            placement.as_bytes(),
+                        )
+                        .map_err(Error::Invalid)?;
+                        written.push("panel-placement.txt".into());
                     }
                     other => {
                         return Err(Error::Invalid(format!("unknown export kind {other}")));
@@ -12634,7 +12717,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 return Err(Error::Invalid("text must be 1 to 128 bytes".into()));
             }
             if a.size
-                .is_some_and(|s| !s.is_finite() || s < 0.1 || s > 50.0)
+                .is_some_and(|s| !s.is_finite() || !(0.1..=50.0).contains(&s))
             {
                 return Err(Error::Invalid(
                     "text size must be between 0.1 and 50 mm".into(),
@@ -16665,6 +16748,32 @@ mod tests {
             "the replacement undoes"
         );
         assert!(clear(&s), "and the finding returns with it");
+        Ok(())
+    }
+    #[test]
+    fn panel_settings_save_load_round_trip() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "panel.set",
+            json!({
+                "enabled": true,
+                "columns": 2,
+                "rows": 2,
+                "pitch_x": 60.0,
+                "pitch_y": 40.0,
+                "rail": 3.0,
+                "separation": "tab",
+                "tab_channel": 1.8
+            }),
+            None,
+        )?;
+        let saved = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: pcbcraft_doc::Project =
+            serde_json::from_str(&saved).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate().map_err(Error::Invalid)?;
+        assert!(loaded.panel.enabled);
+        assert_eq!(loaded.panel.columns, 2);
+        assert_eq!(loaded.panel.tab_channel, 1.8);
         Ok(())
     }
     #[test]

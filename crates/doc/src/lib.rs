@@ -1,4 +1,9 @@
 //! Canonical project data. No UI or protocol dependencies.
+mod panel;
+pub use panel::{
+    PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
+    panel_layout, panel_layout_from_grid,
+};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::{Deserialize, Serialize};
@@ -942,6 +947,7 @@ impl OutputJob {
                         | "stackup"
                         | "drill_chart"
                         | "stats"
+                        | "panel"
                 )
             })
     }
@@ -1409,6 +1415,9 @@ pub struct Project {
     /// any edit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output_jobs: Vec<OutputJob>,
+    /// Manufacturing panel grid; disabled until the designer enables it.
+    #[serde(default)]
+    pub panel: PanelSettings,
     /// Checks the designer wrote themselves, in the order they were made.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_checks: Vec<CustomCheck>,
@@ -1539,6 +1548,7 @@ impl Default for Project {
             ports: vec![],
             bom_fields: vec![],
             output_jobs: vec![],
+            panel: PanelSettings::default(),
             custom_checks: vec![],
             files: vec![],
             variants: vec![],
@@ -1935,6 +1945,9 @@ impl Project {
         if !Self::UNITS.contains(&self.unit.as_str()) {
             return Err("project unit must be mm, mil or inch".into());
         }
+        if self.panel.enabled {
+            self.panel.validate_fields()?;
+        }
         if self.name.is_empty() || self.name.len() > 256 {
             return Err("project name must be 1–256 bytes".into());
         }
@@ -1994,7 +2007,7 @@ impl Project {
             if n.target_length
                 .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 100_000.0)
                 || n.length_tolerance
-                    .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
+                    .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
             {
                 return Err("invalid net length target or tolerance".into());
@@ -2026,7 +2039,7 @@ impl Project {
                 || c.target_length
                     .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 10_000.0)
                 || c.length_tolerance
-                    .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
+                    .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
             {
                 return Err("invalid net class".into());
@@ -2382,7 +2395,7 @@ impl Project {
             if g.text.len() > 1024 {
                 return Err("graphic text is too long".into());
             }
-            if (g.shape == "text") != !g.text.is_empty() {
+            if (g.shape == "text") == g.text.is_empty() {
                 return Err("only text graphics may carry text".into());
             }
             if g.shape == "line" && g.points[0] == g.points[1] {

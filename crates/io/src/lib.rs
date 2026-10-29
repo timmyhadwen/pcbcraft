@@ -9,12 +9,14 @@ use std::path::Path;
 mod board_mesh;
 mod gerber;
 mod library_render;
+mod panel_export;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use gerber::gerber_copper;
 use library_render::*;
+pub use panel_export::{panel_fabrication_files, panel_placement_text};
 pub use pcbcraft_doc::Layer;
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
@@ -10726,6 +10728,75 @@ mod tests {
         let back = gerber_copper(&project, pcbcraft_doc::Layer::Back)?;
         assert!(!back.contains("D03*") && !back.contains("%AM"));
         assert!(back.contains("%TF.FileFunction,Copper,L2,Bot*%"));
+        Ok(())
+    }
+
+    fn sample_board_with_two_by_two_panel() -> Result<pcbcraft_doc::Project, String> {
+        let json = include_str!("../tests/fixtures/sample_led_panel_base.json");
+        let mut p: pcbcraft_doc::Project = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        p.validate()?;
+        p.panel.enabled = true;
+        p.panel.columns = 2;
+        p.panel.rows = 2;
+        p.panel.pitch_x = 60.0;
+        p.panel.pitch_y = 40.0;
+        p.panel.rail = 3.0;
+        Ok(p)
+    }
+
+    #[test]
+    fn panel_gerber_carries_part_array_attribute() -> Result<(), String> {
+        let p = sample_board_with_two_by_two_panel()?;
+        let files = panel_fabrication_files(&p)?;
+        for name in ["pcb-F.Cu.gbr", "pcb-B.Cu.gbr"] {
+            let copper = files.get(name).ok_or("missing copper layer")?;
+            assert!(
+                copper.contains("%TF.Part,Array*%"),
+                "{name} should declare an array panel"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn panel_two_by_two_sample_board_drill_and_placement() -> Result<(), String> {
+        let p = sample_board_with_two_by_two_panel()?;
+        let single_drill = gerber_files(&p)?
+            .get("pcb-Drill.drl")
+            .ok_or("single-board drill missing")?
+            .clone();
+        let single_hits = single_drill
+            .lines()
+            .filter(|line| line.starts_with('X'))
+            .count();
+        let files = panel_fabrication_files(&p)?;
+        let drill = files
+            .get("pcb-Drill.drl")
+            .ok_or("panel drill file missing")?;
+        assert!(
+            drill.contains("MechanicalDrill,Breakout"),
+            "breakaway holes must carry the breakout aperture function"
+        );
+        assert!(
+            drill.contains("MechanicalDrill,Tooling"),
+            "tooling holes must carry the tooling aperture function"
+        );
+        let panel_hits = drill.lines().filter(|line| line.starts_with('X')).count();
+        assert!(
+            panel_hits > single_hits * 4,
+            "panel drill must repeat every board hit on each copy plus mechanical holes"
+        );
+        let placement = panel_placement_text(&p)?;
+        for reference in ["J1_1", "R1_2", "D1_3", "J1_4"] {
+            assert!(
+                placement.contains(reference),
+                "placement must suffix {reference}"
+            );
+        }
+        assert!(
+            !placement.contains("FID"),
+            "board fiducials must not be duplicated into panel placement"
+        );
         Ok(())
     }
 }
