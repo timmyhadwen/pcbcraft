@@ -1770,6 +1770,12 @@ impl App {
         });
     }
 
+    /// True when enough online cards have been read for a capture image, or
+    /// the wait has gone on long enough.
+    pub(crate) fn dock_online_read(&self) -> bool {
+        self.dock.online.len() >= 8 || self.frames >= 900
+    }
+
     /// Test hook: place an online part the way a card pick does.
     #[cfg(test)]
     pub(crate) fn place_online_for_test(

@@ -212,11 +212,12 @@ impl App {
         self.part_sources.source.is_none()
             || query.chars().count() < 2
             || (self.part_sources.search.is_none()
-                && self
-                    .part_sources
-                    .answer
-                    .as_ref()
-                    .is_some_and(|(q, _)| q == query))
+                && self.part_sources.answer.as_ref().is_some_and(|(q, parts)| {
+                    q == query
+                        && (parts.as_ref().is_ok_and(Vec::is_empty)
+                            || parts.is_err()
+                            || self.dock_online_read())
+                }))
     }
     /// The Offline and Clear online cache items of the filter overflow menu.
     pub(super) fn online_menu(&mut self, ui: &mut egui::Ui) {
