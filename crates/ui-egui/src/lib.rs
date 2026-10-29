@@ -5404,7 +5404,10 @@ impl App {
             return;
         }
         let job = format!("uvprint-{side}");
-        let _ = self.tool_call("output_job.add", json!({"name": &job, "kinds": ["uv_print"]}));
+        let _ = self.tool_call(
+            "output_job.add",
+            json!({"name": &job, "kinds": ["uv_print"]}),
+        );
         if self.tool_call(
             "output_job.run",
             json!({"name": &job, "directory": &directory, "uv_print": {"side": side}}),
