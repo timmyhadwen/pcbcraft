@@ -1,14 +1,17 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
+mod a11y;
 mod assistant;
 mod authoring;
 mod board3d;
 mod canvas;
 mod datums;
 mod editing;
+mod footprint_wizard;
 mod impedance_panel;
 mod library;
 mod library_quality;
 mod plot_viewer;
+mod reference_panel;
 mod sources;
 mod via_covering;
 mod via_span;
@@ -16,6 +19,7 @@ use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
+use pcbcraft_text::t;
 #[cfg(test)]
 use std::collections::BTreeMap;
 
@@ -486,11 +490,11 @@ enum PadLabels {
     Off,
 }
 impl PadLabels {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> String {
         match self {
-            Self::Number => "Pads: number",
-            Self::Net => "Pads: net",
-            Self::Off => "Pads: off",
+            Self::Number => t!("pad_labels.number"),
+            Self::Net => t!("pad_labels.net"),
+            Self::Off => t!("pad_labels.off"),
         }
     }
 }
@@ -531,9 +535,24 @@ struct Preferences {
     /// Changes one message may make before the model is told to stop.
     #[serde(default = "default_turn_limit")]
     assistant_turn_limit: u32,
+    /// Language tag of the text catalog, or `system` to follow the computer.
+    #[serde(default = "default_language")]
+    language: String,
+    /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
+    #[serde(default = "default_ui_scale")]
+    ui_scale: f32,
+    /// Cut routed corners at 45 degrees; off allows right-angle corners.
+    #[serde(default = "default_true")]
+    chamfer_corners: bool,
 }
 fn default_turn_limit() -> u32 {
     pcbcraft_assistant::DEFAULT_TURN_LIMIT
+}
+fn default_language() -> String {
+    pcbcraft_text::SYSTEM.into()
+}
+fn default_ui_scale() -> f32 {
+    a11y::DEFAULT_UI_SCALE
 }
 fn default_aside_split() -> f32 {
     0.45
@@ -559,8 +578,54 @@ impl Default for Preferences {
             assistant_modes: Default::default(),
             assistant_always_allow: Default::default(),
             assistant_turn_limit: default_turn_limit(),
+            language: default_language(),
+            ui_scale: a11y::DEFAULT_UI_SCALE,
+            chamfer_corners: true,
         }
     }
+}
+/// Pair name, coupling gap, both routed lengths and their skew for a net that
+/// belongs to a declared differential pair; nothing for any other net.
+fn pair_rows(project: &Project, net: Id) -> Vec<(String, String)> {
+    let Some(pair) = project
+        .board
+        .diff_pairs
+        .iter()
+        .find(|d| d.net_p == net || d.net_n == net)
+    else {
+        return vec![];
+    };
+    let length = |n: Id| -> f64 {
+        project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.net == n)
+            .map(track_length)
+            .sum()
+    };
+    let (lp, ln) = (length(pair.net_p), length(pair.net_n));
+    vec![
+        ("Pair".into(), format!("{} · routed together", pair.name)),
+        (
+            "Pair gap".into(),
+            format!("{:.3} mm between the two sides", pair.gap),
+        ),
+        (
+            "Pair lengths".into(),
+            format!(
+                "{} {:.2} mm · {} {:.2} mm",
+                project.net_name(pair.net_p),
+                lp,
+                project.net_name(pair.net_n),
+                ln
+            ),
+        ),
+        (
+            "Pair skew".into(),
+            format!("{:.2} mm apart", (lp - ln).abs()),
+        ),
+    ]
 }
 /// The copper length of a track segment in millimetres, following the bow
 /// of an arc when the segment carries one.
@@ -660,6 +725,8 @@ pub struct App {
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
     preferences: Preferences,
+    /// Text for the language chosen in Settings.
+    catalog: std::sync::Arc<pcbcraft_text::Catalog>,
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
@@ -863,6 +930,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         };
         rows.push(("Width".into(), width_note));
         clearance_rows(t.net, &mut rows);
+        rows.extend(pair_rows(project, t.net));
         rows.push((
             "From".into(),
             format!("{:.2}, {:.2} mm", t.start.x, t.start.y),
@@ -941,6 +1009,7 @@ impl App {
         if let Some(path) = path {
             self.path = path;
             self.saved_revision = self.session.lock().ok().map(|s| s.revision);
+            self.assistant_load();
         }
         self
     }
@@ -1014,6 +1083,9 @@ impl App {
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
+            catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
+                &preferences.language,
+            )),
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,
@@ -1266,13 +1338,16 @@ impl App {
                 .into()
         };
         self.refresh();
+        if success && name == "save" {
+            self.assistant_save();
+        }
         if success && (name == "save" || name == "open") {
             pcbcraft_engine::recents::record_recent_path(&self.path);
             self.recent_designs = pcbcraft_engine::recents::load_recent_paths();
             self.saved_revision = Some(self.revision);
         }
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
-            self.assistant_design_opened();
+            self.assistant_design_opened(name);
             self.needs_fit = true;
         }
         success
@@ -2733,19 +2808,15 @@ impl App {
                 ui.horizontal_centered(|ui| {
                     let brand = ui.add(
                         egui::Label::new(
-                            egui::RichText::new("PCBCraft")
+                            egui::RichText::new(t!("app.name"))
                                 .size(15.0)
                                 .strong()
                                 .color(self.accent()),
                         )
                         .sense(egui::Sense::click()),
                     );
-                    if brand
-                        .on_hover_text(
-                            "Back to the start screen, where you open or begin a design.",
-                        )
-                        .clicked()
-                    {
+                    a11y::name_control(&brand, "PCBCraft start screen", None);
+                    if brand.on_hover_text(t!("app.brand.tip")).clicked() {
                         self.home_open = true;
                     }
                     if self.library.editor.mode == 0 {
@@ -3014,35 +3085,33 @@ impl App {
         }
     }
     fn file_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("File", |ui| {
+        ui.menu_button(t!("menu.file"), |ui| {
             if ui
-                .button("New")
-                .on_hover_text("Start a fresh empty design.")
+                .button(t!("menu.file.new"))
+                .on_hover_text(t!("menu.file.new.tip"))
                 .clicked()
             {
                 self.tool_call("new_design", json!({}));
                 self.select(None);
             }
             if ui
-                .button("Open")
-                .on_hover_text(
-                    "Choose a design to open; your recent designs are listed on the screen that appears.",
-                )
+                .button(t!("menu.file.open"))
+                .on_hover_text(t!("menu.file.open.tip"))
                 .clicked()
             {
                 self.home_open = true;
             }
             if ui
-                .button("Save")
-                .on_hover_text("Write the design to its file on disk. (Ctrl+S works too.)")
+                .button(t!("menu.file.save"))
+                .on_hover_text(t!("menu.file.save.tip"))
                 .clicked()
             {
                 self.tool_call("save", json!({"path":self.path}));
             }
             ui.separator();
             if ui
-                .button("Export")
-                .on_hover_text("Write the board out so other design tools can open it.")
+                .button(t!("menu.file.export"))
+                .on_hover_text(t!("menu.file.export.tip"))
                 .clicked()
             {
                 let path = std::path::Path::new(&self.path)
@@ -3052,8 +3121,8 @@ impl App {
                 self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
             }
             if ui
-                .button("Copy picture")
-                .on_hover_text("Copy a PNG snapshot of the current view so it can be pasted into a document.")
+                .button(t!("menu.file.copy_picture"))
+                .on_hover_text(t!("menu.file.copy_picture.tip"))
                 .clicked()
             {
                 let ctx = ui.ctx().clone();
@@ -3061,65 +3130,63 @@ impl App {
             }
         })
         .response
-        .on_hover_text("Start, open, save, export and share this design.");
+        .on_hover_text(t!("menu.file.tip"));
     }
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Edit", |ui| {
+        ui.menu_button(t!("menu.edit"), |ui| {
             let (can_undo, can_redo) = self
                 .session
                 .lock()
                 .map(|s| (s.can_undo(), s.can_redo()))
                 .unwrap_or((false, false));
             if ui
-                .add_enabled(can_undo, egui::Button::new("Undo"))
+                .add_enabled(can_undo, egui::Button::new(t!("menu.edit.undo")))
                 .on_hover_text(if can_undo {
-                    "Step back one action; every edit here is one undoable step."
+                    t!("menu.edit.undo.tip")
                 } else {
-                    "Nothing to undo yet: make an edit first."
+                    t!("menu.edit.undo.none")
                 })
-                .on_disabled_hover_text("Nothing to undo yet: make an edit first.")
+                .on_disabled_hover_text(t!("menu.edit.undo.none"))
                 .clicked()
             {
                 self.tool_call("undo", json!({}));
             }
             if ui
-                .add_enabled(can_redo, egui::Button::new("Redo"))
-                .on_hover_text("Step forward to the action you undid.")
-                .on_disabled_hover_text("Nothing to redo: undo an action first.")
+                .add_enabled(can_redo, egui::Button::new(t!("menu.edit.redo")))
+                .on_hover_text(t!("menu.edit.redo.tip"))
+                .on_disabled_hover_text(t!("menu.edit.redo.none"))
                 .clicked()
             {
                 self.tool_call("redo", json!({}));
             }
             ui.separator();
             if ui
-                .button("Copy  Ctrl+C")
-                .on_hover_text("Copy the selected objects as text; paste them here or in another window.")
+                .button(t!("menu.edit.copy"))
+                .on_hover_text(t!("menu.edit.copy.tip"))
                 .clicked()
             {
                 let ctx = ui.ctx().clone();
                 self.copy_selection(&ctx);
             }
             if ui
-                .button("Paste  Ctrl+V")
-                .on_hover_text("Paste the last copy a little to the side, with new reference numbers.")
+                .button(t!("menu.edit.paste"))
+                .on_hover_text(t!("menu.edit.paste.tip"))
                 .clicked()
             {
                 self.paste_last_copy();
             }
             if self.tab == Tab::Pcb
                 && ui
-                    .button("Clean up tracks")
-                    .on_hover_text("Remove zero-length and dangling pieces and join straight neighbours. One undo puts it all back.")
+                    .button(t!("menu.edit.cleanup"))
+                    .on_hover_text(t!("menu.edit.cleanup.tip"))
                     .clicked()
             {
                 self.cleanup_tracks();
             }
             ui.separator();
             if ui
-                .button("Update board from schematic")
-                .on_hover_text(
-                    "Copy every symbol, wire and net onto the board, then show the board.",
-                )
+                .button(t!("menu.edit.sync"))
+                .on_hover_text(t!("menu.edit.sync.tip"))
                 .clicked()
             {
                 self.run("board.sync", json!({}));
@@ -3131,44 +3198,73 @@ impl App {
             {
                 let name = net.name.clone();
                 if ui
-                    .button(format!("Clear wiring on {name}"))
-                    .on_hover_text(
-                        "Lift every piece of copper drawn for the lit connection. The connection itself stays.",
-                    )
+                    .button(t!("menu.edit.clear_net", name = name))
+                    .on_hover_text(t!("menu.edit.clear_net.tip"))
                     .clicked()
                 {
                     self.run("net.unroute", json!({"net": lit}));
                 }
             }
             if ui
-                .button("Clear all wiring")
-                .on_hover_text(
-                    "Start the copper over on the whole board. Parts, connections and copper zones stay.",
-                )
+                .button(t!("menu.edit.clear_all"))
+                .on_hover_text(t!("menu.edit.clear_all.tip"))
                 .clicked()
             {
                 self.run("board.unroute", json!({}));
             }
         })
         .response
-        .on_hover_text(
-            "Step back and forward, sync the board, and start the wiring over on one connection or the whole board.",
-        );
+        .on_hover_text(t!("menu.edit.tip"));
+    }
+    /// Switch the app's language; the next frame paints in it.
+    fn set_language(&mut self, tag: &str) {
+        self.preferences.language = tag.to_string();
+        self.catalog = std::sync::Arc::new(pcbcraft_text::Catalog::for_language(tag));
+        pcbcraft_text::activate(&self.catalog);
+    }
+    fn language_menu(&mut self, ui: &mut egui::Ui) {
+        let mut picked = None;
+        ui.menu_button(t!("menu.settings.language"), |ui| {
+            let current = self.preferences.language.clone();
+            if ui
+                .selectable_label(
+                    current == pcbcraft_text::SYSTEM,
+                    t!("menu.settings.language.system"),
+                )
+                .on_hover_text(t!("menu.settings.language.system.tip"))
+                .clicked()
+            {
+                picked = Some(pcbcraft_text::SYSTEM.to_string());
+            }
+            for language in pcbcraft_text::shipped_languages() {
+                if ui
+                    .selectable_label(current == language.tag, language.name)
+                    .on_hover_text(t!("menu.settings.language.pick.tip"))
+                    .clicked()
+                {
+                    picked = Some(language.tag);
+                }
+            }
+        })
+        .response
+        .on_hover_text(t!("menu.settings.language.tip"));
+        if let Some(tag) = picked {
+            self.set_language(&tag);
+            ui.ctx().request_repaint();
+        }
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Help", |ui| {
+        ui.menu_button(t!("menu.help"), |ui| {
             if ui
-                .button("Shortcuts")
-                .on_hover_text("Show every keyboard shortcut and mouse gesture in one list.")
+                .button(t!("menu.help.shortcuts"))
+                .on_hover_text(t!("menu.help.shortcuts.tip"))
                 .clicked()
             {
                 self.shortcuts_open = !self.shortcuts_open;
             }
             if ui
-                .button("Commands")
-                .on_hover_text(
-                    "Search every command by name and run it, with its parameters explained.",
-                )
+                .button(t!("menu.help.commands"))
+                .on_hover_text(t!("menu.help.commands.tip"))
                 .clicked()
             {
                 self.command_open = !self.command_open;
@@ -3177,8 +3273,8 @@ impl App {
             }
             ui.separator();
             if ui
-                .button("Report a bug")
-                .on_hover_text("Open a prefilled bug report with your version filled in.")
+                .button(t!("app.report_bug"))
+                .on_hover_text(t!("app.report_bug.tip"))
                 .clicked()
             {
                 let url = format!(
@@ -3188,14 +3284,14 @@ impl App {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(url));
             }
             ui.label(
-                egui::RichText::new(format!("PCBCraft {}", env!("CARGO_PKG_VERSION")))
+                egui::RichText::new(t!("app.version", version = env!("CARGO_PKG_VERSION")))
                     .small()
                     .color(self.muted()),
             )
-            .on_hover_text("The version of PCBCraft you are running.");
+            .on_hover_text(t!("app.version.tip"));
         })
         .response
-        .on_hover_text("Shortcuts, the command search and bug reports.");
+        .on_hover_text(t!("menu.help.tip"));
     }
     /// The datasheet address when the field holds a plain web link.
     fn datasheet_url(field: Option<&str>) -> Option<String> {
@@ -3909,6 +4005,21 @@ impl App {
                 .on_hover_text("Light canvas and panels, easier on printed previews.");
         });
         ui.checkbox(&mut self.preferences.grid, "Show grid");
+        ui.label("Interface size");
+        ui.horizontal(|ui| {
+            for (label, scale) in a11y::UI_SCALE_STEPS {
+                let on = (self.preferences.ui_scale - scale).abs() < 0.01;
+                if ui
+                    .selectable_label(on, label)
+                    .on_hover_text(format!(
+                        "Make text and controls {label} of normal size. Ctrl and plus or minus also work."
+                    ))
+                    .clicked()
+                {
+                    self.preferences.ui_scale = scale;
+                }
+            }
+        });
         ui.horizontal(|ui| {
             ui.label("Route on");
             ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top")
@@ -3925,6 +4036,7 @@ impl App {
         });
         ui.label("Accent color");
         ui.color_edit_button_srgb(&mut self.preferences.accent);
+        self.language_menu(ui);
         ui.label(
             egui::RichText::new("Appearance is saved automatically.")
                 .small()
@@ -3932,6 +4044,16 @@ impl App {
         );
         ui.add_space(16.0);
         assistant::settings::section(self, ui);
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new("ROUTING")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.checkbox(&mut self.preferences.chamfer_corners, "Chamfer corners")
+            .on_hover_text(
+                "On by default: routed corners are cut at 45 degrees, because right angles hurt signal quality and add emissions. Turn it off to allow right-angle corners.",
+            );
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new("BOARD GEOMETRY")
@@ -4247,6 +4369,8 @@ impl App {
             );
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
+        ui.add_space(12.0);
+        self.reference_image_section(ui);
         ui.add_space(12.0);
         ui.label(egui::RichText::new("CHECKS").size(10.0).color(self.muted()));
         let erc = self
@@ -5635,7 +5759,7 @@ impl App {
                             1,
                             assistant::tab_label(self.assistant.waiting()),
                         )
-                        .on_hover_text(assistant::TAB_TIP);
+                        .on_hover_text(assistant::tab_tip());
                     }
                 });
                 if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
@@ -6878,10 +7002,12 @@ impl App {
 
     fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        pcbcraft_text::activate(&self.catalog);
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
         self.assistant_frame(&ctx);
+        a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
         self.style(&ctx);
         self.shortcuts(&ctx);
         self.edit_events(&ctx);
@@ -6944,6 +7070,7 @@ impl App {
                     }
                 });
         }
+        a11y::paint_focus_ring(&ctx, self.accent());
         self.capture(&ctx);
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
     }
@@ -6954,6 +7081,7 @@ impl eframe::App for App {
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);
+        self.assistant_save();
         if let Ok(session) = self.session.lock()
             && let Ok(text) = serde_json::to_string(&session.project)
             && text.len() <= pcbcraft_io_limit()

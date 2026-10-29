@@ -427,3 +427,71 @@ fn a_newcomer_selects_a_part_and_the_assistant_already_knows_which_one() -> Resu
     );
     Ok(())
 }
+
+/// A design path no other test uses, so the saved conversation is ours alone.
+fn own_design_path(tag: &str) -> String {
+    format!("/tmp/pcbcraft-story-{}-{tag}.pcbcraft", std::process::id())
+}
+
+fn forget_file(path: &str) {
+    if let Some(file) = pcbcraft_assistant::transcript_path(Some(path)) {
+        pcbcraft_assistant::clear_transcript(&file);
+    }
+}
+
+#[test]
+fn a_newcomer_closes_the_app_and_finds_the_conversation_where_she_left_it() -> Result<(), String> {
+    let path = own_design_path("reopen");
+    let mut app = with_fake_model();
+    app.path = path.clone();
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "add a 10k resistor".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Allow")?;
+    settle(&ctx, &mut app);
+    app.assistant_save();
+    drop(app);
+
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut reopened = App::create(shared, Preferences::default(), None, None)
+        .with_project_path(Some(path.clone()));
+    reopened.refresh();
+    reopened.preferences.aside_lower_tab = 1;
+    let found = paints_text(&ctx, &mut reopened, "add a 10k resistor")?;
+    forget_file(&path);
+    assert!(found, "the earlier message is on screen again");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_forgets_a_conversation_and_the_design_stays() -> Result<(), String> {
+    let path = own_design_path("forget");
+    let mut app = with_fake_model();
+    app.path = path.clone();
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "add a 10k resistor".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Allow")?;
+    settle(&ctx, &mut app);
+    app.assistant_save();
+    let revision = app.revision;
+    authoring::tests::tap(&ctx, &mut app, "Clear")?;
+    settle(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "Forget this conversation?")?,
+        "she is asked first"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Forget")?;
+    settle(&ctx, &mut app);
+    let file = pcbcraft_assistant::transcript_path(Some(&path));
+    let gone = file.as_ref().is_some_and(|f| !f.exists());
+    forget_file(&path);
+    assert!(app.assistant.transcript.items.is_empty());
+    assert!(gone, "the saved file is gone too");
+    assert_eq!(app.revision, revision, "the design did not change");
+    Ok(())
+}
