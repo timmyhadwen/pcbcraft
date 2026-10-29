@@ -1545,7 +1545,7 @@ impl App {
                                 .range(0.0..=100.0)
                                 .suffix(" mm"),
                         )
-                        .on_hover_text("How thick this layer is, in millimetres.");
+                        .on_hover_text("Set how thick this layer is in the board stack. From 0 to 100 millimetres.");
                     });
                     let apply = ui
                         .button("Apply")
@@ -1613,7 +1613,9 @@ impl App {
                     .range(0.0..=100.0)
                     .suffix(" mm"),
             )
-            .on_hover_text("How thick this layer is, in millimetres.");
+            .on_hover_text(
+                "Set how thick this layer is in the board stack. From 0 to 100 millimetres.",
+            );
             if ui
                 .add_enabled(
                     !self.stack_name.trim().is_empty(),
@@ -1675,7 +1677,7 @@ impl App {
                     .range(0.2..=100.0)
                     .suffix(" mm"),
             )
-            .on_hover_text("How thick the whole board is; the factory uses this to pick bits.");
+            .on_hover_text("Set the finished board thickness; the factory uses it to pick drill bits. From 0.2 to 100 millimetres.");
             if ui
                 .button("Set thickness")
                 .on_hover_text("Record this board thickness.")
@@ -1748,7 +1750,7 @@ impl App {
                             .range(0.05..=25.0)
                             .suffix(" mm"),
                     )
-                    .on_hover_text("How wide this hole is drilled.");
+                    .on_hover_text("Set the drilled width of this hole, in millimetres. From 0.05 to 25 millimetres.");
                     if ui
                         .button("Apply")
                         .on_hover_text("Resize this hole to that drill size.")
@@ -1837,7 +1839,7 @@ impl App {
                             .range(0.2..=10.0)
                             .suffix(" mm"),
                     )
-                    .on_hover_text("How wide the bare copper disc is.");
+                    .on_hover_text("Set the width of this fiducial's bare copper disc, in millimetres. From 0.2 to 10 millimetres.");
                     if ui
                         .selectable_label(front, "Top")
                         .on_hover_text("Put the mark on the top side of the board.")
@@ -5742,7 +5744,7 @@ impl App {
                         .show_value(false)
                         .text("Resize"),
                 )
-                .on_hover_text("Drag to give the Layers tree more or less room.");
+                .on_hover_text("Drag to split the side panel between the Layers tree and the tabs below it. The tree keeps between a quarter and three quarters.");
                 ui.horizontal(|ui| {
                     ui.selectable_value(
                         &mut self.preferences.aside_lower_tab,
