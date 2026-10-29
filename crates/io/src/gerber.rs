@@ -982,6 +982,7 @@ mod tests {
             drill: 0.3,
             from_layer: None,
             to_layer: None,
+            covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 6,

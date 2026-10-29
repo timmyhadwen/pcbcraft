@@ -1752,6 +1752,7 @@ mod tests {
             drill: 0.4,
             from_layer: None,
             to_layer: None,
+            covering: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
         let slab = part(&mesh, PartKind::Board)?;

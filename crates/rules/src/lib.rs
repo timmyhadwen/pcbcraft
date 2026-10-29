@@ -1689,6 +1689,7 @@ mod tests {
             drill: 0.4,
             from_layer: None,
             to_layer: None,
+            covering: None,
         });
         p.validate()?;
         let items = copper(&p);
@@ -1877,6 +1878,7 @@ mod tests {
                 drill: 0.4,
                 from_layer: None,
                 to_layer: None,
+                covering: None,
             });
         }
         p.validate()?;
@@ -2632,6 +2634,7 @@ mod tests {
             drill: 0.4,
             from_layer: None,
             to_layer: None,
+            covering: None,
         });
         let fp_id = p.board.footprints[0].id;
         if let Some(pad) = p.board.footprints[0].pads.first_mut() {
@@ -2703,6 +2706,7 @@ mod tests {
             drill: 0.4,
             from_layer: None,
             to_layer: None,
+            covering: None,
         });
     }
     /// A project holding one surface pad at (20, 20) that names `layers` and
