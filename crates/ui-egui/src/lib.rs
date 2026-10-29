@@ -995,6 +995,10 @@ pub struct App {
     capture: Option<String>,
     /// Reference of the part to select for a capture image.
     capture_select: Option<String>,
+    /// Left aside tab to show in a `--capture` image: 0 Layers, 1 Library.
+    capture_left_tab: Option<u8>,
+    /// Open the canvas right-click menu on the selected part in a capture.
+    capture_menu: bool,
     frames: u32,
     library: library::Browser,
     dock: library_dock::Dock,
@@ -1261,6 +1265,18 @@ impl App {
         self.capture_select = reference;
         self
     }
+    /// Capture options: the left aside tab ("layers" or "library") and whether
+    /// to open the canvas right-click menu on the selected part. Ignored
+    /// outside capture mode.
+    pub fn with_capture_view(mut self, left_tab: Option<&str>, context_menu: bool) -> Self {
+        self.capture_left_tab = match left_tab {
+            Some("layers") => Some(0),
+            Some("library") => Some(1),
+            _ => None,
+        };
+        self.capture_menu = context_menu;
+        self
+    }
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         session: SharedSession,
@@ -1462,6 +1478,8 @@ impl App {
             command_scroll: false,
             capture,
             capture_select: None,
+            capture_left_tab: None,
+            capture_menu: false,
             frames: 0,
             library,
             #[cfg(test)]
@@ -2916,8 +2934,8 @@ impl App {
                 self.library_dock_body(ui, viewport);
                 ui.add_space(12.0);
                 ui.label(
-                    egui::RichText::new(format!("    {note}"))
-                        .small()
+                    egui::RichText::new(t!("library.browser.components"))
+                        .font(crate::fonts::Role::Caption.font())
                         .color(self.muted()),
                 );
                 for c in self.project.components.clone() {
@@ -5771,22 +5789,6 @@ impl App {
             _ => (11.0, self.pcb.zoom),
         };
         let zoom_pct = (zoom / base * 100.0).round() as i32;
-        let tool_words: String = match &self.tool {
-            Tool::Select => t!("board.footer.pick").to_owned(),
-            Tool::Place(kind) | Tool::LibraryPlace(_, kind, _) | Tool::CustomPlace(kind, _) => {
-                t!("board.footer.place_kind", kind = kind)
-            }
-            Tool::Wire(_) => t!("board.footer.draw_wire").to_owned(),
-            Tool::Route(_) => t!("board.footer.route").to_owned(),
-            Tool::Move => t!("board.footer.move").to_owned(),
-            Tool::Cutout => t!("board.footer.cut_hole").to_owned(),
-            Tool::Hole => t!("board.footer.drill_hole").to_owned(),
-            Tool::Keepout => t!("board.footer.keepout").to_owned(),
-            Tool::NoConnect => t!("board.footer.no_connection").to_owned(),
-            Tool::Fiducial => t!("board.footer.fiducial_mark").to_owned(),
-            Tool::DrawLayer => t!("board.footer.draw_on_a_layer").to_owned(),
-            Tool::Measure => t!("board.footer.measure").to_owned(),
-        };
         egui::Panel::bottom("status")
             .frame(
                 egui::Frame::side_top_panel(ui.style())
@@ -5801,15 +5803,6 @@ impl App {
                     );
                     a11y::announce_status(ui.ctx(), &status, &self.message);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            egui::RichText::new(t!(
-                                "board.footer.rev_revision",
-                                revision = self.revision
-                            ))
-                            .small()
-                            .color(self.muted()),
-                        )
-                        .on_hover_text(t!("board.footer.rev_revision.tip"));
                         if let Some(reading) = self.measure_readout() {
                             ui.label(egui::RichText::new(reading).small().strong())
                                 .on_hover_text(t!(
@@ -5834,12 +5827,6 @@ impl App {
                                 .color(self.muted()),
                         )
                         .on_hover_text(t!("board.footer.zoom_pct.tip"));
-                        let tool_btn = ui
-                            .tap_button(t!("board.footer.tool_tool_words", tool_words = tool_words))
-                            .on_hover_text(t!("board.footer.tool_tool_words.tip"));
-                        if tool_btn.clicked() {
-                            self.tool = Tool::Select;
-                        }
                         let fix_btn = ui
                             .tap_button(self.catalog.plural("board.footer.errors", fix as u64))
                             .on_hover_text(t!("board.footer.errors.tip"));
@@ -6338,6 +6325,15 @@ impl App {
                 component.id
             };
             self.select(Some(id));
+            if self.capture_menu {
+                let at = egui::pos2(ctx.content_rect().center().x, ctx.content_rect().center().y);
+                self.canvas_menu = Some((at, canvas::CanvasMenuKind::Object(id)));
+            }
+        }
+        if self.frames == 2
+            && let Some(tab) = self.capture_left_tab.take()
+        {
+            self.preferences.left_tab = tab;
         }
         let library_ready = self.tab != Tab::Libraries
             || self.library.editor.mode != 0

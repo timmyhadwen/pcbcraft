@@ -15,7 +15,7 @@
 
 use crate::a11y::{Named, name_control};
 use crate::palette::ThemeColours;
-use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2, epaint};
+use egui::{Align2, Color32, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2, epaint};
 use pcbcraft_doc::{Id, Layer, Project};
 use pcbcraft_text::t;
 use std::collections::BTreeSet;
@@ -749,7 +749,12 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
         [side, "copper"] => {
             let s = side_of_path(side);
             let mut ids: Vec<Id> = project.nets.iter().map(|n| n.id).collect();
-            for id in board.tracks.iter().map(|t| t.net).chain(board.zones.iter().map(|z| z.net)) {
+            for id in board
+                .tracks
+                .iter()
+                .map(|t| t.net)
+                .chain(board.zones.iter().map(|z| z.net))
+            {
                 if !ids.contains(&id) {
                     ids.push(id);
                 }
@@ -1786,9 +1791,11 @@ fn ghost_button(
     label: &str,
     tip: &str,
 ) -> egui::Response {
-    let galley =
-        ui.painter()
-            .layout_no_wrap(label.to_owned(), crate::fonts::Role::Body.font(), colours.ink);
+    let galley = ui.painter().layout_no_wrap(
+        label.to_owned(),
+        crate::fonts::Role::Body.font(),
+        colours.ink,
+    );
     let w = galley.size().x + 14.0 + 6.0 + 16.0;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 28.0), Sense::hover());
     let resp = ui.interact(rect, ui.id().with(("ghost", label)), Sense::click());
