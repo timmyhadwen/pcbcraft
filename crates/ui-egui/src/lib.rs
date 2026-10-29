@@ -1,6 +1,7 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod a11y;
 mod assistant;
+mod arrange;
 mod authoring;
 mod board3d;
 mod board_side;
@@ -2850,6 +2851,8 @@ impl App {
             {
                 self.cleanup_tracks();
             }
+            ui.separator();
+            self.arrange_menu(ui);
             ui.separator();
             if ui
                 .button(t!("menu.edit.sync"))
@@ -5966,6 +5969,7 @@ impl App {
         }
         let about_muted = self.muted();
         brand::about_window(ui, &mut self.about_open, about_muted);
+        self.array_window(ui.ctx());
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))
