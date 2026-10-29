@@ -1,7 +1,7 @@
 //! Stories for the left aside, the library browser, the datasheet action and the
 //! breathing room around every dock and tab body.
 use super::super::*;
-use super::support::{frame, scrolled_to, LEFT_ASIDE};
+use super::support::{LEFT_ASIDE, frame, scrolled_to};
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 

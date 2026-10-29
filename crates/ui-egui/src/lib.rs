@@ -7359,9 +7359,7 @@ mod tests {
             .copied()
             .ok_or("a floating Fit icon sits in the work area")?;
         assert!(
-            fit.max.x <= 1440.0 - 280.0
-                && fit.min.x >= LEFT_ASIDE
-                && fit.min.y > 60.0,
+            fit.max.x <= 1440.0 - 280.0 && fit.min.x >= LEFT_ASIDE && fit.min.y > 60.0,
             "the Fit icon stays inside the canvas between the asides: {fit:?}"
         );
         let first = app.project.components[0].id;

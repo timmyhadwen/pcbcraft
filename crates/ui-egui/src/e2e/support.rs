@@ -22,11 +22,11 @@ pub(crate) fn paints_text(
     }
     Ok(false)
 }
-/// Scroll the right-aside layers tree until `needle` appears, then nudge
-/// the wheel so rows just below it are visible too.
 /// Default width of the left aside (`browser` panel) beside the canvas.
 pub(crate) const LEFT_ASIDE: f32 = 320.0;
 
+/// Scroll the right-aside layers tree until `needle` appears, then nudge
+/// the wheel so rows just below it are visible too.
 pub(crate) fn scrolled_to(
     ctx: &egui::Context,
     app: &mut App,
@@ -34,6 +34,7 @@ pub(crate) fn scrolled_to(
 ) -> Result<bool, String> {
     scrolled_to_at(ctx, app, needle, 1280.0)
 }
+
 /// Scroll the left aside (Layers tree or Library tab) until `needle` is visible.
 pub(crate) fn scrolled_to_left(
     ctx: &egui::Context,
