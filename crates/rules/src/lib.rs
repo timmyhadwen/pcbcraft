@@ -619,21 +619,26 @@ fn board_edge_distance(board: &Board, a: Point, b: Point) -> f64 {
 }
 
 fn panel_findings(project: &Project) -> Vec<Finding> {
-    let Some(settings) = project.panel.as_ref().filter(|p| p.enabled) else {
+    if !project.panel.enabled {
         return Vec::new();
-    };
+    }
+    let settings = &project.panel;
     let Ok(layout) = panel_layout(project) else {
         return Vec::new();
     };
     let mut result = Vec::new();
-    if layout.width > PANEL_ASSEMBLER_MAX_MM + 1e-6 || layout.height > PANEL_ASSEMBLER_MAX_MM + 1e-6
+    if layout.panel_width > PANEL_ASSEMBLER_MAX_MM + 1e-6
+        || layout.panel_height > PANEL_ASSEMBLER_MAX_MM + 1e-6
     {
         result.push(Finding {
             code: "panel_too_large_for_assembler",
             severity: project.rule_severity("panel_too_large_for_assembler", "error"),
             message: format!(
                 "Panel is {:.1} by {:.1} mm; assembly panels must fit within {:.0} by {:.0} mm",
-                layout.width, layout.height, PANEL_ASSEMBLER_MAX_MM, PANEL_ASSEMBLER_MAX_MM
+                layout.panel_width,
+                layout.panel_height,
+                PANEL_ASSEMBLER_MAX_MM,
+                PANEL_ASSEMBLER_MAX_MM
             ),
             objects: vec![],
         });
@@ -1748,7 +1753,6 @@ mod tests {
             assert!((pad.contact_radius() - 0.2).abs() < 1e-12);
         }
     }
-
 
     fn panel_settings_vscore() -> pcbcraft_doc::PanelSettings {
         pcbcraft_doc::PanelSettings {

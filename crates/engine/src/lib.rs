@@ -9763,7 +9763,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 "board": {"width": layout.board_width, "height": layout.board_height},
                 "pitch": {"x": layout.pitch_x, "y": layout.pitch_y},
                 "rail": layout.rail,
-                "panel": {"width": layout.width, "height": layout.height},
+                "panel": {
+                    "width": layout.panel_width,
+                    "height": layout.panel_height
+                },
                 "layout": copies,
             }))
         }

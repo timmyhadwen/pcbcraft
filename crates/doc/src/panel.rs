@@ -63,6 +63,10 @@ impl Default for PanelSettings {
 }
 
 impl PanelSettings {
+    pub fn validate(&self) -> Result<(), String> {
+        self.validate_fields()
+    }
+
     pub fn validate_fields(&self) -> Result<(), String> {
         if self.columns < 1
             || self.rows < 1
@@ -182,9 +186,9 @@ impl From<&PanelSettings> for PanelGrid {
     }
 }
 
-pub fn panel_layout_from_grid(p: &Project, grid: &PanelGrid) -> Result<PanelLayout, String> {
+pub fn panel_layout_from_grid(board: &Board, grid: &PanelGrid) -> Result<PanelLayout, String> {
     grid.validate()?;
-    let (board_w, board_h) = board_copy_size(&p.board)?;
+    let (board_w, board_h) = board_copy_size(board)?;
     if !board_w.is_finite() || !board_h.is_finite() || board_w <= 0.0 || board_h <= 0.0 {
         return Err("the board has no size to panelise".into());
     }
@@ -225,12 +229,20 @@ pub fn panel_layout_from_grid(p: &Project, grid: &PanelGrid) -> Result<PanelLayo
 }
 
 /// Layout for the panel settings stored on the project; requires `enabled`.
+pub fn panel_layout_with_settings(
+    board: &Board,
+    settings: &PanelSettings,
+) -> Result<PanelLayout, String> {
+    let grid = PanelGrid::from(settings);
+    grid.validate()?;
+    panel_layout_from_grid(board, &grid)
+}
+
 pub fn panel_layout(p: &Project) -> Result<PanelLayout, String> {
     if !p.panel.enabled {
         return Err("panel layout is disabled".into());
     }
-    p.panel.validate_fields()?;
-    panel_layout_from_grid(p, &PanelGrid::from(&p.panel))
+    panel_layout_with_settings(&p.board, &p.panel)
 }
 
 #[cfg(test)]
