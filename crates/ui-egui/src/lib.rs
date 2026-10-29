@@ -1,11 +1,13 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod a11y;
+mod arrange;
 mod assistant;
 mod authoring;
 mod board3d;
 mod board_side;
 mod bottom_sheet;
 pub mod brand;
+mod browser;
 mod canvas;
 mod contrast;
 mod datums;
@@ -1004,6 +1006,8 @@ pub struct App {
     canvas_rect: Rect,
     canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
+    /// True in the browser build, where disk actions are refused (see browser.rs).
+    browser: bool,
     value: String,
     x: f64,
     y: f64,
@@ -1527,7 +1531,12 @@ impl App {
             cursor: None,
             canvas_rect: Rect::NOTHING,
             canvas_menu: None,
-            message: t!("status.ready"),
+            message: if cfg!(target_arch = "wasm32") {
+                browser::start_message()
+            } else {
+                t!("status.ready")
+            },
+            browser: cfg!(target_arch = "wasm32"),
             value: String::new(),
             x: 0.0,
             y: 0.0,
@@ -1645,6 +1654,7 @@ impl App {
                     self.selected = Some(id);
                     if command == "component.add" {
                         self.refresh();
+                        self.adopt_active_layer(&known);
                         self.attach_pending_source(id);
                         return;
                     }
@@ -1653,9 +1663,9 @@ impl App {
             Err(e) => self.message = e,
         }
         self.refresh();
-        if command == "board.sync" {
-            self.adopt_active_layer(&known);
-        }
+        // Automatic sync can add a footprint inside any schematic edit, so a
+        // part new to the board follows the active layer after every command.
+        self.adopt_active_layer(&known);
     }
     /// Run a command and hand back its result object, for commands whose
     /// answer is worth reading (a dry run, a plan, a count).
@@ -1680,6 +1690,10 @@ impl App {
         }
     }
     fn tool_call(&mut self, name: &str, args: Value) -> bool {
+        if self.browser && browser::needs_desktop(name) {
+            self.message = browser::refusal();
+            return false;
+        }
         let result = pcbcraft_mcp::call_tool(&self.session, name, &args);
         let success = result.get("isError").and_then(Value::as_bool) != Some(true);
         self.message = if success {
@@ -2849,6 +2863,8 @@ impl App {
             {
                 self.cleanup_tracks();
             }
+            ui.separator();
+            self.arrange_menu(ui);
             ui.separator();
             if ui
                 .button(t!("menu.edit.sync"))
@@ -5965,6 +5981,7 @@ impl App {
         }
         let about_muted = self.muted();
         brand::about_window(ui, &mut self.about_open, about_muted);
+        self.array_window(ui.ctx());
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))
@@ -6213,54 +6230,15 @@ impl App {
             return;
         }
         if matches!(self.tool, Tool::DrawLayer) {
-            ui.label(
-                egui::RichText::new(t!("board.draw_tool_options.draw_on_layer"))
-                    .size(10.0)
-                    .color(self.muted()),
-            );
-            let names: Vec<(Id, String)> = self
-                .project
-                .board
-                .user_layers
-                .iter()
-                .map(|l| (l.id, l.name.clone()))
-                .collect();
-            let current = self
-                .art_layer
-                .and_then(|id| names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone()))
-                .unwrap_or_else(|| t!("board.draw_tool_options.no_layer_yet"));
-            let picked_before = self.art_layer;
-            egui::ComboBox::from_id_salt("art-layer-pick")
-                .selected_text(current)
-                .width(150.0)
-                .show_ui(ui, |ui| {
-                    for (id, name) in &names {
-                        ui.radio_value(&mut self.art_layer, Some(*id), name.as_str())
-                            .on_hover_text(t!(
-                                "board.draw_tool_options.new_figures_land_on_this.tip"
-                            ));
-                    }
-                })
-                .response
-                .named("Drawing layer");
-            if let Some(id) = self.art_layer
-                && self.art_layer != picked_before
-            {
-                self.set_target(draw_target::Target::User(id));
-            }
-            if ui
-                .button(t!("board.draw_tool_options.new_layer"))
-                .on_hover_text(t!("board.draw_tool_options.new_layer.tip"))
-                .clicked()
-            {
-                let name = t!("board.draw_tool_options.art_v0", v0 = names.len() + 1);
-                self.run("board.layer_add", json!({"name": name, "kind": "other"}));
-                if self.message.starts_with("board.layer_add") {
-                    self.art_layer = self.selected;
-                    if let Some(id) = self.art_layer {
-                        self.set_target(draw_target::Target::User(id));
-                    }
-                }
+            use draw_target::Target;
+            let on_user = matches!(self.current_target(), Target::User(_));
+            let layer_tip = t!("board.draw_tool_options.new_figures_land_on_this.tip");
+            if on_user {
+                ui.label(self.target_label())
+                    .on_hover_text(layer_tip.clone());
+            } else {
+                ui.label(t!("board.canvas_click.pick_or_make_a_layer"))
+                    .on_hover_text(t!("tree.add_layer.tip"));
             }
             ui.horizontal(|ui| {
                 for (shape, label, tip) in [
