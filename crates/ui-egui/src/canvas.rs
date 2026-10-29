@@ -66,6 +66,7 @@ pub(crate) fn fit_camera(lo: Point, hi: Point, panel: (f32, f32)) -> Camera {
         .min((panel.1 * 0.92) as f64 / h)
         .clamp(0.02, 100.0) as f32;
     Camera {
+        mirror: false,
         center: Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0),
         zoom,
     }
@@ -329,7 +330,8 @@ impl App {
             let top_left = Align2::CENTER_CENTER.anchor_size(center, galley.size()).min;
             painter.add(
                 egui::epaint::TextShape::new(top_left, galley, color).with_angle_and_anchor(
-                    (-angle - rotation).to_radians() as f32,
+                    ((-angle - rotation) * if camera.mirror { -1.0 } else { 1.0 }).to_radians()
+                        as f32,
                     Align2::CENTER_CENTER,
                 ),
             );
@@ -391,6 +393,7 @@ impl App {
             camera = fit_camera(lo, hi, (rect.width(), rect.height()));
             self.needs_fit = false;
         }
+        camera.mirror = self.seen_from_below();
         if response.hovered() {
             let scroll = motion::wheel_zoom_delta(ui, self.preferences.reduced_motion);
             if scroll.abs() > 0.01
@@ -406,8 +409,9 @@ impl App {
         }
         if response.dragged_by(egui::PointerButton::Middle) {
             let d = ui.input(|i| i.pointer.delta());
+            let along = if camera.mirror { d.x } else { -d.x };
             camera.center = camera.center.offset(Point::new(
-                -d.x as f64 / camera.zoom as f64,
+                along as f64 / camera.zoom as f64,
                 -d.y as f64 / camera.zoom as f64,
             ));
         }
@@ -760,6 +764,7 @@ impl App {
                     {
                         self.needs_fit = true;
                     }
+                    self.view_from_below_button(ui);
                     if ui
                         .tap_button(t!("board.canvas.text"))
                         .on_hover_text(t!("board.canvas.text.tip"))
@@ -2238,7 +2243,12 @@ impl App {
                 }
             }
         }
-        for z in p.board.zones.iter().filter(|_| shown("Copper zones")) {
+        let mirrored = camera.mirror;
+        for z in board_side::bottom_last(
+            p.board.zones.iter().filter(|_| shown("Copper zones")),
+            mirrored,
+            |z| z.layer != Layer::Front,
+        ) {
             let screen: Vec<egui::Pos2> = z
                 .outline
                 .iter()
@@ -2280,13 +2290,17 @@ impl App {
                 ));
             }
         }
-        for t in p.board.tracks.iter().filter(|t| {
-            shown(if t.layer == pcbcraft_doc::Layer::Front {
-                "Top copper"
-            } else {
-                "Bottom copper"
-            })
-        }) {
+        for t in board_side::bottom_last(
+            p.board.tracks.iter().filter(|t| {
+                shown(if t.layer == pcbcraft_doc::Layer::Front {
+                    "Top copper"
+                } else {
+                    "Bottom copper"
+                })
+            }),
+            mirrored,
+            |t| t.layer != Layer::Front,
+        ) {
             painter.line_segment(
                 [camera.screen(t.start, rect), camera.screen(t.end, rect)],
                 Stroke::new(
@@ -2345,7 +2359,10 @@ impl App {
                 );
             }
         }
-        for f in &p.board.footprints {
+        for f in board_side::bottom_last(p.board.footprints.iter(), mirrored, |f| {
+            f.board_side() != Layer::Front
+        }) {
+            let on_bottom = f.board_side() != Layer::Front;
             let points = f
                 .drawing_points(p)
                 .into_iter()
@@ -2391,6 +2408,13 @@ impl App {
                     {
                         continue;
                     }
+                    let flipped;
+                    let g = if on_bottom {
+                        flipped = board_side::mirrored_graphic(g);
+                        &flipped
+                    } else {
+                        g
+                    };
                     self.paint_graphic(painter, rect, camera, g, (f.position, f.rotation), color);
                 }
             } else {
@@ -2418,7 +2442,14 @@ impl App {
                         painter.add(pad_shape(
                             outline,
                             pad.outline_is_convex(),
-                            self.copper(pad.net, self.colours().canvas.pad),
+                            self.copper(
+                                pad.net,
+                                if on_bottom {
+                                    self.colours().canvas.back
+                                } else {
+                                    self.colours().canvas.pad
+                                },
+                            ),
                         ));
                     }
                     let hole = pad.drill_outline_points();
@@ -2580,6 +2611,7 @@ mod library_render_tests {
             egui::CentralPanel::default().show(root_ui, |ui| {
                 let rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(500.0, 500.0));
                 let camera = Camera {
+                    mirror: false,
                     center: Point::default(),
                     zoom: 10.0,
                 };
@@ -2672,6 +2704,7 @@ mod library_render_tests {
                         ui.painter(),
                         Rect::from_min_max(Pos2::ZERO, Pos2::new(500.0, 500.0)),
                         Camera {
+                            mirror: false,
                             center: Point::default(),
                             zoom: 20.0,
                         },

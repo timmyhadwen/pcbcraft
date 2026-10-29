@@ -3,6 +3,7 @@ mod a11y;
 mod assistant;
 mod authoring;
 mod board3d;
+mod board_side;
 mod canvas;
 mod contrast;
 mod datums;
@@ -667,6 +668,9 @@ struct Preferences {
     /// Cut routed corners at 45 degrees; off allows right-angle corners.
     #[serde(default = "default_true")]
     chamfer_corners: bool,
+    /// Show the board as seen from the bottom side, mirrored left to right.
+    #[serde(default)]
+    view_from_below: bool,
     /// Show the Assistant tab and its shortcut; off starts nothing.
     #[serde(default = "default_true")]
     assistant_enabled: bool,
@@ -719,6 +723,7 @@ impl Default for Preferences {
             reduced_motion: motion::os_prefers_reduced_motion(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
+            view_from_below: false,
             assistant_enabled: true,
             assistant_connections: Vec::new(),
             assistant_default: String::new(),
@@ -838,18 +843,22 @@ enum DrawShape {
 struct Camera {
     center: Point,
     zoom: f32,
+    /// Look at the board from below: screen x runs the other way.
+    mirror: bool,
 }
 impl Camera {
     fn screen(self, p: Point, rect: Rect) -> egui::Pos2 {
+        let dx = (p.x - self.center.x) as f32 * self.zoom;
         rect.center()
             + Vec2::new(
-                (p.x - self.center.x) as f32 * self.zoom,
+                if self.mirror { -dx } else { dx },
                 (p.y - self.center.y) as f32 * self.zoom,
             )
     }
     fn world(self, p: egui::Pos2, rect: Rect) -> Point {
+        let dx = (p.x - rect.center().x) as f64 / self.zoom as f64;
         Point::new(
-            self.center.x + (p.x - rect.center().x) as f64 / self.zoom as f64,
+            self.center.x + if self.mirror { -dx } else { dx },
             self.center.y + (p.y - rect.center().y) as f64 / self.zoom as f64,
         )
     }
@@ -1438,11 +1447,13 @@ impl App {
             needs_fit: true,
             page_left: 0.0,
             schematic: Camera {
+                mirror: false,
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
             plot_viewer: plot_viewer::State::default(),
             pcb: Camera {
+                mirror: false,
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
             },
@@ -1532,6 +1543,11 @@ impl App {
     }
 
     fn run(&mut self, command: &str, params: Value) {
+        if command == board_side::VIEW_FROM_BELOW {
+            self.toggle_view_from_below();
+            return;
+        }
+        let known = board_side::footprint_ids(&self.project);
         let result = self
             .session
             .lock()
@@ -1568,6 +1584,9 @@ impl App {
             Err(e) => self.message = e,
         }
         self.refresh();
+        if command == "board.sync" {
+            self.adopt_active_layer(&known);
+        }
     }
     /// Run a command and hand back its result object, for commands whose
     /// answer is worth reading (a dry run, a plan, a count).
@@ -6410,6 +6429,7 @@ impl App {
                                     }
                                 }
                             });
+                            self.flip_button(ui, id);
                             let locked = self
                                 .project
                                 .footprint(id)
@@ -6783,6 +6803,7 @@ impl App {
                     let query = self.command_query.clone();
                     let matches: Vec<_> = pcbcraft_engine::commands()
                         .into_iter()
+                        .chain(std::iter::once(board_side::view_command()))
                         .filter(|spec| {
                             query.is_empty()
                                 || fuzzy_match(&query, spec.id)
