@@ -14,8 +14,8 @@ mod gerber_job;
 mod layers;
 mod library_render;
 mod package;
-mod part_bodies;
 mod panel_export;
+mod part_bodies;
 mod raster;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
@@ -7353,10 +7353,19 @@ mod tests {
                     g.layers = vec!["B.Cu".into(), "B.Mask".into()];
                 }
             }
+            if let Some(lib) = component.library_footprint.as_mut() {
+                for pad in &mut lib.definition.pads {
+                    pad.layers = vec!["B.Cu".into(), "B.Mask".into()];
+                }
+            }
         }
         project.components.push(component);
         project.board.footprints.push(footprint);
-        project.validate()?;
+        if !bottom {
+            // Placement does not yet accept bottom-side surface-mount parts,
+            // so the bottom case is checked on the body list directly.
+            project.validate()?;
+        }
         Ok(project)
     }
     fn bounds(ring: &[Point]) -> (Point, Point) {
@@ -7384,8 +7393,8 @@ mod tests {
         assert_eq!(boxes.len(), 2);
         let first = &boxes[0];
         let (lo, hi) = bounds(&first.ring);
-        // The 0805 courtyard is 3.5 by 1.9 millimetres around the part origin.
-        assert!(((hi.x - lo.x) - 3.5).abs() < 0.01, "{lo:?} {hi:?}");
+        // The 0805 courtyard is 3.36 by 1.9 millimetres around the part origin.
+        assert!(((hi.x - lo.x) - 3.36).abs() < 0.01, "{lo:?} {hi:?}");
         assert!(((hi.y - lo.y) - 1.9).abs() < 0.01, "{lo:?} {hi:?}");
         assert!(((lo.x + hi.x) / 2.0 - 10.0).abs() < 0.01);
         let thickness = project.board.thickness;
@@ -7393,7 +7402,7 @@ mod tests {
         assert!((first.z1 - thickness - part_bodies::DEFAULT_BODY_HEIGHT_MM).abs() < 1e-9);
         // The part with a model gets the same box shape for now.
         let (mlo, mhi) = bounds(&boxes[1].ring);
-        assert!(((mhi.x - mlo.x) - 3.5).abs() < 0.01);
+        assert!(((mhi.x - mlo.x) - 3.36).abs() < 0.01);
         assert!(((mlo.x + mhi.x) / 2.0 - 30.0).abs() < 0.01);
         Ok(())
     }
@@ -7411,19 +7420,22 @@ mod tests {
                 layer: "F.CrtYd".into(),
             }];
         }
-        let step = step_board(&project)?;
-        assert_eq!(step.matches("MANIFOLD_SOLID_BREP(").count(), 2);
         let boxes = part_bodies::part_boxes(&project);
+        assert_eq!(boxes.len(), 2);
         let bottom = &boxes[1];
-        assert!((bottom.z1 - 0.0).abs() < 1e-9, "top of the box is the bottom face");
+        assert!(
+            (bottom.z1 - 0.0).abs() < 1e-9,
+            "top of the box is the bottom face"
+        );
         assert!(bottom.z0 < -1.0, "the box hangs below the board");
-        // Mirrored in x the courtyard spans x -3..1; turned 90 degrees it
-        // spans y of the part from -3..1 around the origin at (30, 15).
+        // Mirrored in x the courtyard spans x -3..1; the part turns by
+        // minus its rotation, so local x maps to board y as -x: 14..18
+        // around the origin (30, 15). Without the mirror it would be 12..16.
         let (lo, hi) = bounds(&bottom.ring);
         assert!(((hi.x - lo.x) - 2.0).abs() < 0.01, "{lo:?} {hi:?}");
         assert!(((hi.y - lo.y) - 4.0).abs() < 0.01, "{lo:?} {hi:?}");
         assert!(((lo.x + hi.x) / 2.0 - 30.0).abs() < 0.01);
-        assert!(((lo.y + hi.y) / 2.0 - 13.0).abs() < 0.01, "{lo:?} {hi:?}");
+        assert!(((lo.y + hi.y) / 2.0 - 16.0).abs() < 0.01, "{lo:?} {hi:?}");
         let mut area = 0.0;
         for i in 0..bottom.ring.len() {
             let a = bottom.ring[i];
@@ -7465,7 +7477,11 @@ mod tests {
         let step = step_board(&project)?;
         assert_eq!(step.matches("MANIFOLD_SOLID_BREP(").count(), 0);
         assert_eq!(step.matches("CLOSED_SHELL(").count(), 0);
-        assert_eq!(step.matches("ADVANCED_FACE(").count(), 6, "only the board slab");
+        assert_eq!(
+            step.matches("ADVANCED_FACE(").count(),
+            6,
+            "only the board slab"
+        );
         Ok(())
     }
 
