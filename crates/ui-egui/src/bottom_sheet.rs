@@ -278,7 +278,7 @@ impl App {
                         crate::fonts::Role::Body,
                         row.message.clone(),
                     ))
-                        .frame(false),
+                    .frame(false),
                 )
                 .on_hover_text(t!("sheet.show.tip"))
                 .clicked()

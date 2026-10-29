@@ -368,11 +368,6 @@ pub(crate) fn press_on(ctx: &egui::Context, app: &mut App, row: &str, k: egui::K
     key(ctx, app, k);
 }
 
-/// Show the Library tab of the left aside, where the part search lives.
-pub(crate) fn open_library_dock(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
-    tap_id(ctx, app, "button:Library")
-}
-
 /// Click the row of the left aside whose words read exactly `label`, ignoring
 /// the same words painted on the drawing (net names and part references
 /// appear in both places).
