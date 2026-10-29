@@ -3999,10 +3999,7 @@ impl Project {
             let Some((a, b)) = key.split_once('|') else {
                 return Err("pin matrix key must name two types".into());
             };
-            if a > b
-                || !Self::pin_electrical_type_valid(a)
-                || !Self::pin_electrical_type_valid(b)
-            {
+            if a > b || !Self::pin_electrical_type_valid(a) || !Self::pin_electrical_type_valid(b) {
                 return Err("pin matrix key must be two sorted recognised types".into());
             }
             if !matches!(level.as_str(), "ok" | "warning" | "error") {

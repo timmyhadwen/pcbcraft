@@ -741,7 +741,8 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                 } else if count_a == 0 || count_b == 0 {
                     continue;
                 }
-                let Some((id_a, ref_a, pin_a)) = on_net.iter().find(|(_, _, p)| p.electrical_type == ta)
+                let Some((id_a, ref_a, pin_a)) =
+                    on_net.iter().find(|(_, _, p)| p.electrical_type == ta)
                 else {
                     continue;
                 };
@@ -2031,7 +2032,9 @@ mod tests {
             .ok_or("expected pin_conflict")?;
         assert_eq!(conflict.severity, "error");
         assert!(
-            conflict.message.contains("U1 pin 3 (output) and U2 pin 7 (output)"),
+            conflict
+                .message
+                .contains("U1 pin 3 (output) and U2 pin 7 (output)"),
             "{}",
             conflict.message
         );

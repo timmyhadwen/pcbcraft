@@ -22863,18 +22863,21 @@ mod tests {
                 .as_array()
                 .is_some_and(|a| a.iter().any(|f| f["code"] == json!("pin_conflict")))
         };
-        assert!(has_conflict(&s), "two outputs should conflict before override");
+        assert!(
+            has_conflict(&s),
+            "two outputs should conflict before override"
+        );
         s.execute(
             "erc.matrix_set",
             json!({"type_a":"output","type_b":"output","level":"ok"}),
             None,
         )?;
-        assert!(
-            !has_conflict(&s),
-            "matrix ok should silence the conflict"
-        );
+        assert!(!has_conflict(&s), "matrix ok should silence the conflict");
         assert_eq!(
-            s.project.pin_matrix.get("output|output").map(String::as_str),
+            s.project
+                .pin_matrix
+                .get("output|output")
+                .map(String::as_str),
             Some("ok")
         );
         s.undo()?;
