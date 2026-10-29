@@ -47,7 +47,10 @@ fn run() -> Result<(), String> {
             println!("{result}");
         }
         "mcp" => {
-            let hub = pcbcraft_mcp::DocumentHub::new(session, option(&args, "--project").map(str::to_string))?;
+            let hub = pcbcraft_mcp::DocumentHub::new(
+                session,
+                option(&args, "--project").map(str::to_string),
+            )?;
             pcbcraft_mcp::serve(
                 &mut std::io::stdin().lock(),
                 &mut std::io::stdout().lock(),

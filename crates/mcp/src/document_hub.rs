@@ -276,9 +276,10 @@ impl DocumentHub {
             .inner
             .lock()
             .map_err(|_| "session unavailable after internal failure".to_string())?;
+        let active = state.active;
         let slot = state
             .slots
-            .get_mut(state.active)
+            .get_mut(active)
             .ok_or("no open documents")?;
         slot.path = path;
         Ok(())

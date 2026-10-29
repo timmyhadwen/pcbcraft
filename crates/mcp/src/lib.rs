@@ -1,7 +1,7 @@
 //! MCP stdio server plus a loopback bridge into the desktop's actual engine session.
 mod document_hub;
-pub use document_hub::DocumentHub;
 use base64::Engine as _;
+pub use document_hub::DocumentHub;
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
 #[cfg(any(not(target_arch = "wasm32"), test))]
@@ -2415,31 +2415,27 @@ mod tests {
         let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
         let first = directory.path().join("first.pcbcraft");
         let second = directory.path().join("second.pcbcraft");
-        pcbcraft_io::save(
-            &Session::default().project,
-            &first,
-        )?;
+        pcbcraft_io::save(&Session::default().project, &first)?;
         let mut other = Session::default();
         other
-            .execute(
-                "net.create",
-                json!({"name":"SECOND"}),
-                None,
-            )
+            .execute("net.create", json!({"name":"SECOND"}), None)
             .map_err(|e| e.to_string())?;
         pcbcraft_io::save(&other.project, &second)?;
         assert_eq!(
-            hub.call_tool("open", &json!({"path":first.to_string_lossy()})).get("isError"),
+            hub.call_tool("open", &json!({"path":first.to_string_lossy()}))
+                .get("isError"),
             Some(&json!(false))
         );
         assert_eq!(
-            hub.call_tool("open", &json!({"path":second.to_string_lossy()})).get("isError"),
+            hub.call_tool("open", &json!({"path":second.to_string_lossy()}))
+                .get("isError"),
             Some(&json!(false))
         );
         let listed = hub.call_tool("design.list_open", &json!({}));
         assert_eq!(listed.get("isError"), Some(&json!(false)), "{listed}");
         assert_eq!(
-            listed.pointer("/structuredContent/documents")
+            listed
+                .pointer("/structuredContent/documents")
                 .and_then(Value::as_array)
                 .map(Vec::len),
             Some(2)
@@ -2459,20 +2455,19 @@ mod tests {
             .map_err(|e| e.to_string())?;
         pcbcraft_io::save(&touched.project, &second)?;
         assert_eq!(
-            hub.call_tool("open", &json!({"path":first.to_string_lossy()})).get("isError"),
+            hub.call_tool("open", &json!({"path":first.to_string_lossy()}))
+                .get("isError"),
             Some(&json!(false))
         );
         assert_eq!(
-            hub.call_tool("open", &json!({"path":second.to_string_lossy()})).get("isError"),
+            hub.call_tool("open", &json!({"path":second.to_string_lossy()}))
+                .get("isError"),
             Some(&json!(false))
         );
         let rev0_before = hub.session_revision(0)?;
         assert_eq!(
-            hub.call_tool(
-                "design.activate",
-                &json!({"path":second.to_string_lossy()}),
-            )
-            .get("isError"),
+            hub.call_tool("design.activate", &json!({"path":second.to_string_lossy()}))
+                .get("isError"),
             Some(&json!(false))
         );
         assert_eq!(hub.active_index()?, 1);
@@ -2503,7 +2498,8 @@ mod tests {
         session.project.name = "Bench supply".into();
         pcbcraft_io::save(&session.project, &path)?;
         assert_eq!(
-            hub.call_tool("open", &json!({"path":path.to_string_lossy()})).get("isError"),
+            hub.call_tool("open", &json!({"path":path.to_string_lossy()}))
+                .get("isError"),
             Some(&json!(false))
         );
         let inspect = hub.call_tool("inspect_design", &json!({}));
