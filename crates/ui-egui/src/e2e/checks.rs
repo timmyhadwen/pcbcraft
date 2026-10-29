@@ -360,7 +360,7 @@ fn a_newcomer_jumps_from_a_finding_to_the_copper_it_names() -> Result<(), String
 }
 
 /// A newcomer opens the sample board that carries three known problems and
-/// reads them on the Checks page: one error and two warnings.
+/// reads them on the Checks sheet: one error and two warnings.
 #[test]
 fn a_newcomer_reads_the_showcase_findings() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -389,11 +389,20 @@ fn a_newcomer_reads_the_showcase_findings() -> Result<(), String> {
     };
     assert_eq!(level("error"), 1, "one error is waiting");
     assert_eq!(level("warning"), 2, "two warnings are waiting");
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let error_message = ["erc", "drc"]
+        .iter()
+        .filter_map(|key| app.checks.get(*key).and_then(serde_json::Value::as_array))
+        .flatten()
+        .find(|f| f.get("severity").and_then(serde_json::Value::as_str) == Some("error"))
+        .and_then(|f| f.get("message"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or("the error finding has a message")?;
     assert!(
-        paints_text(&ctx, &mut app, "Silk over pad")?,
-        "the error is named on the Checks page"
+        paints_text(&ctx, &mut app, &error_message)?,
+        "the error is named on the Checks sheet: {error_message}"
     );
     Ok(())
 }
