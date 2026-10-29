@@ -274,7 +274,10 @@ impl App {
             ));
             if ui
                 .add(
-                    egui::Button::new(egui::RichText::new(&row.message).size(Self::BODY))
+                    egui::Button::new(crate::fonts::text(
+                        crate::fonts::Role::Body,
+                        row.message.clone(),
+                    ))
                         .frame(false),
                 )
                 .on_hover_text(t!("sheet.show.tip"))

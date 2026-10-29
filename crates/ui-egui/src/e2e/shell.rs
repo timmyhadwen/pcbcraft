@@ -118,8 +118,10 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
         "the mark is resized and moved to the bottom: {}",
         app.message
     );
-    scrolled_to(&ctx, &mut app, "\u{d7}")?;
-    authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
+    // "\u{d7}" also appears in sizes like "60 \u{d7} 40 mm", so press the button by id.
+    // Applying a size selects the object; go back to the board's settings.
+    open_tree_row(&ctx, &mut app, "root");
+    tap_id(&ctx, &mut app, "button:\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.board.fiducials.len(),

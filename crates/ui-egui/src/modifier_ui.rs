@@ -251,14 +251,10 @@ pub fn keys_section(app: &mut crate::App, ui: &mut egui::Ui) {
     let platform = Platform::of(ui.ctx());
     ui.add_space(16.0);
     ui.label(
-        egui::RichText::new(t!("modifier.prefs.title"))
-            .size(10.0)
-            .color(app.muted()),
+        crate::fonts::caption(t!("modifier.prefs.title")).color(app.muted()),
     );
     ui.label(
-        egui::RichText::new(t!("modifier.prefs.intro"))
-            .small()
-            .color(app.muted()),
+        crate::fonts::caption(t!("modifier.prefs.intro")).color(app.muted()),
     );
     ui.add_space(4.0);
     let mut message: Option<String> = None;
@@ -337,20 +333,17 @@ pub fn keys_section(app: &mut crate::App, ui: &mut egui::Ui) {
     }
     for (_, a, b) in tm::conflicts(&app.preferences.modifiers) {
         ui.label(
-            egui::RichText::new(t!(
+            crate::fonts::caption(t!(
                 "modifier.prefs.clash",
                 first = effect(a),
                 second = effect(b)
             ))
-            .small()
             .color(egui::Color32::from_rgb(240, 90, 80)),
         );
     }
     if let Some(m) = message {
         ui.label(
-            egui::RichText::new(m)
-                .small()
-                .color(egui::Color32::from_rgb(240, 90, 80)),
+            crate::fonts::caption(m).color(egui::Color32::from_rgb(240, 90, 80)),
         );
     }
     if ui

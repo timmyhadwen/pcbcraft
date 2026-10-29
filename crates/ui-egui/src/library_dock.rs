@@ -1176,7 +1176,7 @@ impl App {
         if facts.outside {
             let badge = painter.layout_no_wrap(
                 t!("library.dock.not_in_project"),
-                egui::FontId::proportional(10.0),
+                crate::fonts::Role::Caption.font(),
                 self.muted(),
             );
             let left = text_left + source_width + 6.0;
@@ -1203,7 +1203,7 @@ impl App {
             if y + 12.0 < rect.bottom() {
                 let galley = painter.layout(
                     line,
-                    egui::FontId::proportional(10.5),
+                    crate::fonts::Role::Caption.font(),
                     self.muted(),
                     text_width,
                 );

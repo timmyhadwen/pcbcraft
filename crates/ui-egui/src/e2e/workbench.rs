@@ -96,8 +96,10 @@ fn a_newcomer_switches_the_left_aside_between_layers_and_library() -> Result<(),
             "the left aside offers {word}"
         );
     }
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        !paints_text(&ctx, &mut app, "Hide")?,
+        !out.shapes.iter().any(|s| matches!(&s.shape,
+            egui::Shape::Text(t) if t.galley.text() == "Hide")),
         "the left aside has no Hide button"
     );
     authoring::tests::tap(&ctx, &mut app, "Library")?;

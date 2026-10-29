@@ -7293,7 +7293,6 @@ mod tests {
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
         app.change_tab(Tab::Schematic);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
         assert!(
             scrolled_to(&ctx, &mut app, "Wires")?,
             "the layers page lists wires as its own row"
@@ -7383,7 +7382,7 @@ mod tests {
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         app.change_tab(Tab::Pcb);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        open_tree_row(&ctx, &mut app, "nets");
         assert!(
             scrolled_to(&ctx, &mut app, "New net")?,
             "the layers tree offers a way to add a connection"
@@ -7969,7 +7968,7 @@ mod tests {
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         app.change_tab(Tab::Pcb);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        open_tree_row(&ctx, &mut app, "nets");
         assert!(
             scrolled_to(&ctx, &mut app, "of 3 nets routed")?,
             "the dock totals the routing at a glance: {}",

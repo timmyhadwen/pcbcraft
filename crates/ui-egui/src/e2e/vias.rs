@@ -129,7 +129,7 @@ fn a_newcomer_allows_and_removes_a_buried_via_span() -> Result<(), String> {
     app.select(None);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Pcb);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "root");
     scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?;
     assert!(
         scrolled_to(&ctx, &mut app, "VIA SPANS")?,
