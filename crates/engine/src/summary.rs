@@ -50,7 +50,12 @@ pub(crate) fn build(project: &Project) -> Value {
 
     let mut pins: std::collections::BTreeMap<u64, usize> = std::collections::BTreeMap::new();
     for c in components {
-        for pin in c.get("pins").and_then(Value::as_array).into_iter().flatten() {
+        for pin in c
+            .get("pins")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             if let Some(net) = pin.get("net").and_then(Value::as_u64) {
                 *pins.entry(net).or_default() += 1;
             }
@@ -148,29 +153,29 @@ mod tests {
             .filter_map(|p| p["reference"].as_str())
             .collect();
         for c in &s.project.components {
-            assert!(refs.contains(&c.reference.as_str()), "{} is listed", c.reference);
+            assert!(
+                refs.contains(&c.reference.as_str()),
+                "{} is listed",
+                c.reference
+            );
         }
         assert_eq!(v["counts"]["components"], s.project.components.len());
         Ok(())
     }
 
     #[test]
-    fn design_summary_caps_parts_and_nets_at_two_hundred_with_a_more_count() -> Result<(), crate::Error> {
+    fn design_summary_caps_parts_and_nets_at_two_hundred_with_a_more_count()
+    -> Result<(), crate::Error> {
         let mut s = Session::default();
-        let commands: Vec<Command> = (0..130)
-            .map(|i| Command {
-                command: "component.add".into(),
-                params: json!({"kind":"resistor","reference":format!("R{i}"),"value":"1k","position":{"x":(i % 20) as f64 * 3.0,"y":(i / 20) as f64 * 3.0}}),
-            })
-            .collect();
-        s.batch(&commands, None)?;
-        let commands: Vec<Command> = (130..230)
-            .map(|i| Command {
-                command: "component.add".into(),
-                params: json!({"kind":"resistor","reference":format!("R{i}"),"value":"1k","position":{"x":(i % 20) as f64 * 3.0,"y":(i / 20) as f64 * 3.0}}),
-            })
-            .collect();
-        s.batch(&commands, None)?;
+        for range in [0..100, 100..200, 200..230] {
+            let commands: Vec<Command> = range
+                .map(|i| Command {
+                    command: "component.add".into(),
+                    params: json!({"kind":"resistor","reference":format!("R{i}"),"value":"1k","position":{"x":(i % 20) as f64 * 3.0,"y":(i / 20) as f64 * 3.0}}),
+                })
+                .collect();
+            s.batch(&commands, None)?;
+        }
         let v = s.summary();
         assert_eq!(v["parts"].as_array().map(Vec::len), Some(LIST_LIMIT));
         assert_eq!(v["parts_more"], 30);
@@ -179,7 +184,9 @@ mod tests {
 
     #[test]
     fn design_summary_is_a_registered_command_with_a_description() {
-        let spec = crate::commands().into_iter().find(|c| c.id == "design.summary");
+        let spec = crate::commands()
+            .into_iter()
+            .find(|c| c.id == "design.summary");
         assert!(spec.is_some_and(|c| !c.description.is_empty()));
     }
 }

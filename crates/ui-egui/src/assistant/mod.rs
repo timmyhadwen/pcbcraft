@@ -300,8 +300,13 @@ impl App {
         });
         let mut parts = vec![PromptPart::Text(body)];
         if self.assistant.attach {
-            let view = if matches!(self.tab, Tab::Pcb) { "pcb" } else { "schematic" };
-            let reply = pcbcraft_mcp::call_tool(&self.session, "screenshot", &json!({"view": view}));
+            let view = if matches!(self.tab, Tab::Pcb) {
+                "pcb"
+            } else {
+                "schematic"
+            };
+            let reply =
+                pcbcraft_mcp::call_tool(&self.session, "screenshot", &json!({"view": view}));
             let data = reply.pointer("/content/0/data").and_then(Value::as_str);
             let takes = self
                 .preferences
@@ -322,10 +327,7 @@ impl App {
 
     /// What the model should know now: the design summary, the view and the selection.
     fn assistant_context(&self) -> pcbcraft_assistant::Context {
-        let summary = self
-            .session
-            .lock()
-            .map_or(Value::Null, |s| s.summary());
+        let summary = self.session.lock().map_or(Value::Null, |s| s.summary());
         let tab = match self.tab {
             Tab::Schematic => "schematic",
             Tab::Pcb => "pcb",
@@ -346,7 +348,9 @@ impl App {
             let mut nets: Vec<String> = Vec::new();
             if let Some(c) = part {
                 for pin in &c.pins {
-                    if let Some(n) = pin.net.and_then(|n| self.project.nets.iter().find(|x| x.id == n))
+                    if let Some(n) = pin
+                        .net
+                        .and_then(|n| self.project.nets.iter().find(|x| x.id == n))
                         && !nets.contains(&n.name)
                     {
                         nets.push(n.name.clone());

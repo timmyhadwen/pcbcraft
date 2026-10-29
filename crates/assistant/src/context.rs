@@ -156,7 +156,13 @@ pub fn note(ctx: &Context, since: Option<&Sent>) -> String {
         .as_array()
         .into_iter()
         .flatten()
-        .map(|n| format!("{} ({} pins)", n["name"].as_str().unwrap_or(""), num(&n["pins"])))
+        .map(|n| {
+            format!(
+                "{} ({} pins)",
+                n["name"].as_str().unwrap_or(""),
+                num(&n["pins"])
+            )
+        })
         .collect();
     let mut tail = Vec::new();
     for (label, list) in [("Parts", parts), ("Nets", nets)] {
@@ -183,7 +189,9 @@ pub fn note(ctx: &Context, since: Option<&Sent>) -> String {
 /// A picture of the view as a message part, or a note saying why it was left out.
 pub fn picture(takes_pictures: bool, png_base64: Option<&str>) -> Result<PromptPart, String> {
     if !takes_pictures {
-        return Err("The picture was left out: this connection is not set to take pictures.".into());
+        return Err(
+            "The picture was left out: this connection is not set to take pictures.".into(),
+        );
     }
     let data = png_base64.ok_or("The picture could not be made.")?;
     // Base64 is 4 bytes for every 3.
@@ -223,7 +231,8 @@ mod tests {
     }
 
     #[test]
-    fn the_first_message_of_a_turn_carries_the_context_note_and_the_second_carries_only_the_delta() {
+    fn the_first_message_of_a_turn_carries_the_context_note_and_the_second_carries_only_the_delta()
+    {
         let first = note(&ctx(3, Some(2)), None);
         assert!(first.starts_with("<context>") && first.ends_with("</context>"));
         assert!(first.contains("revision 3") && first.contains("Parts: R1 330; D1 LED"));
@@ -231,20 +240,31 @@ mod tests {
         let c = ctx(5, Some(2));
         let delta = note(&c, Some(&ctx(3, Some(2)).sent()));
         assert!(delta.contains("revision 3 to 5"));
-        assert!(!delta.contains("Parts:"), "the delta does not repeat the design");
+        assert!(
+            !delta.contains("Parts:"),
+            "the delta does not repeat the design"
+        );
         assert_eq!(note(&c, Some(&c.sent())), "", "nothing new, nothing sent");
     }
 
     #[test]
     fn a_selected_part_is_named_in_the_note_with_its_net_and_position() {
         let n = note(&ctx(1, Some(7)), None);
-        assert!(n.contains("Selected: resistor R1 (330), id 7, at 40.0, 14.0 mm, net LED."), "{n}");
+        assert!(
+            n.contains("Selected: resistor R1 (330), id 7, at 40.0, 14.0 mm, net LED."),
+            "{n}"
+        );
     }
 
     #[test]
     fn attach_view_is_left_out_with_a_note_for_a_connection_that_takes_no_pictures() {
-        assert!(picture(false, Some("AA==")).is_err_and(|e| e.contains("not set to take pictures")));
-        assert!(matches!(picture(true, Some("AA==")), Ok(PromptPart::Picture { .. })));
+        assert!(
+            picture(false, Some("AA==")).is_err_and(|e| e.contains("not set to take pictures"))
+        );
+        assert!(matches!(
+            picture(true, Some("AA==")),
+            Ok(PromptPart::Picture { .. })
+        ));
         let huge = "A".repeat(MAX_PICTURE_BYTES * 2);
         assert!(picture(true, Some(&huge)).is_err_and(|e| e.contains("4 MB")));
     }

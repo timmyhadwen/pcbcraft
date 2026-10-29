@@ -377,6 +377,7 @@ fn with_the_assistant_switched_off_nothing_is_probed() -> Result<(), String> {
             base_url: "http://localhost:11434/v1".into(),
             model: "m".into(),
             has_key: false,
+            images: false,
         });
     app.preferences.assistant_default = "api-1".into();
     let ctx = egui::Context::default();
@@ -420,6 +421,9 @@ fn a_newcomer_selects_a_part_and_the_assistant_already_knows_which_one() -> Resu
         return Err("the prompt starts with text".into());
     };
     assert!(text.contains("Selected: ") && text.contains("R1"), "{text}");
-    assert!(text.ends_with("move this part right by 5 mm"), "the user's words come last");
+    assert!(
+        text.ends_with("move this part right by 5 mm"),
+        "the user's words come last"
+    );
     Ok(())
 }

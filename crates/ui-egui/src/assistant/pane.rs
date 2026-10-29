@@ -148,7 +148,10 @@ fn composer(app: &mut App, ui: &mut egui::Ui) {
         egui::CollapsingHeader::new(text::SHOW_SENT)
             .id_salt("assistant-sent")
             .show(ui, |ui| {
-                ui.add(egui::Label::new(egui::RichText::new(app.assistant.last_note.as_str()).small()).wrap());
+                ui.add(
+                    egui::Label::new(egui::RichText::new(app.assistant.last_note.as_str()).small())
+                        .wrap(),
+                );
             })
             .header_response
             .on_hover_text(text::SHOW_SENT_TIP);
