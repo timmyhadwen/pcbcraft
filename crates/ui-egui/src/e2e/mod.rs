@@ -16,6 +16,7 @@ mod images;
 mod layers;
 mod layout;
 mod library;
+mod library_browser;
 mod nets;
 mod pairs;
 mod rules;

@@ -8,6 +8,7 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
+    app.preferences.left_tab = 1;
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -61,6 +62,7 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
+    app.preferences.left_tab = 1;
     app.tool_call("sample_design", json!({}));
     let r1 = app
         .project
@@ -297,6 +299,7 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared.clone(), Preferences::default(), None, None);
     app.refresh();
+    app.preferences.left_tab = 1;
     let ctx = egui::Context::default();
     let none = egui::Modifiers::NONE;
     frame(&ctx, &mut app, vec![], none);
@@ -831,6 +834,7 @@ fn a_newcomer_switches_between_the_library_and_the_editor() -> Result<(), String
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
+    app.preferences.left_tab = 1;
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -885,6 +889,7 @@ fn dock_app() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
+    app.preferences.left_tab = 1;
     app.tool_call("sample_design", json!({}));
     // Read only the fixture folder, never the owner's installed libraries.
     app.dock.roots = Some(vec![]);

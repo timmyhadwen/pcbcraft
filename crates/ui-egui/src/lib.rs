@@ -634,6 +634,9 @@ struct Preferences {
     left_tab: u8,
     #[serde(default = "default_true")]
     library_dock_open: bool,
+    /// Library cards the person starred, by card key.
+    #[serde(default)]
+    library_favourites: Vec<String>,
     /// Language tag of the text catalog, or `system` to follow the computer.
     #[serde(default = "default_language")]
     language: String,
@@ -695,6 +698,7 @@ impl Default for Preferences {
             aside_lower_tab: 0,
             library_dock_open: true,
             left_tab: 0,
+            library_favourites: Vec::new(),
             language: default_language(),
             reduced_motion: motion::os_prefers_reduced_motion(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
@@ -1234,6 +1238,16 @@ impl App {
     /// `--capture` image shows a selection. Ignored outside capture mode.
     pub fn with_capture_select(mut self, reference: Option<String>) -> Self {
         self.capture_select = reference;
+        self
+    }
+    /// Open the left aside on its Library tab (`library`) or its Layers tab
+    /// (`layers`), so a `--capture` image can show either.
+    pub fn with_left_tab(mut self, tab: Option<String>) -> Self {
+        match tab.as_deref() {
+            Some("library") => self.preferences.left_tab = 1,
+            Some("layers") => self.preferences.left_tab = 0,
+            _ => {}
+        }
         self
     }
     pub fn new(

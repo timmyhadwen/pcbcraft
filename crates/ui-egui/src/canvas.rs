@@ -445,7 +445,9 @@ impl App {
                 .hover_pos()
                 .or_else(|| ui.input(|i| i.pointer.hover_pos()))
                 .map(|p| camera.world(p, rect));
-            if let Some(world) = world {
+            if let Some(world) = world
+                && !self.dock_drop(ui.ctx(), &released, world)
+            {
                 self.place_dropped_library(&released, world);
             }
         }
@@ -2033,7 +2035,7 @@ impl App {
             );
         }
     }
-    fn symbol(
+    pub(super) fn symbol(
         &self,
         painter: &egui::Painter,
         rect: Rect,
