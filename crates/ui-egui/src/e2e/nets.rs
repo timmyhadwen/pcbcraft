@@ -21,7 +21,7 @@ fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), S
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(app.project.nets.len(), 1, "one click adds one connection");
     assert!(
-        paints_text(&ctx, &mut app, "No pins on this connection yet.")?,
+        scrolled_to(&ctx, &mut app, "No pins on this connection yet.")?,
         "a fresh connection says so plainly: {}",
         app.message
     );
