@@ -28,42 +28,167 @@ const DEBOUNCE_SECONDS: f64 = 0.2;
 const MAX_INFLIGHT: usize = 4;
 /// Most keyword chips shown.
 const MAX_TAGS: usize = 12;
-/// Height of one card row, without spacing.
-const CARD_HEIGHT: f32 = 60.0;
-/// Side of the drawing on a card.
-const PREVIEW_SIDE: f32 = 56.0;
 /// Installed results kept per request (the engine caps a page at 100).
 const PAGE: usize = 100;
 
-/// Category chips: the listing category name, its label key and tip key.
-const CATEGORIES: [(&str, &str, &str); 6] = [
+/// Kind toggles: the name kept in state, its label and tip catalog keys, and
+/// the listing categories it stands for.
+const KINDS: [(&str, &str, &str, &[&str]); 4] = [
     (
-        "resistor",
-        "library.dock.cat.resistor",
-        "library.dock.cat.resistor.tip",
+        "passive",
+        "library.dock.kind.passive",
+        "library.dock.kind.passive.tip",
+        &[
+            "resistor",
+            "capacitor",
+            "inductor",
+            "diode",
+            "led",
+            "crystal",
+        ],
     ),
     (
-        "capacitor",
-        "library.dock.cat.capacitor",
-        "library.dock.cat.capacitor.tip",
+        "ic",
+        "library.dock.kind.ic",
+        "library.dock.kind.ic.tip",
+        &[
+            "ic_regulator",
+            "ic_mcu",
+            "ic_logic",
+            "ic_analog",
+            "transistor",
+            "mosfet",
+        ],
     ),
-    (
-        "inductor",
-        "library.dock.cat.inductor",
-        "library.dock.cat.inductor.tip",
-    ),
-    (
-        "diode",
-        "library.dock.cat.diode",
-        "library.dock.cat.diode.tip",
-    ),
-    ("led", "library.dock.cat.led", "library.dock.cat.led.tip"),
     (
         "connector",
-        "library.dock.cat.connector",
-        "library.dock.cat.connector.tip",
+        "library.dock.kind.connector",
+        "library.dock.kind.connector.tip",
+        &["connector"],
+    ),
+    (
+        "mechanical",
+        "library.dock.kind.mechanical",
+        "library.dock.kind.mechanical.tip",
+        &["mechanical", "module"],
     ),
 ];
+
+/// Height of one card row, thumbnail included.
+const ROW_HEIGHT: f32 = 88.0;
+/// Side of the thumbnail on a card.
+const THUMB: f32 = 72.0;
+
+/// Pictures drawn on the filter toggles.
+#[derive(Clone, Copy)]
+enum Glyph {
+    BuiltIn,
+    Project,
+    Installed,
+    Online,
+    Passive,
+    Ic,
+    Connector,
+    Mechanical,
+}
+
+/// Draw a small line picture of `glyph` inside `rect`.
+fn paint_glyph(painter: &egui::Painter, rect: Rect, glyph: Glyph, color: Color32) {
+    let c = rect.center();
+    let r = rect.width().min(rect.height()) * 0.3;
+    let stroke = Stroke::new(1.5, color);
+    let line = |a: egui::Pos2, b: egui::Pos2| {
+        painter.line_segment([a, b], stroke);
+    };
+    let p = |x: f32, y: f32| egui::pos2(c.x + x * r, c.y + y * r);
+    match glyph {
+        Glyph::BuiltIn => {
+            painter.rect_stroke(
+                Rect::from_center_size(c, egui::vec2(r * 2.0, r * 2.0)),
+                2.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            painter.circle_filled(c, r * 0.35, color);
+        }
+        Glyph::Project => {
+            line(p(-1.0, -0.1), p(0.0, -1.0));
+            line(p(0.0, -1.0), p(1.0, -0.1));
+            painter.rect_stroke(
+                Rect::from_min_max(p(-0.7, -0.1), p(0.7, 1.0)),
+                1.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+        }
+        Glyph::Installed => {
+            for y in [-0.8_f32, 0.0, 0.8] {
+                line(p(-1.0, y), p(1.0, y));
+            }
+        }
+        Glyph::Online => {
+            painter.circle_stroke(c, r * 1.1, stroke);
+            line(p(-1.1, 0.0), p(1.1, 0.0));
+            line(p(0.0, -1.1), p(0.0, 1.1));
+            painter.circle_stroke(c, r * 0.5, stroke);
+        }
+        Glyph::Passive => {
+            let pts = [
+                (-1.2, 0.0),
+                (-0.7, 0.0),
+                (-0.45, -0.8),
+                (0.0, 0.8),
+                (0.45, -0.8),
+                (0.7, 0.0),
+                (1.2, 0.0),
+            ];
+            for w in pts.windows(2) {
+                line(p(w[0].0, w[0].1), p(w[1].0, w[1].1));
+            }
+        }
+        Glyph::Ic => {
+            painter.rect_stroke(
+                Rect::from_min_max(p(-0.7, -0.8), p(0.7, 0.8)),
+                1.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            for y in [-0.4_f32, 0.4] {
+                line(p(-1.2, y), p(-0.7, y));
+                line(p(0.7, y), p(1.2, y));
+            }
+        }
+        Glyph::Connector => {
+            painter.circle_stroke(p(0.5, 0.0), r * 0.5, stroke);
+            line(p(-1.2, 0.0), p(0.0, 0.0));
+        }
+        Glyph::Mechanical => {
+            painter.circle_stroke(c, r * 0.55, stroke);
+            for i in 0..6 {
+                let a = i as f32 * std::f32::consts::TAU / 6.0;
+                line(
+                    p(a.cos() * 0.8, a.sin() * 0.8),
+                    p(a.cos() * 1.2, a.sin() * 1.2),
+                );
+            }
+        }
+    }
+}
+
+/// A magnifier drawn inside `rect`.
+fn paint_magnifier(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let c = rect.center();
+    let r = rect.height() * 0.28;
+    let stroke = Stroke::new(1.6, color);
+    painter.circle_stroke(c - egui::vec2(r * 0.25, r * 0.25), r, stroke);
+    painter.line_segment(
+        [
+            c + egui::vec2(r * 0.55, r * 0.55),
+            c + egui::vec2(r * 1.5, r * 1.5),
+        ],
+        stroke,
+    );
+}
 
 type Reply = Receiver<Result<Value, String>>;
 
@@ -73,6 +198,8 @@ pub(crate) struct Installed {
     pub(crate) path: String,
     pub(crate) name: String,
     pub(crate) description: String,
+    pub(crate) package: String,
+    pub(crate) category: String,
 }
 
 /// Browser state: the filters, the last installed answer, and the drawings.
@@ -90,8 +217,9 @@ pub(crate) struct Dock {
     pub(crate) hide_built_in: bool,
     pub(crate) hide_project: bool,
     pub(crate) hide_installed: bool,
-    /// Category chips switched on.
-    pub(crate) categories: BTreeSet<String>,
+    pub(crate) hide_online: bool,
+    /// Kind toggles switched on (`passive`, `ic`, `connector`, `mechanical`).
+    pub(crate) kinds: BTreeSet<String>,
     /// Keyword chip switched on.
     pub(crate) tag: Option<String>,
     /// Folders to read instead of the user's installed ones (tests).
@@ -117,7 +245,8 @@ impl Default for Dock {
             hide_built_in: false,
             hide_project: false,
             hide_installed: false,
-            categories: BTreeSet::new(),
+            hide_online: false,
+            kinds: BTreeSet::new(),
             tag: None,
             roots: None,
             sent: String::new(),
@@ -190,6 +319,14 @@ fn finds(query: &str, text: &str) -> bool {
     text.contains(query) || fuzzy_match(query, &text)
 }
 
+/// The listing category name the library's own table gives this text.
+fn category_name(source: &str, text: &str) -> String {
+    serde_json::to_value(pcbcraft_library::listing::category_from(source, text))
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
 impl App {
     /// The whole left-dock browser body: search, chips, sets, cards, sources.
     ///
@@ -202,17 +339,30 @@ impl App {
     ///
     /// # Do not
     /// - Call `pcbcraft_engine::library` on the frame thread.
-    pub(crate) fn library_dock_body(&mut self, ui: &mut egui::Ui) {
+    pub(crate) fn library_dock_body(&mut self, ui: &mut egui::Ui, viewport: Rect) {
         let now = ui.input(|i| i.time);
         self.dock_poll(ui.ctx());
-        ui.add_space(4.0);
+        self.dock_header(ui);
+        ui.add_space(8.0);
+        let field = egui::Margin {
+            left: 32,
+            right: 8,
+            top: 6,
+            bottom: 6,
+        };
         let search = ui
             .add(
                 crate::targets::text_field(&mut self.part_search)
                     .hint_text(t!("library.browser.search_parts_by_name"))
+                    .margin(field)
                     .desired_width(f32::INFINITY),
             )
             .on_hover_text(t!("library.browser.search_parts_by_name.tip"));
+        paint_magnifier(
+            ui.painter(),
+            Rect::from_min_size(search.rect.min, egui::vec2(32.0, search.rect.height())),
+            self.muted(),
+        );
         let enabled = search.enabled();
         search.widget_info(|| {
             egui::WidgetInfo::labeled(
@@ -225,13 +375,14 @@ impl App {
             search.request_focus();
             self.part_search_focus = false;
         }
-        ui.add_space(6.0);
+        ui.add_space(8.0);
         self.dock_chips(ui);
+        ui.add_space(4.0);
         let query = self.part_search.trim().to_lowercase();
         let want_installed =
-            !self.dock.hide_installed && (!query.is_empty() || !self.dock.categories.is_empty());
+            !self.dock.hide_installed && (!query.is_empty() || !self.dock.kinds.is_empty());
         let signature = if want_installed {
-            format!("{query}|{:?}", self.dock.categories)
+            format!("{query}|{:?}", self.dock.kinds)
         } else {
             String::new()
         };
@@ -258,8 +409,12 @@ impl App {
             ui.horizontal_wrapped(|ui| {
                 for tag in &tags {
                     let on = self.dock.tag.as_deref() == Some(tag.as_str());
-                    if self
-                        .dock_chip(ui, tag, on)
+                    if ui
+                        .add(
+                            egui::Button::new(tag)
+                                .selected(on)
+                                .min_size(egui::Vec2::splat(crate::targets::MIN_TARGET)),
+                        )
                         .on_hover_text(t!("library.dock.tag.tip", tag = tag))
                         .clicked()
                     {
@@ -280,7 +435,9 @@ impl App {
                 .tag
                 .as_ref()
                 .is_none_or(|t| d.keywords.to_lowercase().split_whitespace().any(|w| w == t));
-            if matches && tagged {
+            let kind_ok =
+                self.kind_allows(&category_name("", &format!("{} {}", d.keywords, d.name)));
+            if matches && tagged && kind_ok {
                 let set = d.set.trim().to_owned();
                 if !set.is_empty() {
                     *sets.entry(set.clone()).or_default() += 1;
@@ -295,9 +452,14 @@ impl App {
                 cards.push(Card::Installed(item.clone()));
             }
         }
-        if !self.dock.hide_built_in && self.dock.tag.is_none() && self.dock.categories.is_empty() {
+        if !self.dock.hide_built_in && self.dock.tag.is_none() {
             for t in TEMPLATES {
-                if query.is_empty() || finds(&query, t.label) || t.kind.contains(query.as_str()) {
+                let kind_ok = self.kind_allows(&category_name("", t.kind));
+                if kind_ok
+                    && (query.is_empty()
+                        || finds(&query, t.label)
+                        || t.kind.contains(query.as_str()))
+                {
                     cards.push(Card::BuiltIn(t.kind, t.label));
                 }
             }
@@ -342,19 +504,21 @@ impl App {
                 .color(self.muted()),
             );
         }
-        let height = (ui.available_height() * 0.55).max(CARD_HEIGHT * 3.0);
-        egui::ScrollArea::vertical()
-            .id_salt("library-dock-cards")
-            .max_height(height)
-            .auto_shrink([false, true])
-            .show_rows(ui, CARD_HEIGHT, cards.len(), |ui, range| {
-                for index in range {
-                    if let Some(card) = cards.get(index) {
-                        self.dock_card(ui, card);
-                    }
-                }
-            });
-        self.source_section(ui);
+        let top = ui.cursor().min.y - ui.min_rect().min.y;
+        let first =
+            (((viewport.min.y - top) / ROW_HEIGHT).floor().max(0.0) as usize).min(cards.len());
+        let last =
+            (((viewport.max.y - top) / ROW_HEIGHT).ceil().max(0.0) as usize + 1).min(cards.len());
+        ui.spacing_mut().item_spacing.y = 0.0;
+        ui.add_space(first as f32 * ROW_HEIGHT);
+        for card in &cards[first..last] {
+            self.dock_card(ui, card);
+        }
+        ui.add_space((cards.len() - last) as f32 * ROW_HEIGHT);
+        ui.spacing_mut().item_spacing.y = 4.0;
+        if !self.dock.hide_online {
+            self.source_section(ui);
+        }
         if ui
             .button(t!("library.browser.browse_component_libraries"))
             .on_hover_text(t!("library.browser.browse_component_libraries.tip"))
@@ -364,62 +528,146 @@ impl App {
         }
     }
 
-    /// A toggle chip at least as tall as the pointer-target minimum.
-    fn dock_chip(&self, ui: &mut egui::Ui, text: &str, on: bool) -> egui::Response {
-        ui.add(
-            egui::Button::new(text)
-                .selected(on)
-                .min_size(egui::Vec2::splat(crate::targets::MIN_TARGET)),
-        )
+    /// True when no kind toggle is on, or this listing category is in one.
+    fn kind_allows(&self, category: &str) -> bool {
+        self.dock.kinds.is_empty()
+            || KINDS
+                .iter()
+                .any(|(k, .., cats)| self.dock.kinds.contains(*k) && cats.contains(&category))
     }
 
-    /// Source and category chips.
+    /// "Library" with a close button.
+    fn dock_header(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(t!("library.browser.library"))
+                    .strong()
+                    .size(16.0),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::Vec2::splat(crate::targets::MIN_TARGET),
+                    egui::Sense::click(),
+                );
+                let response = response.on_hover_text(t!("library.browser.hide.tip"));
+                let enabled = response.enabled();
+                let name = t!("library.dock.close");
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name.clone())
+                });
+                if response.hovered() {
+                    ui.painter()
+                        .rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                }
+                let c = rect.center();
+                let d = 5.0;
+                let stroke = Stroke::new(1.6, self.muted());
+                ui.painter()
+                    .line_segment([c - egui::vec2(d, d), c + egui::vec2(d, d)], stroke);
+                ui.painter()
+                    .line_segment([c + egui::vec2(-d, d), c + egui::vec2(d, -d)], stroke);
+                if response.clicked() {
+                    self.preferences.library_dock_open = false;
+                }
+            });
+        });
+    }
+
+    /// One toggle button showing a small picture; returns true when clicked.
+    fn dock_toggle(
+        &self,
+        ui: &mut egui::Ui,
+        glyph: Glyph,
+        on: bool,
+        name: &str,
+        tip: &str,
+    ) -> bool {
+        let (rect, response) = ui.allocate_exact_size(
+            egui::Vec2::splat(crate::targets::MIN_TARGET + 4.0),
+            egui::Sense::click(),
+        );
+        let enabled = response.enabled();
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, name)
+        });
+        let response = response.on_hover_text(tip);
+        let painter = ui.painter();
+        if on {
+            painter.rect_filled(rect, 5.0, self.accent().gamma_multiply(0.28));
+        } else if response.hovered() {
+            painter.rect_filled(rect, 5.0, ui.visuals().widgets.hovered.weak_bg_fill);
+        }
+        let color = if on { self.accent() } else { self.muted() };
+        paint_glyph(painter, rect, glyph, color);
+        response.clicked()
+    }
+
+    /// One row of picture toggles: sources, then kinds.
     fn dock_chips(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            for (hidden, label, tip) in [
+            ui.spacing_mut().item_spacing.x = 4.0;
+            let sources = [
                 (
+                    Glyph::BuiltIn,
                     self.dock.hide_built_in,
-                    t!("library.dock.built_in"),
-                    t!("library.dock.built_in.tip"),
+                    "library.dock.built_in",
+                    "library.dock.built_in.tip",
                 ),
                 (
+                    Glyph::Project,
                     self.dock.hide_project,
-                    t!("library.dock.project"),
-                    t!("library.dock.project.tip"),
+                    "library.dock.project",
+                    "library.dock.project.tip",
                 ),
                 (
+                    Glyph::Installed,
                     self.dock.hide_installed,
-                    t!("library.dock.installed"),
-                    t!("library.dock.installed.tip"),
+                    "library.dock.installed",
+                    "library.dock.installed.tip",
                 ),
-            ] {
-                if self
-                    .dock_chip(ui, &label, !hidden)
-                    .on_hover_text(tip)
-                    .clicked()
-                {
-                    if label == t!("library.dock.built_in") {
-                        self.dock.hide_built_in = !hidden;
-                    } else if label == t!("library.dock.project") {
-                        self.dock.hide_project = !hidden;
-                    } else {
-                        self.dock.hide_installed = !hidden;
+                (
+                    Glyph::Online,
+                    self.dock.hide_online,
+                    "library.dock.online",
+                    "library.dock.online.tip",
+                ),
+            ];
+            for (i, (glyph, hidden, label, tip)) in sources.into_iter().enumerate() {
+                if self.dock_toggle(
+                    ui,
+                    glyph,
+                    !hidden,
+                    &pcbcraft_text::lookup(label, &[]),
+                    &pcbcraft_text::lookup(tip, &[]),
+                ) {
+                    match i {
+                        0 => self.dock.hide_built_in = !hidden,
+                        1 => self.dock.hide_project = !hidden,
+                        2 => self.dock.hide_installed = !hidden,
+                        _ => self.dock.hide_online = !hidden,
                     }
                 }
             }
-        });
-        ui.horizontal_wrapped(|ui| {
-            for (name, label, tip) in CATEGORIES {
-                let on = self.dock.categories.contains(name);
-                if self
-                    .dock_chip(ui, &pcbcraft_text::lookup(label, &[]), on)
-                    .on_hover_text(pcbcraft_text::lookup(tip, &[]))
-                    .clicked()
-                {
+            ui.add_space(8.0);
+            let glyphs = [
+                Glyph::Passive,
+                Glyph::Ic,
+                Glyph::Connector,
+                Glyph::Mechanical,
+            ];
+            for ((name, label, tip, _), glyph) in KINDS.iter().zip(glyphs) {
+                let on = self.dock.kinds.contains(*name);
+                if self.dock_toggle(
+                    ui,
+                    glyph,
+                    on,
+                    &pcbcraft_text::lookup(label, &[]),
+                    &pcbcraft_text::lookup(tip, &[]),
+                ) {
                     if on {
-                        self.dock.categories.remove(name);
+                        self.dock.kinds.remove(*name);
                     } else {
-                        self.dock.categories.insert(name.to_owned());
+                        self.dock.kinds.insert((*name).to_owned());
                     }
                 }
             }
@@ -469,8 +717,13 @@ impl App {
         if !query.is_empty() {
             filter["text"] = json!(query);
         }
-        if !self.dock.categories.is_empty() {
-            filter["categories"] = json!(self.dock.categories);
+        if !self.dock.kinds.is_empty() {
+            let wanted: Vec<&str> = KINDS
+                .iter()
+                .filter(|(k, ..)| self.dock.kinds.contains(*k))
+                .flat_map(|(.., cats)| cats.iter().copied())
+                .collect();
+            filter["categories"] = json!(wanted);
         }
         let args = json!({"filter": filter, "limit": PAGE});
         let project = self.project.clone();
@@ -522,6 +775,16 @@ impl App {
                                         name: i.get("source_ref")?.as_str()?.to_owned(),
                                         description: i
                                             .get("description")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or_default()
+                                            .to_owned(),
+                                        package: i
+                                            .get("package_text")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or_default()
+                                            .to_owned(),
+                                        category: i
+                                            .get("category")
                                             .and_then(Value::as_str)
                                             .unwrap_or_default()
                                             .to_owned(),
@@ -581,14 +844,19 @@ impl App {
         }
     }
 
-    /// One part card: a drawing, a name that picks the part, and a note.
+    /// One part card: a thumbnail, the name, a two-line description, the
+    /// source in the accent colour and a muted line of facts. The whole card
+    /// picks the part; hover and the armed part are shown.
     fn dock_card(&mut self, ui: &mut egui::Ui, card: &Card) {
-        let (key, paths, name, note) = match card {
+        let (key, drawn, name, what, source, meta, armed) = match card {
             Card::BuiltIn(kind, label) => (
                 format!("built-in/{kind}"),
-                None,
+                false,
                 (*label).to_owned(),
+                String::new(),
                 t!("library.dock.note.built_in"),
+                String::new(),
+                matches!(&self.tool, Tool::Place(k) if k == kind),
             ),
             Card::Project(d) => {
                 let key = format!("project/{}/{}", d.name, d.graphics.len() + d.pins.len());
@@ -596,41 +864,45 @@ impl App {
                     let paths = library::library_geometry_paths(Some(d), None, 1);
                     self.dock.drawings.insert(key.clone(), paths);
                 }
-                let tags = d
-                    .keywords
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" · ");
-                let note = match (d.description.trim(), tags.as_str()) {
-                    ("", "") => t!("library.dock.note.project"),
-                    ("", tags) => t!("schematic.part_card.search_words_tags", tags = tags),
-                    (what, "") => what.to_owned(),
-                    (what, tags) => t!(
-                        "schematic.part_card.what_search_words_tags",
-                        what = what,
-                        tags = tags
-                    ),
+                let mut facts: Vec<String> = Vec::new();
+                if !d.footprint.trim().is_empty() {
+                    facts.push(d.footprint.trim().to_owned());
+                }
+                if !d.pins.is_empty() {
+                    facts.push(t!("library.dock.pins", count = d.pins.len()));
+                }
+                let source = if d.set.trim().is_empty() {
+                    t!("library.dock.note.project")
+                } else {
+                    d.set.trim().to_owned()
                 };
-                (key.clone(), Some(key), d.name.clone(), note)
+                (
+                    key,
+                    true,
+                    d.name.clone(),
+                    d.description.trim().to_owned(),
+                    source,
+                    facts.join(" · "),
+                    matches!(&self.tool, Tool::CustomPlace(n, _) if *n == d.name),
+                )
             }
             Card::Installed(i) => {
-                let key = format!("installed/{}/{}", i.path, i.name);
                 let library = i
                     .path
                     .rsplit(['/', '\\'])
                     .next()
                     .unwrap_or(&i.path)
-                    .trim_end_matches(".kicad_sym");
-                let note = if i.description.trim().is_empty() {
-                    t!("library.dock.note.installed", library = library)
-                } else {
-                    t!(
-                        "library.dock.note.installed_what",
-                        what = i.description.trim(),
-                        library = library
-                    )
-                };
-                (key.clone(), Some(key), i.name.clone(), note)
+                    .trim_end_matches(".kicad_sym")
+                    .to_owned();
+                (
+                    format!("installed/{}/{}", i.path, i.name),
+                    true,
+                    i.name.clone(),
+                    i.description.trim().to_owned(),
+                    library,
+                    i.package.clone(),
+                    matches!(&self.tool, Tool::LibraryPlace(p, n, _) if *p == i.path && *n == i.name),
+                )
             }
         };
         if let Card::Installed(i) = card
@@ -646,53 +918,106 @@ impl App {
             });
             self.dock.drawing_request = Some((key.clone(), reply));
         }
-        let drawing = paths.and_then(|k| self.dock.drawings.get(&k).cloned());
-        let mut picked = false;
-        ui.horizontal(|ui| {
-            let (rect, _) =
-                ui.allocate_exact_size(egui::Vec2::splat(PREVIEW_SIDE), egui::Sense::hover());
-            let painter = ui.painter_at(rect);
-            painter.rect_filled(rect, 6.0, self.surface());
-            match &drawing {
-                Some(paths) if !paths.is_empty() => {
-                    let (center, extent) = library::library_paths_extent(paths);
-                    let camera = Camera {
-                        center,
-                        zoom: ((rect.width() - 10.0) / extent.x as f32)
-                            .min((rect.height() - 10.0) / extent.y as f32)
-                            .clamp(0.01, 40.0),
-                    };
-                    library::paint_library_paths(&painter, rect, camera, paths, self.accent());
-                }
-                _ => {
-                    painter.text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        name.chars()
-                            .next()
-                            .unwrap_or('?')
-                            .to_uppercase()
-                            .to_string(),
-                        egui::FontId::proportional(20.0),
-                        self.muted(),
-                    );
-                }
-            }
-            ui.vertical(|ui| {
-                if ui
-                    .add(
-                        egui::Button::new(&name)
-                            .min_size(egui::Vec2::splat(crate::targets::MIN_TARGET)),
-                    )
-                    .on_hover_text(t!("library.dock.pick.tip"))
-                    .clicked()
-                {
-                    picked = true;
-                }
-                ui.label(egui::RichText::new(note).small().color(self.muted()));
-            });
+        let paths = if drawn {
+            self.dock.drawings.get(&key).cloned()
+        } else {
+            None
+        };
+        let width = ui.available_width();
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(width, ROW_HEIGHT), egui::Sense::click());
+        let enabled = response.enabled();
+        let label = format!("{name}, {source}");
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, armed, label.clone())
         });
-        if picked {
+        let response = response.on_hover_text(t!("library.dock.pick.tip"));
+        let painter = ui.painter_at(rect);
+        let accent = self.accent();
+        if armed {
+            painter.rect_filled(rect, 0.0, accent.gamma_multiply(0.16));
+            painter.rect_filled(
+                Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height())),
+                0.0,
+                accent,
+            );
+        } else if response.hovered() {
+            painter.rect_filled(rect, 0.0, ui.visuals().widgets.hovered.weak_bg_fill);
+        }
+        painter.hline(
+            rect.x_range(),
+            rect.bottom(),
+            Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+        );
+        let thumb = Rect::from_min_size(rect.min + egui::vec2(12.0, 8.0), egui::Vec2::splat(THUMB));
+        painter.rect_filled(thumb, 6.0, self.surface());
+        match &paths {
+            Some(paths) if !paths.is_empty() => {
+                let (center, extent) = library::library_paths_extent(paths);
+                let camera = Camera {
+                    center,
+                    zoom: ((thumb.width() - 12.0) / extent.x as f32)
+                        .min((thumb.height() - 12.0) / extent.y as f32)
+                        .clamp(0.01, 40.0),
+                };
+                library::paint_library_paths(&painter, thumb, camera, paths, accent);
+            }
+            _ => {
+                painter.text(
+                    thumb.center(),
+                    egui::Align2::CENTER_CENTER,
+                    name.chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_uppercase()
+                        .to_string(),
+                    egui::FontId::proportional(22.0),
+                    self.muted(),
+                );
+            }
+        }
+        let text_left = thumb.right() + 12.0;
+        let text_width = (rect.right() - 12.0 - text_left).max(40.0);
+        let mut y = rect.top() + 8.0;
+        let title = painter.layout(
+            name.clone(),
+            egui::FontId::proportional(13.0),
+            ui.visuals().strong_text_color(),
+            text_width,
+        );
+        let title_height = title.size().y;
+        painter.galley(egui::pos2(text_left, y), title, Color32::WHITE);
+        y += title_height + 2.0;
+        if !what.is_empty() {
+            let mut job = egui::text::LayoutJob::simple(
+                what,
+                egui::FontId::proportional(12.0),
+                self.muted(),
+                text_width,
+            );
+            job.wrap.max_rows = 2;
+            job.wrap.break_anywhere = false;
+            job.wrap.overflow_character = Some('\u{2026}');
+            let galley = painter.layout_job(job);
+            let h = galley.size().y;
+            painter.galley(egui::pos2(text_left, y), galley, Color32::WHITE);
+            y += h + 2.0;
+        }
+        let source_galley =
+            painter.layout(source, egui::FontId::proportional(11.0), accent, text_width);
+        let h = source_galley.size().y;
+        painter.galley(egui::pos2(text_left, y), source_galley, Color32::WHITE);
+        y += h + 1.0;
+        if !meta.is_empty() && y + 12.0 < rect.bottom() {
+            let galley = painter.layout(
+                meta,
+                egui::FontId::proportional(11.0),
+                self.muted(),
+                text_width,
+            );
+            painter.galley(egui::pos2(text_left, y), galley, Color32::WHITE);
+        }
+        if response.clicked() || response.double_clicked() {
             match card {
                 Card::BuiltIn(kind, _) => {
                     self.change_tab(Tab::Schematic);

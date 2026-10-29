@@ -13,10 +13,10 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Search parts by name")?,
+        paints_text(&ctx, &mut app, "Keyword or part number")?,
         "the part search opens with a box that says what to type"
     );
-    authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
+    authoring::tests::tap(&ctx, &mut app, "Keyword or part number")?;
     for letter in "resistor".chars() {
         frame(
             &ctx,
@@ -95,7 +95,7 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "    blinky red · built in")?,
+        scrolled_to_at(&ctx, &mut app, "    blinky red · built in", 150.0)?,
         "a part row says what the part is and where it came from: {}",
         app.message
     );
@@ -106,7 +106,7 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "thin film · search words: resistor · trim")?,
+        paints_text(&ctx, &mut app, "thin film")?,
         "each library part is a card that says what it is: {}",
         app.message
     );
@@ -301,7 +301,7 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
     let none = egui::Modifiers::NONE;
     frame(&ctx, &mut app, vec![], none);
     frame(&ctx, &mut app, vec![], none);
-    authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
+    authoring::tests::tap(&ctx, &mut app, "Keyword or part number")?;
     for letter in "resistor".chars() {
         frame(&ctx, &mut app, vec![egui::Event::Text(letter.into())], none);
     }
@@ -728,7 +728,7 @@ fn dock_app() -> (egui::Context, App) {
 }
 
 fn type_into_dock(ctx: &egui::Context, app: &mut App, text: &str) -> Result<(), String> {
-    authoring::tests::tap(ctx, app, "Search parts by name")?;
+    authoring::tests::tap(ctx, app, "Keyword or part number")?;
     for letter in text.chars() {
         frame(
             ctx,
@@ -867,12 +867,12 @@ fn a_newcomer_sees_a_picture_of_each_part_in_the_library() -> Result<(), String>
             _ => None,
         });
         if let Some(at) = name {
-            drawn = out.shapes.iter().any(|s| match &s.shape {
-                egui::Shape::Path(p) => p
-                    .points
-                    .iter()
-                    .all(|q| q.x < at.x && (q.y - at.y).abs() < 40.0),
-                _ => false,
+            drawn = out.shapes.iter().any(|s| {
+                let kind = format!("{:?}", s.shape);
+                let pos = s.shape.visual_bounding_rect();
+                (kind.starts_with("Path") || kind.starts_with("LineSegment"))
+                    && pos.max.x < at.x
+                    && (pos.center().y - at.y).abs() < 70.0
             });
         }
         if drawn {

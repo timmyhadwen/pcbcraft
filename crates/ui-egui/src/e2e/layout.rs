@@ -289,12 +289,7 @@ fn spilled_text(output: &egui::FullOutput, width: f32) -> Vec<String> {
 /// Text that spills past a 320 point window today (issue #647 report). The
 /// walk fails on a new spill and on a listed one that no longer happens, so
 /// the list shrinks as the layout is fixed.
-const KNOWN_REFLOW_DEFECTS: [&str; 4] = [
-    "Schematic: \"Graphics\" ends at 364",
-    "Pcb: \"Cutout\" ends at 354",
-    "Pcb: \"Graphics\" ends at 364",
-    "Board3d: \"Part bodies are default boxes \" ends at 716",
-];
+const KNOWN_REFLOW_DEFECTS: [&str; 0] = [];
 
 #[test]
 fn a_newcomer_zooms_to_four_hundred_percent_and_every_dock_still_fits() -> Result<(), String> {

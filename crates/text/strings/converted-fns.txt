@@ -24,7 +24,6 @@ canvas.rs paint_board
 canvas.rs canvas_click
 board3d.rs show
 lib.rs nets_tab
-lib.rs part_card
 lib.rs object_detail_rows
 lib.rs type_note
 canvas.rs paint_schematic
