@@ -175,7 +175,7 @@ fn text_at(ctx: &egui::Context, app: &mut App, label: &str) -> Option<egui::Pos2
         if let egui::Shape::Text(text) = &shape.shape
             && text.galley.text() == label
         {
-            found = Some(text.pos + text.galley.size() / 2.0);
+            found.get_or_insert(text.pos + text.galley.size() / 2.0);
         }
     }
     found
