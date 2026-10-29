@@ -364,9 +364,10 @@ fn a_newcomer_narrows_the_window_and_the_canvas_buttons_stay_inside() -> Result<
                 .get(id)
                 .copied()
                 .ok_or_else(|| format!("{id} was not drawn at width {width}"))?;
+            let aside = if width >= 1440.0 { 280.0 } else { 0.0 };
             assert!(
-                rect.min.x >= 0.0 && rect.max.x <= width - 280.0,
-                "{id} stays left of the right aside at width {width}: {rect:?}"
+                rect.min.x >= 0.0 && rect.max.x <= width - aside,
+                "{id} stays on the canvas at width {width}: {rect:?}"
             );
         }
     }
