@@ -26,13 +26,15 @@ pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
             }
             let height = (ui.available_height() - 110.0).max(80.0);
             let mut pressed = None;
+            let history = app.session.lock().map_or(0, |s| s.history_len());
+            let live = app.assistant.live_undo(history);
             egui::ScrollArea::vertical()
                 .max_height(height)
                 .stick_to_bottom(true)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    for it in &app.assistant.transcript.items {
-                        if let Some(p) = cards::item(ui, it, muted) {
+                    for (n, it) in app.assistant.transcript.items.iter().enumerate() {
+                        if let Some(p) = cards::item(ui, it, muted, live == Some(n)) {
                             pressed = Some(p);
                         }
                         ui.add_space(12.0);

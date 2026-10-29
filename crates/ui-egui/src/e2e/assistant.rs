@@ -7,14 +7,16 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 /// A model that answers any message with one request to add a 10k resistor.
 struct FakeModel {
     tools: Sender<ToolRequest>,
+    calls: Vec<(String, Value)>,
     events: Vec<Event>,
     answers: Vec<Receiver<Value>>,
 }
 
 impl FakeModel {
-    fn new(tools: Sender<ToolRequest>) -> Self {
+    fn new(tools: Sender<ToolRequest>, calls: Vec<(String, Value)>) -> Self {
         Self {
             tools,
+            calls,
             events: vec![Event::Ready {
                 agent: "fake".into(),
                 images: false,
@@ -40,14 +42,11 @@ impl ChatBackend for FakeModel {
         out
     }
     fn prompt(&mut self, _: &[PromptPart]) {
-        let (reply, answer) = channel();
-        let _ = self.tools.send(ToolRequest {
-            name: "execute".into(),
-            args: json!({"command":"component.add","params":{
-                "kind":"resistor","reference":"R1","value":"10k","position":{"x":20.0,"y":20.0}}}),
-            reply,
-        });
-        self.answers.push(answer);
+        for (name, args) in self.calls.clone() {
+            let (reply, answer) = channel();
+            let _ = self.tools.send(ToolRequest { name, args, reply });
+            self.answers.push(answer);
+        }
         self.events.push(Event::Text {
             thought: false,
             text: "I will add the resistor.".into(),
@@ -62,7 +61,19 @@ impl ChatBackend for FakeModel {
     fn shutdown(&mut self, _: bool) {}
 }
 
+fn add_part(reference: &str, value: &str, x: f64) -> (String, Value) {
+    (
+        "execute".into(),
+        json!({"command":"component.add","params":{
+            "kind":"resistor","reference":reference,"value":value,"position":{"x":x,"y":20.0}}}),
+    )
+}
+
 fn with_fake_model() -> App {
+    with_calls(vec![add_part("R1", "10k", 20.0)])
+}
+
+fn with_calls(calls: Vec<(String, Value)>) -> App {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
@@ -137,5 +148,59 @@ fn a_newcomer_denies_a_change_and_the_design_stays_as_it_was() -> Result<(), Str
     }
     assert!(!has_r1(&app));
     assert!(paints_text(&ctx, &mut app, "Denied")?);
+    Ok(())
+}
+
+fn settle(ctx: &egui::Context, app: &mut App) {
+    for _ in 0..4 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
+}
+
+#[test]
+fn a_newcomer_allows_two_changes_and_takes_them_back_with_one_undo() -> Result<(), String> {
+    let mut app = with_calls(vec![add_part("R1", "10k", 20.0), add_part("R2", "4k7", 30.0)]);
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "add two resistors".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    assert!(paints_text(&ctx, &mut app, "Add resistor R1 (10k)")?);
+    assert!(paints_text(&ctx, &mut app, "Add resistor R2 (4k7)")?);
+    assert!(paints_text(&ctx, &mut app, "adds R1")?, "the card previews the change");
+    for _ in 0..2 {
+        authoring::tests::tap(&ctx, &mut app, "Allow")?;
+        settle(&ctx, &mut app);
+    }
+    assert!(has_r1(&app));
+    assert_eq!(app.project.components.len(), 2);
+    authoring::tests::tap(&ctx, &mut app, "Undo")?;
+    settle(&ctx, &mut app);
+    assert!(app.project.components.is_empty(), "one Undo takes back both parts");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_a_malformed_change_refused_with_the_reason() -> Result<(), String> {
+    let bad = (
+        "execute".to_string(),
+        json!({"command":"component.add","params":{"kind":"resistor","position":"nowhere"}}),
+    );
+    let mut app = with_calls(vec![bad]);
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "add a resistor".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    assert!(!paints_text(&ctx, &mut app, "Allow")?, "a refused change has no Allow button");
+    assert!(app.project.components.is_empty());
+    assert!(
+        app.assistant
+            .transcript
+            .items
+            .iter()
+            .any(|i| matches!(i, pcbcraft_assistant::Item::Note { error: true, .. })),
+        "the reason is in the conversation"
+    );
     Ok(())
 }

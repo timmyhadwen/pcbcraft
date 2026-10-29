@@ -8,14 +8,13 @@
 //! Keep the pane body in `pane.rs` a self-contained function so the dock work can move it.
 
 mod cards;
-mod gate;
 pub(crate) mod pane;
 mod text;
 
 use super::App;
 use pcbcraft_assistant::{
-    ChatBackend, Event, HttpFn, Item, PromptPart, Secrets, StartContext, ToolRequest, Transcript,
-    Turn,
+    ChatBackend, DEFAULT_TURN_LIMIT, Event, HttpFn, Item, Mode, PromptPart, Secrets, StartContext,
+    ToolRequest, Transcript, Turn, Verdict,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -58,6 +57,10 @@ pub(crate) struct State {
     waiting: Vec<Waiting>,
     next_id: u64,
     always: Vec<String>,
+    mode: Mode,
+    turn_limit: u32,
+    /// History length right after the last message's changes were merged into one undo step.
+    undo_len: Option<usize>,
 }
 
 impl Default for State {
@@ -74,6 +77,9 @@ impl Default for State {
             waiting: Vec::new(),
             next_id: 1,
             always: Vec::new(),
+            mode: Mode::default(),
+            turn_limit: DEFAULT_TURN_LIMIT,
+            undo_len: None,
         }
     }
 }
@@ -111,10 +117,27 @@ impl State {
         }
     }
 
+    /// Index of the Undo step that may still be pressed: the newest one, while nothing newer happened.
+    pub(crate) fn live_undo(&self, history_len: usize) -> Option<usize> {
+        let at = self
+            .transcript
+            .items
+            .iter()
+            .rposition(|i| matches!(i, Item::UndoStep { .. }))?;
+        let fresh = matches!(self.transcript.items.get(at), Some(Item::UndoStep { undone: false, .. }))
+            && self.undo_len == Some(history_len);
+        fresh.then_some(at)
+    }
+
     /// Questions waiting for an answer (the count on the collapsed tab).
     pub(crate) fn waiting(&self) -> usize {
         self.waiting.len()
     }
+}
+
+/// A tool result that tells the model why nothing ran.
+fn error_result(reason: &str) -> Value {
+    json!({"isError": true, "content": [{"type": "text", "text": reason}]})
 }
 
 impl App {
@@ -158,8 +181,11 @@ impl App {
     }
 
     fn assistant_prompt(&mut self, text: String) {
-        let revision = self.session.lock().map_or(0, |s| s.revision);
-        self.assistant.turn = Some(Turn::new(revision, 0, text.clone()));
+        let (revision, history) = self
+            .session
+            .lock()
+            .map_or((0, 0), |s| (s.revision, s.history_len()));
+        self.assistant.turn = Some(Turn::new(revision, history, text.clone()));
         self.assistant
             .transcript
             .push(Item::User { text: text.clone() });
@@ -207,25 +233,122 @@ impl App {
             }
         }
         if allow {
-            self.assistant_run(held.request);
+            let change = pcbcraft_assistant::edits_design(&held.request.name, &held.request.args);
+            self.assistant_admit_and_run(held.request, change);
         } else {
-            let _ = held.request.reply.send(json!({
-                "isError": true,
-                "content": [{"type": "text", "text": text::DENIED_NOTE}],
-            }));
+            let _ = held.request.reply.send(error_result(text::DENIED_NOTE));
         }
     }
 
-    fn assistant_run(&mut self, request: ToolRequest) {
-        let result = pcbcraft_mcp::call_tool(&self.session, &request.name, &request.args);
-        if let Some(turn) = self.assistant.turn.as_mut() {
-            turn.requests += 1;
-            if gate::changes(&request.name) {
-                turn.changes += 1;
-            }
+    /// Count the call against the turn's limits, then run it, or tell the model to stop.
+    fn assistant_admit_and_run(&mut self, request: ToolRequest, change: bool) {
+        let limit = self.assistant.turn_limit;
+        let admitted = match self.assistant.turn.as_mut() {
+            Some(turn) => turn.admit(change, limit),
+            None => Ok(()),
+        };
+        if let Err(stop) = admitted {
+            let _ = request.reply.send(error_result(stop));
+            return;
         }
+        let result = pcbcraft_mcp::call_tool(&self.session, &request.name, &request.args);
         self.refresh();
         let _ = request.reply.send(result);
+    }
+
+    /// The gate's decision for one call from the model.
+    fn assistant_receive(&mut self, request: ToolRequest) {
+        let key = pcbcraft_assistant::tool_key(&request.name, &request.args);
+        let undo_left = self.assistant.turn.as_ref().map_or(0, |t| t.changes as usize);
+        let verdict = pcbcraft_assistant::request(
+            &request.name,
+            &request.args,
+            self.assistant.mode,
+            undo_left,
+            &self.assistant.always,
+        );
+        let word = match &verdict {
+            Verdict::Run { .. } => "runs",
+            Verdict::Ask(_) => "asks",
+            Verdict::Refuse(_) => "refused",
+        };
+        self.assistant.transcript.push(Item::Note {
+            text: format!("{key}: {word}"),
+            error: false,
+        });
+        match verdict {
+            Verdict::Run { change } => self.assistant_admit_and_run(request, change),
+            Verdict::Refuse(reason) => {
+                self.assistant.transcript.push(Item::Note {
+                    text: reason.clone(),
+                    error: true,
+                });
+                let _ = request.reply.send(error_result(&reason));
+            }
+            Verdict::Ask(_) => {
+                let detail = match self.assistant_preview(&request) {
+                    Ok(detail) => detail,
+                    Err(reason) => {
+                        self.assistant.transcript.push(Item::Note {
+                            text: reason.clone(),
+                            error: true,
+                        });
+                        let _ = request.reply.send(error_result(&reason));
+                        return;
+                    }
+                };
+                let id = self.assistant.next_id;
+                self.assistant.next_id += 1;
+                self.assistant.transcript.push(Item::Approval {
+                    id,
+                    title: pcbcraft_assistant::describe(&request.name, &request.args),
+                    detail,
+                    answer: None,
+                });
+                self.assistant.waiting.push(Waiting { id, key, request });
+            }
+        }
+    }
+
+    /// For `execute` and `batch`: run them on a copy and say what they would change.
+    /// A call the engine refuses on the copy is refused with its reason.
+    fn assistant_preview(&self, request: &ToolRequest) -> Result<String, String> {
+        let commands: Vec<pcbcraft_engine::Command> = match request.name.as_str() {
+            "execute" => vec![pcbcraft_engine::Command {
+                command: request
+                    .args
+                    .get("command")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                params: request.args.get("params").cloned().unwrap_or(Value::Null),
+            }],
+            "batch" => serde_json::from_value(
+                request.args.get("commands").cloned().unwrap_or(Value::Null),
+            )
+            .map_err(|e| e.to_string())?,
+            _ => return Ok(String::new()),
+        };
+        let expected = request.args.get("expected_revision").and_then(Value::as_u64);
+        let session = self.session.lock().map_err(|_| "the design is busy".to_string())?;
+        let dry = session.dry_run(&commands, expected).map_err(|e| e.to_string())?;
+        Ok(pcbcraft_assistant::summary_text(&dry.summary, session.revision))
+    }
+
+    /// End the message: merge what it changed into one undo step and show the Undo row.
+    fn assistant_finish_turn(&mut self) {
+        let Some(turn) = self.assistant.turn.take() else {
+            return;
+        };
+        self.assistant.busy = false;
+        let finished = self.session.lock().ok().and_then(|mut s| turn.finish(&mut s));
+        if let Some((changes, len)) = finished {
+            self.assistant.undo_len = Some(len);
+            self.assistant.transcript.push(Item::UndoStep {
+                changes,
+                undone: false,
+            });
+        }
     }
 
     /// Called once per frame: apply what the backend reported and answer its tool calls.
@@ -239,32 +362,17 @@ impl App {
         for event in events {
             match event {
                 Event::Ready { .. } => self.assistant.ready = true,
-                Event::TurnEnded { .. } => {
-                    self.assistant.busy = false;
-                    self.assistant.turn = None;
-                }
+                Event::TurnEnded { .. } => self.assistant_finish_turn(),
                 Event::Exited { .. } => {
+                    self.assistant_finish_turn();
                     self.assistant.backend = None;
-                    self.assistant.busy = false;
                     self.assistant.ready = false;
                 }
                 other => self.assistant.transcript.on_event(other),
             }
         }
         while let Ok(request) = self.assistant.tools.1.try_recv() {
-            let key = gate::tool_key(&request.name, &request.args);
-            if !gate::needs_answer(&request.name) || self.assistant.always.contains(&key) {
-                self.assistant_run(request);
-                continue;
-            }
-            let id = self.assistant.next_id;
-            self.assistant.next_id += 1;
-            self.assistant.transcript.push(Item::Approval {
-                id,
-                title: gate::describe(&request.name, &request.args),
-                answer: None,
-            });
-            self.assistant.waiting.push(Waiting { id, key, request });
+            self.assistant_receive(request);
         }
         if !self.assistant.busy
             && self.assistant.ready
@@ -295,9 +403,15 @@ impl App {
         });
     }
 
-    /// Undo the last change (the Undo button of a finished message).
+    /// Undo the last message's changes with one `undo` (the Undo button of a finished message).
     pub(crate) fn assistant_undo(&mut self) {
         let _: Value = pcbcraft_mcp::call_tool(&self.session, "undo", &json!({}));
+        for item in self.assistant.transcript.items.iter_mut().rev() {
+            if let Item::UndoStep { undone, .. } = item {
+                *undone = true;
+                break;
+            }
+        }
         self.refresh();
     }
 }

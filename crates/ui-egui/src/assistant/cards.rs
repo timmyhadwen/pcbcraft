@@ -16,7 +16,12 @@ pub(super) enum Pressed {
 }
 
 /// Draw one transcript item.
-pub(super) fn item(ui: &mut egui::Ui, item: &Item, muted: egui::Color32) -> Option<Pressed> {
+pub(super) fn item(
+    ui: &mut egui::Ui,
+    item: &Item,
+    muted: egui::Color32,
+    undo_live: bool,
+) -> Option<Pressed> {
     match item {
         Item::User { text } => {
             egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -75,7 +80,12 @@ pub(super) fn item(ui: &mut egui::Ui, item: &Item, muted: egui::Color32) -> Opti
             ));
             None
         }
-        Item::Approval { id, title, answer } => approval(ui, *id, title, *answer),
+        Item::Approval {
+            id,
+            title,
+            detail,
+            answer,
+        } => approval(ui, *id, title, detail, *answer),
         Item::Queued { text } => {
             ui.label(egui::RichText::new(format!("Queued: {text}")).color(muted))
                 .on_hover_text(text::QUEUED_TIP);
@@ -97,7 +107,7 @@ pub(super) fn item(ui: &mut egui::Ui, item: &Item, muted: egui::Color32) -> Opti
             ui.horizontal(|ui| {
                 ui.label(format!("{changes} changes made"));
                 if ui
-                    .add_enabled(!undone, egui::Button::new(text::UNDO))
+                    .add_enabled(undo_live && !undone, egui::Button::new(text::UNDO))
                     .on_hover_text(text::UNDO_TIP)
                     .clicked()
                 {
@@ -109,11 +119,20 @@ pub(super) fn item(ui: &mut egui::Ui, item: &Item, muted: egui::Color32) -> Opti
     }
 }
 
-fn approval(ui: &mut egui::Ui, id: u64, title: &str, answer: Option<bool>) -> Option<Pressed> {
+fn approval(
+    ui: &mut egui::Ui,
+    id: u64,
+    title: &str,
+    detail: &str,
+    answer: Option<bool>,
+) -> Option<Pressed> {
     let mut pressed = None;
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.add(egui::Label::new(egui::RichText::new(title).strong()).wrap());
+        if !detail.is_empty() {
+            ui.add(egui::Label::new(detail).wrap());
+        }
         match answer {
             Some(true) => {
                 ui.label("Allowed");
