@@ -342,8 +342,6 @@ impl App {
     pub(crate) fn library_dock_body(&mut self, ui: &mut egui::Ui, viewport: Rect) {
         let now = ui.input(|i| i.time);
         self.dock_poll(ui.ctx());
-        self.dock_header(ui);
-        ui.add_space(8.0);
         let field = egui::Margin {
             left: 32,
             right: 8,
@@ -534,43 +532,6 @@ impl App {
             || KINDS
                 .iter()
                 .any(|(k, .., cats)| self.dock.kinds.contains(*k) && cats.contains(&category))
-    }
-
-    /// "Library" with a close button.
-    fn dock_header(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(t!("library.browser.library"))
-                    .strong()
-                    .size(16.0),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (rect, response) = ui.allocate_exact_size(
-                    egui::Vec2::splat(crate::targets::MIN_TARGET),
-                    egui::Sense::click(),
-                );
-                let response = response.on_hover_text(t!("library.browser.hide.tip"));
-                let enabled = response.enabled();
-                let name = t!("library.dock.close");
-                response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name.clone())
-                });
-                if response.hovered() {
-                    ui.painter()
-                        .rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
-                }
-                let c = rect.center();
-                let d = 5.0;
-                let stroke = Stroke::new(1.6, self.muted());
-                ui.painter()
-                    .line_segment([c - egui::vec2(d, d), c + egui::vec2(d, d)], stroke);
-                ui.painter()
-                    .line_segment([c + egui::vec2(-d, d), c + egui::vec2(d, -d)], stroke);
-                if response.clicked() {
-                    self.preferences.library_dock_open = false;
-                }
-            });
-        });
     }
 
     /// One toggle button showing a small picture; returns true when clicked.

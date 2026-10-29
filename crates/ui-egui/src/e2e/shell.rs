@@ -92,7 +92,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     app.tool = Tool::Select;
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "sec:board/root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "1.00 mm on Top")?,
