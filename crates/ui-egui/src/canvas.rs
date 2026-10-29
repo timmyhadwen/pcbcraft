@@ -1069,12 +1069,7 @@ impl App {
     }
     fn pick_pin(&self, pos: Point, zoom: f32) -> Option<PinRef> {
         let page = self.schematic_page();
-        for c in self
-            .project
-            .components
-            .iter()
-            .filter(|c| c.sheet == page)
-        {
+        for c in self.project.components.iter().filter(|c| c.sheet == page) {
             for pin in &c.pins {
                 if c.pin_position(&pin.number)
                     .is_some_and(|p| p.distance(pos) * (zoom as f64) < 12.0)
@@ -2280,12 +2275,7 @@ mod tests {
                 |root_ui| {
                     egui::CentralPanel::default().show(root_ui, |ui| {
                         let rect = ui.max_rect();
-                        app.paint_schematic(
-                            ui.painter(),
-                            rect,
-                            app.schematic,
-                            &app.project,
-                        );
+                        app.paint_schematic(ui.painter(), rect, app.schematic, &app.project);
                     });
                 },
             );

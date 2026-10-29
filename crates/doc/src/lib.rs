@@ -1728,11 +1728,7 @@ impl Project {
     fn schematic_wire_page(&self, wire: &Wire) -> Option<Id> {
         let from = self.component(wire.from.component)?.sheet;
         let to = self.component(wire.to.component)?.sheet;
-        if from == to {
-            Some(from)
-        } else {
-            None
-        }
+        if from == to { Some(from) } else { None }
     }
     fn schematic_label_page(&self, label: &Label) -> Id {
         if label.kind == "junction" {

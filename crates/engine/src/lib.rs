@@ -7440,14 +7440,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     let parent_id: Id = serde_json::from_value(parent.clone())
                         .map_err(|_| Error::Invalid("parent must be a page id".into()))?;
                     if parent_id == a.id {
-                        return Err(Error::Invalid(
-                            "a sheet cannot be its own parent".into(),
-                        ));
+                        return Err(Error::Invalid("a sheet cannot be its own parent".into()));
                     }
                     if parent_id != 0 && !p.sheets.iter().any(|s| s.id == parent_id) {
-                        return Err(Error::Invalid(
-                            "the parent page does not exist".into(),
-                        ));
+                        return Err(Error::Invalid("the parent page does not exist".into()));
                     }
                     let mut walk = parent_id;
                     for _ in 0..=8 {
@@ -7460,9 +7456,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                             break;
                         }
                         let Some(node) = p.sheets.iter().find(|s| s.id == walk) else {
-                            return Err(Error::Invalid(
-                                "the parent page does not exist".into(),
-                            ));
+                            return Err(Error::Invalid("the parent page does not exist".into()));
                         };
                         walk = node.parent.unwrap_or(0);
                     }
@@ -7487,9 +7481,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     ));
                 }
                 if p.sheets[index].parent.is_none() {
-                    return Err(Error::Invalid(
-                        "sheet entry needs a parent page".into(),
-                    ));
+                    return Err(Error::Invalid("sheet entry needs a parent page".into()));
                 }
                 p.sheets[index].entry = Some(entry);
             }
@@ -21063,10 +21055,9 @@ mod tests {
     #[test]
     fn net_pages_lists_every_page_that_carries_the_net() -> Result<(), Error> {
         let mut s = Session::sample()?;
-        let page =
-            s.execute("schematic.new_sheet", json!({"name":"Audio"}), None)?["result"]["id"]
-                .as_u64()
-                .ok_or_else(missing)?;
+        let page = s.execute("schematic.new_sheet", json!({"name":"Audio"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
         let net = 4;
         s.execute(
             "schematic.place_port",
@@ -21079,9 +21070,7 @@ mod tests {
             None,
         )?;
         let report = s.execute("schematic.net_pages", json!({"net":net}), None)?;
-        let pages = report["result"]["pages"]
-            .as_array()
-            .ok_or_else(missing)?;
+        let pages = report["result"]["pages"].as_array().ok_or_else(missing)?;
         assert_eq!(pages.len(), 2);
         assert!(pages.iter().any(|p| p.as_u64() == Some(0)));
         assert!(pages.iter().any(|p| p.as_u64() == Some(page)));
