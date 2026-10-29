@@ -10,8 +10,8 @@
 //! - Artifact paths and generated file names never escape the output folder.
 //!
 //! # Dependencies
-//! - `../../doc/src/lib.rs` for `Artifact`, `Project` and the kind list.
-//! - `./lib.rs` for the writers and `atomic_write`.
+//! - `crates/doc/src/lib.rs` for `Artifact`, `Project` and the kind list.
+//! - `crates/io/src/lib.rs` for the writers and `atomic_write`.
 //!
 //! # Do not
 //! - Add a per-kind branch in the engine; new kinds are added to `generate`.
@@ -35,14 +35,17 @@ use crate::{
 /// - `Files` keys are relative names; the map order is the hash order.
 ///
 /// # Dependencies
-/// - `../../engine/src/artifacts.rs` encodes it for `artifact.generate`.
+/// - `crates/engine/src/artifacts.rs` encodes it for `artifact.generate`.
 ///
 /// # Do not
 /// - Put absolute paths or `..` segments in `Files` keys.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GeneratedOutput {
+    /// One text file.
     Text(String),
+    /// One binary file.
     Bytes(Vec<u8>),
+    /// Several text files keyed by relative file name.
     Files(BTreeMap<String, String>),
 }
 
@@ -54,7 +57,7 @@ pub enum GeneratedOutput {
 /// - Ids start above the highest id in use.
 ///
 /// # Dependencies
-/// - `../../doc/src/lib.rs` `Project::migrate_output_jobs_to_artifacts`.
+/// - `crates/doc/src/lib.rs` `Project::migrate_output_jobs_to_artifacts`.
 ///
 /// # Do not
 /// - Call it after validation; `load` runs it before `validate`.
@@ -73,7 +76,7 @@ pub fn migrate_loaded_project(project: &mut Project) -> Result<(), String> {
 /// - Identical bytes always give the same hash; `Files` hash in name order.
 ///
 /// # Dependencies
-/// - `../../engine/src/artifacts.rs` `artifact_is_stale`.
+/// - `crates/engine/src/artifacts.rs` `artifact_is_stale`.
 ///
 /// # Do not
 /// - Hash anything that varies between runs, such as timestamps.
@@ -181,7 +184,7 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
 /// - Kinds without a writer yet refuse with the issue that tracks them.
 ///
 /// # Dependencies
-/// - `../../doc/src/lib.rs` `Artifact::valid`.
+/// - `crates/doc/src/lib.rs` `Artifact::valid`.
 ///
 /// # Do not
 /// - Write to disk here; use `write_generated`.
@@ -242,7 +245,7 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
 /// - Writes each file atomically and creates parent folders.
 ///
 /// # Dependencies
-/// - `./lib.rs` `atomic_write`, which refuses on WASM.
+/// - `crates/io/src/lib.rs` `atomic_write`, which refuses on WASM.
 ///
 /// # Do not
 /// - Record staleness here; the engine does that in the same undo step.

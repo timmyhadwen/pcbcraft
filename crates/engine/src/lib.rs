@@ -2363,6 +2363,8 @@ impl Session {
             json!({"revision":self.revision,"result":result.get("results").and_then(Value::as_array).and_then(|a|a.first()).cloned().unwrap_or(Value::Null)}),
         )
     }
+    /// Run a read-only command against the current design without changing it
+    /// or the undo history.
     pub fn query(&self, id: &str, params: Value, expected: Option<u64>) -> Result<Value, Error> {
         self.check_revision(expected)?;
         if !artifacts::command_is_read_only(id) {
@@ -15317,13 +15319,9 @@ fn run_command(
                             experiment: pcbcraft_io::UvPrintExperiment::None,
                             include_values: false,
                         };
-                        let files = pcbcraft_io::write_uv_print_job_files(
-                            p,
-                            directory,
-                            &profile,
-                            &options,
-                        )
-                        .map_err(Error::Invalid)?;
+                        let files =
+                            pcbcraft_io::write_uv_print_job_files(p, directory, &profile, &options)
+                                .map_err(Error::Invalid)?;
                         written.extend(files);
 
                         continue;

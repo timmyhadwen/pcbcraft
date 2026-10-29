@@ -8,8 +8,8 @@
 //! - Staleness is decided by output hash, so a no-op edit is not stale.
 //!
 //! # Dependencies
-//! - `../../io/src/generate.rs` for `generate`, `output_hash`, `write_generated`.
-//! - `../../doc/src/lib.rs` for `Artifact` and `Project`.
+//! - `crates/io/src/generate.rs` for `generate`, `output_hash`, `write_generated`.
+//! - `crates/doc/src/lib.rs` for `Artifact` and `Project`.
 //!
 //! # Do not
 //! - Touch the UI or add per-kind writers here; those belong in the io crate.
@@ -27,7 +27,7 @@ use std::path::Path;
 /// - Keep in step with `commands()` in `./lib.rs`.
 ///
 /// # Dependencies
-/// - `./lib.rs` `Session::execute`.
+/// - `crates/engine/src/lib.rs` `Session::execute`.
 ///
 /// # Do not
 /// - List a command that mutates the project.
@@ -42,7 +42,7 @@ pub fn command_is_read_only(id: &str) -> bool {
 /// - Regenerating at any revision clears it while the bytes are unchanged.
 ///
 /// # Dependencies
-/// - `../../io/src/generate.rs` `generate`, `output_hash`.
+/// - `crates/io/src/generate.rs` `generate`, `output_hash`.
 ///
 /// # Do not
 /// - Compare revisions alone; that flags edits that change nothing.
@@ -63,7 +63,7 @@ pub fn artifact_is_stale(p: &Project, artifact: &Artifact) -> Result<bool, Error
 /// - A generate failure surfaces as an error rather than a silent skip.
 ///
 /// # Dependencies
-/// - `artifact_is_stale` in this file.
+/// - `crates/engine/src/artifacts.rs` for `artifact_is_stale` in this file.
 ///
 /// # Do not
 /// - Mutate the project.
@@ -88,7 +88,7 @@ pub fn stale_artifact_ids(p: &Project, filter: Option<&[Id]>) -> Result<Vec<Id>,
 /// - Binary output is always base64 so the result stays valid JSON.
 ///
 /// # Dependencies
-/// - `../../io/src/generate.rs` `GeneratedOutput`.
+/// - `crates/io/src/generate.rs` `GeneratedOutput`.
 ///
 /// # Do not
 /// - Write files from here.
@@ -126,7 +126,7 @@ pub fn format_generate_payload(output: &GeneratedOutput) -> Value {
 /// - The caller commits, so the record change is one undo step.
 ///
 /// # Dependencies
-/// - `../../io/src/generate.rs` `write_generated`.
+/// - `crates/io/src/generate.rs` `write_generated`.
 ///
 /// # Do not
 /// - Pass a `directory` the user did not choose.
