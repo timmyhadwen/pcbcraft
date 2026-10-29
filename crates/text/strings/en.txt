@@ -1701,3 +1701,4 @@ tree.menu.highlight.tip = Light up every pad, track and via of this net on the d
 tree.menu.collapse = Collapse
 tree.menu.expand = Expand
 tree.layer.user = User layers
+tree.wire = Wire

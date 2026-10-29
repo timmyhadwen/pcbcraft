@@ -574,7 +574,7 @@ fn top_level(env: &Env) -> Vec<Row> {
     out
 }
 
-fn footprint_row(project: &Project, path: &str, f: &pcbcraft_doc::Footprint) -> Row {
+fn footprint_row(project: &Project, path: &str, f: &pcbcraft_doc::Footprint, side: &str) -> Row {
     let mut r = row(
         path,
         &format!("fp:{}", f.id),
@@ -585,7 +585,7 @@ fn footprint_row(project: &Project, path: &str, f: &pcbcraft_doc::Footprint) -> 
         .component(f.component)
         .map(|c| c.value.clone())
         .unwrap_or_default();
-    r.sub = format!("{value} {}", t!("tree.side.top"));
+    r.sub = format!("{value} {side}");
     r.count = f.pads.len().to_string();
     r.mono = true;
     r.select = Some(f.id);
@@ -749,6 +749,11 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
         [side, "copper"] => {
             let s = side_of_path(side);
             let mut ids: Vec<Id> = project.nets.iter().map(|n| n.id).collect();
+            for id in board.tracks.iter().map(|t| t.net).chain(board.zones.iter().map(|z| z.net)) {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
             ids.sort_by(|a, b| project.net_name(*a).cmp(project.net_name(*b)));
             for id in ids {
                 let n = net_copper_count(env, id, s);
@@ -803,8 +808,9 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
         }
         [side, "components"] => {
             if side_of_path(side) == Layer::Front {
+                let top = t!("tree.side.top");
                 for f in &board.footprints {
-                    out.push(footprint_row(project, key, f));
+                    out.push(footprint_row(project, key, f, &top));
                 }
             }
         }
@@ -913,8 +919,9 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             }
         }
         ["components"] => {
+            let top = t!("tree.side.top");
             for f in &board.footprints {
-                out.push(footprint_row(project, key, f));
+                out.push(footprint_row(project, key, f, &top));
             }
         }
         [.., fp] if fp.starts_with("fp:") => {

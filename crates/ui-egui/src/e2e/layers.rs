@@ -203,6 +203,8 @@ fn a_newcomer_hides_a_layer_from_its_right_click_menu() -> Result<(), String> {
     }
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let item = text_at(&ctx, &mut app, "Hide  Space").ok_or("the menu offers Hide with its shortcut")?;
+    frame(&ctx, &mut app, vec![egui::Event::PointerMoved(item)], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     for pressed in [true, false] {
         frame(
             &ctx,
