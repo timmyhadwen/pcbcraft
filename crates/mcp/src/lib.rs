@@ -1318,6 +1318,52 @@ mod tests {
     }
 
     #[test]
+    fn online_library_commands_are_listed_and_import_through_a_tool_call() -> Result<(), String> {
+        let session = shared(Session::default());
+        let listed = call_tool(&session, "list_commands", &json!({}));
+        let ids: Vec<String> = listed
+            .pointer("/structuredContent/commands")
+            .and_then(Value::as_array)
+            .map(|all| {
+                all.iter()
+                    .filter_map(|c| c.get("id").and_then(Value::as_str).map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(
+            ids.iter().any(|x| x == "library.import_online"),
+            "library.import_online is listed"
+        );
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../library/tests/fixtures/device.kicad_sym");
+        let inspected = call_tool(
+            &session,
+            "library.inspect_symbol",
+            &json!({"path":path,"name":"R"}),
+        );
+        let symbol = inspected
+            .pointer("/structuredContent/definition")
+            .cloned()
+            .ok_or("missing definition")?;
+        let imported = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"library.import_online","params":{
+                "symbol":symbol,
+                "notices":["Imported symbol from a test source. Licence CC-BY-SA 4.0."]}}),
+        );
+        assert_eq!(imported.get("isError"), Some(&json!(false)));
+        let state = session.lock().map_err(|_| "session unavailable")?.inspect();
+        assert_eq!(
+            state
+                .pointer("/project/library/notices/0")
+                .and_then(Value::as_str),
+            Some("Imported symbol from a test source. Licence CC-BY-SA 4.0.")
+        );
+        Ok(())
+    }
+
+    #[test]
     fn native_library_save_load_preserves_original_data_and_rejects_unknown_fields()
     -> Result<(), String> {
         let session = shared(Session::default());

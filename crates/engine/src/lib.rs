@@ -3,6 +3,7 @@ mod authoring;
 mod dry_run;
 mod images;
 pub mod library;
+mod online;
 pub mod profiles;
 pub mod recents;
 pub use dry_run::{ChangeSummary, DryRun};
@@ -2119,6 +2120,7 @@ pub fn commands() -> Vec<CommandSpec> {
             input_schema,
         })
         .chain(authoring::commands())
+        .chain(online::commands())
         .chain(images::commands())
         .chain(tuning::commands())
         .collect()
@@ -6152,6 +6154,9 @@ fn run_command(
     params: &Value,
 ) -> Result<Value, Error> {
     if let Some(result) = authoring::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = online::run(p, next, command, params) {
         return result;
     }
     if let Some(result) = tuning::run(p, next, command, params) {
