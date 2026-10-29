@@ -544,7 +544,7 @@ fn a_newcomer_opens_the_assistant_and_learns_how_to_connect_it() -> Result<(), S
     authoring::tests::tap(&ctx, &mut app, "Open Settings")?;
     settle(&ctx, &mut app);
     assert!(
-        paints_text(&ctx, &mut app, "ASSISTANT")?,
+        scrolled_to_at(&ctx, &mut app, "ASSISTANT", 700.0)?,
         "the Assistant section is on screen"
     );
     for _ in 0..20 {
