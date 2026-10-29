@@ -1,6 +1,6 @@
 //! Stories for the left rail, the library dock, the datasheet action and the
 //! breathing room around every dock and tab body.
-use super::*;
+use super::super::*;
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 
@@ -86,11 +86,20 @@ fn a_newcomer_toggles_the_library_dock_from_the_left_rail() -> Result<(), String
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
     let at = centre_of(&out, "Lib", 44.0).ok_or("the rail should offer the library toggle")?;
-    assert!(app.preferences.library_dock_open, "the library dock starts open");
+    assert!(
+        app.preferences.library_dock_open,
+        "the library dock starts open"
+    );
     click(&ctx, &mut app, at);
-    assert!(!app.preferences.library_dock_open, "the rail toggle hides the dock");
+    assert!(
+        !app.preferences.library_dock_open,
+        "the rail toggle hides the dock"
+    );
     click(&ctx, &mut app, at);
-    assert!(app.preferences.library_dock_open, "the rail toggle shows it again");
+    assert!(
+        app.preferences.library_dock_open,
+        "the rail toggle shows it again"
+    );
     Ok(())
 }
 
@@ -122,7 +131,10 @@ fn a_newcomer_finds_no_board_statistics_in_the_library_dock() -> Result<(), Stri
         if left > 44.0 && left < 304.0 {
             let lower = words.to_lowercase();
             for banned in ["board size", "dimensions", "layer count", "parts placed"] {
-                assert!(!lower.contains(banned), "left dock shows a statistic: {words}");
+                assert!(
+                    !lower.contains(banned),
+                    "left dock shows a statistic: {words}"
+                );
             }
         }
     }
@@ -136,7 +148,12 @@ fn datasheet_addresses_must_be_plain_web_links() {
         Some("https://example.com/a.pdf")
     );
     assert!(App::datasheet_url(Some("HTTP://example.com/a")).is_some());
-    for bad in ["", "file:///etc/passwd", "javascript:alert(1)", "https://a b"] {
+    for bad in [
+        "",
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://a b",
+    ] {
         assert!(App::datasheet_url(Some(bad)).is_none(), "{bad} is refused");
     }
     assert!(App::datasheet_url(None).is_none());
@@ -156,8 +173,8 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
     app.select(Some(resistor));
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let button = centre_of(&out, "View datasheet", f32::MAX)
-        .ok_or("a chosen part offers its datasheet")?;
+    let button =
+        centre_of(&out, "View datasheet", f32::MAX).ok_or("a chosen part offers its datasheet")?;
     click(&ctx, &mut app, button);
     let opened = |out: &egui::FullOutput| {
         out.platform_output
@@ -173,8 +190,8 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
     app.select(None);
     app.select(Some(resistor));
     let out = settled(&ctx, &mut app);
-    let button = centre_of(&out, "View datasheet", f32::MAX)
-        .ok_or("the datasheet action stays visible")?;
+    let button =
+        centre_of(&out, "View datasheet", f32::MAX).ok_or("the datasheet action stays visible")?;
     for step in [
         vec![egui::Event::PointerMoved(button)],
         vec![egui::Event::PointerButton {
@@ -192,7 +209,10 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
     ] {
         any |= opened(&frame(&ctx, &mut app, step));
     }
-    assert!(any, "with a web link in the Datasheet field the button opens it");
+    assert!(
+        any,
+        "with a web link in the Datasheet field the button opens it"
+    );
     Ok(())
 }
 
@@ -209,12 +229,21 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
             continue;
         }
         if left > rail && left < dock {
-            assert!(left >= rail + 12.0, "left dock text hugs the edge: {words} at {left}");
+            assert!(
+                left >= rail + 12.0,
+                "left dock text hugs the edge: {words} at {left}"
+            );
         }
         let aside = SCREEN.x - 280.0;
         if left > aside {
-            assert!(left >= aside + 12.0, "right aside text hugs the edge: {words}");
-            assert!(right <= SCREEN.x - 12.0, "right aside text hugs the far edge: {words} to {right}");
+            assert!(
+                left >= aside + 12.0,
+                "right aside text hugs the edge: {words}"
+            );
+            assert!(
+                right <= SCREEN.x - 12.0,
+                "right aside text hugs the far edge: {words} to {right}"
+            );
         }
     }
     for tab in [Tab::Files, Tab::Libraries, Tab::Checks] {
@@ -225,7 +254,10 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
                 continue;
             }
             if left > dock && left < SCREEN.x - 280.0 - 40.0 {
-                assert!(left >= dock + 12.0, "{tab:?} body text hugs the dock edge: {words} at {left},{top}");
+                assert!(
+                    left >= dock + 12.0,
+                    "{tab:?} body text hugs the dock edge: {words} at {left},{top}"
+                );
             }
         }
     }
