@@ -967,10 +967,20 @@ pub struct Footprint {
     pub locked: Option<bool>,
     /// Which board side the footprint is soldered on. Absent means the top.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Board side the part is mounted on; absent means the top. Pad copper and
+    /// the silk, mask and paste layers are derived from it, never stored per pad.
     pub side: Option<Layer>,
     pub pads: Vec<Pad>,
 }
 /// Swap `F.` and `B.` layer name prefixes; other names are unchanged.
+/// A library pad as it sits when its part is mounted on the bottom: x offset,
+/// rotation and drill offset turned about the part's local vertical axis.
+///
+/// # Rules
+/// - Layer names stay as authored; `Footprint::pad_geometry_layers` swaps them.
+///
+/// # Do not
+/// - Write the result back to the library; packages stay authored on the top.
 pub fn mirrored_pad_for_bottom(
     source: &pcbcraft_library::FootprintPad,
 ) -> pcbcraft_library::FootprintPad {
@@ -982,6 +992,8 @@ pub fn mirrored_pad_for_bottom(
     }
     pad
 }
+/// Swap the `F.` and `B.` prefix of a board layer name; other names such as
+/// `*.Cu` pass through unchanged.
 pub fn swap_board_side_layer(name: &str) -> String {
     if let Some(rest) = name.strip_prefix("F.") {
         return format!("B.{rest}");
@@ -992,14 +1004,20 @@ pub fn swap_board_side_layer(name: &str) -> String {
     name.to_string()
 }
 impl Footprint {
+    /// The copper side the part is mounted on: the top unless `side` is set.
     pub fn board_side(&self) -> Layer {
         self.side.unwrap_or(Layer::Front)
     }
     /// Copper layer for a surface-mount pad; through-hole pads are handled on
     /// both layers by callers that iterate copper.
+    ///
+    /// # Rules
+    /// - Derived from `board_side`; pads carry no side of their own.
     pub fn pad_layer(&self, _pad: &Pad) -> Layer {
         self.board_side()
     }
+    /// Whether the pad has copper on `layer`: through-hole pads on both outer
+    /// layers, surface pads only on the part's own side.
     pub fn pad_on_copper(&self, pad: &Pad, layer: Layer) -> bool {
         match pad.geometry.as_ref() {
             None => layer == Layer::Front,
@@ -1007,6 +1025,8 @@ impl Footprint {
             Some(_) => self.board_side() == layer,
         }
     }
+    /// The pad's geometry layer names as placed: as authored on the top, with
+    /// the `F.` and `B.` prefixes swapped on the bottom.
     pub fn pad_geometry_layers(&self, pad: &Pad) -> Vec<String> {
         let Some(g) = pad.geometry.as_ref() else {
             return vec!["F.Cu".into(), "F.Mask".into()];
