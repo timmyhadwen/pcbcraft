@@ -121,7 +121,7 @@ User-interface work that cuts across milestones. These lines carry
 
 - [x] Top menu bar, Start page, plain menu labels, canvas handles, pin and pad click wiring, stackup-first Layers, status strip, Review groups, custom checks, unified library sources and sets, drawn machine layer model
 - [x] Workbench layout: top menu bar, library left, assistant and Layers tree right, tool strip under the tabs (#299)
-- [x] One vector-style Layers tree replaces the Parts, Nets and Layers docks (#274)
+- [ ] One vector-style Layers tree replaces the Parts, Nets and Layers docks (#274) (scope continues in #756)
 - [x] Draw directly on your own layers from the canvas (#275)
 - [x] Rules and Checks as top tabs, Project Settings with breathing room (#278)
 - [x] Right-click context menu on the canvas (#279)
