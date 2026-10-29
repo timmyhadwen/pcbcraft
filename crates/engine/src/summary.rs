@@ -3,7 +3,7 @@
 //! Context: `Session::inspect()` returns the whole project and a long capabilities paragraph;
 //! this returns counts, the board, parts, nets and the number of findings, small enough to send
 //! with every chat message.
-//! Rules: parts and nets are capped at [`LIST_LIMIT`] rows with the overflow counted in `more`;
+//! Rules: parts and nets are capped at `LIST_LIMIT` rows with the overflow counted in `more`;
 //! reading changes nothing; the output is built from the project only.
 //! Do not: add the project itself or any file path to the summary.
 
@@ -124,7 +124,7 @@ impl Session {
     /// A short summary of the open design: counts, board, parts, nets and finding counts.
     ///
     /// # Rules
-    /// Bounded (see [`LIST_LIMIT`]); reads only.
+    /// Bounded (see `LIST_LIMIT`); reads only.
     pub fn summary(&self) -> Value {
         let mut v = build(&self.project);
         if let Some(map) = v.as_object_mut() {
