@@ -10,7 +10,7 @@
 //! - A via counts for every copper layer in its span, as `Project::via_span_layers` gives it.
 //!
 //! # Dependencies
-//! - `Project`, `Track`, `Via`, `CopperZone`, `Footprint`, `Wire` and `Label` in `lib.rs`.
+//! - `crates/doc/src/lib.rs` for `Project`, `Track`, `Via`, `CopperZone`, `Footprint`, `Wire` and `Label`.
 //!
 //! # Do not
 //! - Add a field to `Project` to hold these results.
@@ -102,7 +102,7 @@ impl Project {
     /// - Layers are the union of track layers, zone layers and via spans.
     ///
     /// # Dependencies
-    /// - `via_span_layers`, `layer_name` in `lib.rs`.
+    /// - `crates/doc/src/lib.rs` for `via_span_layers` and `layer_name`.
     ///
     /// # Do not
     /// - Store the answer; callers query again after an edit.
