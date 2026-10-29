@@ -26,3 +26,4 @@ serde.workspace = true
 
 [dev-dependencies]
 pcbcraft-text = { workspace = true, features = ["fixture"] }
+base64.workspace = true
