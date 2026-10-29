@@ -685,6 +685,24 @@ fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), Str
             };
             page.text(t.position, t.size.max(1.0), rgb, &board_text(p, t))?;
         }
+        for d in &p.board.datums {
+            let at = p.datum_position(d);
+            let mark = [0.0, 0.5, 0.0];
+            page.circle(at, 1.0, mark, 0.1, false)?;
+            page.path(
+                &[Point::new(at.x - 1.5, at.y), Point::new(at.x + 1.5, at.y)],
+                mark,
+                0.1,
+                false,
+            )?;
+            page.path(
+                &[Point::new(at.x, at.y - 1.5), Point::new(at.x, at.y + 1.5)],
+                mark,
+                0.1,
+                false,
+            )?;
+            page.text(Point::new(at.x + 1.5, at.y + 1.5), 1.5, mark, &d.name)?;
+        }
         for g in p.graphics.iter().filter(|g| g.layer == "board") {
             pdf_project_graphic(page, g)?;
         }
@@ -1411,6 +1429,16 @@ impl StepDoc {
             Self::n(c.2)
         ))
     }
+    /// A cartesian point carrying a name, for datum labels.
+    fn named_point(&mut self, name: &str, c: Coords) -> Result<u32, String> {
+        self.add(&format!(
+            "CARTESIAN_POINT('{}',({},{},{}))",
+            name.replace('\'', "''"),
+            Self::n(c.0),
+            Self::n(c.1),
+            Self::n(c.2)
+        ))
+    }
     fn direction(&mut self, d: Coords) -> Result<u32, String> {
         self.add(&format!(
             "DIRECTION('',({},{},{}))",
@@ -1571,6 +1599,17 @@ pub fn step_board(p: &Project) -> Result<String, String> {
                 .collect();
             items.extend(doc.prism(&ring, depth)?);
         }
+    }
+    for datum in &p.board.datums {
+        let at = p.datum_position(datum);
+        let label = format!("DATUM_{}", datum.name);
+        let point = doc.named_point(&label, (at.x, at.y, 0.0))?;
+        let placement = doc.add(&format!(
+            "AXIS2_PLACEMENT_3D('{}',#{point},#{axis},#{reference})",
+            label.replace('\'', "''")
+        ))?;
+        items.push(point);
+        items.push(placement);
     }
     let listed: Vec<String> = items.iter().map(|i| format!("#{i}")).collect();
     doc.set(
@@ -4260,6 +4299,13 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
             &board_text(p, t),
         )?;
     }
+    for d in &p.board.datums {
+        let at = p.datum_position(d);
+        w.circle("DATUMS", at.x, at.y, 1.0)?;
+        w.line("DATUMS", (at.x - 1.5, at.y), (at.x + 1.5, at.y))?;
+        w.line("DATUMS", (at.x, at.y - 1.5), (at.x, at.y + 1.5))?;
+        w.text("DATUMS", at.x + 1.5, at.y + 1.5, 1.5, 0.0, &d.name)?;
+    }
     drawn::write_dxf_layers(p, &mut w)?;
     Ok(w.finish())
 }
@@ -4633,6 +4679,21 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                 },
                 spin,
                 escape(&board_text(p, t))
+            ));
+        }
+        for d in &p.board.datums {
+            let at = p.datum_position(d);
+            s.push_str(&format!(
+                "<g class=\"datum\" stroke=\"#7be07b\" stroke-width=\"0.1\" fill=\"none\"><circle cx=\"{x}\" cy=\"{y}\" r=\"1\"/><path d=\"M {} {y} L {} {y} M {x} {} L {x} {}\"/><text x=\"{}\" y=\"{}\" stroke=\"none\" fill=\"#7be07b\" font-size=\"1.5\">{}</text></g>",
+                at.x - 1.5,
+                at.x + 1.5,
+                at.y - 1.5,
+                at.y + 1.5,
+                at.x + 1.5,
+                at.y - 1.5,
+                escape(&d.name),
+                x = at.x,
+                y = at.y
             ));
         }
         for g in p.graphics.iter().filter(|g| g.layer == "board") {
@@ -12132,6 +12193,88 @@ mod tests {
         assert!(readme.contains("L1"));
         assert!(readme.contains("fab@example.test"));
         assert!(readme.contains("Via protection: open"));
+        Ok(())
+    }
+
+    #[test]
+    fn step_board_names_each_datum_with_its_coordinates() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.datums.push(pcbcraft_doc::Datum {
+            id: 900,
+            name: "A".into(),
+            position: Point::new(4.25, 6.5),
+            hole: None,
+        });
+        project.board.datums.push(pcbcraft_doc::Datum {
+            id: 901,
+            name: "B-2".into(),
+            position: Point::new(20.0, 10.0),
+            hole: None,
+        });
+        let step = step_board(&project)?;
+        let lookup = |id: &str| -> Option<&str> {
+            let prefix = format!("#{id} = ");
+            step.lines().find_map(|l| l.strip_prefix(prefix.as_str()))
+        };
+        for (name, x, y) in [("A", 4.25, 6.5), ("B-2", 20.0, 10.0)] {
+            let label = format!("'DATUM_{name}'");
+            let placement = step
+                .lines()
+                .find(|l| l.contains("AXIS2_PLACEMENT_3D") && l.contains(&label))
+                .ok_or("placement missing")?;
+            let point_ref = placement
+                .split("',#")
+                .nth(1)
+                .and_then(|r| r.split(',').next())
+                .ok_or("point reference missing")?;
+            let point = lookup(point_ref).ok_or("point line missing")?;
+            assert!(point.starts_with(&format!("CARTESIAN_POINT({label}")));
+            let nums: Vec<f64> = point
+                .split_once(",(")
+                .ok_or("coordinates missing")?
+                .1
+                .trim_end_matches(");")
+                .trim_end_matches(')')
+                .split(',')
+                .filter_map(|n| n.parse().ok())
+                .collect();
+            assert_eq!(nums.len(), 3);
+            assert!((nums[0] - x).abs() < 1e-3 && (nums[1] - y).abs() < 1e-3);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn board_pdf_draws_each_datum_name() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.datums.push(pcbcraft_doc::Datum {
+            id: 900,
+            name: "MOUNT_A".into(),
+            position: Point::new(5.0, 5.0),
+            hole: None,
+        });
+        let pdf = pdf_document(&project, "pcb")?;
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("MOUNT_A"));
+        let plain = pdf_document(&Project::default(), "pcb")?;
+        assert!(!String::from_utf8_lossy(&plain).contains("MOUNT_A"));
+        Ok(())
+    }
+
+    #[test]
+    fn svg_and_dxf_show_datums() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.datums.push(pcbcraft_doc::Datum {
+            id: 900,
+            name: "MOUNT_A".into(),
+            position: Point::new(5.0, 5.0),
+            hole: None,
+        });
+        assert!(svg(&project, "pcb")?.contains(">MOUNT_A</text>"));
+        let dxf = dxf_board(&project)?;
+        assert!(dxf.contains("DATUMS"));
+        assert!(dxf.contains("MOUNT_A"));
+        assert!(!dxf_board(&Project::default())?.contains("DATUMS"));
         Ok(())
     }
 }
