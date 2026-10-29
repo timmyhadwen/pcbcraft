@@ -781,7 +781,6 @@ library.quality_badge.the_library_checks_found_nothing = The library checks foun
 # library_quality.rs library_checks_section
 library.library_checks_section.library = Library
 library.library_checks_section.whether_the_footprints_in_this = Whether the footprints in this project's library follow good drawing habits: pad numbers, silkscreen, courtyard and the like.
-library.library_checks_section.no_findings_in_the_implemented = No findings in the implemented checks
 library.library_checks_section.a_mistake_in_a_library = A mistake in a library footprint. Fix it before parts using this footprint go on a board.
 library.library_checks_section.worth_a_look_but_it = Worth a look, but it does not stop a board being built.
 library.library_checks_section.footprint_message = {footprint}: {message}

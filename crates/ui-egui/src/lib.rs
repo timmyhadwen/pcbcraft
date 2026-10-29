@@ -6753,10 +6753,10 @@ impl App {
                             self.tool = Tool::Select;
                         }
                         let fix_btn = ui
-                            .tap_button(t!("board.footer.errors", count = fix))
+                            .tap_button(self.catalog.plural("board.footer.errors", fix as u64))
                             .on_hover_text(t!("board.footer.errors.tip"));
                         let mind_btn = ui
-                            .tap_button(t!("board.footer.warnings", count = mind))
+                            .tap_button(self.catalog.plural("board.footer.warnings", mind as u64))
                             .on_hover_text(t!("board.footer.warnings.tip"));
                         if fix_btn.clicked() || mind_btn.clicked() {
                             self.change_tab(Tab::Checks);

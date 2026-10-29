@@ -50,7 +50,8 @@ fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
         lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
         hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
     }
-    let pad = 2.0;
+    // Symbols and their pins reach well past the centres the bounds use.
+    let pad = if pcb { 2.0 } else { 12.0 };
     (
         Point::new(lo.x - pad, lo.y - pad),
         Point::new(hi.x + pad, hi.y + pad),
