@@ -9,17 +9,27 @@ use std::path::Path;
 mod board_mesh;
 mod drawn;
 mod gerber;
+mod layers;
 mod library_render;
 mod panel_export;
+mod raster;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use gerber::gerber_copper;
+pub use layers::{
+    FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
+    fabrication_point, gerber_copper_counts, layer_shapes,
+};
 use library_render::*;
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
 pub use pcbcraft_doc::Layer;
+pub use raster::{
+    Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
+    layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg,
+};
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
@@ -1762,7 +1772,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                 t.end.x,
                 t.end.y,
                 t.width,
-                quote(t.layer.name()),
+                quote(&p.layer_name(t.layer)),
                 ordinal(Some(t.net)),
                 uuid(t.id, 1)
             )),
@@ -1773,7 +1783,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                 t.end.x,
                 t.end.y,
                 t.width,
-                quote(t.layer.name()),
+                quote(&p.layer_name(t.layer)),
                 ordinal(Some(t.net)),
                 uuid(t.id, 1)
             )),
@@ -3280,7 +3290,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points = [(track.start.x, track.start.y), (track.end.x, track.end.y)];
         touch(
             &mut layers,
-            track.layer.name(),
+            &p.layer_name(track.layer),
             &mut |plot| plot.tracks += 1,
             &points,
         )?;
@@ -3295,7 +3305,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points: Vec<(f64, f64)> = zone.outline.iter().map(|pt| (pt.x, pt.y)).collect();
         touch(
             &mut layers,
-            zone.layer.name(),
+            &p.layer_name(zone.layer),
             &mut |plot| plot.zones += 1,
             &points,
         )?;
@@ -3304,7 +3314,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points = [(text.position.x, text.position.y)];
         touch(
             &mut layers,
-            text.layer.name(),
+            &p.layer_name(text.layer),
             &mut |plot| plot.texts += 1,
             &points,
         )?;
@@ -3313,7 +3323,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points = [(fiducial.position.x, fiducial.position.y)];
         touch(
             &mut layers,
-            fiducial.layer.name(),
+            &p.layer_name(fiducial.layer),
             &mut |plot| plot.fiducials += 1,
             &points,
         )?;
@@ -6786,11 +6796,13 @@ mod tests {
             name: "L1".into(),
             kind: "copper".into(),
             thickness: 0.035,
+            copper_role: None,
         });
         project.board.layer_records.push(pcbcraft_doc::LayerRecord {
             name: "core".into(),
             kind: "core".into(),
             thickness: 1.2,
+            copper_role: None,
         });
         project.board.machining = Some(pcbcraft_doc::MachiningNotes {
             edge_plating: Some(true),
@@ -8805,6 +8817,10 @@ mod tests {
             max_width: None,
             target_length: None,
             length_tolerance: None,
+            via_diameter: None,
+            via_drill: None,
+            pair_width: None,
+            pair_gap: None,
             nets: vec![5],
             profile: None,
         });
@@ -10991,6 +11007,53 @@ mod tests {
         Ok(project)
     }
     #[test]
+    fn parameters_survive_save_and_open() -> Result<(), String> {
+        let mut project = Project::default();
+        project.parameters.insert(
+            "hole_pitch".into(),
+            pcbcraft_doc::Parameter {
+                value: 3.2,
+                note: "mounting holes".into(),
+            },
+        );
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 5,
+            position: Point::new(3.2, 8.0),
+            diameter: 1.0,
+            end: None,
+        });
+        project.bindings.push(pcbcraft_doc::Binding {
+            object: 5,
+            field: pcbcraft_doc::Field::HoleX,
+            parameter: "hole_pitch".into(),
+        });
+        project.validate()?;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("parameters.pcbcraft");
+        save(&project, &path)?;
+        let loaded = load(&path)?;
+        assert_eq!(loaded, project);
+        assert_eq!(loaded.parameters["hole_pitch"].value, 3.2);
+        assert_eq!(loaded.parameters["hole_pitch"].note, "mounting holes");
+        assert_eq!(loaded.bindings[0].field, pcbcraft_doc::Field::HoleX);
+        Ok(())
+    }
+    #[test]
+    fn projects_without_parameters_still_load() -> Result<(), String> {
+        let project = Project::default();
+        let text = serde_json::to_string(&project).map_err(|e| e.to_string())?;
+        assert!(!text.contains("\"parameters\""));
+        assert!(!text.contains("\"bindings\""));
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("plain.pcbcraft");
+        std::fs::write(&path, &text).map_err(|e| e.to_string())?;
+        let loaded = load(&path)?;
+        assert!(loaded.parameters.is_empty());
+        assert!(loaded.bindings.is_empty());
+        assert_eq!(loaded, project);
+        Ok(())
+    }
+    #[test]
     fn chamfered_and_custom_pads_survive_project_save_and_load() -> Result<(), String> {
         let project = shaped_pad_project()?;
         let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
@@ -11748,6 +11811,18 @@ mod tests {
         );
         let pen = plots.files.get("labels.hpg").ok_or("pen path")?;
         assert!(!pen.contains("A1"), "the pen path leaves the label out");
+        Ok(())
+    }
+
+    #[test]
+    fn examples_validate_after_load() -> Result<(), String> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if path.extension().is_some_and(|e| e == "pcbcraft") {
+                load(&path)?;
+            }
+        }
         Ok(())
     }
 }

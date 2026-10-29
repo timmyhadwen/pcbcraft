@@ -88,6 +88,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "parameter.set",
+            "Record a named numeric parameter, or change one, and re-run the commands that reference it: holes and vias whose size or position follows the name are written again inside the same undoable step, and a value that breaks one of them is refused and changes nothing. Names are 1 to 32 letters, digits or underscores starting with a letter or underscore",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":32,"pattern":"^[A-Za-z_][A-Za-z0-9_]*$"},"value":{"type":"number","minimum":-10000,"maximum":10000},"note":{"type":"string","maxLength":256}}),
+                &["name", "value"],
+            ),
+        ),
+        (
+            "parameter.remove",
+            "Forget a named parameter; while objects still follow it the call is refused and names them, unless unbind is set to release them first",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":32},"unbind":{"type":"boolean","default":false}}),
+                &["name"],
+            ),
+        ),
+        (
+            "parameter.list",
+            "List the project's named numeric parameters with their values, notes and the object fields that follow each one",
+            schema(json!({}), &[]),
+        ),
+        (
             "project.set_unit",
             "Record the unit this design is read in: millimetres, mils or inches. Stored coordinates stay millimetres; inch drill and gerber fabrication output converts to inches, and the recorded unit is reported in the board statistics",
             schema(
@@ -407,9 +428,17 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "netclass.set",
-            "Rename a net class, change the default track width its members route at, or both at once, with the class rules echoed back",
+            "Rename a net class, change routing defaults, via size, or differential-pair defaults, with the class rules echoed back",
             schema(
-                json!({"class":id_schema(),"name":{"type":"string","minLength":1,"maxLength":128},"width":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"default track width, millimetres"}}),
+                json!({
+                    "class":id_schema(),
+                    "name":{"type":"string","minLength":1,"maxLength":128},
+                    "width":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"default track width, millimetres"},
+                    "via_diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "via_drill":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "pair_width":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "pair_gap":{"type":"number","exclusiveMinimum":0,"maximum":10}
+                }),
                 &["class"],
             ),
         ),
@@ -684,7 +713,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "graphic.to_track",
             "Convert a drawn line or polyline into copper tracks, one segment per vertex pair, on a chosen net and layer; the graphic is replaced by the copper, and the width follows the stroke unless given",
             schema(
-                json!({"id":id_schema(),"net":id_schema(),"width":{"type":"number","exclusiveMinimum":0,"description":"track width, millimetres; default the graphic stroke width"},"layer":{"type":"string","enum":["F.Cu","B.Cu"],"description":"copper layer, default F.Cu"}}),
+                json!({"id":id_schema(),"net":id_schema(),"width":{"type":"number","exclusiveMinimum":0,"description":"track width, millimetres; default the graphic stroke width"},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup, default top"}}),
                 &["id", "net"],
             ),
         ),
@@ -692,7 +721,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "plot.to_schematic",
             "Plot the copper of one layer onto the schematic as editable drawing graphics (tracks become lines, vias become circles and board text joins the plot), shifted so the board origin lands on a chosen sheet point; the copper itself is untouched",
             schema(
-                json!({"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"origin":point_schema(),"include_text":{"type":"boolean","description":"also plot board text of that layer, default true"}}),
+                json!({"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"origin":point_schema(),"include_text":{"type":"boolean","description":"also plot board text of that layer, default true"}}),
                 &["layer"],
             ),
         ),
@@ -801,7 +830,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "board.fiducial_place",
             "Place an optical assembly mark: a bare copper disc the pick-and-place camera locates the board by, on either copper layer",
             schema(
-                json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.2,"maximum":10,"description":"disc diameter, millimetres"},"layer":{"type":"string","enum":["F.Cu","B.Cu"],"description":"copper layer, default F.Cu"}}),
+                json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.2,"maximum":10,"description":"disc diameter, millimetres"},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup, default top"}}),
                 &["position", "diameter"],
             ),
         ),
@@ -817,7 +846,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "board.fiducial_set",
             "Resize a fiducial mark, move it to the other copper layer, or both at once; the mark keeps its identity and its place in the pick-and-place file, so a panel tune or a back-side build adjusts the existing mark instead of replacing it",
             schema(
-                json!({"id":id_schema(),"diameter":{"type":"number","minimum":0.2,"maximum":10,"description":"disc diameter, millimetres"},"layer":{"type":"string","enum":["F.Cu","B.Cu"],"description":"copper layer"}}),
+                json!({"id":id_schema(),"diameter":{"type":"number","minimum":0.2,"maximum":10,"description":"disc diameter, millimetres"},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["id"],
             ),
         ),
@@ -897,10 +926,10 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "via.place",
-            "Place a plated through-hole via joining front and back copper on an existing net",
+            "Place a plated through-hole via joining front and back copper on an existing net; size defaults from the net class when omitted",
             schema(
                 json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"}}),
-                &["net", "position", "diameter"],
+                &["net", "position"],
             ),
         ),
         (
@@ -923,7 +952,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "zone.place",
             "Place a poured copper zone: a closed polygon of copper on one layer bound to an existing net",
             schema(
-                json!({"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"outline":{"type":"array","minItems":4,"maxItems":257,"items":point_schema(),"description":"closed polygon, millimetres; first vertex repeated last"}}),
+                json!({"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"outline":{"type":"array","minItems":4,"maxItems":257,"items":point_schema(),"description":"closed polygon, millimetres; first vertex repeated last"}}),
                 &["net", "outline"],
             ),
         ),
@@ -939,7 +968,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "zone.set_layer",
             "Move a poured zone, with all its cutouts, to the other copper layer without moving its outline",
             schema(
-                json!({"id":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"id":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["id", "layer"],
             ),
         ),
@@ -1000,7 +1029,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "teardrop.add",
             "Grow teardrop copper where tracks meet pads and vias so junctions survive etching and hand soldering; filter by net or layer, and junctions that already have a teardrop are left alone",
             schema(
-                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"depth":{"type":"number","description":"how far the teardrop runs along the track from the junction, millimetres; default 0.5"}}),
+                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"depth":{"type":"number","description":"how far the teardrop runs along the track from the junction, millimetres; default 0.5"}}),
                 &[],
             ),
         ),
@@ -1008,7 +1037,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "teardrop.remove",
             "Take teardrop copper away again from every junction it was grown on, optionally filtered by net or layer",
             schema(
-                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &[],
             ),
         ),
@@ -1032,10 +1061,34 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.rules.set",
-            "Set minimum copper clearance in millimetres",
+            "Set the board default copper clearance and recorded fabrication minimums in millimetres",
             schema(
-                json!({"clearance":{"type":"number","exclusiveMinimum":0}}),
-                &["clearance"],
+                json!({
+                    "clearance":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_track":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_space":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_drill":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_npth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_ring_via":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_ring_pth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_hole_via":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_hole_pad":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_copper_via":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_copper_pth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_copper_npth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "edge_routed":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "edge_vscore":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "silk_line":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "silk_text_height":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "silk_to_pad":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "mask_dam":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "max_aspect_ratio":{"type":"number","exclusiveMinimum":1,"maximum":50},
+                    "plating_allowance":{"type":"number","minimum":0,"maximum":0.5},
+                    "preset":{"type":"string","maxLength":64},
+                    "source_url":{"type":"string","maxLength":512},
+                    "retrieved":{"type":"string","maxLength":32}
+                }),
+                &[],
             ),
         ),
         (
@@ -1122,7 +1175,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.add",
             "Add a straight copper segment; checks report clearance errors rather than hiding them",
             schema(
-                json!({"net":id_schema(),"start":point_schema(),"end":point_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"net":id_schema(),"start":point_schema(),"end":point_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["net", "start", "end"],
             ),
         ),
@@ -1130,7 +1183,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.add_arc",
             "Add a curved copper segment through three points (start, a point on the curve, end); clearance checks sample the arc and fabrication output draws a true arc",
             schema(
-                json!({"net":id_schema(),"start":point_schema(),"mid":point_schema(),"end":point_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"net":id_schema(),"start":point_schema(),"mid":point_schema(),"end":point_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["net", "start", "mid", "end"],
             ),
         ),
@@ -1172,7 +1225,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.set_layer",
             "Move an existing track segment to the other copper layer without moving its ends",
             schema(
-                json!({"id":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"id":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["id", "layer"],
             ),
         ),
@@ -1188,7 +1241,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.set_layer_net",
             "Move every track segment of one net to the other copper layer in a single step, optionally only those currently on a given layer; reports how many segments moved",
             schema(
-                json!({"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"from_layer":{"oneOf":[{"type":"string","enum":["F.Cu","B.Cu"]},{"type":"null"}],"description":"only move segments starting on this layer; null moves all of them"}}),
+                json!({"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"from_layer":{"oneOf":[{"type":"string","maxLength":64},{"type":"null"}],"description":"only move segments starting on this layer; null moves all of them"}}),
                 &["net", "layer"],
             ),
         ),
@@ -1220,7 +1273,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.route",
             "Connect a same-net pad or point to another on the chosen copper layer. Default mode orthogonal is one right-angle bend with no obstacle checks. Mode octilinear routes 45-degree copper around other nets' pads, tracks and cutouts. Mode octilinear_shove walks around pads and cutouts and pushes other nets' tracks aside within fixed iteration limits. Refusals say why and change nothing. Single layer, no vias",
             schema(
-                json!({"from":endpoint_schema(),"to":endpoint_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"]},"net":id_schema()}),
+                json!({"from":endpoint_schema(),"to":endpoint_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"]},"net":id_schema()}),
                 &["from", "to"],
             ),
         ),
@@ -1249,7 +1302,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "items.update",
             "Apply property changes to up to 128 placed board objects in one undo step: tracks take net, copper layer and width; vias take net, diameter and drill; labels take text, layer and size",
             schema(
-                json!({"items":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"id":id_schema(),"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"width":{"type":"number"},"diameter":{"type":"number"},"drill":{"type":"number"},"text":{"type":"string","maxLength":1024},"size":{"type":"number"}},"required":["id"],"additionalProperties":false}}}),
+                json!({"items":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"id":id_schema(),"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"width":{"type":"number"},"diameter":{"type":"number"},"drill":{"type":"number"},"text":{"type":"string","maxLength":1024},"size":{"type":"number"}},"required":["id"],"additionalProperties":false}}}),
                 &["items"],
             ),
         ),
@@ -1345,6 +1398,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({}), &[]),
         ),
         (
+            "board.remove_layer_record",
+            "Remove one board layer note by name",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name"],
+            ),
+        ),
+        (
             "board.set_machining",
             "Record machining notes for fabrication: whether edges are plated, the drill diameter tolerance and the rout dimension tolerance in millimetres; give at least one, each given value replaces its stored note",
             schema(
@@ -1421,9 +1482,38 @@ pub fn commands() -> Vec<CommandSpec> {
             "items.find",
             "List object IDs by kind (track, via, zone, pad, footprint, text or component) with optional net and copper-layer filters",
             schema(
-                json!({"kind":{"type":"string","enum":["track","via","zone","pad","footprint","text","component"]},"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"kind":{"type":"string","enum":["track","via","zone","pad","footprint","text","component"]},"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["kind"],
             ),
+        ),
+        (
+            "rules.class_pair_set",
+            "Require a minimum clearance between two net classes, stricter than either class alone",
+            schema(
+                json!({"class_a":id_schema(),"class_b":id_schema(),"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100}}),
+                &["class_a", "class_b", "clearance"],
+            ),
+        ),
+        (
+            "rules.class_pair_remove",
+            "Remove the clearance override between two net classes",
+            schema(
+                json!({"class_a":id_schema(),"class_b":id_schema()}),
+                &["class_a", "class_b"],
+            ),
+        ),
+        (
+            "rules.preset_apply",
+            "Apply a named fabrication capability preset to the board rules in one undo step",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name"],
+            ),
+        ),
+        (
+            "rules.preset_list",
+            "List the built-in fabrication capability presets",
+            schema(json!({}), &[]),
         ),
         (
             "rules.severity",
@@ -1482,7 +1572,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.area_add",
             "Add a rectangular rule area that demands a stricter minimum copper separation for copper whose midpoints lie inside it; optionally narrowed to one net and one copper layer, which apply when either side of a pair matches",
             schema(
-                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"}}),
+                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"}}),
                 &["clearance", "x", "y", "width", "height"],
             ),
         ),
@@ -1760,7 +1850,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "text.place",
             "Place a text label on the board with a size in millimetres and a layer",
             schema(
-                json!({"text":{"type":"string","minLength":1,"maxLength":128},"position":point_schema(),"size":{"type":"number","minimum":0.1,"maximum":50,"description":"glyph height in millimetres, default 1.0"},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"text":{"type":"string","minLength":1,"maxLength":128},"position":point_schema(),"size":{"type":"number","minimum":0.1,"maximum":50,"description":"glyph height in millimetres, default 1.0"},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["text", "position"],
             ),
         ),
@@ -1776,7 +1866,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "text.set",
             "Change a board text label's string, size, layer, or rotation",
             schema(
-                json!({"id":id_schema(),"text":{"type":"string","minLength":1,"maxLength":128},"size":{"type":"number","minimum":0.1,"maximum":50},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"rotation":{"type":"number","description":"text angle in degrees about the anchor"}}),
+                json!({"id":id_schema(),"text":{"type":"string","minLength":1,"maxLength":128},"size":{"type":"number","minimum":0.1,"maximum":50},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"rotation":{"type":"number","description":"text angle in degrees about the anchor"}}),
                 &["id"],
             ),
         ),
@@ -1917,7 +2007,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and the copper of one layer plotted back onto the sheet as a shifted editable overlay that leaves the copper itself untouched, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text that can be re-measured to new ends in place and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand and rename in place while their point and angle stay put, and named hierarchy ports placed on pages that hand one net between pages, moving, renaming and removing without touching the net, and a sheet file read from disk that arrives as a new page with template components, properties and ports that join existing nets by name","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points, existing runs bent to a new midpoint or straightened back with ends, width, layer and net held, whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, or a whole net's tracks and vias ripped up together while the net itself stays, or the entire board's copper ripped up in one step while pads and zones stay, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, or the same rows read from a text file in one step, and every placed copy of a library package refreshed from the linked library folder or from a project library footprint of the same name in one step so package edits propagate while components whose pins no longer match the pads are skipped and reported, and placed symbols refreshed from their library file in one step so symbol artwork and pin geometry edits propagate while components whose pin numbers or units no longer match are skipped and reported, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, that can be re-bound to another net in place without moving their copper, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable, re-aimed to another net pair or resized, and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes Designers can also write their own one-line checks (a wire thinner or longer than a limit, more parts, more vias or more wires on one net than a limit), recorded in the design and re-run beside the built-ins. Designers can also draw their own machine layers: named cut, perforation, silk, mask or reference art made of lines, rectangles, circles, closed outlines and pen text, dotted for snap lines and hideable, for laser, mill and printer output.","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad and pin renumbering maps that refuse collisions and carry embedded copies, placed pads and pins and their no-connect flags along, single pads added, replaced by number or removed on library footprints so custom packages grow exposed pads or extra terminals in one step while placed instances refresh on demand, library footprints and symbols cloned under new names as the starting point for custom variants while originals and placed copies stay untouched, single symbol pins added, replaced by number or removed so custom symbols grow extra terminals or corrected pin names in one step while placed instances refresh on demand, and single symbol pins slid, turned about the origin or flipped about the vertical axis by their number so one misplaced or wrongly aimed lead is corrected without disturbing the rest of the symbol, and single footprint pads slid, turned about the origin or flipped about the vertical axis by their number, copper and drill moving together, so one misplaced or wrongly angled terminal is corrected without disturbing the rest of the package, footprint artwork drawn one graphic at a time or cleared by layer so packages gain silk and fab art without rewriting the definition, and symbol unit artwork drawn or cleared per unit the same way, symbol reference prefixes, values, descriptions, keywords, set names and linked footprint names and footprint descriptions and keywords retyped one field at a time so imported items get cleaned up without rewriting the definition, and each symbol can name a set it belongs to so the parts list groups parts under that name and each group can be hidden while adding parts, and library items renamed in place so a typo fixed at the source never needs a delete and re-upsert, and symbol inheritance links set or cleared one symbol at a time so derived symbols document where their geometry comes from, and whole library symbols and footprints turned about their origin or flipped about the vertical axis in one undoable step so imported geometry facing the wrong way is re-aimed without rewriting the definition, and whole library symbols and footprints slid by an offset in one undoable step so an import whose origin sits in the wrong place can be re-centred without rewriting the definition, and whole library symbols and footprints scaled about their origin by one factor in one undoable step so an import drawn at the wrong unit scale is rescued without rewriting the definition, and single library graphics replaced, removed, slid, turned, flipped or resized about the origin by their position in the artwork list so one stale, misplaced or wrongly scaled drawing element is corrected without clearing or disturbing the rest, embedded packages and symbols adopted from placed parts into the project library under chosen names so they become editable and reusable, and fiducial marks: bare copper discs placed, moved, resized or re-layered and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, a whole library folders of footprint or symbol text files added or replaced in the project library in one step, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber with a drill hole map layer and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a single-file IPC-2581 style assembly exchange XML with outline, nets, placement, holes and copper by layer, a GenCAD assembly exchange, a per-layer plot report CSV, a plain-text design report summarizing the board, every part and every net's pins, and a PostScript drawing of either view, and an ODB++ style board package ZIP with a layer matrix, polygon pad symbols, per-layer copper features and placed components, an HP-GL pen plotter drawing of either view, a board stackup report listing recorded layer notes with finish, substrate and machining tolerances, a drill tool chart counting holes per tool, a board statistics summary of parts, nets and routing, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"default orthogonal one-bend route with no obstacle checks; optional octilinear mode walks 45-degree copper around other nets' pads, tracks and cutouts, and octilinear_shove also pushes other nets' tracks within fixed iteration limits; single layer, no vias, no interactive spring-back","3d":"a read-only board_mesh query returns the board slab with cutouts and holes, thin copper, mask and silk layers and parametric default component bodies as deterministic triangle lists; there is no 3D viewer tab yet and footprint 3D model files are never loaded, so bodies are package defaults"}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and the copper of one layer plotted back onto the sheet as a shifted editable overlay that leaves the copper itself untouched, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text that can be re-measured to new ends in place and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand and rename in place while their point and angle stay put, and named hierarchy ports placed on pages that hand one net between pages, moving, renaming and removing without touching the net, and a sheet file read from disk that arrives as a new page with template components, properties and ports that join existing nets by name","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points, existing runs bent to a new midpoint or straightened back with ends, width, layer and net held, whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, or a whole net's tracks and vias ripped up together while the net itself stays, or the entire board's copper ripped up in one step while pads and zones stay, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, or the same rows read from a text file in one step, and every placed copy of a library package refreshed from the linked library folder or from a project library footprint of the same name in one step so package edits propagate while components whose pins no longer match the pads are skipped and reported, and placed symbols refreshed from their library file in one step so symbol artwork and pin geometry edits propagate while components whose pin numbers or units no longer match are skipped and reported, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, that can be re-bound to another net in place without moving their copper, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable, re-aimed to another net pair or resized, and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes Designers can also write their own one-line checks (a wire thinner or longer than a limit, more parts, more vias or more wires on one net than a limit), recorded in the design and re-run beside the built-ins. Designers can also draw their own machine layers: named cut, perforation, silk, mask or reference art made of lines, rectangles, circles, closed outlines and pen text, dotted for snap lines and hideable, for laser, mill and printer output.","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad and pin renumbering maps that refuse collisions and carry embedded copies, placed pads and pins and their no-connect flags along, single pads added, replaced by number or removed on library footprints so custom packages grow exposed pads or extra terminals in one step while placed instances refresh on demand, library footprints and symbols cloned under new names as the starting point for custom variants while originals and placed copies stay untouched, single symbol pins added, replaced by number or removed so custom symbols grow extra terminals or corrected pin names in one step while placed instances refresh on demand, and single symbol pins slid, turned about the origin or flipped about the vertical axis by their number so one misplaced or wrongly aimed lead is corrected without disturbing the rest of the symbol, and single footprint pads slid, turned about the origin or flipped about the vertical axis by their number, copper and drill moving together, so one misplaced or wrongly angled terminal is corrected without disturbing the rest of the package, footprint artwork drawn one graphic at a time or cleared by layer so packages gain silk and fab art without rewriting the definition, and symbol unit artwork drawn or cleared per unit the same way, symbol reference prefixes, values, descriptions, keywords, set names and linked footprint names and footprint descriptions and keywords retyped one field at a time so imported items get cleaned up without rewriting the definition, and each symbol can name a set it belongs to so the parts list groups parts under that name and each group can be hidden while adding parts, and library items renamed in place so a typo fixed at the source never needs a delete and re-upsert, and symbol inheritance links set or cleared one symbol at a time so derived symbols document where their geometry comes from, and whole library symbols and footprints turned about their origin or flipped about the vertical axis in one undoable step so imported geometry facing the wrong way is re-aimed without rewriting the definition, and whole library symbols and footprints slid by an offset in one undoable step so an import whose origin sits in the wrong place can be re-centred without rewriting the definition, and whole library symbols and footprints scaled about their origin by one factor in one undoable step so an import drawn at the wrong unit scale is rescued without rewriting the definition, and single library graphics replaced, removed, slid, turned, flipped or resized about the origin by their position in the artwork list so one stale, misplaced or wrongly scaled drawing element is corrected without clearing or disturbing the rest, embedded packages and symbols adopted from placed parts into the project library under chosen names so they become editable and reusable, and fiducial marks: bare copper discs placed, moved, resized or re-layered and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, a whole library folders of footprint or symbol text files added or replaced in the project library in one step, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks, and drawn cut, perforation and mask layers checked against vias, pads, exposed pad openings and the board edge; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber with a drill hole map layer and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a single-file IPC-2581 style assembly exchange XML with outline, nets, placement, holes and copper by layer, a GenCAD assembly exchange, a per-layer plot report CSV, a plain-text design report summarizing the board, every part and every net's pins, and a PostScript drawing of either view, and an ODB++ style board package ZIP with a layer matrix, polygon pad symbols, per-layer copper features and placed components, an HP-GL pen plotter drawing of either view, a board stackup report listing recorded layer notes with finish, substrate and machining tolerances, a drill tool chart counting holes per tool, a board statistics summary of parts, nets and routing, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"default orthogonal one-bend route with no obstacle checks; optional octilinear mode walks 45-degree copper around other nets' pads, tracks and cutouts, and octilinear_shove also pushes other nets' tracks within fixed iteration limits; single layer, no vias, no interactive spring-back","3d":"a read-only board_mesh query returns the board slab with cutouts and holes, thin copper, mask and silk layers and parametric default component bodies as deterministic triangle lists; there is no 3D viewer tab yet and footprint 3D model files are never loaded, so bodies are package defaults"}})
     }
     /// The 3D mesh of the current board, without changing the design. `layers`
     /// limits the parts built (board, copper, mask, silk, bodies); `geometry`
@@ -1960,7 +2050,7 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -2573,6 +2663,21 @@ struct MetaParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ParameterSetParams {
+    name: String,
+    value: f64,
+    #[serde(default)]
+    note: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ParameterRemoveParams {
+    name: String,
+    #[serde(default)]
+    unbind: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ProjectSetUnitParams {
     unit: String,
 }
@@ -2847,9 +2952,10 @@ struct ImportSheetParams {
 struct ViaParams {
     net: Id,
     position: Point,
-    diameter: f64,
     #[serde(default)]
-    drill: f64,
+    diameter: Option<f64>,
+    #[serde(default)]
+    drill: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3132,6 +3238,14 @@ struct ClassSetParams {
     name: Option<String>,
     #[serde(default)]
     width: Option<f64>,
+    #[serde(default)]
+    via_diameter: Option<f64>,
+    #[serde(default)]
+    via_drill: Option<f64>,
+    #[serde(default)]
+    pair_width: Option<f64>,
+    #[serde(default)]
+    pair_gap: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3416,6 +3530,13 @@ struct LayerRecordParams {
     name: String,
     kind: String,
     thickness: f64,
+    #[serde(default)]
+    copper_role: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LayerRecordNameParams {
+    name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4211,10 +4332,119 @@ struct Resize {
     width: f64,
     height: f64,
 }
+fn fab_mm_ok(v: f64) -> bool {
+    v.is_finite() && (0.001..=100.0).contains(&v)
+}
+
+fn merge_fab_mm(dst: &mut Option<f64>, src: Option<f64>) -> Result<(), Error> {
+    if let Some(v) = src {
+        if !fab_mm_ok(v) {
+            return Err(Error::Invalid(
+                "fabrication minimum must be between 0.001 and 100 mm".into(),
+            ));
+        }
+        *dst = Some(v);
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Clearance {
+struct BoardRulesSetParams {
+    #[serde(default)]
+    clearance: Option<f64>,
+    #[serde(default)]
+    min_track: Option<f64>,
+    #[serde(default)]
+    min_space: Option<f64>,
+    #[serde(default)]
+    min_drill: Option<f64>,
+    #[serde(default)]
+    min_npth: Option<f64>,
+    #[serde(default)]
+    min_ring_via: Option<f64>,
+    #[serde(default)]
+    min_ring_pth: Option<f64>,
+    #[serde(default)]
+    hole_to_hole_via: Option<f64>,
+    #[serde(default)]
+    hole_to_hole_pad: Option<f64>,
+    #[serde(default)]
+    hole_to_copper_via: Option<f64>,
+    #[serde(default)]
+    hole_to_copper_pth: Option<f64>,
+    #[serde(default)]
+    hole_to_copper_npth: Option<f64>,
+    #[serde(default)]
+    edge_routed: Option<f64>,
+    #[serde(default)]
+    edge_vscore: Option<f64>,
+    #[serde(default)]
+    silk_line: Option<f64>,
+    #[serde(default)]
+    silk_text_height: Option<f64>,
+    #[serde(default)]
+    silk_to_pad: Option<f64>,
+    #[serde(default)]
+    mask_dam: Option<f64>,
+    #[serde(default)]
+    max_aspect_ratio: Option<f64>,
+    #[serde(default)]
+    plating_allowance: Option<f64>,
+    #[serde(default)]
+    preset: Option<String>,
+    #[serde(default)]
+    source_url: Option<String>,
+    #[serde(default)]
+    retrieved: Option<String>,
+}
+
+impl BoardRulesSetParams {
+    fn touches_fab(&self) -> bool {
+        self.min_track.is_some()
+            || self.min_space.is_some()
+            || self.min_drill.is_some()
+            || self.min_npth.is_some()
+            || self.min_ring_via.is_some()
+            || self.min_ring_pth.is_some()
+            || self.hole_to_hole_via.is_some()
+            || self.hole_to_hole_pad.is_some()
+            || self.hole_to_copper_via.is_some()
+            || self.hole_to_copper_pth.is_some()
+            || self.hole_to_copper_npth.is_some()
+            || self.edge_routed.is_some()
+            || self.edge_vscore.is_some()
+            || self.silk_line.is_some()
+            || self.silk_text_height.is_some()
+            || self.silk_to_pad.is_some()
+            || self.mask_dam.is_some()
+            || self.max_aspect_ratio.is_some()
+            || self.plating_allowance.is_some()
+            || self.preset.is_some()
+            || self.source_url.is_some()
+            || self.retrieved.is_some()
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClassPairSetParams {
+    class_a: Id,
+    class_b: Id,
     clearance: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClassPairRemoveParams {
+    class_a: Id,
+    class_b: Id,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PresetApplyParams {
+    name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4384,6 +4614,33 @@ fn bus_members(
 fn missing() -> Error {
     Error::Invalid("object not found".into())
 }
+fn resolve_layer_param(p: &Project, s: &str) -> Result<Layer, Error> {
+    p.resolve_copper_layer(s).map_err(Error::Invalid)
+}
+fn command_layer(p: &Project, params: &Value, parsed: Layer) -> Result<Layer, Error> {
+    if let Some(s) = params.get("layer").and_then(|v| v.as_str()) {
+        resolve_layer_param(p, s)
+    } else {
+        Ok(parsed)
+    }
+}
+fn optional_command_layer(p: &Project, params: &Value) -> Result<Option<Layer>, Error> {
+    match params.get("layer") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => resolve_layer_param(p, s).map(Some),
+        _ => Err(Error::Invalid("layer must be a string".into())),
+    }
+}
+fn copper_count_in_records(records: &[LayerRecord]) -> u8 {
+    let n = records.iter().filter(|r| r.kind == "copper").count();
+    if n == 0 { 2 } else { n as u8 }
+}
+fn refuse_stack_shrink(p: &Project, new_count: u8) -> Result<(), Error> {
+    if let Some(msg) = p.stack_shrink_blocked_reason(new_count) {
+        return Err(Error::Invalid(msg));
+    }
+    Ok(())
+}
 fn assign(p: &mut Project, net: Id, pins: &[PinRef]) -> Result<(), Error> {
     if pins.is_empty() || pins.len() > 128 || !p.nets.iter().any(|n| n.id == net) {
         return Err(Error::Invalid("invalid pin list or unknown net".into()));
@@ -4422,16 +4679,23 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .iter()
         .find(|pad| pad.number == r.pad)
         .ok_or_else(missing)?;
+    let layer_name = p.layer_name(layer);
     let on_layer = pad
         .geometry
         .as_ref()
-        .map(|g| g.layers.iter().any(|l| l == layer.name() || l == "*.Cu"))
+        .map(|g| {
+            g.layers.iter().any(|l| {
+                l == "*.Cu"
+                    || l == &layer_name
+                    || l == layer.name()
+                    || p.resolve_copper_layer(l).ok() == Some(layer)
+            })
+        })
         .unwrap_or(layer == Layer::Front);
     if !on_layer {
         return Err(Error::Invalid(format!(
             "pad {} has no copper on {}",
-            r.pad,
-            layer.name()
+            r.pad, layer_name
         )));
     }
     let net = f
@@ -4483,7 +4747,342 @@ fn validate_pair_coupling(
     }
     Ok(())
 }
+/// The bindable numeric fields a command accepts a `{"param": "name"}` value
+/// for: resolved to the parameter's number before the command parses its
+/// parameters, then recorded so a later parameter change follows it here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindableField {
+    HoleDiameter,
+    HoleX,
+    HoleY,
+    ViaDiameter,
+    ViaDrill,
+    ViaX,
+    ViaY,
+}
+impl BindableField {
+    /// The recorded field this parameter reference binds.
+    fn field(self) -> Field {
+        match self {
+            BindableField::HoleDiameter => Field::HoleDiameter,
+            BindableField::HoleX => Field::HoleX,
+            BindableField::HoleY => Field::HoleY,
+            BindableField::ViaDiameter => Field::ViaDiameter,
+            BindableField::ViaDrill => Field::ViaDrill,
+            BindableField::ViaX => Field::ViaX,
+            BindableField::ViaY => Field::ViaY,
+        }
+    }
+}
+/// The dotted parameter paths a command accepts a named parameter for, and
+/// the field each one drives. Commands absent from this table refuse a
+/// `{"param": "name"}` value with a plain message.
+fn bindable_fields(command: &str) -> &'static [(&'static str, BindableField)] {
+    const HOLE_POSITION: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::HoleX),
+        ("position.y", BindableField::HoleY),
+    ];
+    const HOLE_PLACE: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::HoleX),
+        ("position.y", BindableField::HoleY),
+        ("diameter", BindableField::HoleDiameter),
+    ];
+    const VIA_POSITION: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::ViaX),
+        ("position.y", BindableField::ViaY),
+    ];
+    const VIA_PLACE: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::ViaX),
+        ("position.y", BindableField::ViaY),
+        ("diameter", BindableField::ViaDiameter),
+        ("drill", BindableField::ViaDrill),
+    ];
+    const VIA_SIZE: &[(&str, BindableField)] = &[
+        ("diameter", BindableField::ViaDiameter),
+        ("drill", BindableField::ViaDrill),
+    ];
+    const HOLE_SIZE: &[(&str, BindableField)] = &[("diameter", BindableField::HoleDiameter)];
+    match command {
+        "board.hole_place" => HOLE_PLACE,
+        "board.hole_move" => HOLE_POSITION,
+        "board.hole_set_size" => HOLE_SIZE,
+        "via.place" => VIA_PLACE,
+        "via.move" => VIA_POSITION,
+        "via.set_size" => VIA_SIZE,
+        _ => &[],
+    }
+}
+/// Where the object a command just bound comes from: the id the command
+/// returned for a fresh object, or the id the caller named.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindingTarget {
+    Placed,
+    Targeted,
+}
+impl BindingTarget {
+    /// How a command's bound fields find their object.
+    fn of(command: &str) -> Self {
+        match command {
+            "board.hole_place" | "via.place" => BindingTarget::Placed,
+            _ => BindingTarget::Targeted,
+        }
+    }
+}
+/// A command's parameters with every named parameter reference replaced by
+/// its current number, plus the fields those references bind.
+struct ResolvedCommand {
+    params: Value,
+    bound: Vec<(BindableField, String)>,
+}
+/// Collect the dotted paths of every `{"param": "name"}` value in `value`,
+/// together with the name each one references.
+fn parameter_ref_paths(value: &Value, path: &mut Vec<String>, out: &mut Vec<(String, String)>) {
+    match value {
+        Value::Object(map) => {
+            if map.len() == 1
+                && let Some(Value::String(name)) = map.get("param")
+            {
+                out.push((path.join("."), name.clone()));
+                return;
+            }
+            for (key, child) in map {
+                path.push(key.clone());
+                parameter_ref_paths(child, path, out);
+                path.pop();
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                path.push(index.to_string());
+                parameter_ref_paths(child, path, out);
+                path.pop();
+            }
+        }
+        _ => {}
+    }
+}
+/// The child of `root` named by one dotted path segment, reading a number as
+/// an array index and anything else as an object key.
+fn path_child_mut<'a>(root: &'a mut Value, segment: &str) -> Option<&'a mut Value> {
+    match segment.parse::<usize>() {
+        Ok(index) => root.get_mut(index),
+        Err(_) => root.get_mut(segment),
+    }
+}
+/// The value at a dotted parameter path, if the path exists.
+fn value_at<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
+    path.split('.')
+        .try_fold(root, |node, segment| match segment.parse::<usize>() {
+            Ok(index) => node.get(index),
+            Err(_) => node.get(segment),
+        })
+}
+/// Replace the value at a dotted parameter path.
+fn set_at(root: &mut Value, path: &str, replacement: Value) -> Result<(), Error> {
+    let segments: Vec<&str> = path.split('.').collect();
+    let (last, parents) = segments
+        .split_last()
+        .ok_or_else(|| Error::Invalid("a parameter reference has no path".into()))?;
+    let mut cursor = root;
+    for segment in parents {
+        cursor = path_child_mut(cursor, segment)
+            .ok_or_else(|| Error::Invalid(format!("parameter path {path:?} is missing")))?;
+    }
+    *path_child_mut(cursor, last)
+        .ok_or_else(|| Error::Invalid(format!("parameter path {path:?} is missing")))? =
+        replacement;
+    Ok(())
+}
+/// Resolve every named parameter reference in one command's parameters,
+/// refusing a name the design does not record and a slot the command cannot
+/// bind.
+fn resolve_parameters(
+    p: &Project,
+    command: &str,
+    params: &Value,
+) -> Result<ResolvedCommand, Error> {
+    let mut found = Vec::new();
+    parameter_ref_paths(params, &mut Vec::new(), &mut found);
+    if found.is_empty() {
+        return Ok(ResolvedCommand {
+            params: params.clone(),
+            bound: vec![],
+        });
+    }
+    let slots = bindable_fields(command);
+    let mut resolved = params.clone();
+    let mut bound = Vec::new();
+    for (path, name) in found {
+        let field = slots
+            .iter()
+            .find(|(slot, _)| *slot == path)
+            .map(|(_, field)| *field)
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "{command} cannot take a named parameter for {path:?}; only hole and via placement, move and size commands can"
+                ))
+            })?;
+        let parameter = p.parameters.get(&name).ok_or_else(|| {
+            Error::Invalid(format!(
+                "no parameter named {name:?}; record it before referencing it"
+            ))
+        })?;
+        set_at(&mut resolved, &path, json!(parameter.value))?;
+        bound.push((field, name));
+    }
+    Ok(ResolvedCommand {
+        params: resolved,
+        bound,
+    })
+}
+/// Write one bound field again and re-run the range checks of the command
+/// that normally writes it.
+fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> Result<(), Error> {
+    match field {
+        Field::HoleDiameter => {
+            let hole = p
+                .board
+                .holes
+                .iter_mut()
+                .find(|h| h.id == object)
+                .ok_or_else(missing)?;
+            if !(0.05..=25.0).contains(&value) {
+                return Err(Error::Invalid(
+                    "hole drill must be within 0.05 to 25 mm".into(),
+                ));
+            }
+            hole.diameter = value;
+        }
+        Field::HoleX | Field::HoleY => {
+            let hole = p
+                .board
+                .holes
+                .iter_mut()
+                .find(|h| h.id == object)
+                .ok_or_else(missing)?;
+            let moved = if field == Field::HoleX {
+                Point::new(value, hole.position.y)
+            } else {
+                Point::new(hole.position.x, value)
+            };
+            if !moved.valid() {
+                return Err(Error::Invalid("hole position is out of range".into()));
+            }
+            hole.position = moved;
+        }
+        Field::ViaDiameter => {
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == object)
+                .ok_or_else(missing)?;
+            if !value.is_finite() || value <= 0.0 || value > 100.0 {
+                return Err(Error::Invalid(
+                    "via diameter must be within 0 to 100 mm".into(),
+                ));
+            }
+            if value <= via.drill {
+                return Err(Error::Invalid(
+                    "via drill must be smaller than its pad".into(),
+                ));
+            }
+            via.diameter = value;
+        }
+        Field::ViaDrill => {
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == object)
+                .ok_or_else(missing)?;
+            if !value.is_finite() || value < 0.0 || value >= via.diameter {
+                return Err(Error::Invalid(
+                    "via drill must be smaller than its pad".into(),
+                ));
+            }
+            via.drill = value;
+        }
+        Field::ViaX | Field::ViaY => {
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == object)
+                .ok_or_else(missing)?;
+            let moved = if field == Field::ViaX {
+                Point::new(value, via.position.y)
+            } else {
+                Point::new(via.position.x, value)
+            };
+            if !moved.valid() {
+                return Err(Error::Invalid("via position is out of range".into()));
+            }
+            via.position = moved;
+        }
+    }
+    Ok(())
+}
+/// Run one command with named parameters resolved, then record what it bound.
+/// A plain number written where a parameter could stand releases that field,
+/// so a later parameter change never overrides a deliberate edit.
 fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<Value, Error> {
+    let resolved = resolve_parameters(p, command, params)?;
+    let target = BindingTarget::of(command);
+    let object = match target {
+        BindingTarget::Placed => None,
+        BindingTarget::Targeted => params.get("id").and_then(Value::as_u64),
+    };
+    let mut released = Vec::new();
+    if let Some(object) = object {
+        let mut writes = Vec::new();
+        for (path, field) in bindable_fields(command) {
+            let written = value_at(params, path).is_some();
+            let follows = resolved.bound.iter().any(|(bound, _)| bound == field);
+            if written && !follows {
+                writes.push(field.field());
+            }
+        }
+        if !writes.is_empty() {
+            p.bindings.retain(|b| {
+                let stale = b.object == object && writes.contains(&b.field);
+                if stale {
+                    released.push(json!({"object": b.object, "field": b.field}));
+                }
+                !stale
+            });
+        }
+    }
+    let mut result = run_command(p, next, command, &resolved.params)?;
+    p.prune_bindings();
+    if !resolved.bound.is_empty() {
+        let placed = match target {
+            BindingTarget::Placed => result.get("id").and_then(Value::as_u64),
+            BindingTarget::Targeted => object,
+        };
+        if let Some(placed) = placed {
+            for (field, name) in &resolved.bound {
+                p.bindings.push(Binding {
+                    object: placed,
+                    field: field.field(),
+                    parameter: name.clone(),
+                });
+            }
+        }
+    }
+    if !released.is_empty()
+        && let Some(map) = result.as_object_mut()
+    {
+        map.insert("unbound".into(), Value::Array(released));
+    }
+    Ok(result)
+}
+fn run_command(
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+) -> Result<Value, Error> {
     if let Some(result) = authoring::run(p, next, command, params) {
         return result;
     }
@@ -4698,6 +5297,97 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 return Err(missing());
             }
             Ok(json!({"key": a.key}))
+        }
+        "parameter.set" => {
+            let a: ParameterSetParams = parse(params)?;
+            if !pcbcraft_doc::valid_parameter_name(&a.name) {
+                return Err(Error::Invalid(
+                    "parameter names are 1 to 32 letters, digits or underscores and start with a letter or underscore"
+                        .into(),
+                ));
+            }
+            if !pcbcraft_doc::valid_parameter_value(a.value) {
+                return Err(Error::Invalid(
+                    "parameter values are finite numbers within plus or minus 10000 mm".into(),
+                ));
+            }
+            let note = a.note.unwrap_or_default();
+            if !pcbcraft_doc::valid_parameter_note(&note) {
+                return Err(Error::Invalid("a parameter note fits 256 bytes".into()));
+            }
+            if !p.parameters.contains_key(&a.name)
+                && p.parameters.len() >= pcbcraft_doc::MAX_PARAMETERS
+            {
+                return Err(Error::Invalid(
+                    "a project records at most 128 named parameters".into(),
+                ));
+            }
+            // The table is the authority: every object bound to this name is
+            // written again here, inside the same batch, so one edit moves
+            // everything that depends on it and one undo puts it all back.
+            let follows: Vec<Binding> = p.parameter_bindings(&a.name).cloned().collect();
+            let mut updated: Vec<Id> = Vec::new();
+            for binding in &follows {
+                write_bound_field(p, binding.object, binding.field, a.value)?;
+                if !updated.contains(&binding.object) {
+                    updated.push(binding.object);
+                }
+            }
+            p.parameters.insert(
+                a.name.clone(),
+                pcbcraft_doc::Parameter {
+                    value: a.value,
+                    note,
+                },
+            );
+            Ok(json!({
+                "name": a.name,
+                "value": a.value,
+                "drives": follows.len(),
+                "updated": updated,
+            }))
+        }
+        "parameter.remove" => {
+            let a: ParameterRemoveParams = parse(params)?;
+            if !p.parameters.contains_key(&a.name) {
+                return Err(missing());
+            }
+            let mut users: Vec<Id> = Vec::new();
+            for binding in p.parameter_bindings(&a.name) {
+                if !users.contains(&binding.object) {
+                    users.push(binding.object);
+                }
+            }
+            if !users.is_empty() && !a.unbind {
+                return Err(Error::Invalid(format!(
+                    "parameter {:?} still drives these objects: {users:?}; pass unbind to release them",
+                    a.name
+                )));
+            }
+            p.bindings.retain(|b| b.parameter != a.name);
+            p.parameters.remove(&a.name);
+            Ok(json!({"name": a.name, "released": users}))
+        }
+        "parameter.list" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "parameter.list takes an empty object".into(),
+                ));
+            }
+            let mut rows = Vec::new();
+            for (name, parameter) in &p.parameters {
+                let driven: Vec<Value> = p
+                    .parameter_bindings(name)
+                    .map(|b| json!({"object":b.object,"field":b.field}))
+                    .collect();
+                rows.push(json!({
+                    "name": name,
+                    "value": parameter.value,
+                    "note": parameter.note,
+                    "drives": driven,
+                }));
+            }
+            Ok(json!({"parameters": rows, "count": rows.len()}))
         }
         "project.set_unit" => {
             let a: ProjectSetUnitParams = parse(params)?;
@@ -5777,6 +6467,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 max_width: None,
                 target_length: None,
                 length_tolerance: None,
+                via_diameter: None,
+                via_drill: None,
+                pair_width: None,
+                pair_gap: None,
                 nets: a.nets,
                 profile: None,
             });
@@ -5903,10 +6597,14 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "netclass.set" => {
             let a: ClassSetParams = parse(params)?;
-            if a.name.is_none() && a.width.is_none() {
-                return Err(Error::Invalid(
-                    "give a new name, a new width, or both".into(),
-                ));
+            if a.name.is_none()
+                && a.width.is_none()
+                && a.via_diameter.is_none()
+                && a.via_drill.is_none()
+                && a.pair_width.is_none()
+                && a.pair_gap.is_none()
+            {
+                return Err(Error::Invalid("give at least one field to change".into()));
             }
             if let Some(name) = &a.name {
                 if name.is_empty() || name.len() > 128 {
@@ -5928,16 +6626,51 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "width must be between 0 and 100 millimetres".into(),
                 ));
             }
+            for bound in [a.via_diameter, a.pair_width] {
+                if bound.is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 100.0) {
+                    return Err(Error::Invalid(
+                        "via and pair widths must be between 0 and 100 millimetres".into(),
+                    ));
+                }
+            }
+            if a.via_drill
+                .is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 100.0)
+            {
+                return Err(Error::Invalid(
+                    "via drill must be between 0 and 100 millimetres".into(),
+                ));
+            }
+            if a.pair_gap
+                .is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 10.0)
+            {
+                return Err(Error::Invalid(
+                    "pair gap must be between 0 and 10 millimetres".into(),
+                ));
+            }
             let class = p
                 .net_classes
                 .iter_mut()
                 .find(|k| k.id == a.class)
                 .ok_or_else(missing)?;
-            if a.name.as_deref().is_none_or(|name| name == class.name)
-                && a.width.is_none_or(|width| width == class.width)
+            let via_diameter = a.via_diameter.or(class.via_diameter);
+            let via_drill = a.via_drill.or(class.via_drill);
+            if via_diameter
+                .zip(via_drill)
+                .is_some_and(|(d, drill)| drill >= d)
             {
                 return Err(Error::Invalid(
-                    "that class already goes by that name and width".into(),
+                    "via drill must stay smaller than the outer pad".into(),
+                ));
+            }
+            if a.name.as_deref().is_none_or(|name| name == class.name)
+                && a.width.is_none_or(|width| width == class.width)
+                && a.via_diameter.is_none_or(|v| class.via_diameter == Some(v))
+                && a.via_drill.is_none_or(|v| class.via_drill == Some(v))
+                && a.pair_width.is_none_or(|v| class.pair_width == Some(v))
+                && a.pair_gap.is_none_or(|v| class.pair_gap == Some(v))
+            {
+                return Err(Error::Invalid(
+                    "that class already carries those values".into(),
                 ));
             }
             if let Some(name) = a.name {
@@ -5946,11 +6679,27 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if let Some(width) = a.width {
                 class.width = width;
             }
+            if let Some(v) = a.via_diameter {
+                class.via_diameter = Some(v);
+            }
+            if let Some(v) = a.via_drill {
+                class.via_drill = Some(v);
+            }
+            if let Some(v) = a.pair_width {
+                class.pair_width = Some(v);
+            }
+            if let Some(v) = a.pair_gap {
+                class.pair_gap = Some(v);
+            }
             Ok(json!({
                 "class": class.id,
                 "name": class.name,
                 "width": class.width,
                 "clearance": class.clearance,
+                "via_diameter": class.via_diameter,
+                "via_drill": class.via_drill,
+                "pair_width": class.pair_width,
+                "pair_gap": class.pair_gap,
                 "nets": class.nets.len()
             }))
         }
@@ -5962,6 +6711,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .position(|k| k.id == a.class)
                 .ok_or_else(missing)?;
             let freed = p.net_classes.remove(index).nets.len();
+            p.class_pairs
+                .retain(|r| r.class_a != a.class && r.class_b != a.class);
             Ok(json!({"removed":a.class,"nets_released":freed}))
         }
         "netclass.assign_pattern" => {
@@ -7980,6 +8731,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "graphic.to_track" => {
             let a: GraphicToTrackParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             if p.nets.iter().all(|n| n.id != a.net) {
                 return Err(Error::Invalid("unknown net".into()));
             }
@@ -8018,7 +8770,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     start: pair[0],
                     end: pair[1],
                     width,
-                    layer: a.layer,
+                    layer,
                     arc: None,
                 });
                 ids.push(id);
@@ -8028,12 +8780,13 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "plot.to_schematic" => {
             let a: PlotToSchematicParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             if !a.origin.valid() {
                 return Err(Error::Invalid("plot origin is out of range".into()));
             }
             let shift = |point: Point| Point::new(point.x + a.origin.x, point.y + a.origin.y);
             let mut items: Vec<(String, Vec<Point>, f64, String)> = Vec::new();
-            for track in p.board.tracks.iter().filter(|t| t.layer == a.layer) {
+            for track in p.board.tracks.iter().filter(|t| t.layer == layer) {
                 items.push((
                     "line".into(),
                     vec![shift(track.start), shift(track.end)],
@@ -8056,7 +8809,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     .board
                     .texts
                     .iter()
-                    .filter(|t| t.layer == a.layer && !t.text.is_empty())
+                    .filter(|t| t.layer == layer && !t.text.is_empty())
                 {
                     items.push((
                         "text".into(),
@@ -8629,11 +9382,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 id,
                 position: a.position,
                 diameter: a.diameter,
-                layer: match a.layer.as_deref() {
-                    None | Some("F.Cu") => pcbcraft_doc::Layer::Front,
-                    Some("B.Cu") => pcbcraft_doc::Layer::Back,
-                    Some(_) => return Err(Error::Invalid("fiducials sit on F.Cu or B.Cu".into())),
-                },
+                layer: command_layer(p, params, Layer::Front)?,
             });
             Ok(json!({"id":id}))
         }
@@ -8663,13 +9412,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "fiducial discs must be 0.2 to 10 millimetres".into(),
                 ));
             }
-            let layer = match a.layer.as_deref() {
-                None => None,
-                Some("F.Cu") => Some(pcbcraft_doc::Layer::Front),
-                Some("B.Cu") => Some(pcbcraft_doc::Layer::Back),
-                Some(_) => {
-                    return Err(Error::Invalid("fiducials sit on F.Cu or B.Cu".into()));
-                }
+            let layer = if params.get("layer").is_some() {
+                Some(command_layer(p, params, Layer::Front)?)
+            } else {
+                None
             };
             let fiducial = p
                 .board
@@ -8687,7 +9433,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             Ok(json!({
                 "id": a.id,
                 "diameter": diameter,
-                "layer": if layer == pcbcraft_doc::Layer::Back { "B.Cu" } else { "F.Cu" },
+                "layer": p.layer_name(layer),
             }))
         }
         "board.fiducial_remove" => {
@@ -9155,10 +9901,23 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if !a.position.valid() {
                 return Err(Error::Invalid("via position is out of range".into()));
             }
-            if !a.diameter.is_finite() || a.diameter <= 0.0 || a.diameter > 100.0 {
+            let class = p.net_class(a.net);
+            let diameter = a
+                .diameter
+                .or_else(|| class.and_then(|c| c.via_diameter))
+                .ok_or_else(|| {
+                    Error::Invalid(
+                        "give a via diameter or classify the net with a default via size".into(),
+                    )
+                })?;
+            let drill = a
+                .drill
+                .or_else(|| class.and_then(|c| c.via_drill))
+                .unwrap_or(0.0);
+            if !diameter.is_finite() || diameter <= 0.0 || diameter > 100.0 {
                 return Err(Error::Invalid("via diameter must be within 0–100mm".into()));
             }
-            if !a.drill.is_finite() || a.drill < 0.0 || a.drill >= a.diameter {
+            if !drill.is_finite() || drill < 0.0 || drill >= diameter {
                 return Err(Error::Invalid(
                     "via drill must be smaller than its pad".into(),
                 ));
@@ -9168,10 +9927,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 id,
                 net: a.net,
                 position: a.position,
-                diameter: a.diameter,
-                drill: a.drill,
+                diameter,
+                drill,
             });
-            Ok(json!({"id":id}))
+            Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
         "via.move" => {
             let a: PositionParams = parse(params)?;
@@ -9253,6 +10012,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "zone.place" => {
             let a: ZoneParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             if !p.nets.iter().any(|n| n.id == a.net) {
                 return Err(missing());
             }
@@ -9261,7 +10021,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.board.zones.push(pcbcraft_doc::CopperZone {
                 id,
                 net: a.net,
-                layer: a.layer,
+                layer,
                 outline: a.outline,
                 cutouts: vec![],
                 filled: true,
@@ -9297,16 +10057,17 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "zone.set_layer" => {
             let a: ZoneLayerParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             let zone = p
                 .board
                 .zones
                 .iter_mut()
                 .find(|z| z.id == a.id)
                 .ok_or_else(missing)?;
-            if zone.layer == a.layer {
+            if zone.layer == layer {
                 return Err(Error::Invalid("that zone is already on the layer".into()));
             }
-            zone.layer = a.layer;
+            zone.layer = layer;
             Ok(json!({"id":a.id,"layer":zone.layer}))
         }
         "zone.set_net" => {
@@ -9466,6 +10227,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "teardrop.add" => {
             let a: TeardropParams = parse(params)?;
+            let layer_filter = optional_command_layer(p, params)?;
             if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
                 return Err(missing());
             }
@@ -9476,7 +10238,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             let mut junctions: Vec<Junction> = Vec::new();
             for track in &p.board.tracks {
-                if a.layer.is_some_and(|layer| track.layer != layer)
+                if layer_filter.is_some_and(|layer| track.layer != layer)
                     || a.net.is_some_and(|net| track.net != net)
                 {
                     continue;
@@ -9575,11 +10337,12 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "teardrop.remove" => {
             let a: TeardropRemoveParams = parse(params)?;
+            let layer_filter = optional_command_layer(p, params)?;
             let before = p.board.zones.len();
             p.board.zones.retain(|zone| {
                 !(zone.kind.as_deref() == Some("teardrop")
                     && a.net.is_none_or(|net| zone.net == net)
-                    && a.layer.is_none_or(|layer| zone.layer == layer))
+                    && layer_filter.is_none_or(|layer| zone.layer == layer))
             });
             let removed = before - p.board.zones.len();
             if removed == 0 {
@@ -9920,12 +10683,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
                 return Err(Error::Invalid("unknown net".into()));
             }
-            let layer = match a.layer.as_deref() {
-                None => None,
-                Some("F.Cu") => Some(pcbcraft_doc::Layer::Front),
-                Some("B.Cu") => Some(pcbcraft_doc::Layer::Back),
-                _ => return Err(Error::Invalid("layer must be one of F.Cu, B.Cu".into())),
-            };
+            let layer = optional_command_layer(p, params)?;
             let matches_layer = |l: &pcbcraft_doc::Layer| layer.is_none_or(|w| *l == w);
             let refs: std::collections::BTreeMap<Id, String> = p
                 .components
@@ -10312,29 +11070,69 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 )
                 || !a.thickness.is_finite()
                 || !(0.0..=100.0).contains(&a.thickness)
+                || a.copper_role.as_ref().is_some_and(|r| {
+                    !matches!(r.as_str(), "signal" | "plane" | "mixed" | "hatched")
+                })
             {
                 return Err(Error::Invalid(
                     "layer record needs a short name, a known role and a thickness within 100mm"
                         .into(),
                 ));
             }
-            let records = &mut p.board.layer_records;
-            if let Some(existing) = records.iter_mut().find(|l| l.name == name) {
-                existing.kind = a.kind;
+            let mut trial = p.board.layer_records.clone();
+            if let Some(existing) = trial.iter_mut().find(|l| l.name == name) {
+                existing.kind = a.kind.clone();
                 existing.thickness = a.thickness;
+                existing.copper_role = a.copper_role.clone();
             } else {
-                if records.len() >= 32 {
+                if trial.len() >= 32 {
                     return Err(Error::Invalid(
                         "a board records at most 32 layer notes".into(),
                     ));
                 }
+                trial.push(pcbcraft_doc::LayerRecord {
+                    name: name.clone(),
+                    kind: a.kind.clone(),
+                    thickness: a.thickness,
+                    copper_role: a.copper_role.clone(),
+                });
+            }
+            refuse_stack_shrink(p, copper_count_in_records(&trial))?;
+            let records = &mut p.board.layer_records;
+            if let Some(existing) = records.iter_mut().find(|l| l.name == name) {
+                existing.kind = a.kind;
+                existing.thickness = a.thickness;
+                existing.copper_role = a.copper_role;
+            } else {
                 records.push(pcbcraft_doc::LayerRecord {
                     name: name.clone(),
                     kind: a.kind,
                     thickness: a.thickness,
+                    copper_role: a.copper_role,
                 });
-                records.sort_by(|x, y| x.name.cmp(&y.name));
             }
+            Ok(json!({"name": name, "count": p.board.layer_records.len()}))
+        }
+        "board.remove_layer_record" => {
+            let a: LayerRecordNameParams = parse(params)?;
+            let name = a.name.trim();
+            if name.is_empty() || name.len() > 64 {
+                return Err(Error::Invalid(
+                    "layer record name must be 1 to 64 characters".into(),
+                ));
+            }
+            let mut trial: Vec<_> = p
+                .board
+                .layer_records
+                .iter()
+                .filter(|r| r.name != name)
+                .cloned()
+                .collect();
+            if trial.len() == p.board.layer_records.len() {
+                return Err(missing());
+            }
+            refuse_stack_shrink(p, copper_count_in_records(&trial))?;
+            p.board.layer_records = trial;
             Ok(json!({"name": name, "count": p.board.layer_records.len()}))
         }
         "board.clear_layer_records" => {
@@ -10343,6 +11141,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "board.clear_layer_records takes an empty object".into(),
                 ));
             }
+            refuse_stack_shrink(p, copper_count_in_records(&[]))?;
             let removed = p.board.layer_records.len();
             p.board.layer_records.clear();
             Ok(json!({"removed": removed}))
@@ -10561,6 +11360,69 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 json!({"rows": rows, "count": count, "dielectric": height, "er": er, "target_ohm": a.target}),
             )
         }
+        "rules.class_pair_set" => {
+            let a: ClassPairSetParams = parse(params)?;
+            if a.class_a == a.class_b {
+                return Err(Error::Invalid(
+                    "class pair rules sit between two different classes".into(),
+                ));
+            }
+            if !fab_mm_ok(a.clearance) {
+                return Err(Error::Invalid(
+                    "clearance must be between 0.001 and 100 millimetres".into(),
+                ));
+            }
+            if !p.net_classes.iter().any(|c| c.id == a.class_a)
+                || !p.net_classes.iter().any(|c| c.id == a.class_b)
+            {
+                return Err(Error::Invalid("unknown net class".into()));
+            }
+            let key = (a.class_a.min(a.class_b), a.class_a.max(a.class_b));
+            if let Some(rule) = p.class_pairs.iter_mut().find(|r| r.key() == key) {
+                rule.clearance = a.clearance;
+            } else {
+                if p.class_pairs.len() >= 64 {
+                    return Err(Error::Invalid(
+                        "a project carries at most 64 class pair rules".into(),
+                    ));
+                }
+                p.class_pairs.push(ClassPairRule {
+                    class_a: key.0,
+                    class_b: key.1,
+                    clearance: a.clearance,
+                });
+            }
+            Ok(json!({"class_a":key.0,"class_b":key.1,"clearance":a.clearance}))
+        }
+        "rules.class_pair_remove" => {
+            let a: ClassPairRemoveParams = parse(params)?;
+            if a.class_a == a.class_b {
+                return Err(Error::Invalid(
+                    "class pair rules sit between two different classes".into(),
+                ));
+            }
+            let key = (a.class_a.min(a.class_b), a.class_a.max(a.class_b));
+            let before = p.class_pairs.len();
+            p.class_pairs.retain(|r| r.key() != key);
+            if p.class_pairs.len() == before {
+                return Err(missing());
+            }
+            Ok(json!({"removed":true}))
+        }
+        "rules.preset_apply" => {
+            let a: PresetApplyParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 64 {
+                return Err(Error::Invalid("preset name must be 1 to 64 bytes".into()));
+            }
+            if !FAB_PRESET_NAMES.contains(&a.name.as_str()) {
+                return Err(Error::Invalid("unknown fabrication preset".into()));
+            }
+            let preset = fab_preset(&a.name)
+                .ok_or_else(|| Error::Invalid("unknown fabrication preset".into()))?;
+            p.board.rules = Some(preset.rules);
+            Ok(json!({"preset":a.name,"rules":p.board.rules}))
+        }
+        "rules.preset_list" => Ok(json!({"presets":fab_preset_list()})),
         "rules.severity" => {
             let a: RuleSeverityParams = parse(params)?;
             if a.code.is_empty() || a.code.len() > 32 {
@@ -10864,12 +11726,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "area height limits must be 0.1 to 100 millimetres".into(),
                 ));
             }
-            let layer = match a.layer.as_deref() {
-                None => None,
-                Some("F.Cu") => Some(pcbcraft_doc::Layer::Front),
-                Some("B.Cu") => Some(pcbcraft_doc::Layer::Back),
-                Some(_) => return Err(Error::Invalid("layer must be F.Cu or B.Cu".into())),
-            };
+            let layer = optional_command_layer(p, params)?;
             if p.board.rule_areas.len() >= 64 {
                 return Err(Error::Invalid(
                     "a board carries at most 64 rule areas".into(),
@@ -11671,6 +12528,13 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         }
                         skipped.extend(plots.skipped);
                     }
+                    "raster" => {
+                        for (name, bytes) in pcbcraft_io::raster_job_pngs(p)? {
+                            pcbcraft_io::atomic_write(&directory.join(&name), &bytes)
+                                .map_err(Error::Invalid)?;
+                            written.push(name);
+                        }
+                    }
                     other => {
                         return Err(Error::Invalid(format!("unknown export kind {other}")));
                     }
@@ -11966,9 +12830,78 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             Ok(json!({"width":a.width,"height":a.height}))
         }
         "board.rules.set" => {
-            let a: Clearance = parse(params)?;
-            p.board.clearance = a.clearance;
-            Ok(json!({"clearance":a.clearance}))
+            let a: BoardRulesSetParams = parse(params)?;
+            if a.clearance.is_none() && !a.touches_fab() {
+                return Err(Error::Invalid(
+                    "give a clearance or at least one fabrication minimum".into(),
+                ));
+            }
+            if let Some(clearance) = a.clearance {
+                if !fab_mm_ok(clearance) {
+                    return Err(Error::Invalid(
+                        "clearance must be between 0.001 and 100 millimetres".into(),
+                    ));
+                }
+                p.board.clearance = clearance;
+            }
+            if a.touches_fab() {
+                let rules = p.board.rules.get_or_insert_with(FabRules::default);
+                merge_fab_mm(&mut rules.min_track, a.min_track)?;
+                merge_fab_mm(&mut rules.min_space, a.min_space)?;
+                merge_fab_mm(&mut rules.min_drill, a.min_drill)?;
+                merge_fab_mm(&mut rules.min_npth, a.min_npth)?;
+                merge_fab_mm(&mut rules.min_ring_via, a.min_ring_via)?;
+                merge_fab_mm(&mut rules.min_ring_pth, a.min_ring_pth)?;
+                merge_fab_mm(&mut rules.hole_to_hole_via, a.hole_to_hole_via)?;
+                merge_fab_mm(&mut rules.hole_to_hole_pad, a.hole_to_hole_pad)?;
+                merge_fab_mm(&mut rules.hole_to_copper_via, a.hole_to_copper_via)?;
+                merge_fab_mm(&mut rules.hole_to_copper_pth, a.hole_to_copper_pth)?;
+                merge_fab_mm(&mut rules.hole_to_copper_npth, a.hole_to_copper_npth)?;
+                merge_fab_mm(&mut rules.edge_routed, a.edge_routed)?;
+                merge_fab_mm(&mut rules.edge_vscore, a.edge_vscore)?;
+                merge_fab_mm(&mut rules.silk_line, a.silk_line)?;
+                merge_fab_mm(&mut rules.silk_text_height, a.silk_text_height)?;
+                merge_fab_mm(&mut rules.silk_to_pad, a.silk_to_pad)?;
+                merge_fab_mm(&mut rules.mask_dam, a.mask_dam)?;
+                if let Some(ratio) = a.max_aspect_ratio {
+                    if !ratio.is_finite() || !(1.0..=50.0).contains(&ratio) {
+                        return Err(Error::Invalid(
+                            "aspect ratio must be between 1 and 50".into(),
+                        ));
+                    }
+                    rules.max_aspect_ratio = Some(ratio);
+                }
+                if let Some(pad) = a.plating_allowance {
+                    if !pad.is_finite() || !(0.0..=0.5).contains(&pad) {
+                        return Err(Error::Invalid(
+                            "plating allowance must be between 0 and 0.5 mm".into(),
+                        ));
+                    }
+                    rules.plating_allowance = Some(pad);
+                }
+                if let Some(name) = a.preset {
+                    if name.is_empty() || name.len() > 64 {
+                        return Err(Error::Invalid("preset name must be 1 to 64 bytes".into()));
+                    }
+                    rules.preset = Some(name);
+                }
+                if let Some(url) = a.source_url {
+                    if url.is_empty() || url.len() > 512 {
+                        return Err(Error::Invalid("source URL is out of range".into()));
+                    }
+                    rules.source_url = Some(url);
+                }
+                if let Some(day) = a.retrieved {
+                    if day.is_empty() || day.len() > 32 {
+                        return Err(Error::Invalid("retrieval date is out of range".into()));
+                    }
+                    rules.retrieved = Some(day);
+                }
+                if !rules.valid() {
+                    return Err(Error::Invalid("fabrication rules are inconsistent".into()));
+                }
+            }
+            Ok(json!({"clearance":p.board.clearance,"rules":p.board.rules}))
         }
         "board.cutout.add" => {
             let a: Cut = parse(params)?;
@@ -12289,6 +13222,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "track.add" => {
             let a: TrackParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             let width = a.width.unwrap_or_else(|| class_width(p, a.net));
             if !positive(width) {
                 return Err(Error::Invalid("width must be positive".into()));
@@ -12300,13 +13234,14 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 start: a.start,
                 end: a.end,
                 width,
-                layer: a.layer,
+                layer,
                 arc: None,
             });
             Ok(json!({"id":id, "width": width}))
         }
         "track.add_arc" => {
             let a: TrackArcParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             if !a.start.valid() || !a.mid.valid() || !a.end.valid() {
                 return Err(Error::Invalid("track points are out of range".into()));
             }
@@ -12326,7 +13261,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 start: a.start,
                 end: a.end,
                 width,
-                layer: a.layer,
+                layer,
                 arc: Some(a.mid),
             });
             Ok(json!({
@@ -12524,7 +13459,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "track.route" => {
             let a: Route = parse(params)?;
-            let (start, end, net) = route::resolve(p, &a.from, &a.to, a.net, a.layer)?;
+            let layer = command_layer(p, params, a.layer)?;
+            let (start, end, net) = route::resolve(p, &a.from, &a.to, a.net, layer)?;
             let width = a.width.unwrap_or_else(|| class_width(p, net));
             if start.distance(end) < 1e-6 || !positive(width) {
                 return Err(Error::Invalid(
@@ -12532,7 +13468,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.mode != route::Mode::Orthogonal {
-                return route::run(p, next, start, end, net, width, a.layer, a.mode);
+                return route::run(p, next, start, end, net, width, layer, a.mode);
             }
             let bend = Point::new(end.x, start.y);
             let mut ids = vec![];
@@ -12546,7 +13482,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         start: from,
                         end: to,
                         width,
-                        layer: a.layer,
+                        layer,
                         arc: None,
                     });
                 }
@@ -13094,16 +14030,17 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "track.set_layer" => {
             let a: TrackLayerParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             let track = p
                 .board
                 .tracks
                 .iter_mut()
                 .find(|t| t.id == a.id)
                 .ok_or_else(missing)?;
-            if track.layer == a.layer {
+            if track.layer == layer {
                 return Err(Error::Invalid("that track is already on the layer".into()));
             }
-            track.layer = a.layer;
+            track.layer = layer;
             Ok(json!({"id":a.id,"layer":track.layer}))
         }
         "track.set_width_net" => {
@@ -13125,16 +14062,24 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "track.set_layer_net" => {
             let a: TrackNetLayerParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
+            let from_layer = match params.get("from_layer") {
+                None | Some(Value::Null) => a.from_layer,
+                Some(Value::String(s)) => Some(resolve_layer_param(p, s)?),
+                _ => {
+                    return Err(Error::Invalid("from_layer must be a string or null".into()));
+                }
+            };
             if !p.nets.iter().any(|n| n.id == a.net) {
                 return Err(missing());
             }
             let mut changed = 0usize;
             for track in p.board.tracks.iter_mut() {
                 if track.net == a.net
-                    && track.layer != a.layer
-                    && a.from_layer.is_none_or(|from| track.layer == from)
+                    && track.layer != layer
+                    && from_layer.is_none_or(|from| track.layer == from)
                 {
-                    track.layer = a.layer;
+                    track.layer = layer;
                     changed += 1;
                 }
             }
@@ -13191,6 +14136,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "text.place" => {
             let a: TextPlaceParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             if a.text.is_empty() || a.text.len() > 128 {
                 return Err(Error::Invalid("text must be 1 to 128 bytes".into()));
             }
@@ -13213,7 +14159,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 text: a.text,
                 position: a.position,
                 size: a.size,
-                layer: a.layer,
+                layer,
                 rotation: 0.0,
                 component: None,
             });
@@ -13258,6 +14204,22 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             {
                 return Err(Error::Invalid("invalid text rotation".into()));
             }
+            let layer = if params.get("layer").is_some() {
+                let current = p
+                    .board
+                    .texts
+                    .iter()
+                    .find(|t| t.id == a.id)
+                    .ok_or_else(missing)?;
+                command_layer(p, params, current.layer)?
+            } else {
+                p.board
+                    .texts
+                    .iter()
+                    .find(|t| t.id == a.id)
+                    .ok_or_else(missing)?
+                    .layer
+            };
             let text = p
                 .board
                 .texts
@@ -13270,9 +14232,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if let Some(size) = a.size {
                 text.size = size;
             }
-            if let Some(layer) = a.layer {
-                text.layer = layer;
-            }
+            text.layer = layer;
             if let Some(rotation) = a.rotation {
                 text.rotation = rotation;
             }
@@ -13347,6 +14307,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SYM_REFRESH_SEQ: AtomicU64 = AtomicU64::new(0);
     fn library_fixture(name: &str) -> String {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../library/tests/fixtures")
@@ -15568,9 +16531,10 @@ mod tests {
 
     #[test]
     fn symbol_refresh_propagates_symbol_edits_to_every_placed_copy() -> Result<(), Error> {
-        let folder = std::env::temp_dir()
-            .join(format!("pcbcraft-symrefresh-{}", std::process::id()))
-            .join("amps");
+        let tag = SYM_REFRESH_SEQ.fetch_add(1, Ordering::Relaxed);
+        let lib = format!("amps{tag}");
+        let tmp = tempfile::tempdir().map_err(|e| Error::Invalid(e.to_string()))?;
+        let folder = tmp.path().join(&lib);
         std::fs::create_dir_all(&folder).map_err(|e| Error::Invalid(e.to_string()))?;
         let file = folder.join("amps.kicad_sym");
         let fixture = library_fixture("lm358.kicad_sym");
@@ -15578,12 +16542,13 @@ mod tests {
         let mut s = Session::default();
         s.execute(
             "library.link",
-            json!({"name":"amps","path":folder.to_string_lossy().to_string()}),
+            json!({"name":lib,"path":folder.to_string_lossy().to_string()}),
             None,
         )?;
+        let sym_path = format!("{lib}/amps.kicad_sym");
         let chip = s.execute(
             "component.place_library",
-            json!({"path":"amps/amps.kicad_sym","symbol":"LM358","position":{"x":20.0,"y":40.0}}),
+            json!({"path":sym_path,"symbol":"LM358","position":{"x":20.0,"y":40.0}}),
             None,
         )?["result"]["id"]
             .as_u64()
@@ -15618,7 +16583,7 @@ mod tests {
             .map_err(|e| Error::Invalid(e.to_string()))?;
         let refreshed = s.execute(
             "symbol.refresh",
-            json!({"path":"amps/amps.kicad_sym","symbol":"LM358"}),
+            json!({"path":sym_path,"symbol":"LM358"}),
             None,
         )?;
         assert_eq!(
@@ -15652,7 +16617,7 @@ mod tests {
         assert!(
             s.execute(
                 "symbol.refresh",
-                json!({"path":"amps/amps.kicad_sym","symbol":"NOPE"}),
+                json!({"path":sym_path,"symbol":"NOPE"}),
                 None
             )
             .is_err()
@@ -16245,7 +17210,7 @@ mod tests {
         assert_eq!(records[0]["name"], "Core");
         assert_eq!(records[0]["kind"], "prepreg");
         assert_eq!(records[0]["thickness"], 0.2);
-        assert_eq!(records[1]["name"], "F.Cu", "notes stay ordered by name");
+        assert_eq!(records[1]["name"], "F.Cu", "notes stay in stack order");
         for bad in [
             json!({"name":"  ","kind":"core","thickness":1.0}),
             json!({"name":"L1","kind":"bronze","thickness":1.0}),
@@ -23570,6 +24535,294 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn parameters_are_set_read_and_listed() -> Result<(), Error> {
+        let mut s = Session::default();
+        let stored = s.execute(
+            "parameter.set",
+            json!({"name":"hole_pitch","value":3.2,"note":"mounting holes"}),
+            None,
+        )?;
+        assert_eq!(stored["result"]["value"], json!(3.2));
+        s.execute("parameter.set", json!({"name":"rail","value":1.0}), None)?;
+        let listed = s.execute("parameter.list", json!({}), None)?;
+        let rows = listed["result"]["parameters"]
+            .as_array()
+            .ok_or_else(missing)?;
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["name"], json!("hole_pitch"));
+        assert_eq!(rows[0]["value"], json!(3.2));
+        assert_eq!(rows[0]["note"], json!("mounting holes"));
+        assert_eq!(rows[1]["name"], json!("rail"));
+        assert_eq!(rows[1]["note"], json!(""));
+        assert_eq!(rows[0]["drives"], json!([]));
+        // Setting a name again changes its value and keeps one row.
+        s.execute(
+            "parameter.set",
+            json!({"name":"hole_pitch","value":4.0}),
+            None,
+        )?;
+        assert_eq!(s.project.parameters.len(), 2);
+        assert_eq!(
+            s.project.parameter("hole_pitch").map(|p| p.value),
+            Some(4.0)
+        );
+        assert!(s.project.parameter("missing").is_none());
+        Ok(())
+    }
+    #[test]
+    fn bad_parameter_names_and_values_are_refused() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut bad = vec![
+            json!({"name":"","value":1.0}),
+            json!({"name":"1pitch","value":1.0}),
+            json!({"name":"hole-pitch","value":1.0}),
+            json!({"name":"a b","value":1.0}),
+            json!({"name":"pitch","value":10_001.0}),
+            json!({"name":"pitch","value":-10_001.0}),
+            json!({"name":"pitch","value":"hole_pitch*2"}),
+            json!({"name":"pitch","value":1.0,"note":"x".repeat(257)}),
+            json!({"name":"pitch","value":1.0,"unknown":true}),
+            json!({"name":"x".repeat(33),"value":1.0}),
+        ];
+        bad.push(json!({"name":"pitch"}));
+        for request in bad {
+            assert!(
+                s.execute("parameter.set", request.clone(), None).is_err(),
+                "{request}"
+            );
+        }
+        assert!(s.project.parameters.is_empty());
+        // The table stays bounded.
+        for index in 0..pcbcraft_doc::MAX_PARAMETERS {
+            s.execute(
+                "parameter.set",
+                json!({"name":format!("p{index}"),"value":1.0}),
+                None,
+            )?;
+        }
+        assert!(
+            s.execute(
+                "parameter.set",
+                json!({"name":"one_too_many","value":1.0}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.parameters.len(), pcbcraft_doc::MAX_PARAMETERS);
+        Ok(())
+    }
+    #[test]
+    fn a_hole_placed_with_a_parameter_follows_it() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        s.execute("parameter.set", json!({"name":"drill","value":1.0}), None)?;
+        let left = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":{"param":"pitch"}},"diameter":{"param":"drill"}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let right = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":20.0},"diameter":{"param":"drill"}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        // The left hole follows the pitch twice and the drill, the right one
+        // follows the pitch for its x only.
+        assert_eq!(s.project.bindings.len(), 5);
+        assert_eq!(s.project.board.holes[0].position, Point::new(3.2, 3.2));
+        assert_eq!(s.project.board.holes[0].diameter, 1.0);
+        assert_eq!(s.project.board.holes[1].position, Point::new(3.2, 20.0));
+        let revision = s.revision;
+        let changed = s.execute("parameter.set", json!({"name":"pitch","value":8.0}), None)?;
+        assert_eq!(changed["revision"].as_u64(), Some(revision + 1));
+        assert_eq!(s.project.board.holes[0].position, Point::new(8.0, 8.0));
+        assert_eq!(s.project.board.holes[1].position, Point::new(8.0, 20.0));
+        assert_eq!(changed["result"]["updated"], json!([left, right]));
+        assert_eq!(changed["result"]["drives"], json!(3));
+        // One undo puts every hole back where it was.
+        s.undo()?;
+        assert_eq!(s.project.board.holes[0].position, Point::new(3.2, 3.2));
+        assert_eq!(s.project.board.holes[1].position, Point::new(3.2, 20.0));
+        assert_eq!(s.project.parameter("pitch").map(|p| p.value), Some(3.2));
+        Ok(())
+    }
+    #[test]
+    fn a_parameter_change_that_breaks_a_bound_hole_is_refused_and_leaves_everything()
+    -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"drill","value":1.0}), None)?;
+        s.execute(
+            "board.hole_place",
+            json!({"position":{"x":10.0,"y":10.0},"diameter":{"param":"drill"}}),
+            None,
+        )?;
+        let revision = s.revision;
+        let before = s.project.clone();
+        let failure = s.execute("parameter.set", json!({"name":"drill","value":30.0}), None);
+        assert!(failure.is_err());
+        assert_eq!(s.revision, revision);
+        assert_eq!(s.project, before);
+        assert_eq!(s.project.board.holes[0].diameter, 1.0);
+        assert_eq!(s.project.parameter("drill").map(|p| p.value), Some(1.0));
+        Ok(())
+    }
+    #[test]
+    fn removing_a_used_parameter_names_its_users() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":10.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let failure = s
+            .execute("parameter.remove", json!({"name":"pitch"}), None)
+            .err()
+            .ok_or_else(missing)?;
+        let message = failure.to_string();
+        assert!(message.contains("pitch"), "{message}");
+        assert!(message.contains(&hole.to_string()), "{message}");
+        assert_eq!(s.project.parameters.len(), 1);
+        // Releasing the users leaves their geometry exactly as it stands.
+        let released = s.execute(
+            "parameter.remove",
+            json!({"name":"pitch","unbind":true}),
+            None,
+        )?;
+        assert_eq!(released["result"]["released"], json!([hole]));
+        assert!(s.project.parameters.is_empty());
+        assert!(s.project.bindings.is_empty());
+        assert_eq!(s.project.board.holes[0].position.x, 3.2);
+        assert!(
+            s.execute("parameter.remove", json!({"name":"pitch"}), None)
+                .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn deleting_a_bound_object_drops_its_binding() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        let first = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":4.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let second = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":8.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.bindings.len(), 2);
+        s.execute("object.delete", json!({"id":first}), None)?;
+        assert_eq!(s.project.bindings.len(), 1);
+        assert!(
+            s.project
+                .bindings
+                .iter()
+                .all(|binding| binding.object == second)
+        );
+        // The surviving hole still follows the parameter.
+        s.execute("parameter.set", json!({"name":"pitch","value":9.0}), None)?;
+        assert_eq!(s.project.board.holes[0].position.x, 9.0);
+        Ok(())
+    }
+    #[test]
+    fn a_plain_edit_unbinds_the_field() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":10.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.bindings.len(), 1);
+        let moved = s.execute(
+            "board.hole_move",
+            json!({"id":hole,"position":{"x":6.0,"y":10.0}}),
+            None,
+        )?;
+        assert_eq!(
+            moved["result"]["unbound"],
+            json!([{"object":hole,"field":"hole_x"}])
+        );
+        assert!(s.project.bindings.is_empty());
+        // A later parameter change leaves the edited hole where it was put.
+        s.execute("parameter.set", json!({"name":"pitch","value":9.0}), None)?;
+        assert_eq!(s.project.board.holes[0].position.x, 6.0);
+        Ok(())
+    }
+    #[test]
+    fn parameters_reach_vias_and_other_commands_refuse_them() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "parameter.set",
+            json!({"name":"via_drill","value":0.4}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":20.0,"y":20.0},"diameter":1.2,"drill":{"param":"via_drill"}}),
+            None,
+        )?;
+        s.execute(
+            "parameter.set",
+            json!({"name":"via_drill","value":0.6}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias[0].drill, 0.6);
+        // A drill that no longer fits under the pad is refused.
+        assert!(
+            s.execute(
+                "parameter.set",
+                json!({"name":"via_drill","value":1.4}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.vias[0].drill, 0.6);
+        let refusal = s
+            .execute(
+                "track.add",
+                json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":{"param":"via_drill"}}),
+                None,
+            )
+            .err()
+            .ok_or_else(missing)?;
+        assert!(
+            refusal
+                .to_string()
+                .contains("cannot take a named parameter"),
+            "{refusal}"
+        );
+        let unknown = s
+            .execute(
+                "board.hole_place",
+                json!({"position":{"x":{"param":"nope"},"y":0.0},"diameter":1.0}),
+                None,
+            )
+            .err()
+            .ok_or_else(missing)?;
+        assert!(unknown.to_string().contains("nope"), "{unknown}");
+        assert!(s.project.board.holes.is_empty());
+        Ok(())
+    }
+    #[test]
     fn slot_must_fit_inside_the_board() -> Result<(), Error> {
         let mut s = Session::default();
         let result = s.execute(
@@ -24709,6 +25962,39 @@ mod tests {
             "netlist.csv",
             "plot-report.csv",
             "board-report.txt",
+        ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn raster_job_writes_six_pngs_into_the_folder() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-raster-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"layers","kinds":["raster"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"layers","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        for name in [
+            "layer-copper-top.png",
+            "layer-copper-bottom.png",
+            "layer-mask-top.png",
+            "layer-mask-bottom.png",
+            "layer-legend-top.png",
+            "layer-legend-bottom.png",
         ] {
             assert!(
                 directory.join(name).exists(),
@@ -28981,6 +30267,199 @@ mod tests {
             "the outline and the label read back from the mill path"
         );
         let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn fabrication_rules_preset_class_pairs_and_via_defaults() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let rev = s.revision;
+        s.execute(
+            "rules.preset_apply",
+            json!({"name":"JLCPCB 1-2L"}),
+            Some(rev),
+        )?;
+        let rules = s.project.board.rules.as_ref().ok_or_else(missing)?;
+        assert_eq!(rules.preset.as_deref(), Some("JLCPCB 1-2L"));
+        assert!(rules.min_drill.is_some());
+        let before = rules.min_track;
+        s.undo()?;
+        assert!(s.project.board.rules.is_none());
+        s.execute("rules.preset_apply", json!({"name":"JLCPCB 1-2L"}), None)?;
+        assert_eq!(
+            s.project.board.rules.as_ref().and_then(|r| r.min_track),
+            before
+        );
+        let presets = s.execute("rules.preset_list", json!({}), None)?;
+        let list = presets["result"]["presets"]
+            .as_array()
+            .ok_or_else(missing)?;
+        assert!(list.iter().any(|v| v == "JLCPCB 1-2L"));
+        let class_a = s.execute(
+            "netclass.add",
+            json!({"name":"A","clearance":0.2,"width":0.25,"nets":[]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class_b = s.execute(
+            "netclass.add",
+            json!({"name":"B","clearance":0.2,"width":0.25,"nets":[]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "rules.class_pair_set",
+            json!({"class_a":class_a,"class_b":class_b,"clearance":0.9}),
+            None,
+        )?;
+        let net_a = s.project.nets.first().ok_or_else(missing)?.id;
+        let net_b = s.project.nets.get(1).ok_or_else(missing)?.id;
+        s.execute(
+            "netclass.assign",
+            json!({"net":net_a,"class":class_a}),
+            None,
+        )?;
+        s.execute(
+            "netclass.assign",
+            json!({"net":net_b,"class":class_b}),
+            None,
+        )?;
+        assert!(
+            (s.project.required_clearance(net_a, net_b) - 0.9).abs() < 1e-9,
+            "class pair clearance beats class defaults"
+        );
+        s.execute(
+            "netclass.set",
+            json!({"class":class_a,"via_diameter":1.0,"via_drill":0.4}),
+            None,
+        )?;
+        s.execute(
+            "netclass.assign",
+            json!({"net":net_a,"class":class_a}),
+            None,
+        )?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":net_a,"position":{"x":20.0,"y":20.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            s.project
+                .board
+                .vias
+                .iter()
+                .find(|v| v.id == via)
+                .map(|v| v.diameter),
+            Some(1.0)
+        );
+        s.project
+            .board
+            .rules
+            .as_mut()
+            .ok_or_else(missing)?
+            .min_drill = Some(0.45);
+        let findings = pcbcraft_rules::drc(&s.project);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.code == "min_drill" && f.objects.contains(&via)),
+            "a via smaller than min_drill is reported"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn old_board_without_rules_field_loads_cleanly() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.project.board.rules = None;
+        s.project.validate()?;
+        assert!(
+            !pcbcraft_rules::drc(&s.project)
+                .iter()
+                .any(|f| f.code == "min_drill" || f.code == "min_track"),
+            "absent fab rules stay silent"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn two_layer_example_project_round_trips_byte_stable() -> Result<(), Error> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+        for name in ["dual-amplifier.pcbcraft", "kicad-library-rc.pcbcraft"] {
+            let path = dir.join(name);
+            let project = pcbcraft_io::load(&path).map_err(Error::Invalid)?;
+            project.validate().map_err(Error::Invalid)?;
+            let again =
+                serde_json::to_string(&project).map_err(|e| Error::Invalid(e.to_string()))?;
+            let reparsed: Project =
+                serde_json::from_str(&again).map_err(|e| Error::Invalid(e.to_string()))?;
+            assert_eq!(project, reparsed, "{name} should round-trip");
+        }
+        Ok(())
+    }
+    #[test]
+    fn track_add_on_inner_layer_validates_against_stackup() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            s.execute(
+                "board.set_layer_record",
+                json!({"name":name,"kind":"copper","thickness":thickness}),
+                None,
+            )?;
+        }
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":1.0,"y":1.0},"end":{"x":5.0,"y":1.0},"width":0.2,"layer":"B.Cu"}),
+            None,
+        )?;
+        assert!(s.project.validate().is_ok());
+        assert!(
+            s.execute("board.remove_layer_record", json!({"name":"B.Cu"}), None,)
+                .is_err(),
+            "shrinking the stack while bottom copper still carries a track is refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn clear_layer_records_refused_when_inner_copper_used() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            s.execute(
+                "board.set_layer_record",
+                json!({"name":name,"kind":"copper","thickness":thickness}),
+                None,
+            )?;
+        }
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":1.0,"y":1.0},"end":{"x":5.0,"y":1.0},"width":0.2,"layer":"In2.Cu"}),
+            None,
+        )?;
+        assert!(
+            s.execute("board.clear_layer_records", json!({}), None)
+                .is_err(),
+            "clearing stack notes is refused while inner copper is in use"
+        );
         Ok(())
     }
 }
