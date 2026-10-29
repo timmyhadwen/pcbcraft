@@ -2617,7 +2617,9 @@ impl App {
                         .sense(egui::Sense::click()),
                     );
                     if brand
-                        .on_hover_text("Back to the start screen, where you open or begin a design.")
+                        .on_hover_text(
+                            "Back to the start screen, where you open or begin a design.",
+                        )
                         .clicked()
                     {
                         self.home_open = true;

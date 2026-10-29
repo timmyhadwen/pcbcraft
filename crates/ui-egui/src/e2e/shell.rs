@@ -203,14 +203,21 @@ fn a_newcomer_sees_a_slim_bar_with_only_the_brand_and_the_menus() -> Result<(), 
     app.refresh();
     let ctx = egui::Context::default();
     for needle in ["PCBCraft", "File", "Edit", "Help"] {
-        let row = text_row(&ctx, &mut app, needle)
-            .ok_or_else(|| format!("{needle} is not on screen"))?;
+        let row =
+            text_row(&ctx, &mut app, needle).ok_or_else(|| format!("{needle} is not on screen"))?;
         assert!(
             row < App::APP_BAR_HEIGHT,
             "{needle} sits in the 34 px bar, found at {row}"
         );
     }
-    for gone in ["Home", "Report a bug", "Save", "Undo", "Redo", env!("CARGO_PKG_VERSION")] {
+    for gone in [
+        "Home",
+        "Report a bug",
+        "Save",
+        "Undo",
+        "Redo",
+        env!("CARGO_PKG_VERSION"),
+    ] {
         assert!(
             text_row(&ctx, &mut app, gone).is_none_or(|row| row > App::APP_BAR_HEIGHT),
             "{gone} no longer sits in the bar"
@@ -252,14 +259,19 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    for word in ["Select", "Move", "Route", "Line", "Box", "Circle", "Outline", "Text"] {
+    for word in [
+        "Select", "Move", "Route", "Line", "Box", "Circle", "Outline", "Text",
+    ] {
         assert!(paints_text(&ctx, &mut app, word)?, "the strip says {word}");
     }
     for cryptic in ["Sel", "Mv", "Rt", "Ln", "Bx", "Cr", "Pl", "Tx"] {
         assert!(text_row(&ctx, &mut app, cryptic).is_none(), "no {cryptic}");
     }
     app.closed_tabs.push(Tab::Rules);
-    assert!(text_row(&ctx, &mut app, "Rules").is_none(), "a closed view leaves the row");
+    assert!(
+        text_row(&ctx, &mut app, "Rules").is_none(),
+        "a closed view leaves the row"
+    );
     // Other panels carry a "+" too; the one in the tab row is the highest.
     let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let plus = output
@@ -294,6 +306,9 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     assert!(matches!(app.tab, Tab::Rules), "the + menu reopens it");
     authoring::tests::tap(&ctx, &mut app, "Files")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;
-    assert!(matches!(app.tab, Tab::Libraries), "Library sources stays reachable");
+    assert!(
+        matches!(app.tab, Tab::Libraries),
+        "Library sources stays reachable"
+    );
     Ok(())
 }
