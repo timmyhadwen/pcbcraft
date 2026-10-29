@@ -3,6 +3,7 @@ mod a11y;
 mod assistant;
 mod authoring;
 mod board3d;
+pub mod brand;
 mod canvas;
 mod contrast;
 mod datums;
@@ -979,6 +980,7 @@ pub struct App {
     command_open: bool,
     command_query: String,
     shortcuts_open: bool,
+    about_open: bool,
     command_focus: bool,
     command_index: usize,
     command_scroll: bool,
@@ -1461,6 +1463,7 @@ impl App {
             command_open: false,
             command_query: String::new(),
             shortcuts_open: false,
+            about_open: false,
             command_focus: false,
             command_index: 0,
             command_scroll: false,
@@ -3085,16 +3088,15 @@ impl App {
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    let brand = ui.add(
-                        egui::Button::new(
-                            egui::RichText::new(t!("app.name"))
-                                .size(15.0)
-                                .strong()
-                                .color(self.accent()),
-                        )
-                        .frame(false)
-                        .min_size(Vec2::splat(Self::MIN_TARGET)),
-                    );
+                    let label = egui::RichText::new(t!("app.name"))
+                        .size(15.0)
+                        .strong()
+                        .color(self.accent());
+                    let button = match brand::image(ui.ctx(), 20.0) {
+                        Some(mark) => egui::Button::image_and_text(mark, label),
+                        None => egui::Button::new(label),
+                    };
+                    let brand = ui.add(button.frame(false).min_size(Vec2::splat(Self::MIN_TARGET)));
                     a11y::name_control(&brand, "PCBCraft start screen", None);
                     if brand.on_hover_text(t!("app.brand.tip")).clicked() {
                         self.home_open = true;
@@ -3217,6 +3219,8 @@ impl App {
                     .show(ui, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add_space(36.0);
+                            brand::mark(ui, 96.0);
+                            ui.add_space(12.0);
                             ui.label(
                                 egui::RichText::new(t!("dialogs.start_home.welcome_to_pcbcraft"))
                                     .size(30.0)
@@ -3555,6 +3559,13 @@ impl App {
                 self.command_index = 0;
             }
             ui.separator();
+            if ui
+                .button(t!("app.about"))
+                .on_hover_text(t!("app.about.tip"))
+                .clicked()
+            {
+                self.about_open = !self.about_open;
+            }
             if ui
                 .button(t!("app.report_bug"))
                 .on_hover_text(t!("app.report_bug.tip"))
@@ -6739,6 +6750,8 @@ impl App {
                         });
                 });
         }
+        let about_muted = self.muted();
+        brand::about_window(ui, &mut self.about_open, about_muted);
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))

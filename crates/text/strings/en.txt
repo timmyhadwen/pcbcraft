@@ -12,6 +12,17 @@ language.direction = ltr
 
 app.name = PCBCraft
 app.brand.tip = Back to the start screen, where you open or begin a design.
+app.about = About
+app.about.tip = Show the version, licence and credits for PCBCraft.
+brand.mark = PCBCraft logo
+brand.mark.tip = The PCBCraft mark: three board layers with a via drilled through them.
+about.title = About PCBCraft
+about.version = Version {version}
+about.tagline = Schematic capture, board layout and design checks in one open application.
+about.licence = Licensed under the GNU General Public License, version 3 or later.
+about.font = The wordmark is set in IBM Plex Sans, used under the SIL Open Font License 1.1.
+about.close = Close
+about.close.tip = Close this window.
 app.home = Home
 app.home.tip = Open the start screen.
 app.version = PCBCraft {version}
