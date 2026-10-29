@@ -749,7 +749,12 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
         [side, "copper"] => {
             let s = side_of_path(side);
             let mut ids: Vec<Id> = project.nets.iter().map(|n| n.id).collect();
-            for id in board.tracks.iter().map(|t| t.net).chain(board.zones.iter().map(|z| z.net)) {
+            for id in board
+                .tracks
+                .iter()
+                .map(|t| t.net)
+                .chain(board.zones.iter().map(|z| z.net))
+            {
                 if !ids.contains(&id) {
                     ids.push(id);
                 }
@@ -2843,7 +2848,10 @@ mod tests {
                 .any(|r| r.kind == RowKind::Net && r.label == net)
         );
         assert!(list.iter().any(|r| r.key == "nets"));
-        view.query = "zzzz-no-such-thing".to_owned();
+        view = TreeView {
+            query: "zzzz-no-such-thing".to_owned(),
+            ..view
+        };
         assert!(rows(&env(&project, &[]), &mut view).is_empty());
     }
 
