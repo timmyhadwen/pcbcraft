@@ -103,7 +103,7 @@ regenerated KiCad library. Lossless library writing is future work.
 
 ## Limits
 
-The engine exposes **305** commands today; MCP advertises **358** tools including
+The engine exposes **306** commands today; MCP advertises **359** tools including
 session and export helpers. Not every command has a polished UI workflow yet.
 Browser WASM builds compile, but host file open/save/export is still planned.
 Routing modes beyond orthogonal are optional and layer-local; they are not a full

@@ -866,10 +866,18 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.hole_set_size",
-            "Resize the drill of an unplated hole in millimetres",
+            "Resize the drill of an unplated hole in millimetres; for a slot this is its width",
             schema(
                 json!({"id":id_schema(),"diameter":{"type":"number","minimum":0.05,"maximum":25}}),
                 &["id", "diameter"],
+            ),
+        ),
+        (
+            "hole.slot",
+            "Route an unplated slot: a capsule drill from one centre to another at the given width, at least 0.01 mm and at most 50 mm between the centres",
+            schema(
+                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
+                &["start", "end", "width"],
             ),
         ),
         (
@@ -2961,6 +2969,13 @@ struct ViaParams {
 struct HolePlaceParams {
     position: Point,
     diameter: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SlotParams {
+    start: Point,
+    end: Point,
+    width: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8819,6 +8834,51 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             });
             Ok(json!({"id":id}))
         }
+        "hole.slot" => {
+            let a: SlotParams = parse(params)?;
+            if !a.start.valid() || !a.end.valid() {
+                return Err(Error::Invalid("slot centres are out of range".into()));
+            }
+            if !(0.05..=25.0).contains(&a.width) {
+                return Err(Error::Invalid(
+                    "slot width must be within 0.05 to 25 mm".into(),
+                ));
+            }
+            let span = a.start.distance(a.end);
+            if span < 0.01 {
+                return Err(Error::Invalid(
+                    "a slot needs two centres at least 0.01 mm apart".into(),
+                ));
+            }
+            if span > pcbcraft_doc::Hole::MAX_SPAN {
+                return Err(Error::Invalid(
+                    "a slot spans at most 50 mm between its centres".into(),
+                ));
+            }
+            if p.board.holes.len() >= 512 {
+                return Err(Error::Invalid(
+                    "a board carries at most 512 unplated holes".into(),
+                ));
+            }
+            let radius = a.width / 2.0;
+            let fits = |q: Point| {
+                q.x - radius >= 0.0
+                    && q.y - radius >= 0.0
+                    && q.x + radius <= p.board.width
+                    && q.y + radius <= p.board.height
+            };
+            if !fits(a.start) || !fits(a.end) {
+                return Err(Error::Invalid("a slot must fit inside the board".into()));
+            }
+            let id = allocate(next)?;
+            p.board.holes.push(pcbcraft_doc::Hole {
+                id,
+                position: a.start,
+                diameter: a.width,
+                end: Some(a.end),
+            });
+            Ok(json!({"id":id,"span":span,"length":span + a.width}))
+        }
         "board.hole_move" => {
             let a: Move = parse(params)?;
             let hole = p
@@ -8830,7 +8890,14 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if !a.position.valid() {
                 return Err(Error::Invalid("hole position is out of range".into()));
             }
+            let delta = Point::new(
+                a.position.x - hole.position.x,
+                a.position.y - hole.position.y,
+            );
             hole.position = a.position;
+            if let Some(end) = hole.end {
+                hole.end = Some(end.offset(delta));
+            }
             Ok(json!({"id":a.id}))
         }
         "board.hole_set_size" => {
@@ -22718,6 +22785,74 @@ mod tests {
         s.execute("object.delete", json!({"id":id}), None)?;
         s.execute("object.delete", json!({"id":second}), None)?;
         assert!(s.project.board.holes.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn slot_must_fit_inside_the_board() -> Result<(), Error> {
+        let mut s = Session::default();
+        let result = s.execute(
+            "hole.slot",
+            json!({"start":{"x":10.0,"y":10.0},"end":{"x":14.0,"y":10.0},"width":1.0}),
+            None,
+        )?;
+        assert!(result["result"]["id"].as_u64().is_some());
+        assert_eq!(s.project.board.holes.len(), 1);
+        let hole = &s.project.board.holes[0];
+        assert!(hole.is_slot());
+        assert_eq!(hole.finish(), Point::new(14.0, 10.0));
+        assert!((hole.length() - 5.0).abs() < 1e-12);
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":0.4,"y":10.0},"end":{"x":6.0,"y":10.0},"width":1.0}),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.holes.len(), 1);
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":50.0,"y":10.0},"end":{"x":59.8,"y":10.0},"width":1.0}),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.holes.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn slot_length_must_exceed_width() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":2.0}),
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":10.0,"y":10.0},"end":{"x":10.005,"y":10.0},"width":2.0}),
+                None,
+            )
+            .is_err(),
+            "centres closer than 0.01 mm cannot describe a slot"
+        );
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":5.0,"y":20.0},"end":{"x":5.4,"y":20.0},"width":0.5}),
+                None,
+            )
+            .is_ok(),
+            "a 0.9 mm long by 0.5 mm wide slot is legal"
+        );
+        assert!(s.project.board.holes[0].is_slot());
         Ok(())
     }
 

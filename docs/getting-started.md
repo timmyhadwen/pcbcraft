@@ -43,9 +43,9 @@ detail is under **First circuit** in the README.
 | Agent roles and leases | [agents/README.md](agents/README.md) |
 | KiCad library reading limits | [kicad-libraries.md](kicad-libraries.md) |
 
-Engine and MCP surface area on fork `main`: **305** typed engine commands (each
+Engine and MCP surface area on fork `main`: **306** typed engine commands (each
 also a direct MCP tool) plus **53** session, library, export and inspection MCP
-tools (**358** tools total). Counts come from `pcbcraft_engine::commands()` and
+tools (**359** tools total). Counts come from `pcbcraft_engine::commands()` and
 `tool_list()` in the MCP crate.
 
 ## Limits
