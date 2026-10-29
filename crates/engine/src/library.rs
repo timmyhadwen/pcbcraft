@@ -2,8 +2,10 @@
 //!
 //! `library.list` filters part listings with one `PartFilter` and pages them
 //! grouped by source; it never merges sources by rank and never mutates.
-//! Dependencies: `crates/library/src/listing.rs` for `PartListing` and `PartFilter`.
+//! Dependencies: `crates/library/src/listing.rs` for `PartListing` and `PartFilter`;
+//! `crates/library/src/listing_adapters.rs` for the symbol adapters.
 use pcbcraft_library::listing::{ListingSource, PartFilter, PartListing};
+use pcbcraft_library::listing_adapters::listings_from_symbols;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 use serde_json::{Value, json};
 use std::io::Read;
@@ -550,8 +552,7 @@ pub fn compare(
         _ => Err("kind must be symbol or footprint".into()),
     }
 }
-/// Most listings one `library.list` call reads or returns in total.
-pub const MAX_LISTINGS: usize = 5000;
+use pcbcraft_library::listing_adapters::MAX_LISTINGS;
 /// Page size when the caller gives no limit.
 const DEFAULT_LIST_LIMIT: usize = 30;
 
@@ -618,7 +619,14 @@ pub fn list_listings(
     Ok(json!({"items": page, "next_cursor": next_cursor, "total_known": total}))
 }
 
-fn list_tool(args: &Value) -> Result<Value, String> {
+type ListArgs = (
+    PartFilter,
+    usize,
+    std::collections::BTreeMap<String, usize>,
+    Vec<PartListing>,
+);
+
+fn list_args(args: &Value) -> Result<ListArgs, String> {
     let filter: PartFilter = match args.get("filter") {
         None => PartFilter::default(),
         Some(v) => serde_json::from_value(v.clone()).map_err(|e| format!("filter: {e}"))?,
@@ -635,7 +643,7 @@ fn list_tool(args: &Value) -> Result<Value, String> {
         None | Some(Value::Null) => Default::default(),
         Some(v) => serde_json::from_value(v.clone()).map_err(|e| format!("cursor: {e}"))?,
     };
-    let mut listings: Vec<PartListing> = match args.get("listings") {
+    let listings: Vec<PartListing> = match args.get("listings") {
         None => vec![],
         Some(Value::Array(a)) if a.len() > MAX_LISTINGS => {
             return Err(format!(
@@ -644,13 +652,91 @@ fn list_tool(args: &Value) -> Result<Value, String> {
         }
         Some(v) => serde_json::from_value(v.clone()).map_err(|e| format!("listings: {e}"))?,
     };
-    listings.extend(local_listings());
-    list_listings(listings, &filter, limit, &cursor)
+    Ok((filter, limit, cursor, listings))
 }
 
-/// Listings from the sources that need no network. Filled by the adapters.
-fn local_listings() -> Vec<PartListing> {
-    vec![]
+/// Listings from installed library files, clipped to `room`. Returns the
+/// listings and how many symbols were found in all.
+fn installed_listings(roots: Vec<PathBuf>, room: usize) -> (Vec<PartListing>, usize) {
+    let mut out = vec![];
+    let mut found = 0;
+    let Ok(scanned) = catalog_paths(roots, 4096) else {
+        return (out, found);
+    };
+    let paths = scanned["symbol_libraries"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for path in paths.iter().filter_map(|p| p["path"].as_str()) {
+        let Ok(defs) = symbols(Path::new(path)) else {
+            continue;
+        };
+        let part = listings_from_symbols(
+            &defs,
+            ListingSource::Installed,
+            path,
+            room.saturating_sub(out.len()),
+        );
+        found += part.total_known;
+        out.extend(part.items);
+    }
+    (out, found)
+}
+
+/// Listings from the parts saved inside the project.
+///
+/// # Rules
+/// `source` is `Project` and `source_id` the project name. At most
+/// `MAX_LISTINGS` come back.
+/// # Dependencies
+/// `crates/library/src/listing_adapters.rs`; `Project::library` in `crates/doc/src/lib.rs`.
+/// # Do not
+/// Change the project.
+pub fn project_listings(project: &pcbcraft_doc::Project) -> Vec<PartListing> {
+    listings_from_symbols(
+        &project.library.symbols,
+        ListingSource::Project,
+        &project.name,
+        MAX_LISTINGS,
+    )
+    .items
+}
+
+/// `library.list` over the loaded listings, the project's parts when a
+/// project is given, and the installed libraries.
+///
+/// # Rules
+/// Same arguments and answer as `library.list`. When the sources hold more
+/// than `MAX_LISTINGS` symbols the answer carries `clipped: true` and
+/// `found_symbols` with the real count.
+/// # Dependencies
+/// [`list_listings`] in this file.
+/// # Do not
+/// Change the project or any library.
+pub fn list_with_project(
+    args: &Value,
+    project: Option<&pcbcraft_doc::Project>,
+) -> Result<Value, String> {
+    list_over(args, project, paths())
+}
+
+fn list_over(
+    args: &Value,
+    project: Option<&pcbcraft_doc::Project>,
+    roots: Vec<PathBuf>,
+) -> Result<Value, String> {
+    let (filter, limit, cursor, mut listings) = list_args(args)?;
+    listings.extend(project.map(project_listings).unwrap_or_default());
+    let room = MAX_LISTINGS.saturating_sub(listings.len());
+    let (installed, found) = installed_listings(roots, room);
+    let clipped = found > installed.len();
+    listings.extend(installed);
+    let mut out = list_listings(listings, &filter, limit, &cursor)?;
+    if clipped {
+        out["clipped"] = json!(true);
+        out["found_symbols"] = json!(found);
+    }
+    Ok(out)
 }
 pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     let text = |key: &str| {
@@ -661,7 +747,7 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     match name {
         "library.catalog" => catalog(),
         "library.sources" => sources(),
-        "library.list" => list_tool(args),
+        "library.list" => list_with_project(args, None),
         "design.recents" => Ok(json!({"designs": crate::recents::load_recent_paths()})),
         "library.add_folder" => {
             let name = match args.get("name") {
@@ -1020,5 +1106,28 @@ mod tests {
         }
         let many = json!({"categories": vec!["led"; 17]});
         assert!(read_tool("library.list", &json!({"filter": many})).is_err());
+    }
+
+    #[test]
+    fn library_list_over_installed_and_fixture_sources_returns_both_kinds() -> Result<(), String> {
+        let dir = TestDirectory::new()?;
+        let symbols_dir = dir.0.join("symbols");
+        std::fs::create_dir(&symbols_dir).map_err(|e| e.to_string())?;
+        let device = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../library/tests/fixtures/device.kicad_sym");
+        std::fs::copy(device, symbols_dir.join("Device.kicad_sym")).map_err(|e| e.to_string())?;
+        let fixture = listed("F1", ListingSource::Fixture, "Sample");
+        let args = json!({"listings": [fixture], "limit": 100});
+        let out = list_over(&args, None, vec![dir.0.clone()])?;
+        let kinds: Vec<&str> = out["items"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|i| i["source"].as_str()).collect())
+            .unwrap_or_default();
+        assert!(
+            kinds.contains(&"fixture") && kinds.contains(&"installed"),
+            "{kinds:?}"
+        );
+        assert_eq!(kinds[0], "fixture", "groups follow the fixed source order");
+        Ok(())
     }
 }

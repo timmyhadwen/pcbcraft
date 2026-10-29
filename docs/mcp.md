@@ -82,7 +82,7 @@ To capture the actual UI, use the desktop's `--capture /absolute/path.png` optio
 
 ## Library workflow
 
-`library.list` filters part listings from every non-network source with one
+`library.list` filters part listings (the open project's saved parts, installed libraries and any `listings` you pass) with one
 filter (`categories`, `packages`, `value_min`, `value_max`, `voltage_min`,
 `temp_range`, `stock_min`, `lifecycle`, `sources`, `rohs`, `text`), `limit`
 (1-100) and a `cursor` from the previous answer. It returns `items`,

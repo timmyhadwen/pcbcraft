@@ -277,11 +277,17 @@ pub(crate) fn invoke_session(
     if matches!(name, "design.list_open" | "design.activate") {
         return Err("multi-document tools require the desktop control bridge".into());
     }
+    if name == "library.list" {
+        let s = session
+            .lock()
+            .map_err(|_| "session unavailable after internal failure".to_string())?;
+        return pcbcraft_engine::library::list_with_project(args, Some(&s.project))
+            .map(text_result);
+    }
     if [
         "design.recents",
         "library.catalog",
         "library.search",
-        "library.list",
         "library.inspect_symbol",
         "library.inspect_footprint",
         "library.compare",

@@ -2,7 +2,9 @@ use pcbcraft_library::listing::{
     Category, Lifecycle, ListingSource, PartFilter, PartListing, Unit, category_from,
     lifecycle_from, listing_from_result, package_key, parse_tolerance, parse_value,
 };
+use pcbcraft_library::listing_adapters::{listing_from_symbol, listings_from_symbols};
 use pcbcraft_library::sources::{FixtureSource, PartResult, PartSource, PriceBreak, SourceError};
+use pcbcraft_library::{SymbolDefinition, read_symbols};
 
 const SAMPLE: &str = include_str!("fixtures/sources/sample.json");
 const ATTRIBUTES: &str = include_str!("fixtures/sources/sample-attributes.json");
@@ -323,4 +325,66 @@ fn a_filter_with_more_than_sixteen_categories_is_refused() {
         ..Default::default()
     };
     assert!(bad.validate().is_err());
+}
+
+const DEVICE: &str = include_str!("fixtures/device.kicad_sym");
+const OPAMP: &str = include_str!("fixtures/lm358.kicad_sym");
+
+fn symbol(text: &str, name: &str) -> Result<SymbolDefinition, String> {
+    read_symbols(text)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|s| s.name == name)
+        .ok_or_else(|| format!("{name} not in fixture"))
+}
+
+#[test]
+fn a_project_symbol_with_a_value_and_footprint_becomes_a_listing_with_package_and_value()
+-> Result<(), String> {
+    let mut r = symbol(DEVICE, "R")?;
+    r.value = "10k".into();
+    r.footprint = "Resistor_SMD:R_0805_2012Metric".into();
+    let l = listing_from_symbol(&r, ListingSource::Project, "My board");
+    assert_eq!(l.source, ListingSource::Project);
+    assert_eq!(l.source_id, "My board");
+    assert_eq!(l.source_ref, "R");
+    assert_eq!(l.category, Category::Resistor);
+    assert_eq!((l.value, l.value_unit), (Some(10_000.0), Some(Unit::Ohm)));
+    assert_eq!(l.package_key, "chip-0805");
+    assert_eq!(
+        l.footprint.as_deref(),
+        Some("Resistor_SMD:R_0805_2012Metric")
+    );
+    assert_eq!(l.description, "Resistor");
+    assert_eq!(l.stock, None);
+    assert_eq!(l.manufacturer, "");
+    Ok(())
+}
+
+#[test]
+fn an_installed_symbol_without_a_value_leaves_value_empty() -> Result<(), String> {
+    let mut op = symbol(OPAMP, "LM358")?;
+    op.value = String::new();
+    let l = listing_from_symbol(&op, ListingSource::Installed, "/lib/lm358.kicad_sym");
+    assert_eq!(l.source, ListingSource::Installed);
+    assert_eq!((l.value, l.value_unit), (None, None));
+    assert_eq!(l.footprint, None);
+    assert_eq!(l.package_key, "");
+    assert_eq!(
+        l.datasheet_url.as_deref(),
+        Some("http://www.ti.com/lit/ds/symlink/lm2904-n.pdf")
+    );
+    Ok(())
+}
+
+#[test]
+fn more_than_the_listing_cap_is_clipped_with_total_known_set() -> Result<(), String> {
+    let r = symbol(DEVICE, "R")?;
+    let many = vec![r; 5003];
+    let out = listings_from_symbols(&many, ListingSource::Installed, "lib", 10_000);
+    assert_eq!(out.items.len(), 5000);
+    assert_eq!(out.total_known, 5003);
+    let small = listings_from_symbols(&many, ListingSource::Installed, "lib", 3);
+    assert_eq!((small.items.len(), small.total_known), (3, 5003));
+    Ok(())
 }
