@@ -723,9 +723,19 @@ impl App {
                                         "Plated through-hole",
                                     )
                                     .on_hover_text("Drilled and plated so legs can pass through.");
+                                    ui.selectable_value(
+                                        &mut pad.pad_type,
+                                        "unplated".into(),
+                                        "Unplated hole",
+                                    )
+                                    .on_hover_text(
+                                        "A bare drilled hole for a locating peg or screw. It has no copper and no net.",
+                                    );
                                 });
                             if before != pad.pad_type {
-                                if pad.pad_type == "thru_hole" {
+                                if pad.pad_type == "unplated" {
+                                    apply_unplated_defaults(pad);
+                                } else if pad.pad_type == "thru_hole" {
                                     pad.layers = vec!["*.Cu".into(), "*.Mask".into()];
                                     pad.drill = Some(Drill {
                                         size: Point::new(0.8, 0.8),
@@ -1186,4 +1196,17 @@ pub(crate) mod tests {
         let _ = std::fs::remove_file(&file);
         Ok(())
     }
+}
+
+/// Turn a library pad into an unplated mechanical hole: no number, no copper
+/// layers, and a drill that fills the pad.
+pub(crate) fn apply_unplated_defaults(pad: &mut pcbcraft_library::FootprintPad) {
+    pad.number.clear();
+    pad.layers.clear();
+    let size = pad.drill.as_ref().map_or(Point::new(1.0, 1.0), |d| d.size);
+    pad.size = size;
+    pad.drill = Some(Drill {
+        size,
+        offset: Point::default(),
+    });
 }

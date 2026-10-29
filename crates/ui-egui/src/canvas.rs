@@ -1756,18 +1756,25 @@ impl App {
                 ));
             }
             for pad in f.pads.iter().filter(|_| shown("Pads")) {
-                if let Some(pos) = f.pad_position(&pad.number) {
+                {
+                    let pos = f.pad_world_position(pad);
                     let center = camera.screen(pos, rect);
-                    let outline: Vec<Pos2> = pad
-                        .outline_points()
-                        .into_iter()
-                        .map(|p| camera.screen(f.position.offset(p.rotate(-f.rotation)), rect))
-                        .collect();
-                    painter.add(pad_shape(
-                        outline,
-                        pad.outline_is_convex(),
-                        self.copper(pad.net, Color32::from_rgb(230, 194, 125)),
-                    ));
+                    let mechanical = pad
+                        .geometry
+                        .as_ref()
+                        .is_some_and(|g| g.pad_type == "unplated");
+                    if !mechanical {
+                        let outline: Vec<Pos2> = pad
+                            .outline_points()
+                            .into_iter()
+                            .map(|p| camera.screen(f.position.offset(p.rotate(-f.rotation)), rect))
+                            .collect();
+                        painter.add(pad_shape(
+                            outline,
+                            pad.outline_is_convex(),
+                            self.copper(pad.net, Color32::from_rgb(230, 194, 125)),
+                        ));
+                    }
                     let hole = pad.drill_outline_points();
                     if !hole.is_empty() {
                         painter.add(egui::Shape::convex_polygon(
@@ -1777,7 +1784,11 @@ impl App {
                                 })
                                 .collect(),
                             self.surface(),
-                            Stroke::NONE,
+                            if mechanical {
+                                Stroke::new(1.0, color)
+                            } else {
+                                Stroke::NONE
+                            },
                         ));
                     }
                     if self.preferences.pad_labels != PadLabels::Off {
