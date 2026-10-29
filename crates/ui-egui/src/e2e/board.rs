@@ -1366,7 +1366,7 @@ fn board_app_with_via(layers: u32) -> Result<(App, Point), String> {
             }
         }
     }
-    let at = Point::new(20.0, 30.0);
+    let at = Point::new(20.0, 14.0);
     app.tool_call(
         "via.place",
         json!({"net":4,"position":{"x":at.x,"y":at.y},"diameter":0.8,"drill":0.4}),
@@ -1381,8 +1381,9 @@ fn board_app_with_via(layers: u32) -> Result<(App, Point), String> {
 fn a_newcomer_sees_one_span_on_a_two_layer_board() -> Result<(), String> {
     let (mut app, at) = board_app_with_via(2)?;
     let ctx = egui::Context::default();
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    for _ in 0..8 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     let screen = pcb_screen(&app, at);
     right_click(&ctx, &mut app, screen);
     authoring::tests::tap(&ctx, &mut app, "Assign layers")?;
@@ -1399,8 +1400,9 @@ fn a_newcomer_sees_one_span_on_a_two_layer_board() -> Result<(), String> {
 fn a_newcomer_right_clicks_a_via_and_assigns_its_layers() -> Result<(), String> {
     let (mut app, at) = board_app_with_via(4)?;
     let ctx = egui::Context::default();
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    for _ in 0..8 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     let screen = pcb_screen(&app, at);
     right_click(&ctx, &mut app, screen);
     authoring::tests::tap(&ctx, &mut app, "Assign layers")?;

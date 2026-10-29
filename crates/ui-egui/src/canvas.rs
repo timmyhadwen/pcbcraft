@@ -1242,6 +1242,17 @@ impl App {
         .on_hover_text("Choose which copper layers this via connects.");
         done
     }
+    /// "Copy" for menus that open on a part's pad or pin: the part is already
+    /// selected by the right-click, so this copies the whole part.
+    fn copy_part_menu(&mut self, ui: &mut egui::Ui) -> bool {
+        let tip = command_tip("selection.copy_text");
+        if Self::canvas_menu_button(ui, "Copy", &tip) {
+            let ctx = ui.ctx().clone();
+            self.copy_selection(&ctx);
+            return true;
+        }
+        false
+    }
     fn canvas_menu_button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
         ui.button(label).on_hover_text(tip).clicked()
     }
@@ -1326,6 +1337,9 @@ impl App {
                 }
             }
             CanvasMenuKind::Pin(pin) => {
+                if self.copy_part_menu(ui) {
+                    return true;
+                }
                 if Self::canvas_menu_button(
                     ui,
                     "Start wire",
@@ -1355,6 +1369,9 @@ impl App {
                 }
             }
             CanvasMenuKind::Pad(id, pad) => {
+                if self.copy_part_menu(ui) {
+                    return true;
+                }
                 if Self::canvas_menu_button(
                     ui,
                     "Start route",
