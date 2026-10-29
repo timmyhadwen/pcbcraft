@@ -15,6 +15,7 @@ mod gerber_job;
 mod laser;
 mod layers;
 mod library_render;
+mod model_load;
 mod package;
 mod panel_export;
 mod plot_read;
@@ -24,8 +25,9 @@ pub use bitmap_trace::{
     decode_embedded_png, decode_png, embedded_bytes,
 };
 pub use board_mesh::{
-    BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
-    ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
+    BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
+    ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
+    with_models,
 };
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use gerber::{gerber_copper, gerber_silk};
@@ -41,6 +43,10 @@ pub use layers::{
     fabrication_point, gerber_copper_counts, layer_shapes,
 };
 use library_render::*;
+pub use model_load::{
+    LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
+    ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
+};
 pub use package::{
     MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
     package_zip,
