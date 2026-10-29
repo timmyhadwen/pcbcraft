@@ -24,6 +24,13 @@ fn main() -> eframe::Result {
     } else {
         pcbcraft_engine::Session::default()
     };
+    if args.iter().any(|a| a == "--sample") {
+        // The demo board shows the default 45 degree corners.
+        let cut = serde_json::json!({"points":[[3.0,0.0],[57.0,0.0],[60.0,3.0],[60.0,37.0],[57.0,40.0],[3.0,40.0],[0.0,37.0],[0.0,3.0]]});
+        if let Err(e) = session.execute("board.set_outline", cut, None) {
+            eprintln!("sample outline: {e}");
+        }
+    }
     if let Some(path) = option("--project") {
         let result = pcbcraft_io::load(std::path::Path::new(&path))
             .and_then(|project| session.replace(project).map_err(|e| e.to_string()));
