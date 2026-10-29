@@ -1,0 +1,97 @@
+id = "commarker-b6-mopa"
+name = "ComMarker B6 MOPA"
+kind = "laser_galvo"
+vendor = "ComMarker"
+model = "B6 MOPA"
+notes = "Galvo fiber laser; starting speeds marked unverified until owner tuning."
+
+[work_area]
+x = 150.0
+y = 150.0
+origin = "center"
+y_up = true
+
+[output]
+format = "svg"
+dialect = "laser_job"
+units = "mm"
+line_ending = "lf"
+mirror_bottom = true
+mirror_axis = "x"
+invert = false
+
+[laser]
+field_x_mm = 150.0
+field_y_mm = 150.0
+source_watts = 30.0
+wavelength_nm = 1064.0
+
+[[laser.operation]]
+name = "fiducials"
+mode = "line"
+speed_mm_s = 120.0
+power_percent = 25.0
+passes = 1
+frequency_khz = 50.0
+pulse_width_ns = 200.0
+verified = false
+
+[[laser.operation]]
+name = "isolation-cut"
+mode = "line"
+speed_mm_s = 80.0
+power_percent = 35.0
+passes = 2
+frequency_khz = 50.0
+pulse_width_ns = 200.0
+verified = false
+
+[[laser.operation]]
+name = "copper-rubout"
+mode = "fill"
+speed_mm_s = 400.0
+power_percent = 45.0
+passes = 3
+frequency_khz = 50.0
+pulse_width_ns = 200.0
+line_interval_mm = 0.025
+hatch_angle_deg = 45.0
+angle_increment_deg = 90.0
+verified = false
+
+[[laser.operation]]
+name = "mask-open"
+mode = "fill"
+speed_mm_s = 350.0
+power_percent = 20.0
+passes = 1
+frequency_khz = 50.0
+pulse_width_ns = 200.0
+line_interval_mm = 0.05
+hatch_angle_deg = 0.0
+angle_increment_deg = 90.0
+verified = false
+
+[[laser.operation]]
+name = "legend"
+mode = "fill"
+speed_mm_s = 500.0
+power_percent = 30.0
+passes = 1
+frequency_khz = 50.0
+pulse_width_ns = 200.0
+line_interval_mm = 0.04
+hatch_angle_deg = 0.0
+angle_increment_deg = 90.0
+verified = false
+
+[[laser.operation]]
+name = "stencil-cut"
+mode = "line"
+speed_mm_s = 60.0
+power_percent = 40.0
+passes = 1
+frequency_khz = 50.0
+pulse_width_ns = 200.0
+kerf_offset_mm = 0.05
+verified = false
