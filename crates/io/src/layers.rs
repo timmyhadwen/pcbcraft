@@ -209,17 +209,15 @@ fn push_fiducial(shapes: &mut Vec<Shape>, fid: &Fiducial, p: &Project) {
 }
 
 fn silk_layer(top: bool) -> &'static str {
-    if top {
-        "F.SilkS"
-    } else {
-        "B.SilkS"
-    }
+    if top { "F.SilkS" } else { "B.SilkS" }
 }
 
 fn push_graphic(shapes: &mut Vec<Shape>, g: &Graphic, origin: Point, rotation: f64, p: &Project) {
     let map = |pt: Point| fabrication_point(p, origin.offset(pt.rotate(-rotation)));
     match g {
-        Graphic::Line { start, end, width, .. } => {
+        Graphic::Line {
+            start, end, width, ..
+        } => {
             shapes.push(Shape::Stroke(
                 vec![map(*start), map(*end)],
                 *width,
@@ -237,7 +235,13 @@ fn push_graphic(shapes: &mut Vec<Shape>, g: &Graphic, origin: Point, rotation: f
                 ));
             }
         }
-        Graphic::Rectangle { start, end, width, fill, .. } => {
+        Graphic::Rectangle {
+            start,
+            end,
+            width,
+            fill,
+            ..
+        } => {
             let a = map(*start);
             let b = map(*end);
             let ring = vec![
@@ -253,7 +257,13 @@ fn push_graphic(shapes: &mut Vec<Shape>, g: &Graphic, origin: Point, rotation: f
                 shapes.push(Shape::Stroke(ring, *width, true, ShapePolarity::Positive));
             }
         }
-        Graphic::Circle { center, radius, width, fill, .. } => {
+        Graphic::Circle {
+            center,
+            radius,
+            width,
+            fill,
+            ..
+        } => {
             if fill == "solid" {
                 shapes.push(Shape::Disk(map(*center), *radius, ShapePolarity::Positive));
             } else {
@@ -261,29 +271,44 @@ fn push_graphic(shapes: &mut Vec<Shape>, g: &Graphic, origin: Point, rotation: f
                 let mut ring = Vec::with_capacity(steps + 1);
                 for i in 0..=steps {
                     let angle = i as f64 * std::f64::consts::TAU / steps as f64;
-                    ring.push(map(center.offset(Point::new(
-                        radius * angle.cos(),
-                        radius * angle.sin(),
-                    ))));
+                    ring.push(map(
+                        center.offset(Point::new(radius * angle.cos(), radius * angle.sin()))
+                    ));
                 }
                 shapes.push(Shape::Stroke(ring, *width, true, ShapePolarity::Positive));
             }
         }
-        Graphic::Arc { start, mid, end, width, .. } => {
+        Graphic::Arc {
+            start,
+            mid,
+            end,
+            width,
+            ..
+        } => {
             if let Some(arc) = pcbcraft_geom::arc_through(*start, *mid, *end) {
                 let steps = 24;
                 let mut points = Vec::with_capacity(steps + 1);
                 for i in 0..=steps {
                     points.push(map(arc.point_at(i as f64 / steps as f64)));
                 }
-                shapes.push(Shape::Stroke(points, *width, false, ShapePolarity::Positive));
+                shapes.push(Shape::Stroke(
+                    points,
+                    *width,
+                    false,
+                    ShapePolarity::Positive,
+                ));
             }
         }
         Graphic::Text { .. } => {}
     }
 }
 
-fn push_board_text(_shapes: &mut Vec<Shape>, _text: &BoardText, _p: &Project, skipped: &mut Vec<String>) {
+fn push_board_text(
+    _shapes: &mut Vec<Shape>,
+    _text: &BoardText,
+    _p: &Project,
+    skipped: &mut Vec<String>,
+) {
     skipped.push("board text needs the stroke font".into());
 }
 
@@ -305,7 +330,11 @@ pub(crate) fn profile_edge(p: &Project) -> Vec<Point> {
 }
 
 fn push_drill_hole(shapes: &mut Vec<Shape>, pos: Point, diameter: f64, mark: f64, p: &Project) {
-    let r = if mark > 0.0 { mark / 2.0 } else { diameter / 2.0 };
+    let r = if mark > 0.0 {
+        mark / 2.0
+    } else {
+        diameter / 2.0
+    };
     shapes.push(Shape::Disk(
         fabrication_point(p, pos),
         r.max(0.05),
@@ -344,11 +373,7 @@ fn push_reference_marker(
     skipped.push("reference labels need the stroke font".into());
 }
 
-fn push_pad_clearance_zones(
-    shapes: &mut Vec<Shape>,
-    p: &Project,
-    profile_pad_clearance_mm: f64,
-) {
+fn push_pad_clearance_zones(shapes: &mut Vec<Shape>, p: &Project, profile_pad_clearance_mm: f64) {
     for f in &p.board.footprints {
         let rules = footprint_rules(f, p);
         let footprint_clearance = rules.clearance.unwrap_or(0.0);
@@ -361,10 +386,7 @@ fn push_pad_clearance_zones(
             if grown.len() < 3 {
                 continue;
             }
-            let fab: Vec<Point> = grown
-                .iter()
-                .map(|pt| fabrication_point(p, *pt))
-                .collect();
+            let fab: Vec<Point> = grown.iter().map(|pt| fabrication_point(p, *pt)).collect();
             shapes.push(Shape::Polygon(fab, ShapePolarity::Negative));
         }
     }
@@ -423,11 +445,7 @@ pub fn layer_shapes(p: &Project, layer: FabLayer) -> Result<LayerShapes, String>
     match layer {
         FabLayer::CopperTop | FabLayer::CopperBottom => {
             let top = matches!(layer, FabLayer::CopperTop);
-            let copper = if top {
-                Layer::Front
-            } else {
-                Layer::Back
-            };
+            let copper = if top { Layer::Front } else { Layer::Back };
             for z in p.board.zones.iter().filter(|z| z.layer == copper) {
                 push_zone(&mut out.shapes, z, p);
             }
@@ -443,10 +461,8 @@ pub fn layer_shapes(p: &Project, layer: FabLayer) -> Result<LayerShapes, String>
                         continue;
                     }
                     let outline = footprint_pad_outline(f, pad);
-                    let fab: Vec<Point> = outline
-                        .iter()
-                        .map(|pt| fabrication_point(p, *pt))
-                        .collect();
+                    let fab: Vec<Point> =
+                        outline.iter().map(|pt| fabrication_point(p, *pt)).collect();
                     out.shapes
                         .push(Shape::Polygon(fab, ShapePolarity::Positive));
                 }
@@ -467,10 +483,8 @@ pub fn layer_shapes(p: &Project, layer: FabLayer) -> Result<LayerShapes, String>
                     }
                     let outline = footprint_pad_outline(f, pad);
                     let grown = grow_outline(&outline, margin);
-                    let fab: Vec<Point> = grown
-                        .iter()
-                        .map(|pt| fabrication_point(p, *pt))
-                        .collect();
+                    let fab: Vec<Point> =
+                        grown.iter().map(|pt| fabrication_point(p, *pt)).collect();
                     out.shapes
                         .push(Shape::Polygon(fab, ShapePolarity::Positive));
                 }
@@ -489,10 +503,8 @@ pub fn layer_shapes(p: &Project, layer: FabLayer) -> Result<LayerShapes, String>
                     if shrunk.len() < 3 {
                         continue;
                     }
-                    let fab: Vec<Point> = shrunk
-                        .iter()
-                        .map(|pt| fabrication_point(p, *pt))
-                        .collect();
+                    let fab: Vec<Point> =
+                        shrunk.iter().map(|pt| fabrication_point(p, *pt)).collect();
                     out.shapes
                         .push(Shape::Polygon(fab, ShapePolarity::Positive));
                 }
@@ -508,13 +520,7 @@ pub fn layer_shapes(p: &Project, layer: FabLayer) -> Result<LayerShapes, String>
                 {
                     for graphic in &library.definition.graphics {
                         if graphic.layer() == layer_name {
-                            push_graphic(
-                                &mut out.shapes,
-                                graphic,
-                                f.position,
-                                f.rotation,
-                                p,
-                            );
+                            push_graphic(&mut out.shapes, graphic, f.position, f.rotation, p);
                         }
                     }
                 }
@@ -580,10 +586,7 @@ fn push_art_shape(shapes: &mut Vec<Shape>, shape: &ArtShape, p: &Project) {
     match shape {
         ArtShape::Line { start, end } => {
             shapes.push(Shape::Stroke(
-                vec![
-                    fabrication_point(p, *start),
-                    fabrication_point(p, *end),
-                ],
+                vec![fabrication_point(p, *start), fabrication_point(p, *end)],
                 0.1,
                 false,
                 ShapePolarity::Positive,
@@ -657,14 +660,15 @@ impl GraphicLayer for Graphic {
 /// Count flashes (pads/vias) and region fills (zones) on a copper side for Gerber parity checks.
 pub fn copper_shape_counts(p: &Project, top: bool) -> Result<(usize, usize), String> {
     p.validate()?;
-    let copper = if top {
-        Layer::Front
-    } else {
-        Layer::Back
-    };
+    let copper = if top { Layer::Front } else { Layer::Back };
     let mut flashes = 0usize;
     let mut regions = 0usize;
-    for z in p.board.zones.iter().filter(|z| z.layer == copper && z.filled) {
+    for z in p
+        .board
+        .zones
+        .iter()
+        .filter(|z| z.layer == copper && z.filled)
+    {
         let _ = z;
         regions += 1;
     }
@@ -686,10 +690,7 @@ pub fn gerber_copper_counts(p: &Project) -> Result<((usize, usize), (usize, usiz
     let files = crate::gerber_files(p)?;
     let front = files.get("pcb-F.Cu.gbr").ok_or("missing front copper")?;
     let back = files.get("pcb-B.Cu.gbr").ok_or("missing back copper")?;
-    Ok((
-        count_gerber_ops(front),
-        count_gerber_ops(back),
-    ))
+    Ok((count_gerber_ops(front), count_gerber_ops(back)))
 }
 
 fn count_gerber_ops(text: &str) -> (usize, usize) {

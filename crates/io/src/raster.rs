@@ -89,7 +89,11 @@ pub fn layer_raster(p: &Project, opts: &RasterOptions) -> Result<Raster, String>
 }
 
 /// Rasterise an explicit shape list (for legend with pad clearance, UV colour pass, etc.).
-pub fn rasterize_shapes(p: &Project, shapes: &[Shape], opts: &RasterOptions) -> Result<Raster, String> {
+pub fn rasterize_shapes(
+    p: &Project,
+    shapes: &[Shape],
+    opts: &RasterOptions,
+) -> Result<Raster, String> {
     opts.validate()?;
     p.validate()?;
     let w_px = pixel_extent(p.board.width, opts.margin_mm, opts.dpi);
@@ -146,7 +150,9 @@ pub fn rasterize_shapes(p: &Project, shapes: &[Shape], opts: &RasterOptions) -> 
 }
 
 fn pixel_extent(extent_mm: f64, margin_mm: f64, dpi: u32) -> u32 {
-    ((extent_mm + 2.0 * margin_mm) * f64::from(dpi) / 25.4).ceil().max(1.0) as u32
+    ((extent_mm + 2.0 * margin_mm) * f64::from(dpi) / 25.4)
+        .ceil()
+        .max(1.0) as u32
 }
 
 fn mm_to_px(mm: f64, dpi: u32, margin_mm: f64) -> f64 {
@@ -220,7 +226,12 @@ fn draw_stroke(
     }
 }
 
-fn draw_registration(img: &mut GrayImage, p: &Project, opts: &RasterOptions, reg: RegistrationMarks) {
+fn draw_registration(
+    img: &mut GrayImage,
+    p: &Project,
+    opts: &RasterOptions,
+    reg: RegistrationMarks,
+) {
     let w = p.board.width;
     let h = p.board.height;
     let inset = reg.inset_mm;
@@ -753,8 +764,8 @@ mod tests {
     }
 
     #[test]
-    fn one_bit_png_has_bit_depth_one_and_round_trips_through_the_image_crate(
-    ) -> Result<(), String> {
+    fn one_bit_png_has_bit_depth_one_and_round_trips_through_the_image_crate() -> Result<(), String>
+    {
         let p = pad_project(8.0)?;
         let mut opts = base_opts(FabLayer::CopperTop);
         opts.depth = RasterDepth::Bits1;
@@ -800,7 +811,10 @@ mod tests {
         };
         let err = layer_raster(&p, &opts).unwrap_err();
         assert!(err.contains("500"), "reason should name width: {err}");
-        assert!(err.contains("64 million"), "reason should cite limit: {err}");
+        assert!(
+            err.contains("64 million"),
+            "reason should cite limit: {err}"
+        );
         Ok(())
     }
 }

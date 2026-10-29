@@ -11215,13 +11215,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                             experiment: pcbcraft_io::UvPrintExperiment::None,
                             include_values: false,
                         };
-                        let files = pcbcraft_io::write_uv_print_job_files(
-                            p,
-                            directory,
-                            &profile,
-                            &options,
-                        )
-                        .map_err(Error::Invalid)?;
+                        let files =
+                            pcbcraft_io::write_uv_print_job_files(p, directory, &profile, &options)
+                                .map_err(Error::Invalid)?;
                         written.extend(files);
                     }
                     other => {

@@ -169,11 +169,7 @@ pub fn uv_print_artwork(
     };
     let colour_png = rgba_png_from_matte(&grey, options.dpi)?;
     let white_png = if options.white_layer == UvPrintWhiteLayer::Separate {
-        Some(white_mask_png(
-            &grey,
-            options.dpi,
-            profile.white_choke_mm,
-        )?)
+        Some(white_mask_png(&grey, options.dpi, profile.white_choke_mm)?)
     } else {
         None
     };
@@ -518,10 +514,16 @@ mod tests {
     }
 
     #[test]
-    fn twenty_by_thirty_board_at_1440_dpi_with_bleed_is_1168_by_1735_pixels() -> Result<(), String> {
+    fn twenty_by_thirty_board_at_1440_dpi_with_bleed_is_1168_by_1735_pixels() -> Result<(), String>
+    {
         let p = small_board(20.0, 30.0)?;
         let profile = eufymake_e1_profile();
-        let art = uv_print_artwork(&p, UvPrintSide::Top, &profile, &base_options(UvPrintSide::Top))?;
+        let art = uv_print_artwork(
+            &p,
+            UvPrintSide::Top,
+            &profile,
+            &base_options(UvPrintSide::Top),
+        )?;
         assert!((1167..=1169).contains(&art.width_px));
         assert!((1734..=1736).contains(&art.height_px));
         Ok(())
@@ -531,7 +533,12 @@ mod tests {
     fn png_carries_phys_56693_for_1440_dpi() -> Result<(), String> {
         let p = small_board(20.0, 30.0)?;
         let profile = eufymake_e1_profile();
-        let art = uv_print_artwork(&p, UvPrintSide::Top, &profile, &base_options(UvPrintSide::Top))?;
+        let art = uv_print_artwork(
+            &p,
+            UvPrintSide::Top,
+            &profile,
+            &base_options(UvPrintSide::Top),
+        )?;
         let (xppu, yppu) = phys_from_png(&art.colour_png)?;
         assert_eq!(xppu, 56693);
         assert_eq!(yppu, 56693);
@@ -542,7 +549,12 @@ mod tests {
     fn pixels_outside_legend_are_transparent() -> Result<(), String> {
         let p = small_board(20.0, 30.0)?;
         let profile = eufymake_e1_profile();
-        let art = uv_print_artwork(&p, UvPrintSide::Top, &profile, &base_options(UvPrintSide::Top))?;
+        let art = uv_print_artwork(
+            &p,
+            UvPrintSide::Top,
+            &profile,
+            &base_options(UvPrintSide::Top),
+        )?;
         let img = image::load_from_memory(&art.colour_png).map_err(|e| e.to_string())?;
         let rgba = img.to_rgba8();
         let mut transparent = 0u32;
@@ -559,10 +571,19 @@ mod tests {
     fn white_mask_matches_opaque_colour_pixels() -> Result<(), String> {
         let p = small_board(20.0, 30.0)?;
         let profile = eufymake_e1_profile();
-        let art = uv_print_artwork(&p, UvPrintSide::Top, &profile, &base_options(UvPrintSide::Top))?;
-        let colour = image::load_from_memory(&art.colour_png).map_err(|e| e.to_string())?.to_rgba8();
+        let art = uv_print_artwork(
+            &p,
+            UvPrintSide::Top,
+            &profile,
+            &base_options(UvPrintSide::Top),
+        )?;
+        let colour = image::load_from_memory(&art.colour_png)
+            .map_err(|e| e.to_string())?
+            .to_rgba8();
         let white_bytes = art.white_png.ok_or("missing white png")?;
-        let white = image::load_from_memory(&white_bytes).map_err(|e| e.to_string())?.to_luma8();
+        let white = image::load_from_memory(&white_bytes)
+            .map_err(|e| e.to_string())?
+            .to_luma8();
         assert_eq!(colour.dimensions(), white.dimensions());
         for (x, y, c) in colour.enumerate_pixels() {
             let w = white.get_pixel(x, y).0[0];
@@ -623,9 +644,7 @@ mod tests {
         let white_tight = image::load_from_memory(art_tight.white_png.as_ref().ok_or("white")?)
             .map_err(|e| e.to_string())?
             .to_luma8();
-        let count = |img: &GrayImage| {
-            img.pixels().filter(|px| px.0[0] > 0).count()
-        };
+        let count = |img: &GrayImage| img.pixels().filter(|px| px.0[0] > 0).count();
         assert!(
             count(&white_tight) < count(&white_loose),
             "choke should shrink the white mask"
@@ -691,8 +710,15 @@ mod tests {
         });
         p.validate()?;
         let profile = eufymake_e1_profile();
-        let art = uv_print_artwork(&p, UvPrintSide::Top, &profile, &base_options(UvPrintSide::Top))?;
-        let colour = image::load_from_memory(&art.colour_png).map_err(|e| e.to_string())?.to_rgba8();
+        let art = uv_print_artwork(
+            &p,
+            UvPrintSide::Top,
+            &profile,
+            &base_options(UvPrintSide::Top),
+        )?;
+        let colour = image::load_from_memory(&art.colour_png)
+            .map_err(|e| e.to_string())?
+            .to_rgba8();
         let cx = colour.width() / 2;
         let cy = colour.height() / 2;
         assert_eq!(
@@ -707,9 +733,14 @@ mod tests {
     fn four_hundred_by_five_hundred_board_is_refused_for_eufy_bed() -> Result<(), String> {
         let p = small_board(400.0, 500.0)?;
         let profile = eufymake_e1_profile();
-        let err = uv_print_artwork(&p, UvPrintSide::Top, &profile, &base_options(UvPrintSide::Top))
-            .err()
-            .ok_or("expected refusal")?;
+        let err = uv_print_artwork(
+            &p,
+            UvPrintSide::Top,
+            &profile,
+            &base_options(UvPrintSide::Top),
+        )
+        .err()
+        .ok_or("expected refusal")?;
         assert!(err.contains("bed"), "reason should mention bed: {err}");
         Ok(())
     }
@@ -718,9 +749,14 @@ mod tests {
     fn full_bed_at_1440_is_refused_for_studio_pixel_cap() -> Result<(), String> {
         let p = small_board(330.0, 420.0)?;
         let profile = eufymake_e1_profile();
-        let err = uv_print_artwork(&p, UvPrintSide::Top, &profile, &base_options(UvPrintSide::Top))
-            .err()
-            .ok_or("expected refusal")?;
+        let err = uv_print_artwork(
+            &p,
+            UvPrintSide::Top,
+            &profile,
+            &base_options(UvPrintSide::Top),
+        )
+        .err()
+        .ok_or("expected refusal")?;
         assert!(
             err.contains("12800") || err.contains("studio"),
             "reason should cite pixel cap: {err}"
@@ -738,7 +774,12 @@ mod tests {
             layer: Layer::Front,
         });
         let profile = eufymake_e1_profile();
-        let art = uv_print_artwork(&p, UvPrintSide::Top, &profile, &base_options(UvPrintSide::Top))?;
+        let art = uv_print_artwork(
+            &p,
+            UvPrintSide::Top,
+            &profile,
+            &base_options(UvPrintSide::Top),
+        )?;
         assert!(art.svg.contains("id=\"legend\""));
         assert!(art.svg.contains("id=\"outline\""));
         assert!(art.svg.contains("id=\"fiducials\""));
@@ -786,7 +827,9 @@ mod tests {
         opts.include_outline = false;
         opts.include_fiducials = false;
         let art = uv_print_artwork(&p, UvPrintSide::Bottom, &profile, &opts)?;
-        let img = image::load_from_memory(&art.colour_png).map_err(|e| e.to_string())?.to_rgba8();
+        let img = image::load_from_memory(&art.colour_png)
+            .map_err(|e| e.to_string())?
+            .to_rgba8();
         let mut ink_x = 0u32;
         for (x, _, px) in img.enumerate_pixels() {
             if px.0[3] > 0 {

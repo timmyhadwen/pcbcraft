@@ -949,11 +949,7 @@ fn default_uv_pad_clearance() -> f64 {
 }
 
 fn default_uv_channels() -> Vec<String> {
-    vec![
-        "cmyk".into(),
-        "white".into(),
-        "gloss".into(),
-    ]
+    vec!["cmyk".into(), "white".into(), "gloss".into()]
 }
 
 fn default_uv_registration() -> String {
