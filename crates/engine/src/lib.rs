@@ -17843,8 +17843,8 @@ mod tests {
                 json!({
                     "family": "qfn",
                     "name": "Q",
-                    "pitch": 100.0,
-                    "pin_count": 32,
+                    "pitch": 0.5,
+                    "pin_count": 30,
                     "body_x": 5.0,
                     "body_y": 5.0,
                     "thermal": true
@@ -17852,7 +17852,7 @@ mod tests {
                 None
             )
             .is_err(),
-            "pitch out of range must refuse"
+            "invalid QFN pin count must refuse"
         );
         assert_eq!(s.revision, before);
         Ok(())
