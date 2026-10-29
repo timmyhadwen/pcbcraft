@@ -77,7 +77,6 @@ impl State {
 pub struct Theme {
     pub surface: Color32,
     pub muted: Color32,
-    pub ink: Color32,
     pub accent: Color32,
 }
 

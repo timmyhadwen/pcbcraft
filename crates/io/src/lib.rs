@@ -7895,6 +7895,14 @@ mod tests {
                     .lines()
                     .filter(|l| l.trim_end().ends_with("D03*"))
                     .count();
+                let raw_draws = text
+                    .lines()
+                    .filter(|l| {
+                        let l = l.trim_end();
+                        l.ends_with("D01*") || l.ends_with("G02*") || l.ends_with("G03*")
+                    })
+                    .count();
+                assert_eq!(layer.draw_count, raw_draws, "raw draw count for {name}");
                 assert_eq!(layer.flash_count, raw_flashes, "raw flash count for {name}");
                 assert_eq!(layer.flash_count, flashes, "flash count for {name}");
                 assert_eq!(layer.draw_count, draws, "draw count for {name}");

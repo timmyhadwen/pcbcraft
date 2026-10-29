@@ -6820,7 +6820,6 @@ impl App {
                                 let theme = plot_viewer::Theme {
                                     surface: self.surface(),
                                     muted: self.muted(),
-                                    ink: self.ink(),
                                     accent: self.accent(),
                                 };
                                 plot_viewer::ui(
