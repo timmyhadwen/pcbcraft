@@ -6,8 +6,14 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod cam;
 mod gerber;
 mod library_render;
+pub use cam::{
+    drill_gcode, drill_tools, outline_gcode, CamProfile, CutDirection, Dialect, DrillHit,
+    DrillOptions, DrillOrder, DrillTool, OutlineCompensation, OutlineOptions, Tabs, Tool,
+    ToolChange,
+};
 pub use gerber::gerber_copper;
 use library_render::*;
 pub use pcbcraft_doc::Layer;
