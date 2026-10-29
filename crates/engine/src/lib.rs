@@ -5811,6 +5811,7 @@ fn seed_stackup(p: &mut Project) {
         thickness,
         copper_role: None,
         material: Some(material.into()),
+        ..Default::default()
     };
     let core = (p.board.thickness - 0.07).max(0.1);
     p.board.layer_records = vec![
@@ -13313,6 +13314,7 @@ fn run_command(
                     thickness,
                     copper_role: None,
                     material: material.map(str::to_owned),
+                    ..Default::default()
                 }
             };
             let first = copper_before + 1;
