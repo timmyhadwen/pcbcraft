@@ -5499,11 +5499,9 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
                         0.7,
                         [219, 231, 242],
                     );
-                    schematic_pin_decorations_png(
-                        &mut image,
-                        pin,
-                        &|point| to_pixel(c.position.offset(point.rotate(-c.rotation))),
-                    );
+                    schematic_pin_decorations_png(&mut image, pin, &|point| {
+                        to_pixel(c.position.offset(point.rotate(-c.rotation)))
+                    });
                 }
                 continue;
             }
