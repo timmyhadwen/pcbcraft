@@ -687,4 +687,3 @@ fn a_newcomer_never_meets_a_control_too_small_to_hit() -> Result<(), String> {
     }
     Ok(())
 }
-

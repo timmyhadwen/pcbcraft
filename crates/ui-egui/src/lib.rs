@@ -2728,13 +2728,14 @@ impl App {
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     let brand = ui.add(
-                        egui::Label::new(
+                        egui::Button::new(
                             egui::RichText::new(t!("app.name"))
                                 .size(15.0)
                                 .strong()
                                 .color(self.accent()),
                         )
-                        .sense(egui::Sense::click()),
+                        .frame(false)
+                        .min_size(Vec2::splat(Self::MIN_TARGET)),
                     );
                     a11y::name_control(&brand, "PCBCraft start screen", None);
                     if brand.on_hover_text(t!("app.brand.tip")).clicked() {
