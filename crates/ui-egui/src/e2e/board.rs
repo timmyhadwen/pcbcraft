@@ -529,6 +529,7 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
         "the hole is resized: {}",
         app.message
     );
+    scrolled_to(&ctx, &mut app, "\u{d7}")?;
     authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
@@ -1313,6 +1314,7 @@ fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
     open_tree_row(&ctx, &mut app, "sec:board/root");
     assert!(scrolled_to(&ctx, &mut app, "DATUMS")?);
     app.datum_ui.add_name = "bad name!".into();
+    scrolled_to(&ctx, &mut app, "Add datum")?;
     authoring::tests::tap(&ctx, &mut app, "Add datum")?;
     app.refresh();
     assert!(

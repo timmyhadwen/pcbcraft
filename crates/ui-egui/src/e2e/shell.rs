@@ -114,6 +114,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
         "the mark is resized and moved to the bottom: {}",
         app.message
     );
+    scrolled_to(&ctx, &mut app, "\u{d7}")?;
     authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(

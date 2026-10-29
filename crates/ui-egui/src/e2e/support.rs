@@ -314,8 +314,9 @@ pub(crate) fn key(ctx: &egui::Context, app: &mut App, key: egui::Key) {
 /// Reach a tree row with the keyboard cursor, then press one key on it.
 pub(crate) fn press_on(ctx: &egui::Context, app: &mut App, row: &str, k: egui::Key) {
     app.tree.focus_row(row);
-    frame(ctx, app, vec![], egui::Modifiers::NONE);
-    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    for _ in 0..4 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
     key(ctx, app, k);
 }
 
