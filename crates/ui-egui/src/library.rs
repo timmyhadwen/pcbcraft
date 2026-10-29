@@ -283,7 +283,7 @@ impl App {
                         ) {
                             changed |= ui
                                 .selectable_value(&mut self.library.path, path.to_owned(), name)
-                                .on_hover_text("Browse this collection.")
+                                .on_hover_text("Show the parts in this collection. Pick another one to switch to it.")
                                 .changed();
                         }
                     }

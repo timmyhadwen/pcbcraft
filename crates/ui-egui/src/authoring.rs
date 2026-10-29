@@ -1392,7 +1392,7 @@ impl App {
                                 });
                             if ui
                                 .button("Delete pin")
-                                .on_hover_text("Remove this pin.")
+                                .on_hover_text("Take this pin out of the symbol you are drawing. Add pin puts a new one back.")
                                 .clicked()
                             {
                                 remove = Some(i);
@@ -1424,7 +1424,7 @@ impl App {
                             graphic(ui, &mut g.primitive);
                             if ui
                                 .button("Delete graphic")
-                                .on_hover_text("Remove this graphic.")
+                                .on_hover_text("Take this drawn line or shape out of the symbol. It only changes the symbol you are editing.")
                                 .clicked()
                             {
                                 remove = Some(i);
@@ -1548,7 +1548,7 @@ impl App {
                             ui.label(format!("Layers: {}", pad.layers.join(", ")));
                             if ui
                                 .button("Delete pad")
-                                .on_hover_text("Remove this pad.")
+                                .on_hover_text("Take this pad out of the footprint you are drawing. Add pad puts a new one back.")
                                 .clicked()
                             {
                                 remove = Some(i);
@@ -1571,7 +1571,7 @@ impl App {
                             graphic(ui, g);
                             if ui
                                 .button("Delete graphic")
-                                .on_hover_text("Remove this graphic.")
+                                .on_hover_text("Take this drawn line or shape out of the footprint. It only changes the footprint you are editing.")
                                 .clicked()
                             {
                                 remove = Some(i);
