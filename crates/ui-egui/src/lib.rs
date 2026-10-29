@@ -2714,10 +2714,7 @@ impl App {
                         )
                         .sense(egui::Sense::click()),
                     );
-                    if brand
-                        .on_hover_text(t!("app.brand.tip"))
-                        .clicked()
-                    {
+                    if brand.on_hover_text(t!("app.brand.tip")).clicked() {
                         self.home_open = true;
                     }
                     if self.library.editor.mode == 0 {
