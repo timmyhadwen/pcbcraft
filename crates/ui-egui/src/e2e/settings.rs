@@ -104,7 +104,11 @@ fn a_newcomer_turns_off_animation_in_settings() -> Result<(), String> {
         "Settings should offer a Reduce motion choice"
     );
     assert!(!app.preferences.reduced_motion, "off until the person asks");
-    app.preferences.reduced_motion = true;
+    authoring::tests::tap(&ctx, &mut app, "Reduce motion")?;
+    assert!(
+        app.preferences.reduced_motion,
+        "ticking the box turns it on"
+    );
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         ctx.global_style().animation_time,
