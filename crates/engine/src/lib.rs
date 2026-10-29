@@ -4563,12 +4563,12 @@ fn collinear_track_merge_endpoints(a: &Track, b: &Track) -> Option<(Point, Point
         return None;
     }
     let shared = [a.start, a.end]
-        .iter()
-        .find(|p| track_endpoints_near(**p, b.start) || track_endpoints_near(**p, b.end))?;
+        .into_iter()
+        .find(|p| track_endpoints_near(*p, b.start) || track_endpoints_near(*p, b.end))?;
     let far = |track: &Track| -> Option<Point> {
-        if track_endpoints_near(track.start, *shared) {
+        if track_endpoints_near(track.start, shared) {
             Some(track.end)
-        } else if track_endpoints_near(track.end, *shared) {
+        } else if track_endpoints_near(track.end, shared) {
             Some(track.start)
         } else {
             None
@@ -4624,16 +4624,24 @@ fn run_track_cleanup(
         }
         bump_removed(&mut removed).is_err()
     });
-    p.board.tracks.retain(|track| {
-        if !track_cleanup_matches(track, net, layer) {
-            return true;
+    let mut idx = 0usize;
+    while idx < p.board.tracks.len() {
+        let track = p.board.tracks[idx].clone();
+        if !track_cleanup_matches(&track, net, layer) {
+            idx += 1;
+            continue;
         }
         let anchored_start =
             track_endpoint_anchored(p, track.start, track.net, track.layer, track.id);
         let anchored_end =
             track_endpoint_anchored(p, track.end, track.net, track.layer, track.id);
-        anchored_start && anchored_end || bump_removed(&mut removed).is_err()
-    });
+        if anchored_start && anchored_end {
+            idx += 1;
+        } else {
+            bump_removed(&mut removed)?;
+            p.board.tracks.remove(idx);
+        }
+    }
     loop {
         let mut merged_pair = false;
         let len = p.board.tracks.len();
