@@ -294,7 +294,7 @@ fn walk(path: &Path) {
         ("footprint-editor", Some("footprint-editor"), None),
         ("project-library", Some("project-library"), None),
     ];
-    let mut painted = BTreeSet::new();
+    let mut painted: BTreeMap<String, &str> = BTreeMap::new();
     let mut no_tip: BTreeMap<String, String> = BTreeMap::new();
     let mut unnamed: BTreeMap<String, usize> = BTreeMap::new();
     for (name, arg, tab) in pages {
@@ -319,7 +319,7 @@ fn walk(path: &Path) {
                 *unnamed.entry(key).or_default() += 1;
                 continue;
             };
-            painted.insert(id.clone());
+            painted.entry(id.clone()).or_insert(name);
             if !checked.insert(id.clone()) || no_tip.contains_key(&id) {
                 continue;
             }
@@ -328,7 +328,10 @@ fn walk(path: &Path) {
             }
         }
     }
-    let mut lines: Vec<String> = painted.iter().map(|id| format!("P\t{id}")).collect();
+    let mut lines: Vec<String> = painted
+        .iter()
+        .map(|(id, page)| format!("P\t{id}\t{page}"))
+        .collect();
     lines.extend(no_tip.iter().map(|(id, page)| format!("T\t{id}\t{page}")));
     lines.extend(unnamed.keys().map(|key| format!("N\t{key}")));
     append(path, &lines);

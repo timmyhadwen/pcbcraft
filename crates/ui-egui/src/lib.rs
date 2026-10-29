@@ -4424,13 +4424,13 @@ impl App {
             );
         }
         ui.horizontal(|ui| {
-            ui.label("Cutout radius");
+            ui.label("Cutout tool radius");
             ui.add(
                 egui::DragValue::new(&mut self.cutout_radius)
                     .speed(0.1)
                     .suffix(" mm"),
             )
-            .named("Cutout radius")
+            .named("Cutout tool radius")
 .on_hover_text("The radius of the circle the cutout tool places, in millimetres. The whole circle must stay inside the board.");
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
@@ -5822,7 +5822,16 @@ impl App {
             self.message = "that folder could not be created".into();
             return;
         }
-        self.tool_call(tool, json!({"path": directory}));
+        // The report is a single text file; every other tool takes the folder.
+        let path = if tool == "report.write" {
+            std::path::Path::new(&directory)
+                .join("report.txt")
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            directory
+        };
+        self.tool_call(tool, json!({"path": path}));
     }
     /// Write the UV print artwork for one side into the make folder.
     fn write_uv_print_files(&mut self, side: &str, label: &str) {
@@ -7112,15 +7121,14 @@ impl App {
             }
             ui.separator();
             self.editing_controls(ui);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if !matches!(self.tool, Tool::Select) {
-                    ui.label(
-                        egui::RichText::new(tool_hint(&self.tool))
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-            });
+            // Inline after the chips, so it wraps instead of lying over them.
+            if !matches!(self.tool, Tool::Select) {
+                ui.label(
+                    egui::RichText::new(tool_hint(&self.tool))
+                        .small()
+                        .color(self.muted()),
+                );
+            }
         });
         ui.separator();
     }
