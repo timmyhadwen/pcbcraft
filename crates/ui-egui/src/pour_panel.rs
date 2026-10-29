@@ -470,6 +470,8 @@ impl App {
                 .on_hover_text(t!("rules.rules_tab.draw_keepout.tip"));
             a11y::name_control(&draw, &t!("rules.rules_tab.draw_keepout"), None);
             if draw.clicked() {
+                // Going to the board resets the tool, so arm it afterwards.
+                self.change_tab(Tab::Pcb);
                 self.tool = Tool::Keepout;
                 self.pours.keepout_from = None;
             }

@@ -209,7 +209,14 @@ fn a_newcomer_sees_a_starved_pad_and_how_to_fix_it() -> Result<(), String> {
 fn a_newcomer_draws_a_keepout_and_sees_the_track_flagged() -> Result<(), String> {
     let (mut app, ctx, _) = pour_app(false, false)?;
     app.select(None);
-    app.tool = Tool::Keepout;
+    app.change_tab(Tab::Rules);
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Draw keepout")?;
+    assert!(
+        matches!(app.tool, Tool::Keepout),
+        "the button arms the tool"
+    );
+    assert!(matches!(app.tab, Tab::Pcb), "and takes you to the board");
     settle(&ctx, &mut app);
     let pointer = |p: egui::Pos2, pressed: Option<bool>| {
         let mut events = vec![egui::Event::PointerMoved(p)];
@@ -356,7 +363,7 @@ fn pour_report_lines_turns_a_zone_fill_result_into_plain_sentences() {
 }
 
 #[test]
-fn keepout_checkbox_hides_the_gap_field() -> Result<(), String> {
+fn a_newcomer_ticks_keep_all_copper_out_and_loses_the_gap_field() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
