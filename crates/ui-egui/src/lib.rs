@@ -2562,7 +2562,7 @@ impl App {
         });
     }
     fn header(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("header").exact_size(100.0).show(ui, |ui| {
+        egui::Panel::top("header").exact_size(128.0).show(ui, |ui| {
             ui.add_space(7.0);
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
@@ -2635,6 +2635,9 @@ impl App {
                 ui.add_enabled(false, egui::Button::new("3D Board"))
                     .on_hover_text("A real Rust 3D viewer is planned.");
             });
+            if matches!(self.tab, Tab::Schematic | Tab::Pcb) {
+                self.workbench_tool_strip(ui);
+            }
             if !matches!(self.tool, Tool::Select) {
                 ui.horizontal(|ui| {
                     ui.add_space(12.0);
@@ -2644,6 +2647,159 @@ impl App {
                             .color(self.muted()),
                     );
                 });
+            }
+        });
+    }
+    /// Board and schematic tools that used to float on the canvas; they live under the tabs now.
+    fn workbench_tool_strip(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.add_space(12.0);
+            if self.tab == Tab::Schematic
+                && ui
+                    .selectable_label(matches!(self.tool, Tool::NoConnect), "No connect")
+                    .on_hover_text(
+                        "Click a pin to mark it deliberately unconnected, or click a mark to clear it.",
+                    )
+                    .clicked()
+            {
+                self.tool = Tool::NoConnect;
+            }
+            if self.tab == Tab::Pcb
+                && ui
+                    .selectable_label(matches!(self.tool, Tool::Fiducial), "Assembly mark")
+                    .on_hover_text(
+                        "A bare copper disc the pick-and-place camera finds the board by; then click a clear corner.",
+                    )
+                    .clicked()
+            {
+                self.tool = Tool::Fiducial;
+            }
+            if self.tab == Tab::Pcb && matches!(self.tool, Tool::Fiducial) {
+                ui.add(
+                    egui::DragValue::new(&mut self.fiducial_diameter)
+                        .speed(0.05)
+                        .range(0.2..=10.0)
+                        .suffix(" mm"),
+                )
+                .on_hover_text("Disc size for new marks; 1 mm is the usual size.");
+            }
+            if self.tab == Tab::Pcb
+                && ui
+                    .selectable_label(matches!(self.tool, Tool::Hole), "Mounting hole")
+                    .on_hover_text(
+                        "Drill an unplated hole for a screw or spacer; then click the board where it goes.",
+                    )
+                    .clicked()
+            {
+                self.tool = Tool::Hole;
+            }
+            if self.tab == Tab::Pcb && matches!(self.tool, Tool::Hole) {
+                ui.add(
+                    egui::DragValue::new(&mut self.hole_diameter)
+                        .speed(0.05)
+                        .range(0.05..=25.0)
+                        .suffix(" mm"),
+                )
+                .on_hover_text("Drill size for new holes; an M3 spacer usually wants 3.2 mm.");
+            }
+            if self.tab == Tab::Pcb
+                && ui
+                    .selectable_label(matches!(self.tool, Tool::Cutout), "Cutout")
+                    .on_hover_text(command_tip("board.cutout.add"))
+                    .clicked()
+            {
+                self.tool = Tool::Cutout;
+            }
+            if self.tab == Tab::Pcb
+                && ui
+                    .selectable_label(matches!(self.tool, Tool::DrawLayer), "Draw shape")
+                    .on_hover_text(
+                        "Draw cut lines, perforations or printed marks on your own layer; pick the layer and the shape below.",
+                    )
+                    .clicked()
+            {
+                self.tool = Tool::DrawLayer;
+            }
+            if self.tab == Tab::Pcb && matches!(self.tool, Tool::DrawLayer) {
+                let names: Vec<(Id, String)> = self
+                    .project
+                    .board
+                    .user_layers
+                    .iter()
+                    .map(|l| (l.id, l.name.clone()))
+                    .collect();
+                let current = self
+                    .art_layer
+                    .and_then(|id| {
+                        names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone())
+                    })
+                    .unwrap_or_else(|| "no layer yet".into());
+                egui::ComboBox::from_id_salt("art-layer-pick")
+                    .selected_text(current)
+                    .width(150.0)
+                    .show_ui(ui, |ui| {
+                        for (id, name) in &names {
+                            ui.radio_value(&mut self.art_layer, Some(*id), name.as_str())
+                                .on_hover_text("New figures land on this layer.");
+                        }
+                    });
+                if ui
+                    .button("New layer")
+                    .on_hover_text(
+                        "Make a new drawn layer and switch to it; give it a real name in the layers list.",
+                    )
+                    .clicked()
+                {
+                    let name = format!("Art {}", names.len() + 1);
+                    self.run(
+                        "board.layer_add",
+                        json!({"name": name, "kind": "other"}),
+                    );
+                    if self.message.starts_with("board.layer_add") {
+                        self.art_layer = self.selected;
+                    }
+                }
+                for (shape, label, tip) in [
+                    (
+                        DrawShape::Line,
+                        "Line",
+                        "Two clicks: the start and end of one straight stroke.",
+                    ),
+                    (DrawShape::Rect, "Box", "Two clicks on opposite corners."),
+                    (
+                        DrawShape::Circle,
+                        "Circle",
+                        "Click the centre, then a point on the edge.",
+                    ),
+                    (
+                        DrawShape::Poly,
+                        "Outline",
+                        "Click each corner; click the first point or press Enter to close it.",
+                    ),
+                    (
+                        DrawShape::Words,
+                        "Words",
+                        "Type below, then click once where the text starts.",
+                    ),
+                ] {
+                    if ui
+                        .selectable_label(self.art_shape == shape, label)
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        self.art_shape = shape;
+                        self.art_start = None;
+                        self.art_points.clear();
+                    }
+                }
+                if self.art_shape == DrawShape::Words {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.art_text)
+                            .hint_text("words to print")
+                            .desired_width(150.0),
+                    )
+                    .on_hover_text("The words a click will print on the active layer.");
+                }
             }
         });
     }
