@@ -407,7 +407,10 @@ fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
         paints_text(&ctx, &mut app, "Aide")?,
         "the Help menu reads Aide"
     );
-    assert_eq!(app.preferences.language, "fr", "the choice is remembered");
+    assert_eq!(
+        app.preferences.language, "qps-fr",
+        "the choice is remembered"
+    );
     // Closing and reopening the app keeps the saved choice.
     let saved = app.preferences.clone();
     let mut reopened = App::create(shared, saved, None, None);
@@ -421,6 +424,165 @@ fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
     assert!(
         paints_text(&ctx, &mut reopened, "File")?,
         "an unknown language falls back to English"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reads_the_app_in_spanish() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared.clone(),
+        Preferences {
+            language: "en".into(),
+            ..Preferences::default()
+        },
+        None,
+        None,
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    assert!(
+        paints_text(&ctx, &mut app, "File")?,
+        "the app opens in English and the menu bar says File"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Archivo")?,
+        "no Spanish shows yet"
+    );
+    // The person opens the Settings page and picks Español from the list.
+    app.change_tab(Tab::Settings);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Español")?;
+    assert_eq!(app.preferences.language, "es", "the choice is remembered");
+    assert!(
+        paints_text(&ctx, &mut app, "Archivo")?,
+        "the File menu now reads Archivo at once, with no restart: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Edición")?,
+        "the Edit menu reads Edición"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Ayuda")?,
+        "the Help menu reads Ayuda"
+    );
+    // Closing and reopening the app keeps the saved language.
+    let saved = app.preferences.clone();
+    let mut reopened = App::create(shared, saved, None, None);
+    reopened.refresh();
+    assert!(
+        paints_text(&ctx, &mut reopened, "Archivo")?,
+        "the reopened app still reads Spanish"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reads_the_app_in_german() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared.clone(),
+        Preferences {
+            language: "en".into(),
+            ..Preferences::default()
+        },
+        None,
+        None,
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    assert!(
+        paints_text(&ctx, &mut app, "File")?,
+        "the app opens in English and the menu bar says File"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Datei")?,
+        "no German shows yet"
+    );
+    // The person opens the Settings page and picks Deutsch from the list.
+    app.change_tab(Tab::Settings);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Deutsch")?;
+    assert_eq!(app.preferences.language, "de", "the choice is remembered");
+    assert!(
+        paints_text(&ctx, &mut app, "Datei")?,
+        "the File menu now reads Datei at once, with no restart: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Bearbeiten")?,
+        "the Edit menu reads Bearbeiten"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Hilfe")?,
+        "the Help menu reads Hilfe"
+    );
+    // Closing and reopening the app keeps the saved language.
+    let saved = app.preferences.clone();
+    let mut reopened = App::create(shared, saved, None, None);
+    reopened.refresh();
+    assert!(
+        paints_text(&ctx, &mut reopened, "Datei")?,
+        "the reopened app still reads German"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reads_the_app_in_french() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared.clone(),
+        Preferences {
+            language: "en".into(),
+            ..Preferences::default()
+        },
+        None,
+        None,
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    assert!(
+        paints_text(&ctx, &mut app, "File")?,
+        "the app opens in English and the menu bar says File"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Fichier")?,
+        "no French shows yet"
+    );
+    // The person opens the Settings page and picks Français from the list.
+    app.change_tab(Tab::Settings);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Français")?;
+    assert_eq!(app.preferences.language, "fr", "the choice is remembered");
+    assert!(
+        paints_text(&ctx, &mut app, "Fichier")?,
+        "the File menu now reads Fichier at once, with no restart: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Édition")?,
+        "the Edit menu reads Édition"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Aide")?,
+        "the Help menu reads Aide"
+    );
+    // Closing and reopening the app keeps the saved language.
+    let saved = app.preferences.clone();
+    let mut reopened = App::create(shared, saved, None, None);
+    reopened.refresh();
+    assert!(
+        paints_text(&ctx, &mut reopened, "Fichier")?,
+        "the reopened app still reads French"
     );
     Ok(())
 }
