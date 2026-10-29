@@ -1586,6 +1586,16 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "board.select_connected",
+            "Select the copper connected to a track or via: follow shared track ends, vias and pads of the same net across layers, and return the track and via ids plus the pads reached, capped at 512 ids",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "board.select_net",
+            "Select every track and via of one net, returned as ids capped at 512",
+            schema(json!({"net":id_schema()}), &["net"]),
+        ),
+        (
             "board.bounds",
             "Report the bounding box in millimetres of the board outline and of placed objects, overall and per copper side, from object anchors, pad and via extents and zone outlines",
             schema(json!({}), &[]),
@@ -4154,6 +4164,16 @@ struct NetLengthsParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct BoardSelectConnectedParams {
+    id: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BoardSelectNetParams {
+    net: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct NetChainParams {
     component: Id,
     pin: String,
@@ -5535,6 +5555,140 @@ fn track_endpoint_anchored(p: &Project, point: Point, net: Id, layer: Layer, ski
     track_endpoint_touches_tracks(&p.board.tracks, point, net, layer, skip)
         || via_touches_track_point(p, point, net)
         || pad_touches_track_point(p, point, net, layer)
+}
+
+/// Most ids `board.select_connected` and `board.select_net` return.
+const COPPER_SELECTION_CAP: usize = 512;
+
+/// Copper graph node used while walking a net for selection.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CopperNode {
+    Track(usize),
+    Via(usize),
+    Pad(usize, usize),
+}
+
+/// Walk the copper reachable from one track or via and return its track and
+/// via ids, the pads it reaches as `{footprint, pad}`, and whether the id list
+/// was cut at the cap.
+///
+/// Two tracks join at an end shared within `TRACK_ENDPOINT_EPS` on one layer.
+/// A via joins the track ends and pads inside its pad circle on every layer
+/// of its span. Only copper of the seed's net is followed.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs#via_span_layers
+///
+/// # Do not
+/// - Mutate the project; selection is a read-only query.
+fn select_connected_copper(
+    p: &Project,
+    seed: Id,
+) -> Result<(Vec<Id>, Vec<Value>, bool), Error> {
+    let start = if let Some(i) = p.board.tracks.iter().position(|t| t.id == seed) {
+        CopperNode::Track(i)
+    } else if let Some(i) = p.board.vias.iter().position(|v| v.id == seed) {
+        CopperNode::Via(i)
+    } else {
+        return Err(Error::Invalid("id is not a track or via".into()));
+    };
+    let net = match start {
+        CopperNode::Track(i) => p.board.tracks[i].net,
+        CopperNode::Via(i) => p.board.vias[i].net,
+        CopperNode::Pad(..) => return Err(missing()),
+    };
+    let pad_layers = |pad: &Pad, layer: Layer| -> bool {
+        pad.geometry
+            .as_ref()
+            .map(|g| g.layers.iter().any(|l| l == layer.name() || l == "*.Cu"))
+            .unwrap_or(layer == Layer::Front)
+    };
+    let mut nodes: Vec<CopperNode> = Vec::new();
+    for (i, t) in p.board.tracks.iter().enumerate() {
+        if t.net == net {
+            nodes.push(CopperNode::Track(i));
+        }
+    }
+    for (i, v) in p.board.vias.iter().enumerate() {
+        if v.net == net {
+            nodes.push(CopperNode::Via(i));
+        }
+    }
+    for (fi, f) in p.board.footprints.iter().enumerate() {
+        for (pi, pad) in f.pads.iter().enumerate() {
+            if pad.net == Some(net) {
+                nodes.push(CopperNode::Pad(fi, pi));
+            }
+        }
+    }
+    let pad_anchor = |fi: usize, pi: usize| -> Point {
+        let f = &p.board.footprints[fi];
+        let pad = &f.pads[pi];
+        f.pad_position(&pad.number).unwrap_or(pad.offset)
+    };
+    let joined = |a: CopperNode, b: CopperNode| -> bool {
+        use CopperNode::{Pad, Track, Via};
+        match (a, b) {
+            (Track(x), Track(y)) => {
+                let (s, t) = (&p.board.tracks[x], &p.board.tracks[y]);
+                s.layer == t.layer
+                    && [s.start, s.end]
+                        .iter()
+                        .any(|e| track_endpoints_near(*e, t.start) || track_endpoints_near(*e, t.end))
+            }
+            (Track(x), Via(y)) | (Via(y), Track(x)) => {
+                let (t, v) = (&p.board.tracks[x], &p.board.vias[y]);
+                p.via_span_layers(v).contains(&t.layer)
+                    && [t.start, t.end]
+                        .iter()
+                        .any(|e| e.distance(v.position) <= v.diameter / 2.0 + TRACK_ENDPOINT_EPS)
+            }
+            (Track(x), Pad(f, q)) | (Pad(f, q), Track(x)) => {
+                let (t, pad) = (&p.board.tracks[x], &p.board.footprints[f].pads[q]);
+                pad_layers(pad, t.layer)
+                    && [t.start, t.end].iter().any(|e| {
+                        e.distance(pad_anchor(f, q)) <= pad.bounding_radius() + TRACK_ENDPOINT_EPS
+                    })
+            }
+            (Via(y), Pad(f, q)) | (Pad(f, q), Via(y)) => {
+                let (v, pad) = (&p.board.vias[y], &p.board.footprints[f].pads[q]);
+                p.via_span_layers(v).iter().any(|l| pad_layers(pad, *l))
+                    && v.position.distance(pad_anchor(f, q))
+                        <= v.diameter / 2.0 + pad.bounding_radius() + TRACK_ENDPOINT_EPS
+            }
+            (Via(x), Via(y)) => {
+                let (u, v) = (&p.board.vias[x], &p.board.vias[y]);
+                u.position.distance(v.position) <= (u.diameter + v.diameter) / 2.0 + TRACK_ENDPOINT_EPS
+            }
+            (Pad(..), Pad(..)) => false,
+        }
+    };
+    let mut seen: Vec<CopperNode> = vec![start];
+    let mut queue: VecDeque<CopperNode> = VecDeque::from([start]);
+    while let Some(here) = queue.pop_front() {
+        for n in &nodes {
+            if !seen.contains(n) && joined(here, *n) {
+                seen.push(*n);
+                queue.push_back(*n);
+            }
+        }
+    }
+    let mut ids: Vec<Id> = Vec::new();
+    let mut pads: Vec<Value> = Vec::new();
+    for n in &seen {
+        match *n {
+            CopperNode::Track(i) => ids.push(p.board.tracks[i].id),
+            CopperNode::Via(i) => ids.push(p.board.vias[i].id),
+            CopperNode::Pad(f, q) => pads.push(json!({
+                "footprint": p.board.footprints[f].id,
+                "pad": p.board.footprints[f].pads[q].number,
+            })),
+        }
+    }
+    let truncated = ids.len() > COPPER_SELECTION_CAP;
+    ids.truncate(COPPER_SELECTION_CAP);
+    pads.truncate(COPPER_SELECTION_CAP);
+    Ok((ids, pads, truncated))
 }
 
 fn track_is_zero_length(track: &Track) -> bool {
@@ -12619,6 +12773,28 @@ fn run_command(
                 "unrouted": unrouted,
                 "total": total,
             }))
+        }
+        "board.select_connected" => {
+            let a: BoardSelectConnectedParams = parse(params)?;
+            let (ids, pads, truncated) = select_connected_copper(p, a.id)?;
+            Ok(json!({"ids": ids, "pads": pads, "truncated": truncated}))
+        }
+        "board.select_net" => {
+            let a: BoardSelectNetParams = parse(params)?;
+            if !p.nets.iter().any(|n| n.id == a.net) {
+                return Err(missing());
+            }
+            let all: Vec<Id> = p
+                .board
+                .tracks
+                .iter()
+                .filter(|t| t.net == a.net)
+                .map(|t| t.id)
+                .chain(p.board.vias.iter().filter(|v| v.net == a.net).map(|v| v.id))
+                .collect();
+            let truncated = all.len() > COPPER_SELECTION_CAP;
+            let ids: Vec<Id> = all.into_iter().take(COPPER_SELECTION_CAP).collect();
+            Ok(json!({"ids": ids, "truncated": truncated}))
         }
         "net.chain" => {
             let a: NetChainParams = parse(params)?;
@@ -23436,6 +23612,120 @@ mod tests {
         }
         assert_eq!(s.inspect(), before, "rejections change nothing");
         assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    fn id_of(v: &Value) -> Result<u64, Error> {
+        v["result"]["id"].as_u64().ok_or_else(missing)
+    }
+    #[test]
+    fn board_select_connected_from_track_includes_via_and_pad() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = id_of(&s.execute("net.create", json!({"name":"SIG"}), None)?)?;
+        let other = id_of(&s.execute("net.create", json!({"name":"OTHER"}), None)?)?;
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","position":[10,10],"reference":"J1","value":"x"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let (fp, anchor) = {
+            let f = s.project.board.footprints.first_mut().ok_or_else(missing)?;
+            let pad = f.pads.first_mut().ok_or_else(missing)?;
+            pad.net = Some(net);
+            pad.geometry = None;
+            let number = pad.number.clone();
+            let id = f.id;
+            (id, f.pad_position(&number).ok_or_else(missing)?)
+        };
+        let far = Point::new(anchor.x + 8.0, anchor.y);
+        let mid = Point::new(anchor.x + 4.0, anchor.y);
+        let seed = id_of(&s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":anchor.x,"y":anchor.y},"end":{"x":mid.x,"y":mid.y}}),
+            None,
+        )?)?;
+        let second = id_of(&s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":mid.x,"y":mid.y},"end":{"x":far.x,"y":far.y}}),
+            None,
+        )?)?;
+        let via = id_of(&s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":far.x,"y":far.y},"diameter":0.6,"drill":0.3}),
+            None,
+        )?)?;
+        let stray = id_of(&s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":anchor.x,"y":anchor.y + 20.0},"end":{"x":anchor.x + 3.0,"y":anchor.y + 20.0}}),
+            None,
+        )?)?;
+        let foreign = id_of(&s.execute(
+            "track.add",
+            json!({"net":other,"start":{"x":mid.x,"y":mid.y},"end":{"x":mid.x,"y":mid.y + 3.0}}),
+            None,
+        )?)?;
+        let rev = s.project.revision;
+        let out = s.execute("board.select_connected", json!({"id":seed}), None)?["result"].clone();
+        let ids: BTreeSet<u64> = out["ids"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .filter_map(Value::as_u64)
+            .collect();
+        assert_eq!(ids, BTreeSet::from([seed, second, via]));
+        assert!(!ids.contains(&stray) && !ids.contains(&foreign));
+        assert_eq!(out["pads"].as_array().ok_or_else(missing)?.len(), 1);
+        assert_eq!(out["pads"][0]["footprint"], fp);
+        assert_eq!(out["truncated"], false);
+        assert_eq!(s.project.revision, rev, "selection does not change the project");
+        let from_via = s.execute("board.select_connected", json!({"id":via}), None)?["result"].clone();
+        assert_eq!(from_via["ids"].as_array().ok_or_else(missing)?.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn board_select_connected_rejects_missing_and_wrong_kind() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = id_of(&s.execute("net.create", json!({"name":"SIG"}), None)?)?;
+        assert!(s.execute("board.select_connected", json!({"id":9999}), None).is_err());
+        assert!(s.execute("board.select_connected", json!({"id":net}), None).is_err());
+        assert!(s.execute("board.select_connected", json!({}), None).is_err());
+        assert!(s.execute("board.select_net", json!({"net":9999}), None).is_err());
+        Ok(())
+    }
+    #[test]
+    fn board_select_net_returns_all_tracks_and_vias_for_net() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = id_of(&s.execute("net.create", json!({"name":"SIG"}), None)?)?;
+        let other = id_of(&s.execute("net.create", json!({"name":"OTHER"}), None)?)?;
+        let t1 = id_of(&s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":5.0,"y":0.0}}),
+            None,
+        )?)?;
+        let t2 = id_of(&s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":9.0},"end":{"x":5.0,"y":9.0}}),
+            None,
+        )?)?;
+        let v = id_of(&s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":30.0,"y":30.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?)?;
+        s.execute(
+            "track.add",
+            json!({"net":other,"start":{"x":0.0,"y":3.0},"end":{"x":5.0,"y":3.0}}),
+            None,
+        )?;
+        let out = s.execute("board.select_net", json!({"net":net}), None)?["result"].clone();
+        let ids: BTreeSet<u64> = out["ids"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .filter_map(Value::as_u64)
+            .collect();
+        assert_eq!(ids, BTreeSet::from([t1, t2, v]));
+        assert_eq!(out["truncated"], false);
         Ok(())
     }
     #[test]
