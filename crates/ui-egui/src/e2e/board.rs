@@ -691,7 +691,7 @@ fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
     Ok(())
 }
 
-fn right_click(ctx: &egui::Context, app: &mut App, screen: egui::Pos2) {
+pub(super) fn right_click(ctx: &egui::Context, app: &mut App, screen: egui::Pos2) {
     for pressed in [true, false] {
         frame(
             ctx,

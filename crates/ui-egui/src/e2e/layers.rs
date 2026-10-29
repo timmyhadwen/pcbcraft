@@ -1,5 +1,6 @@
 //! Stories for the unified Layers tree in the left aside (#756).
 use super::super::*;
+use super::board::right_click;
 use super::support::*;
 
 fn pcb_app() -> (egui::Context, App) {
@@ -185,44 +186,8 @@ fn a_newcomer_hides_a_layer_from_its_right_click_menu() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let row = text_at(&ctx, &mut app, "Copper").ok_or("the Copper row is not on screen")?;
-    for pressed in [true, false] {
-        frame(
-            &ctx,
-            &mut app,
-            vec![
-                egui::Event::PointerMoved(row),
-                egui::Event::PointerButton {
-                    pos: row,
-                    button: egui::PointerButton::Secondary,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-    }
-    for _ in 0..3 {
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    }
-    let item = text_at(&ctx, &mut app, "Hide  Space").ok_or("the menu offers Hide with its shortcut")?;
-    frame(&ctx, &mut app, vec![egui::Event::PointerMoved(item)], egui::Modifiers::NONE);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    for pressed in [true, false] {
-        frame(
-            &ctx,
-            &mut app,
-            vec![
-                egui::Event::PointerMoved(item),
-                egui::Event::PointerButton {
-                    pos: item,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-    }
+    right_click(&ctx, &mut app, row);
+    authoring::tests::tap(&ctx, &mut app, "Hide  Space")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.preferences.hidden_layers.iter().any(|h| h == "Top copper"),
