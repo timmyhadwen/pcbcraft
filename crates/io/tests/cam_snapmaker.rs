@@ -79,6 +79,7 @@ fn sample_two_pads_track() -> Project {
             geometry: None,
         }],
         locked: None,
+        side: None,
     };
     let mut fp2 = fp1.clone();
     fp2.id = 11;
