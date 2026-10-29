@@ -2,6 +2,7 @@
 mod authoring;
 mod canvas;
 mod library;
+mod plot_viewer;
 mod via_covering;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
@@ -435,6 +436,7 @@ enum Tab {
     Checks,
     Settings,
     Libraries,
+    PlotFiles,
 }
 /// What the board canvas draws at each pad centre.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -671,6 +673,7 @@ pub struct App {
     page_left: f32,
     schematic: Camera,
     pcb: Camera,
+    plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
     drag_offset: Point,
     cursor: Option<Point>,
@@ -917,6 +920,7 @@ impl App {
             tab: match tab {
                 Some("pcb") => Tab::Pcb,
                 Some("checks") => Tab::Checks,
+                Some("plots") => Tab::PlotFiles,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
                     Tab::Libraries
                 }
@@ -1013,6 +1017,7 @@ impl App {
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
+            plot_viewer: plot_viewer::State::default(),
             pcb: Camera {
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
@@ -2721,6 +2726,7 @@ impl App {
                 (Tab::Board3d, "3D View"),
                 (Tab::Rules, "Rules"),
                 (Tab::Checks, "Checks"),
+                (Tab::PlotFiles, "Plot files"),
                 (Tab::Settings, "Settings"),
             ] {
                 let selected = self.tab == tab;
@@ -6753,6 +6759,24 @@ impl App {
                         Tab::Settings => {
                             egui::ScrollArea::vertical()
                                 .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
+                        }
+                        Tab::PlotFiles => {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                Self::margined(ui, |ui| {
+                                    let theme = plot_viewer::Theme {
+                                        surface: self.surface(),
+                                        muted: self.muted(),
+                                        accent: self.accent(),
+                                    };
+                                    plot_viewer::ui(
+                                        &mut self.plot_viewer,
+                                        ui,
+                                        theme,
+                                        &mut self.message,
+                                        self.make_dir.trim(),
+                                    );
+                                });
+                            });
                         }
                     }
                 });
