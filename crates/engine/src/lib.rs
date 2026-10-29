@@ -3,6 +3,7 @@ mod authoring;
 mod dry_run;
 mod images;
 pub mod library;
+mod outline;
 pub mod profiles;
 pub mod recents;
 pub use dry_run::{ChangeSummary, DryRun};
@@ -666,7 +667,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "graphic.add",
             "Add a free-standing schematic or board graphic: line, rect, circle, arc, polygon or text",
             schema(
-                json!({"layer":{"type":"string","enum":["schematic","board"]},"shape":{"type":"string","enum":["line","rect","circle","arc","polygon","text"]},"points":{"type":"array","items":point_schema(),"minItems":1,"maxItems":256},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"text":{"type":"string","maxLength":1024}}),
+                json!({"layer":{"type":"string","enum":["schematic","board"]},"shape":{"type":"string","enum":["line","rect","circle","arc","polygon","text"]},"points":{"type":"array","items":point_schema(),"minItems":1,"maxItems":256},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"text":{"type":"string","maxLength":1024},"sublayer":{"type":"string","enum":["F.SilkS","B.SilkS","F.Mask","B.Mask"],"description":"board graphics only: the silkscreen or solder mask side the figure belongs to"}}),
                 &["layer", "shape", "points", "width"],
             ),
         ),
@@ -1545,9 +1546,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.set_outline",
-            "Trace a free-form closed board outline of 3 to 64 distinct vertices; the rectangular width and height follow the outline's bounding box, and fabrication layers cut the board to the traced shape",
+            "Trace a free-form closed board outline of 3 to 64 distinct vertices, optionally bending segments into arcs; the rectangular width and height follow the outline's bounding box, and fabrication layers cut the board to the traced shape",
             schema(
-                json!({"points":{"type":"array","items":point_schema(),"minItems":3,"maxItems":64}}),
+                json!({"points":{"type":"array","items":point_schema(),"minItems":3,"maxItems":64},"arcs":{"type":"array","maxItems":64,"description":"optional, one entry per segment (vertex i to i+1, the last closing to vertex 0): a point the arc passes through, or null for a straight segment","items":{"oneOf":[point_schema(),{"type":"null"}]}}}),
                 &["points"],
             ),
         ),
@@ -1560,8 +1561,40 @@ pub fn commands() -> Vec<CommandSpec> {
             "board.set_layer_record",
             "Record or replace one board layer note: its name, role (copper, core, prepreg, soldermask, silkscreen, paste or custom) and thickness in millimetres; at most 32 notes per board",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":["copper","core","prepreg","soldermask","silkscreen","paste","custom"]},"thickness":{"type":"number"}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":["copper","core","prepreg","soldermask","silkscreen","paste","custom"]},"thickness":{"type":"number"},"material":{"type":"string","maxLength":64}}),
                 &["name", "kind", "thickness"],
+            ),
+        ),
+        (
+            "board.stackup_add_pair",
+            "Add two inner copper layers with their dielectric below the named copper layer (not the bottom one); copper already on the layers underneath keeps its layer",
+            schema(
+                json!({"after":{"type":"string","minLength":1,"maxLength":64,"description":"name of a copper layer record, or F.Cu / B.Cu on a board with no stackup rows yet"}}),
+                &["after"],
+            ),
+        ),
+        (
+            "board.stackup_move_layer",
+            "Move an inner copper layer up or down past the next inner copper layer; the copper drawn on the two layers goes with them",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"direction":{"type":"string","enum":["up","down"]}}),
+                &["name", "direction"],
+            ),
+        ),
+        (
+            "board.stackup_rename_layer",
+            "Rename one stackup layer; names stay unique",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"new_name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name", "new_name"],
+            ),
+        ),
+        (
+            "board.stackup_remove_layer",
+            "Remove an inner copper layer and the dielectric under it; refused while copper is drawn on it. Outer layers and dielectrics cannot be removed alone",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name"],
             ),
         ),
         (
@@ -2188,6 +2221,7 @@ pub fn commands() -> Vec<CommandSpec> {
         })
         .chain(authoring::commands())
         .chain(images::commands())
+        .chain(outline::commands())
         .chain(tuning::commands())
         .collect()
 }
@@ -3425,6 +3459,9 @@ struct GraphicParams {
     width: f64,
     #[serde(default)]
     text: String,
+    /// Fabrication sublayer of a board graphic: F.SilkS, B.SilkS, F.Mask or B.Mask.
+    #[serde(default)]
+    sublayer: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4359,6 +4396,8 @@ struct DrillOriginParams {
 #[serde(deny_unknown_fields)]
 struct OutlineParams {
     points: Vec<Point>,
+    #[serde(default)]
+    arcs: Vec<Option<Point>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4368,11 +4407,30 @@ struct LayerRecordParams {
     thickness: f64,
     #[serde(default)]
     copper_role: Option<String>,
+    #[serde(default)]
+    material: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerRecordNameParams {
     name: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StackupAddPairParams {
+    after: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StackupMoveParams {
+    name: String,
+    direction: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StackupRenameParams {
+    name: String,
+    new_name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5620,6 +5678,46 @@ fn optional_command_layer(p: &Project, params: &Value) -> Result<Option<Layer>, 
         _ => Err(Error::Invalid("layer must be a string".into())),
     }
 }
+/// Give a board with no stackup rows the explicit two-layer rows it already
+/// behaves as, so stackup edits have something to insert into.
+fn seed_stackup(p: &mut Project) {
+    if !p.board.layer_records.is_empty() {
+        return;
+    }
+    let make = |name: &str, kind: &str, thickness: f64, material: &str| pcbcraft_doc::LayerRecord {
+        name: name.into(),
+        kind: kind.into(),
+        thickness,
+        copper_role: None,
+        material: Some(material.into()),
+    };
+    let core = (p.board.thickness - 0.07).max(0.1);
+    p.board.layer_records = vec![
+        make("F.Cu", "copper", 0.035, "Copper"),
+        make("Core", "core", core, "FR-4"),
+        make("B.Cu", "copper", 0.035, "Copper"),
+    ];
+}
+/// Name inner copper rows `In1.Cu`, `In2.Cu` by position, the names the layer
+/// resolver reads; rows the designer renamed keep their names, and an empty
+/// name (a row just added) is filled in.
+fn renumber_inner(records: &mut [LayerRecord]) {
+    let last = records.iter().filter(|r| r.kind == "copper").count();
+    for (index, r) in records
+        .iter_mut()
+        .filter(|r| r.kind == "copper")
+        .enumerate()
+    {
+        let auto = r.name.is_empty()
+            || r.name
+                .strip_prefix("In")
+                .and_then(|x| x.strip_suffix(".Cu"))
+                .is_some_and(|n| n.parse::<u8>().is_ok());
+        if auto && index > 0 && index + 1 < last {
+            r.name = format!("In{index}.Cu");
+        }
+    }
+}
 fn copper_count_in_records(records: &[LayerRecord]) -> u8 {
     let n = records.iter().filter(|r| r.kind == "copper").count();
     if n == 0 { 2 } else { n as u8 }
@@ -6378,6 +6476,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = images::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = outline::run(p, next, command, params) {
         return result;
     }
     match command {
@@ -8503,6 +8604,7 @@ fn run_command(
                 }
                 offset = pcbcraft_geom::Point::new(min_x, min_y);
                 p.board.outline = Some(shifted);
+                p.board.outline_arcs.clear();
                 p.board.width = max_x - min_x;
                 p.board.height = max_y - min_y;
                 outline_index = Some(index);
@@ -8777,6 +8879,7 @@ fn run_command(
                     return Err(Error::Invalid("the imported outline has no area".into()));
                 }
                 p.board.outline = Some(shifted);
+                p.board.outline_arcs.clear();
                 p.board.width = max_x - min_x;
                 p.board.height = max_y - min_y;
                 outline_index = Some(index);
@@ -9250,6 +9353,14 @@ fn run_command(
             if (a.shape == "text") == a.text.is_empty() {
                 return Err(Error::Invalid("only text graphics may carry text".into()));
             }
+            if !a.sublayer.is_empty()
+                && (a.layer != "board"
+                    || !pcbcraft_doc::GRAPHIC_SUBLAYERS.contains(&a.sublayer.as_str()))
+            {
+                return Err(Error::Invalid(
+                    "sublayer must be F.SilkS, B.SilkS, F.Mask or B.Mask on a board graphic".into(),
+                ));
+            }
             let id = allocate(next)?;
             p.graphics.push(pcbcraft_doc::Graphic {
                 id,
@@ -9258,7 +9369,7 @@ fn run_command(
                 points: a.points,
                 width: a.width,
                 text: a.text,
-                sublayer: String::new(),
+                sublayer: a.sublayer,
             });
             Ok(json!({"id":id}))
         }
@@ -11417,6 +11528,7 @@ fn run_command(
                 outline.insert(insert + offset, point);
             }
             p.board.outline = Some(outline);
+            p.board.outline_arcs.clear();
             Ok(json!({"vertices": p.board.outline.as_ref().map(Vec::len).unwrap_or(0)}))
         }
         "board.hole_set_size" => {
@@ -12805,18 +12917,28 @@ fn run_command(
             if pcbcraft_doc::outline_area(&a.points) < 0.01 {
                 return Err(Error::Invalid("the traced outline has no area".into()));
             }
-            let min_x = a.points.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
-            let min_y = a.points.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
-            let max_x = a.points.iter().map(|p| p.x).fold(0.0, f64::max);
-            let max_y = a.points.iter().map(|p| p.y).fold(0.0, f64::max);
-            let shifted: Vec<Point> = a
-                .points
-                .iter()
-                .map(|p| Point::new(p.x - min_x, p.y - min_y))
-                .collect();
-            let area = (pcbcraft_doc::outline_area(&shifted) * 100.0).round() / 100.0;
+            if !a.arcs.is_empty() && a.arcs.len() != a.points.len() {
+                return Err(Error::Invalid(
+                    "arcs needs one entry per segment, null for a straight one".into(),
+                ));
+            }
+            pcbcraft_doc::validate_outline_arcs(&a.points, &a.arcs).map_err(Error::Invalid)?;
+            let (lo, hi) = pcbcraft_doc::outline_extent(&a.points, &a.arcs)
+                .ok_or_else(|| Error::Invalid("an outline needs 3 to 64 vertices".into()))?;
+            let (min_x, min_y) = (lo.x, lo.y);
+            let (max_x, max_y) = (hi.x, hi.y);
+            let shift = |q: &Point| Point::new(q.x - min_x, q.y - min_y);
+            let shifted: Vec<Point> = a.points.iter().map(shift).collect();
+            let arcs: Vec<Option<Point>> = a.arcs.iter().map(|m| m.as_ref().map(shift)).collect();
+            let ring = pcbcraft_doc::flatten_outline(&shifted, &arcs, 0.01);
+            let area = (pcbcraft_doc::outline_area(&ring) * 100.0).round() / 100.0;
             let vertices = shifted.len();
             p.board.outline = Some(shifted);
+            p.board.outline_arcs = if arcs.iter().all(Option::is_none) {
+                Vec::new()
+            } else {
+                arcs
+            };
             p.board.width = max_x - min_x;
             p.board.height = max_y - min_y;
             Ok(json!({
@@ -12835,6 +12957,7 @@ fn run_command(
             if p.board.outline.take().is_none() {
                 return Err(missing());
             }
+            p.board.outline_arcs.clear();
             Ok(json!({"width": p.board.width, "height": p.board.height}))
         }
         "board.set_layer_record" => {
@@ -12854,6 +12977,7 @@ fn run_command(
                 )
                 || !a.thickness.is_finite()
                 || !(0.0..=100.0).contains(&a.thickness)
+                || a.material.as_ref().is_some_and(|m| m.len() > 64)
                 || a.copper_role.as_ref().is_some_and(|r| {
                     !matches!(r.as_str(), "signal" | "plane" | "mixed" | "hatched")
                 })
@@ -12868,6 +12992,7 @@ fn run_command(
                 existing.kind = a.kind.clone();
                 existing.thickness = a.thickness;
                 existing.copper_role = a.copper_role.clone();
+                existing.material = a.material.clone().or(existing.material.take());
             } else {
                 if trial.len() >= 32 {
                     return Err(Error::Invalid(
@@ -12879,6 +13004,7 @@ fn run_command(
                     kind: a.kind.clone(),
                     thickness: a.thickness,
                     copper_role: a.copper_role.clone(),
+                    material: a.material.clone(),
                 });
             }
             refuse_stack_shrink(p, copper_count_in_records(&trial))?;
@@ -12887,15 +13013,159 @@ fn run_command(
                 existing.kind = a.kind;
                 existing.thickness = a.thickness;
                 existing.copper_role = a.copper_role;
+                existing.material = a.material.or(existing.material.take());
             } else {
                 records.push(pcbcraft_doc::LayerRecord {
                     name: name.clone(),
                     kind: a.kind,
                     thickness: a.thickness,
                     copper_role: a.copper_role,
+                    material: a.material,
                 });
             }
             Ok(json!({"name": name, "count": p.board.layer_records.len()}))
+        }
+        "board.stackup_add_pair" => {
+            let a: StackupAddPairParams = parse(params)?;
+            seed_stackup(p);
+            let records = &p.board.layer_records;
+            let at = records
+                .iter()
+                .position(|r| r.kind == "copper" && r.name == a.after.trim())
+                .ok_or_else(missing)?;
+            let copper_before = records[..at].iter().filter(|r| r.kind == "copper").count();
+            let coppers = records.iter().filter(|r| r.kind == "copper").count();
+            if copper_before + 1 >= coppers {
+                return Err(Error::Invalid(
+                    "a pair goes below a copper layer that has another copper layer under it"
+                        .into(),
+                ));
+            }
+            if records.len() + 4 > 32 || coppers + 2 > pcbcraft_doc::MAX_COPPER_LAYERS as usize {
+                return Err(Error::Invalid("the stackup is full".into()));
+            }
+            let thickness = records
+                .iter()
+                .find(|r| r.kind == "prepreg" || r.kind == "core")
+                .map_or(0.2, |r| r.thickness);
+            let record = |name: String, kind: &str, thickness: f64, material: Option<&str>| {
+                pcbcraft_doc::LayerRecord {
+                    name,
+                    kind: kind.into(),
+                    thickness,
+                    copper_role: None,
+                    material: material.map(str::to_owned),
+                }
+            };
+            let first = copper_before + 1;
+            let block = vec![
+                record("Prepreg".into(), "prepreg", thickness, Some("FR-4")),
+                record(String::new(), "copper", 0.035, Some("Copper")),
+                record("Core".into(), "core", thickness, Some("FR-4")),
+                record(String::new(), "copper", 0.035, Some("Copper")),
+            ];
+            p.remap_copper_layers(|i| if i as usize >= first { i + 2 } else { i });
+            let mut trial = p.board.layer_records.clone();
+            trial.splice(at + 1..at + 1, block);
+            renumber_inner(&mut trial);
+            p.board.layer_records = trial;
+            Ok(json!({"copper_layers": p.copper_layer_count(), "first_new": first}))
+        }
+        "board.stackup_move_layer" => {
+            let a: StackupMoveParams = parse(params)?;
+            seed_stackup(p);
+            let coppers: Vec<usize> = p
+                .board
+                .layer_records
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| r.kind == "copper")
+                .map(|(i, _)| i)
+                .collect();
+            let pos = coppers
+                .iter()
+                .position(|&i| p.board.layer_records[i].name == a.name.trim())
+                .ok_or_else(missing)?;
+            if pos == 0 || pos + 1 >= coppers.len() {
+                return Err(Error::Invalid("only inner copper layers can move".into()));
+            }
+            let other = match a.direction.as_str() {
+                "up" => pos - 1,
+                "down" => pos + 1,
+                _ => return Err(Error::Invalid("direction must be up or down".into())),
+            };
+            if other == 0 || other + 1 >= coppers.len() {
+                return Err(Error::Invalid(
+                    "an inner layer cannot move past the outer layers".into(),
+                ));
+            }
+            let (x, y) = (pos as u8, other as u8);
+            p.remap_copper_layers(|i| {
+                if i == x {
+                    y
+                } else if i == y {
+                    x
+                } else {
+                    i
+                }
+            });
+            p.board.layer_records.swap(coppers[pos], coppers[other]);
+            renumber_inner(&mut p.board.layer_records);
+            Ok(json!({"name": a.name.trim(), "index": other}))
+        }
+        "board.stackup_rename_layer" => {
+            let a: StackupRenameParams = parse(params)?;
+            seed_stackup(p);
+            let new_name = a.new_name.trim().to_string();
+            if new_name.is_empty() || new_name.len() > 64 {
+                return Err(Error::Invalid("a layer name is 1 to 64 characters".into()));
+            }
+            let records = &mut p.board.layer_records;
+            if new_name != a.name.trim() && records.iter().any(|r| r.name == new_name) {
+                return Err(Error::Invalid("another layer already has that name".into()));
+            }
+            let record = records
+                .iter_mut()
+                .find(|r| r.name == a.name.trim())
+                .ok_or_else(missing)?;
+            record.name = new_name.clone();
+            Ok(json!({"name": new_name}))
+        }
+        "board.stackup_remove_layer" => {
+            let a: LayerRecordNameParams = parse(params)?;
+            seed_stackup(p);
+            let records = &p.board.layer_records;
+            let at = records
+                .iter()
+                .position(|r| r.name == a.name.trim())
+                .ok_or_else(missing)?;
+            if records[at].kind != "copper" {
+                return Err(Error::Invalid(
+                    "remove the copper layer next to it; a dielectric cannot go alone".into(),
+                ));
+            }
+            let index = records[..at].iter().filter(|r| r.kind == "copper").count();
+            let coppers = records.iter().filter(|r| r.kind == "copper").count();
+            if index == 0 || index + 1 >= coppers {
+                return Err(Error::Invalid(
+                    "the outer copper layers cannot be removed".into(),
+                ));
+            }
+            if p.copper_layer_in_use(index as u8) {
+                return Err(Error::Invalid(
+                    "copper is drawn on that layer; move or delete it first".into(),
+                ));
+            }
+            let mut trial = p.board.layer_records.clone();
+            let under = at + 1;
+            if trial.get(under).is_some_and(|r| r.kind != "copper") {
+                trial.remove(under);
+            }
+            trial.remove(at);
+            renumber_inner(&mut trial);
+            p.remap_copper_layers(|i| if i as usize > index { i - 1 } else { i });
+            p.board.layer_records = trial;
+            Ok(json!({"copper_layers": p.copper_layer_count()}))
         }
         "board.remove_layer_record" => {
             let a: LayerRecordNameParams = parse(params)?;
@@ -34038,6 +34308,66 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn an_inner_pair_keeps_bottom_copper_on_the_bottom() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":1.0,"y":1.0},"end":{"x":5.0,"y":1.0},"width":0.2,"layer":"B.Cu"}),
+            None,
+        )?;
+        s.execute("board.stackup_add_pair", json!({"after":"F.Cu"}), None)?;
+        assert_eq!(s.project.copper_layer_count(), 4);
+        assert_eq!(s.project.board.tracks[0].layer.index(), 3);
+        assert_eq!(
+            s.project
+                .layer_name(pcbcraft_doc::Layer::from_index(1).map_err(Error::Invalid)?),
+            "In1.Cu"
+        );
+        assert!(
+            s.execute("board.stackup_add_pair", json!({"after":"B.Cu"}), None)
+                .is_err(),
+            "nothing goes below the bottom layer"
+        );
+        s.execute(
+            "board.stackup_rename_layer",
+            json!({"name":"In1.Cu","new_name":"GND"}),
+            None,
+        )?;
+        s.execute(
+            "board.stackup_move_layer",
+            json!({"name":"GND","direction":"down"}),
+            None,
+        )?;
+        let names: Vec<&str> = s
+            .project
+            .board
+            .layer_records
+            .iter()
+            .filter(|r| r.kind == "copper")
+            .map(|r| r.name.as_str())
+            .collect();
+        assert_eq!(names, ["F.Cu", "In1.Cu", "GND", "B.Cu"]);
+        assert!(
+            s.execute(
+                "board.stackup_move_layer",
+                json!({"name":"F.Cu","direction":"down"}),
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            s.execute("board.stackup_remove_layer", json!({"name":"B.Cu"}), None)
+                .is_err()
+        );
+        s.execute("board.stackup_remove_layer", json!({"name":"GND"}), None)?;
+        assert_eq!(s.project.copper_layer_count(), 3);
+        assert_eq!(s.project.board.tracks[0].layer.index(), 2);
+        Ok(())
+    }
+    #[test]
     fn track_add_on_inner_layer_validates_against_stackup() -> Result<(), Error> {
         let mut s = Session::default();
         let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
@@ -34312,6 +34642,7 @@ mod tests {
                     kind: "copper".into(),
                     thickness: 0.035,
                     copper_role: None,
+                    material: None,
                 });
             if i < 6 {
                 s.project
@@ -34322,6 +34653,7 @@ mod tests {
                         kind: "prepreg".into(),
                         thickness: 0.4,
                         copper_role: None,
+                        material: None,
                     });
             }
         }

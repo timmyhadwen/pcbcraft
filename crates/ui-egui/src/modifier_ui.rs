@@ -18,6 +18,7 @@
 //! # Do not
 //! - Hard-code a chord in a string; build it from the binding.
 
+use crate::a11y::Named;
 use egui::Key;
 use pcbcraft_text::t;
 
@@ -250,11 +251,19 @@ pub fn key_name(key: Key) -> String {
 pub fn keys_section(app: &mut crate::App, ui: &mut egui::Ui) {
     let platform = Platform::of(ui.ctx());
     ui.add_space(16.0);
+    egui::CollapsingHeader::new(t!("modifier.prefs.title"))
+        .default_open(false)
+        .show(ui, |ui| keys_rows(app, ui, platform))
+        .header_response
+        .on_hover_text(t!("modifier.prefs.title.tip"));
+}
+
+/// The rows inside the Keys section.
+fn keys_rows(app: &mut crate::App, ui: &mut egui::Ui, platform: Platform) {
     ui.label(
-        crate::fonts::caption(t!("modifier.prefs.title")).color(app.muted()),
-    );
-    ui.label(
-        crate::fonts::caption(t!("modifier.prefs.intro")).color(app.muted()),
+        egui::RichText::new(t!("modifier.prefs.intro"))
+            .small()
+            .color(app.muted()),
     );
     ui.add_space(4.0);
     let mut message: Option<String> = None;
@@ -271,6 +280,7 @@ pub fn keys_section(app: &mut crate::App, ui: &mut egui::Ui) {
                     }
                 })
                 .response
+                .named(&hotkey_words(h))
                 .on_hover_text(t!("modifier.prefs.hotkey.tip"));
             if app.preferences.modifiers.key_for(h) != h.default_key()
                 && ui
@@ -317,6 +327,7 @@ pub fn keys_section(app: &mut crate::App, ui: &mut egui::Ui) {
                     }
                 })
                 .response
+                .named(&effect(action))
                 .on_hover_text(t!("modifier.prefs.chord.tip"));
             if let Some(p) = pick {
                 app.preferences.modifiers.set_chord(action, p);
@@ -333,17 +344,20 @@ pub fn keys_section(app: &mut crate::App, ui: &mut egui::Ui) {
     }
     for (_, a, b) in tm::conflicts(&app.preferences.modifiers) {
         ui.label(
-            crate::fonts::caption(t!(
+            egui::RichText::new(t!(
                 "modifier.prefs.clash",
                 first = effect(a),
                 second = effect(b)
             ))
+            .small()
             .color(egui::Color32::from_rgb(240, 90, 80)),
         );
     }
     if let Some(m) = message {
         ui.label(
-            crate::fonts::caption(m).color(egui::Color32::from_rgb(240, 90, 80)),
+            egui::RichText::new(m)
+                .small()
+                .color(egui::Color32::from_rgb(240, 90, 80)),
         );
     }
     if ui

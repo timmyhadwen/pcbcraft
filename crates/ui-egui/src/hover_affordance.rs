@@ -19,8 +19,8 @@
 //!
 //! # Dependencies
 //! - `crates/ui-egui/src/tool_modifiers.rs` resolves the hovered action.
-//! - `crates/ui-egui/src/canvas/layout_art.rs` (layout canvas) and the
-//!   schematic painters call [`paint`] with their screen-space outlines.
+//! - `crates/ui-egui/src/canvas/gestures.rs` calls [`paint`]; the layout and
+//!   schematic canvases hand over screen-space [`Outline`]s.
 //!
 //! # Do not
 //! - Read egui modifiers here; the caller passes the resolved action.

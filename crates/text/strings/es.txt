@@ -151,3 +151,4 @@ modifier.hotkey.route = Herramienta Ruta
 modifier.hotkey.via = Herramienta Vía
 modifier.hotkey.text = Herramienta Texto
 modifier.menu.tip = Lo que hacen las teclas modificadoras en la herramienta activa.
+modifier.prefs.title.tip = Muestra u oculta las teclas de herramienta y los modificadores.

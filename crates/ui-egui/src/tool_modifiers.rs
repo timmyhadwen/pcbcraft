@@ -22,7 +22,7 @@
 //!
 //! # Dependencies
 //! - `crates/ui-egui/src/modifier_ui.rs` words, tooltips, preferences page.
-//! - `crates/ui-egui/src/canvas_gestures.rs` applies the resolved actions.
+//! - `crates/ui-egui/src/canvas/gestures.rs` applies the resolved actions.
 //! - `crates/ui-egui/src/lib.rs` `Preferences::modifiers` stores [`Bindings`].
 //!
 //! # Do not
@@ -765,7 +765,7 @@ pub const ROWS: &[Row] = &[
 /// - No matching row means [`ClickAction::Nothing`].
 ///
 /// # Dependencies
-/// - `crates/ui-egui/src/canvas_gestures.rs` calls it for press, click and hover.
+/// - `crates/ui-egui/src/canvas/gestures.rs` calls it for press, click and hover.
 ///
 /// # Do not
 /// - Read egui modifiers in the caller; pass a [`Held`].

@@ -14,6 +14,7 @@
 //! change to that one function.
 
 use crate::a11y::{Named, name_control};
+use crate::draw_target::{Side, Target};
 use crate::palette::ThemeColours;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2, epaint};
 use pcbcraft_doc::{Id, Layer, Project};
@@ -108,6 +109,10 @@ pub(crate) struct Row {
     pub round: bool,
     /// The net this row stands for, which the canvas highlights.
     pub net: Option<Id>,
+    /// The drawing target clicking this row sets, when it is one.
+    pub target: Option<Target>,
+    /// The stackup record this row stands for (a copper layer or dielectric).
+    pub stack: Option<String>,
 }
 
 /// What the tree asks the app to do; the app applies each in `lib.rs`.
@@ -127,8 +132,24 @@ pub(crate) enum Action {
     Focus(Option<String>),
     /// Highlight a net on the canvas, or clear with None.
     HighlightNet(Option<Id>),
-    /// Make this copper side the active drawing target (the toolbar's Layer).
-    SetActive(Layer),
+    /// Make this row the drawing target (the toolbar's Layer field follows).
+    SetTarget(Target),
+    /// Add two inner copper layers below the named copper layer.
+    StackAddPair(String),
+    /// Rename a stackup layer.
+    StackRename { name: String, new_name: String },
+    /// Remove an inner copper layer.
+    StackRemove(String),
+    /// Centre the drawing on a part.
+    ZoomTo(Id),
+    /// Move a part to the other board side.
+    FlipSide(Id),
+    /// Put a net in a net class, or in none.
+    NetClass { net: Id, class: Option<Id> },
+    /// Rename a net.
+    NetRename { net: Id, new_name: String },
+    /// Move an inner copper layer up or down.
+    StackMove { name: String, up: bool },
     /// Delete a document object (same as the Delete key on the drawing).
     Delete(Id),
     /// Remove a machine layer and everything drawn on it.
@@ -146,8 +167,8 @@ pub(crate) struct Env<'a> {
     pub hidden: &'a [String],
     pub focus: Option<&'a str>,
     pub selected: Option<Id>,
-    /// The copper side new tracks go on; its row carries the Active badge.
-    pub active: Layer,
+    /// What the drawing tools draw on; its row carries the Active badge.
+    pub target: Target,
     /// Bumps on every document change; part of the row cache key.
     pub revision: u64,
 }
@@ -168,6 +189,15 @@ fn layer_names(tab: TreeTab) -> &'static [&'static str] {
     }
 }
 
+/// What a rename in progress renames.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) enum RenameFor {
+    /// A stackup layer, by its current name.
+    Layer(String),
+    /// A net.
+    Net(Id),
+}
+
 /// View state owned by the app: what is open, filtered, locked and focused.
 ///
 /// # Rules
@@ -185,6 +215,8 @@ pub(crate) struct TreeView {
     pub cursor: Option<String>,
     /// A row selected that is not one object: the board outline, a layer, a net.
     pub selected_key: Option<String>,
+    /// A rename in progress from a row menu: what it renames and the text so far.
+    pub rename: Option<(RenameFor, String)>,
     last_selected: Option<Id>,
     scroll_to: Option<String>,
     focus_pending: Option<String>,
@@ -226,6 +258,7 @@ impl Default for TreeView {
             locked: BTreeSet::new(),
             cursor: None,
             selected_key: None,
+            rename: None,
             last_selected: None,
             scroll_to: None,
             focus_pending: None,
@@ -250,14 +283,6 @@ fn copper_key(layer: Layer) -> &'static str {
         "copper:front"
     } else {
         "copper:back"
-    }
-}
-
-fn side_of(key: &str) -> Layer {
-    if key.ends_with("back") {
-        Layer::Back
-    } else {
-        Layer::Front
     }
 }
 
@@ -287,6 +312,8 @@ fn row(path: &str, seg: &str, kind: RowKind, label: String) -> Row {
         swatch: None,
         round: false,
         net: None,
+        target: None,
+        stack: None,
     }
 }
 
@@ -393,7 +420,7 @@ enum Stack {
     /// A copper layer: its position (0 is the top) and its stackup name.
     Copper(usize, String),
     /// A core or prepreg layer between coppers, with its thickness in mm.
-    Dielectric(String, f64),
+    Dielectric(usize, String, f64),
 }
 
 /// The physical stack from the stackup records. Without records the board is
@@ -401,13 +428,15 @@ enum Stack {
 fn stack(env: &Env) -> Vec<Stack> {
     let mut out = Vec::new();
     let mut coppers = 0;
-    for rec in &env.project.board.layer_records {
+    for (at, rec) in env.project.board.layer_records.iter().enumerate() {
         match rec.kind.as_str() {
             "copper" => {
                 out.push(Stack::Copper(coppers, rec.name.clone()));
                 coppers += 1;
             }
-            "core" | "prepreg" => out.push(Stack::Dielectric(rec.name.clone(), rec.thickness)),
+            "core" | "prepreg" => {
+                out.push(Stack::Dielectric(at, rec.name.clone(), rec.thickness));
+            }
             _ => {}
         }
     }
@@ -445,9 +474,19 @@ fn side_key(side: Layer) -> &'static str {
     }
 }
 
-fn side_of_path(path: &str) -> Layer {
-    if path.starts_with("side:bottom") {
-        Layer::Back
+/// The bottom copper layer of this board (index 1 on a two-layer board).
+fn bottom(env: &Env) -> Layer {
+    Layer::from_index(copper_count(env).max(2) as u8 - 1).unwrap_or(Layer::Back)
+}
+
+/// The copper layer a top-level layer key (`side:top`, `inner:2`,
+/// `side:bottom`) stands for.
+fn path_layer(env: &Env, seg: &str) -> Layer {
+    if let Some(n) = seg.strip_prefix("inner:") {
+        return Layer::from_index(n.parse().unwrap_or(1)).unwrap_or(Layer::Front);
+    }
+    if seg.starts_with("side:bottom") {
+        bottom(env)
     } else {
         Layer::Front
     }
@@ -509,10 +548,12 @@ fn top_level(env: &Env) -> Vec<Row> {
                 let mut r = row("", &key, RowKind::Layer, label);
                 r.swatch = Some(sw);
                 r.expandable = true;
+                r.stack = Some(name);
                 out.push(r);
             }
-            Stack::Dielectric(name, thickness) => {
-                let mut r = row("", &format!("diel:{}", out.len()), RowKind::Leaf, name);
+            Stack::Dielectric(at, name, thickness) => {
+                let mut r = row("", &format!("diel:{at}"), RowKind::Leaf, name.clone());
+                r.stack = Some(name);
                 r.sub = format!("{thickness:.2} mm");
                 r.dim = true;
                 out.push(r);
@@ -539,6 +580,7 @@ fn top_level(env: &Env) -> Vec<Row> {
         true,
     );
     edge.expandable = true;
+    edge.target = Some(Target::Edge);
     edge.swatch = Some(c.warn);
     edge.controls = Some(LayerControls {
         key: "outline".to_owned(),
@@ -574,7 +616,18 @@ fn top_level(env: &Env) -> Vec<Row> {
     out
 }
 
-fn footprint_row(project: &Project, path: &str, f: &pcbcraft_doc::Footprint, side: &str) -> Row {
+/// True when the part is soldered on the top (`front`) or bottom side.
+fn on_side(f: &pcbcraft_doc::Footprint, front: bool) -> bool {
+    f.side.is_none_or(|l| l == Layer::Front) == front
+}
+
+fn footprint_row(
+    project: &Project,
+    path: &str,
+    f: &pcbcraft_doc::Footprint,
+    (top, bottom): (&str, &str),
+) -> Row {
+    let side = if on_side(f, true) { top } else { bottom };
     let mut r = row(
         path,
         &format!("fp:{}", f.id),
@@ -658,6 +711,15 @@ fn net_copper_count(env: &Env, id: Id, side: Layer) -> usize {
     n
 }
 
+/// The free board graphics drawn on the silkscreen of one side.
+fn silk_graphics<'a>(env: &'a Env, front: bool) -> impl Iterator<Item = &'a pcbcraft_doc::Graphic> {
+    let want = if front { "F.SilkS" } else { "B.SilkS" };
+    env.project
+        .graphics
+        .iter()
+        .filter(move |g| g.layer == "board" && g.sublayer == want)
+}
+
 fn layout_children(env: &Env, key: &str) -> Vec<Row> {
     let project = env.project;
     let board = &project.board;
@@ -666,33 +728,53 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
     let mut out = Vec::new();
     match segs.as_slice() {
         [""] => out = top_level(env),
-        [side] if *side == "side:top" || *side == "side:bottom" => {
-            let s = side_of_path(side);
+        [side] if side.starts_with("side:") || side.starts_with("inner:") => {
+            let s = path_layer(env, side);
             let front = s == Layer::Front;
+            let inner = side.starts_with("inner:");
             let tracks = board.tracks.iter().filter(|t| t.layer == s).count();
             let zones = board.zones.iter().filter(|z| z.layer == s).count();
-            let pads: usize = if front {
-                board.footprints.iter().map(|f| f.pads.len()).sum()
+            let pads: usize = board
+                .footprints
+                .iter()
+                .filter(|f| on_side(f, front))
+                .map(|f| f.pads.len())
+                .sum();
+            let (name, ck) = if inner {
+                ("", format!("copper:inner{}", s.index()))
+            } else if front {
+                ("Top copper", "copper:front".to_owned())
             } else {
-                0
+                ("Bottom copper", "copper:back".to_owned())
             };
-            let (name, ck) = if front {
-                ("Top copper", "copper:front")
+            let sw = if front {
+                c.canvas.front
+            } else if inner {
+                c.canvas.front.gamma_multiply(0.6)
             } else {
-                ("Bottom copper", "copper:back")
+                c.canvas.back
             };
-            let sw = if front { c.canvas.front } else { c.canvas.back };
-            out.push(sub_row(
+            let mut copper = sub_row(
                 key,
                 "copper",
-                ck,
+                &ck,
                 t!("tree.sub.copper"),
                 sw,
-                Visibility::Canvas(name),
-                true,
+                if inner {
+                    Visibility::None
+                } else {
+                    Visibility::Canvas(name)
+                },
+                !inner,
                 tracks + zones + pads,
                 true,
-            ));
+            );
+            copper.target = Some(Target::Copper(s));
+            out.push(copper);
+            if inner {
+                return out;
+            }
+            let side_t = if front { Side::Top } else { Side::Bottom };
             out.push(sub_row(
                 key,
                 "mask",
@@ -701,11 +783,16 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 c.canvas.mask,
                 Visibility::None,
                 false,
-                if front { pads } else { 0 },
+                pads,
                 false,
             ));
             let texts = board.texts.iter().filter(|x| x.layer == s).count();
-            let parts = if front { board.footprints.len() } else { 0 };
+            let parts = board
+                .footprints
+                .iter()
+                .filter(|f| on_side(f, front))
+                .count();
+            let gfx = silk_graphics(env, front).count();
             out.push(sub_row(
                 key,
                 "silk",
@@ -714,8 +801,8 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 c.ink,
                 Visibility::Canvas("Package artwork"),
                 false,
-                parts * 2 + texts,
-                parts + texts > 0,
+                parts * 2 + texts + gfx,
+                parts + texts + gfx > 0,
             ));
             out.push(sub_row(
                 key,
@@ -725,7 +812,7 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 c.muted,
                 Visibility::None,
                 false,
-                if front { pads } else { 0 },
+                pads,
                 false,
             ));
             out.push(sub_row(
@@ -739,15 +826,17 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 parts,
                 parts > 0,
             ));
-        }
-        [inner] if inner.starts_with("inner:") => {
-            let mut r = row(key, "copper", RowKind::Leaf, t!("tree.sub.copper"));
-            r.dim = true;
-            r.count = "0".to_owned();
-            out.push(r);
+            for r in &mut out {
+                r.target = match r.controls.as_ref().map(|c| c.key.as_str()) {
+                    Some("mask:front" | "mask:back") => Some(Target::Mask(side_t)),
+                    Some("silk:front" | "silk:back") => Some(Target::Silk(side_t)),
+                    Some("paste:front" | "paste:back") => Some(Target::Paste(side_t)),
+                    _ => r.target,
+                };
+            }
         }
         [side, "copper"] => {
-            let s = side_of_path(side);
+            let s = path_layer(env, side);
             let mut ids: Vec<Id> = project.nets.iter().map(|n| n.id).collect();
             for id in board
                 .tracks
@@ -781,15 +870,15 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
         }
         [side, "copper", net] if net.starts_with("net:") => {
             let id: Id = net[4..].parse().unwrap_or(0);
-            net_copper(env, key, id, side_of_path(side), &mut out);
+            net_copper(env, key, id, path_layer(env, side), &mut out);
         }
         [side, "silk"] => {
-            let s = side_of_path(side);
-            let parts = if s == Layer::Front {
-                board.footprints.len()
-            } else {
-                0
-            };
+            let s = path_layer(env, side);
+            let parts = board
+                .footprints
+                .iter()
+                .filter(|f| on_side(f, s == Layer::Front))
+                .count();
             out.push(counted(
                 row(key, "refs", RowKind::Leaf, t!("tree.silk.reference_text")),
                 parts,
@@ -810,13 +899,22 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                 r.select = Some(x.id);
                 out.push(r);
             }
+            for g in silk_graphics(env, s == Layer::Front) {
+                let mut r = row(
+                    key,
+                    &format!("gfx:{}", g.id),
+                    RowKind::Shape,
+                    g.shape.clone(),
+                );
+                r.select = Some(g.id);
+                out.push(r);
+            }
         }
         [side, "components"] => {
-            if side_of_path(side) == Layer::Front {
-                let top = t!("tree.side.top");
-                for f in &board.footprints {
-                    out.push(footprint_row(project, key, f, &top));
-                }
+            let front = path_layer(env, side) == Layer::Front;
+            let labels = (t!("tree.side.top"), t!("tree.side.bottom"));
+            for f in board.footprints.iter().filter(|f| on_side(f, front)) {
+                out.push(footprint_row(project, key, f, (&labels.0, &labels.1)));
             }
         }
         ["drills"] => {
@@ -907,6 +1005,7 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
                     !art.shapes.is_empty(),
                 );
                 r.dim = false;
+                r.target = Some(Target::User(art.id));
                 out.push(r);
             }
         }
@@ -924,9 +1023,9 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             }
         }
         ["components"] => {
-            let top = t!("tree.side.top");
+            let labels = (t!("tree.side.top"), t!("tree.side.bottom"));
             for f in &board.footprints {
-                out.push(footprint_row(project, key, f, &top));
+                out.push(footprint_row(project, key, f, (&labels.0, &labels.1)));
             }
         }
         [.., fp] if fp.starts_with("fp:") => {
@@ -947,8 +1046,8 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             nets.sort_by(|a, b| a.name.cmp(&b.name));
             for n in nets {
                 let mut levels = Vec::new();
-                for s in [Layer::Front, Layer::Back] {
-                    let has_via = s == Layer::Back && board.vias.iter().any(|v| v.net == n.id);
+                for s in [Layer::Front, bottom(env)] {
+                    let has_via = s != Layer::Front && board.vias.iter().any(|v| v.net == n.id);
                     if net_copper_count(env, n.id, s) > 0 || has_via {
                         levels.push(format!("L{}", level(env, s)));
                     }
@@ -971,7 +1070,7 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
         }
         ["nets", net] => {
             let id: Id = net[4..].parse().unwrap_or(0);
-            for s in [Layer::Front, Layer::Back] {
+            for s in [Layer::Front, bottom(env)] {
                 let n = net_copper_count(env, id, s);
                 if n > 0 {
                     let seg = if s == Layer::Front {
@@ -1000,7 +1099,7 @@ fn layout_children(env: &Env, key: &str) -> Vec<Row> {
             let s = if layer.ends_with("front") {
                 Layer::Front
             } else {
-                Layer::Back
+                bottom(env)
             };
             net_copper(env, key, id, s, &mut out);
         }
@@ -1876,6 +1975,7 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
     view.offset = output.state.offset.y;
     view.viewport = output.inner_rect.height();
     view.has_focus = has_focus;
+    rename_window(ui, view, &mut actions);
     if n == 0 && !view.query.trim().is_empty() {
         ui.add_space(8.0);
         ui.label(
@@ -1885,6 +1985,59 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
         );
     }
     actions
+}
+
+/// The small window a Rename menu item opens: a text field with OK and Cancel.
+fn rename_window(ui: &mut Ui, view: &mut TreeView, actions: &mut Vec<Action>) {
+    let Some((what, mut text)) = view.rename.clone() else {
+        return;
+    };
+    let mut done = None;
+    egui::Window::new(t!("tree.rename.title"))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+        .show(ui.ctx(), |ui| {
+            ui.add_space(4.0);
+            let field = ui
+                .add(crate::targets::text_field(&mut text).desired_width(220.0))
+                .named(&t!("tree.rename.title"));
+            field.request_focus();
+            field.on_hover_text(t!("tree.rename.tip"));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .button(t!("tree.rename.ok"))
+                    .on_hover_text(t!("tree.rename.ok.tip"))
+                    .clicked()
+                    || ui.input(|i| i.key_pressed(egui::Key::Enter))
+                {
+                    done = Some(true);
+                }
+                if ui
+                    .button(t!("tree.rename.cancel"))
+                    .on_hover_text(t!("tree.rename.cancel.tip"))
+                    .clicked()
+                    || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                {
+                    done = Some(false);
+                }
+            });
+        });
+    match done {
+        Some(true) => {
+            let new_name = text.trim().to_owned();
+            if !new_name.is_empty() {
+                actions.push(match what {
+                    RenameFor::Layer(name) => Action::StackRename { name, new_name },
+                    RenameFor::Net(net) => Action::NetRename { net, new_name },
+                });
+            }
+            view.rename = None;
+        }
+        Some(false) => view.rename = None,
+        None => view.rename = Some((what, text)),
+    }
 }
 
 /// Filter field with its add button, then Show all, Hide others, New layer.
@@ -1987,10 +2140,9 @@ fn header(
                         .and_then(|_| layer_visibility_name(all, k))
                 })
                 .or(match env.tab {
-                    TreeTab::Layout => Some(if env.active == Layer::Front {
-                        "Top copper"
-                    } else {
-                        "Bottom copper"
+                    TreeTab::Layout => Some(match env.target {
+                        Target::Copper(l) if l != Layer::Front => "Bottom copper",
+                        _ => "Top copper",
                     }),
                     TreeTab::Schematic => Some("Wires"),
                 });
@@ -2261,11 +2413,7 @@ fn paint_row(
         );
         label_right = rect_c.left() - 8.0;
     }
-    let active = env.tab == TreeTab::Layout
-        && r.kind == RowKind::Layer
-        && r.controls
-            .as_ref()
-            .is_some_and(|c| c.key == copper_key(env.active));
+    let active = env.tab == TreeTab::Layout && r.target == Some(env.target);
     if active {
         let badge = painter.layout_no_wrap(
             t!("tree.active"),
@@ -2413,15 +2561,15 @@ fn row_menu(
         }
         clicked
     };
+    if let Some(target) = r.target
+        && item(ui, t!("tree.menu.active"), t!("tree.menu.active.tip"))
+    {
+        actions.push(Action::SetTarget(target));
+        view.selected_key = Some(r.key.clone());
+        actions.push(Action::SelectKey(r.key.clone()));
+    }
+    stack_menu(ui, env, view, r, actions);
     if let Some(ctl) = &r.controls {
-        if ctl.key.starts_with("copper:")
-            && !ctl.key.contains("inner")
-            && item(ui, t!("tree.menu.active"), t!("tree.menu.active.tip"))
-        {
-            actions.push(Action::SetActive(side_of(&ctl.key)));
-            view.selected_key = Some(r.key.clone());
-            actions.push(Action::SelectKey(r.key.clone()));
-        }
         if ctl.visibility != Visibility::None {
             let label = if hidden {
                 t!("tree.menu.show")
@@ -2480,6 +2628,65 @@ fn row_menu(
             actions.push(Action::Delete(id));
         }
     }
+    if r.kind == RowKind::Part
+        && let Some(id) = r.select
+        && env.project.footprint(id).is_some()
+    {
+        if item(ui, t!("tree.menu.zoom_to"), t!("tree.menu.zoom_to.tip")) {
+            actions.push(Action::ZoomTo(id));
+        }
+        if item(ui, t!("tree.menu.flip"), t!("tree.menu.flip.tip")) {
+            actions.push(Action::FlipSide(id));
+        }
+    }
+    if r.kind == RowKind::Net
+        && let Some(net) = r.net
+    {
+        if item(ui, t!("tree.menu.rename"), t!("tree.menu.rename.tip")) {
+            view.rename = Some((RenameFor::Net(net), env.project.net_name(net).to_owned()));
+        }
+        let current = env.project.net_class_id(net);
+        ui.menu_button(t!("tree.menu.net_class"), |ui| {
+            for class in &env.project.net_classes {
+                if ui
+                    .selectable_label(current == Some(class.id), &class.name)
+                    .on_hover_text(t!("tree.menu.net_class.tip"))
+                    .clicked()
+                {
+                    actions.push(Action::NetClass {
+                        net,
+                        class: Some(class.id),
+                    });
+                    ui.close();
+                }
+            }
+            if ui
+                .selectable_label(current.is_none(), t!("tree.menu.net_class.none"))
+                .on_hover_text(t!("tree.menu.net_class.tip"))
+                .clicked()
+            {
+                actions.push(Action::NetClass { net, class: None });
+                ui.close();
+            }
+        })
+        .response
+        .on_hover_text(t!("tree.menu.net_class.tip"));
+    }
+    if r.stack.is_none()
+        && item(
+            ui,
+            t!("tree.menu.properties"),
+            t!("tree.menu.properties.tip"),
+        )
+    {
+        match r.select {
+            Some(id) => actions.push(Action::Select(id)),
+            None => {
+                view.selected_key = Some(r.key.clone());
+                actions.push(Action::SelectKey(r.key.clone()));
+            }
+        }
+    }
     if let Some(net) = r.net
         && r.kind == RowKind::Net
         && item(ui, t!("tree.menu.highlight"), t!("tree.menu.highlight.tip"))
@@ -2495,6 +2702,76 @@ fn row_menu(
         if item(ui, label, t!("tree.chevron.tip")) {
             toggle(view, &r.key);
         }
+    }
+}
+
+/// Stackup items of a layer or dielectric row's menu: add a pair, rename,
+/// remove and move.
+fn stack_menu(ui: &mut Ui, env: &Env, view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
+    let Some(name) = &r.stack else {
+        return;
+    };
+    let item = |ui: &mut Ui, label: String, tip: String| -> bool {
+        let clicked = ui.button(label).on_hover_text(tip).clicked();
+        if clicked {
+            ui.close();
+        }
+        clicked
+    };
+    let copper = !r.key.starts_with("diel:");
+    let inner = r.key.starts_with("inner:");
+    let bottom_row = r.key.starts_with("side:bottom");
+    if copper && !bottom_row && item(ui, t!("tree.menu.add_pair"), t!("tree.menu.add_pair.tip")) {
+        actions.push(Action::StackAddPair(name.clone()));
+    }
+    if item(ui, t!("tree.menu.rename"), t!("tree.menu.rename.tip")) {
+        view.rename = Some((RenameFor::Layer(name.clone()), name.clone()));
+    }
+    if inner {
+        let first = env
+            .project
+            .board
+            .layer_records
+            .iter()
+            .filter(|x| x.kind == "copper")
+            .nth(1)
+            .is_some_and(|x| &x.name == name);
+        let count = copper_count(env);
+        let last = env
+            .project
+            .board
+            .layer_records
+            .iter()
+            .filter(|x| x.kind == "copper")
+            .nth(count.saturating_sub(2))
+            .is_some_and(|x| &x.name == name);
+        if !first && item(ui, t!("tree.menu.move_up"), t!("tree.menu.move_up.tip")) {
+            actions.push(Action::StackMove {
+                name: name.clone(),
+                up: true,
+            });
+        }
+        if !last && item(ui, t!("tree.menu.move_down"), t!("tree.menu.move_down.tip")) {
+            actions.push(Action::StackMove {
+                name: name.clone(),
+                up: false,
+            });
+        }
+        if item(
+            ui,
+            t!("tree.menu.remove_layer"),
+            t!("tree.menu.remove_layer.tip"),
+        ) {
+            actions.push(Action::StackRemove(name.clone()));
+        }
+    }
+    if item(
+        ui,
+        t!("tree.menu.properties"),
+        t!("tree.menu.properties.tip"),
+    ) {
+        view.selected_key = Some(r.key.clone());
+        actions.push(Action::SelectKey(r.key.clone()));
     }
 }
 
@@ -2516,12 +2793,8 @@ fn activate(view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
         return;
     }
     view.selected_key = Some(r.key.clone());
-    if r.kind == RowKind::Layer
-        && let Some(c) = &r.controls
-        && c.key.starts_with("copper:")
-        && !c.key.contains("inner")
-    {
-        actions.push(Action::SetActive(side_of(&c.key)));
+    if let Some(target) = r.target {
+        actions.push(Action::SetTarget(target));
     }
     actions.push(Action::SelectKey(r.key.clone()));
     actions.push(Action::HighlightNet(r.net));
@@ -2643,7 +2916,7 @@ impl crate::App {
                 hidden: &self.preferences.hidden_layers,
                 focus: self.focus_layer.as_deref(),
                 selected: self.selected,
-                active: self.route_layer,
+                target: self.current_target(),
                 revision: self.revision,
             };
             show(ui, &env, &mut self.tree)
@@ -2701,7 +2974,51 @@ impl crate::App {
                 Action::RemoveArtLayer(id) => {
                     self.run("board.layer_delete", serde_json::json!({"layer": id}));
                 }
-                Action::SetActive(side) => self.route_layer = side,
+                Action::SetTarget(target) => self.set_target(target),
+                Action::StackAddPair(name) => {
+                    self.run("board.stackup_add_pair", serde_json::json!({"after": name}));
+                }
+                Action::StackRename { name, new_name } => {
+                    self.run(
+                        "board.stackup_rename_layer",
+                        serde_json::json!({"name": name, "new_name": new_name}),
+                    );
+                }
+                Action::StackRemove(name) => {
+                    self.run(
+                        "board.stackup_remove_layer",
+                        serde_json::json!({"name": name}),
+                    );
+                    self.tree.selected_key = None;
+                }
+                Action::StackMove { name, up } => {
+                    self.run(
+                        "board.stackup_move_layer",
+                        serde_json::json!({"name": name, "direction": if up { "up" } else { "down" }}),
+                    );
+                }
+                Action::ZoomTo(id) => {
+                    if let Some(f) = self.project.footprint(id) {
+                        self.pcb.center = f.position;
+                        self.pcb.zoom = self.pcb.zoom.max(24.0);
+                    }
+                    self.select(Some(id));
+                }
+                Action::FlipSide(id) => {
+                    self.run("footprint.flip", serde_json::json!({"id": id}));
+                }
+                Action::NetClass { net, class } => {
+                    self.run(
+                        "netclass.assign",
+                        serde_json::json!({"net": net, "class": class}),
+                    );
+                }
+                Action::NetRename { net, new_name } => {
+                    self.run(
+                        "net.rename",
+                        serde_json::json!({"id": net, "name": new_name}),
+                    );
+                }
                 Action::HighlightNet(net) => self.highlight_net = net,
                 Action::NewArtLayer => {
                     let name = t!(
@@ -2745,6 +3062,11 @@ impl crate::App {
             self.datums_section(ui);
             self.fiducials_section(ui);
             self.via_spans_section(ui);
+        } else if last.starts_with("side:")
+            || last.starts_with("inner:")
+            || last.starts_with("diel:")
+        {
+            self.stack_properties(ui, last);
         } else if last.starts_with("net:") || key == "nets" {
             ui.label(crate::fonts::title(t!("tree.net_settings")));
             self.nets_tab(ui);
@@ -2762,6 +3084,96 @@ impl crate::App {
                     .font(crate::fonts::Role::Caption.font())
                     .color(self.muted()),
             );
+        }
+    }
+}
+
+impl crate::App {
+    /// Properties of a stackup row: its name, thickness and material, saved
+    /// with `board.set_layer_record` when the field is left.
+    ///
+    /// # Dependencies
+    /// - `crates/engine/src/lib.rs` `board.set_layer_record` stores the change.
+    fn stack_properties(&mut self, ui: &mut Ui, seg: &str) {
+        let records = &self.project.board.layer_records;
+        let copper: Vec<&pcbcraft_doc::LayerRecord> =
+            records.iter().filter(|r| r.kind == "copper").collect();
+        let rec = if let Some(n) = seg.strip_prefix("diel:") {
+            n.parse::<usize>().ok().and_then(|i| records.get(i))
+        } else if let Some(n) = seg.strip_prefix("inner:") {
+            n.parse::<usize>().ok().and_then(|i| copper.get(i).copied())
+        } else if seg.starts_with("side:bottom") {
+            copper.last().copied()
+        } else {
+            copper.first().copied()
+        };
+        let Some(rec) = rec.cloned() else {
+            ui.heading(t!("tree.stack.default"));
+            ui.label(
+                egui::RichText::new(t!("tree.stack.default.help"))
+                    .small()
+                    .color(self.muted()),
+            );
+            return;
+        };
+        ui.heading(&rec.name);
+        ui.label(
+            egui::RichText::new(t!("tree.stack.help"))
+                .small()
+                .color(self.muted()),
+        );
+        ui.add_space(8.0);
+        let key = egui::Id::new(("stack-edit", rec.name.clone()));
+        let mut thickness: f64 = ui
+            .data(|d| d.get_temp(key.with("t")))
+            .unwrap_or(rec.thickness);
+        let mut material: String = ui
+            .data(|d| d.get_temp(key.with("m")))
+            .unwrap_or_else(|| rec.material.clone().unwrap_or_default());
+        ui.label(t!("tree.stack.thickness"));
+        let t_resp = ui
+            .add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut thickness)
+                    .speed(0.01)
+                    .range(0.0..=100.0)
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ))
+            .on_hover_text(t!("tree.stack.thickness.tip"))
+            .named(&t!("tree.stack.thickness"));
+        ui.add_space(6.0);
+        ui.label(t!("tree.stack.material"));
+        let m_resp = ui
+            .add(crate::targets::text_field(&mut material).desired_width(f32::INFINITY))
+            .on_hover_text(t!("tree.stack.material.tip"))
+            .named(&t!("tree.stack.material"));
+        let commit = t_resp.drag_stopped() || t_resp.lost_focus() || m_resp.lost_focus();
+        if commit {
+            ui.data_mut(|d| {
+                d.remove::<f64>(key.with("t"));
+                d.remove::<String>(key.with("m"));
+            });
+            let mut params = serde_json::json!({
+                "name": rec.name,
+                "kind": rec.kind,
+                "thickness": thickness,
+            });
+            if !material.trim().is_empty() {
+                params["material"] = serde_json::json!(material.trim());
+            }
+            if let Some(role) = &rec.copper_role {
+                params["copper_role"] = serde_json::json!(role);
+            }
+            if thickness != rec.thickness
+                || material.trim() != rec.material.clone().unwrap_or_default()
+            {
+                self.run("board.set_layer_record", params);
+            }
+        } else {
+            ui.data_mut(|d| {
+                d.insert_temp(key.with("t"), thickness);
+                d.insert_temp(key.with("m"), material);
+            });
         }
     }
 }
@@ -2795,7 +3207,7 @@ mod tests {
             hidden,
             focus: None,
             selected: None,
-            active: Layer::Front,
+            target: Target::Copper(Layer::Front),
             revision: 1,
         }
     }
@@ -2851,7 +3263,10 @@ mod tests {
                 .any(|r| r.kind == RowKind::Net && r.label == net)
         );
         assert!(list.iter().any(|r| r.key == "nets"));
-        view.query = "zzzz-no-such-thing".to_owned();
+        view = TreeView {
+            query: "zzzz-no-such-thing".to_owned(),
+            ..view
+        };
         assert!(rows(&env(&project, &[]), &mut view).is_empty());
     }
 

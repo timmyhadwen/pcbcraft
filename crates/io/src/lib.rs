@@ -2219,11 +2219,11 @@ fn excellon_drill_file(
 /// as G85 spans along the rotated long axis. Back-copper coordinates are
 /// mirrored about x=0 as fabrication houses expect for bottom-side films.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
-    gerber_files_at(p, &gerber_job::now_utc())
+    gerber_files_at(p, PACKAGE_CREATION_DATE)
 }
 /// The same fabrication files as `gerber_files`, with the creation date the
-/// job file records given by the caller. A package pins that date so two runs
-/// over the same design produce the same bytes.
+/// job file records given by the caller. Directory exports and packages pin
+/// that date so two runs over the same design produce the same bytes.
 pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     const MAX_OPS: usize = 100_000;
@@ -7233,12 +7233,14 @@ mod tests {
             kind: "copper".into(),
             thickness: 0.035,
             copper_role: None,
+            material: None,
         });
         project.board.layer_records.push(pcbcraft_doc::LayerRecord {
             name: "core".into(),
             kind: "core".into(),
             thickness: 1.2,
             copper_role: None,
+            material: None,
         });
         project.board.machining = Some(pcbcraft_doc::MachiningNotes {
             edge_plating: Some(true),
@@ -12700,6 +12702,7 @@ mod tests {
             kind: "copper".into(),
             thickness: 0.035,
             copper_role: None,
+            material: None,
         });
         project
             .meta
@@ -12724,6 +12727,7 @@ mod tests {
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: None,
+                material: None,
             });
             if i < 6 {
                 p.board.layer_records.push(pcbcraft_doc::LayerRecord {
@@ -12731,6 +12735,7 @@ mod tests {
                     kind: "prepreg".into(),
                     thickness: 0.2,
                     copper_role: None,
+                    material: None,
                 });
             }
         }
@@ -13101,5 +13106,46 @@ mod tests {
             "four gaps between four spokes"
         );
         Ok(())
+    }
+    #[test]
+    fn an_arced_corner_round_trips_through_save_and_open() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.outline = Some(vec![
+            Point::new(0.0, 2.0),
+            Point::new(20.0, 2.0),
+            Point::new(20.0, 22.0),
+            Point::new(0.0, 22.0),
+        ]);
+        project.board.outline_arcs = vec![Some(Point::new(10.0, 0.0)), None, None, None];
+        project.board.width = 20.0;
+        project.board.height = 22.0;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("arced.pcbcraft");
+        save(&project, &path)?;
+        let loaded = load(&path)?;
+        assert_eq!(loaded.board.outline_arcs, project.board.outline_arcs);
+        assert_eq!(loaded, project);
+        assert!(
+            loaded.board.edge_ring(0.01).len() > 4,
+            "the opened outline still flattens into chords"
+        );
+        Ok(())
+    }
+    #[test]
+    fn files_without_outline_arcs_open_with_straight_edges() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.outline = Some(vec![
+            Point::new(0.0, 0.0),
+            Point::new(60.0, 0.0),
+            Point::new(60.0, 40.0),
+        ]);
+        let text = serde_json::to_string(&project).map_err(|e| e.to_string())?;
+        assert!(
+            !text.contains("outline_arcs"),
+            "straight outlines write no arc list"
+        );
+        let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert!(back.board.outline_arcs.is_empty());
+        back.validate()
     }
 }
