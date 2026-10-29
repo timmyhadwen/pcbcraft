@@ -278,12 +278,13 @@ fn pad_shape_controls(ui: &mut egui::Ui, pad: &mut FootprintPad) {
     }
     if pad.shape == "roundrect" {
         let response = ui
-            .add(
+            .add(crate::number_entry::localized_active(
                 egui::DragValue::new(pad.roundrect_ratio.get_or_insert(0.25))
                     .range(0.0..=0.5)
                     .speed(0.01)
                     .prefix(format!("{} ", t!("library.library_editor.corner_ratio"))),
-            )
+                3,
+            ))
             .on_hover_text(t!("library.library_editor.corner_ratio.tip"));
         crate::a11y::name_control(&response, &t!("library.library_editor.corner_ratio"), None);
     } else {
@@ -292,12 +293,13 @@ fn pad_shape_controls(ui: &mut egui::Ui, pad: &mut FootprintPad) {
     if pad.shape == "chamfered" {
         if let Some(chamfer) = &mut pad.chamfer {
             let response = ui
-                .add(
+                .add(crate::number_entry::localized_active(
                     egui::DragValue::new(&mut chamfer.ratio)
                         .range(0.01..=0.5)
                         .speed(0.01)
                         .prefix(format!("{} ", t!("library.library_editor.cut_size"))),
-                )
+                    3,
+                ))
                 .on_hover_text(t!("library.library_editor.cut_size.tip"));
             crate::a11y::name_control(&response, &t!("library.library_editor.cut_size"), None);
             let corners = &mut chamfer.corners;
@@ -380,8 +382,14 @@ fn pad_shape_controls(ui: &mut egui::Ui, pad: &mut FootprintPad) {
 fn point(ui: &mut egui::Ui, label: &str, p: &mut Point) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(&mut p.x).speed(0.1).prefix("X "));
-        ui.add(egui::DragValue::new(&mut p.y).speed(0.1).prefix("Y "));
+        ui.add(crate::number_entry::localized_active(
+            egui::DragValue::new(&mut p.x).speed(0.1).prefix("X "),
+            3,
+        ));
+        ui.add(crate::number_entry::localized_active(
+            egui::DragValue::new(&mut p.y).speed(0.1).prefix("Y "),
+            3,
+        ));
     });
 }
 fn text(ui: &mut egui::Ui, label: &str, value: &mut String) {
@@ -393,7 +401,10 @@ fn text(ui: &mut egui::Ui, label: &str, value: &mut String) {
 fn number(ui: &mut egui::Ui, label: &str, value: &mut f64) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(value).speed(0.1));
+        ui.add(crate::number_entry::localized_active(
+            egui::DragValue::new(value).speed(0.1),
+            3,
+        ));
     });
 }
 fn graphic(ui: &mut egui::Ui, g: &mut Graphic) {

@@ -53,12 +53,13 @@ impl App {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.label("Target");
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.impedance_ui.target_ohm)
                     .range(1.0..=1000.0)
                     .speed(0.5)
                     .suffix(" ohm"),
-            )
+                2,
+            ))
             .on_hover_text(
                 "The impedance this connection should have, for example 50 ohm for a radio line. The suggestion below is worked out for it.",
             );
@@ -163,24 +164,26 @@ impl App {
             );
         ui.horizontal(|ui| {
             ui.label("Target");
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.impedance_ui.tune_target)
                     .range(0.1..=10000.0)
                     .speed(0.1)
                     .suffix(" mm"),
-            )
+                3,
+            ))
             .on_hover_text(
                 "How long the whole connection should end up, so it matches its partners.",
             );
         });
         ui.horizontal(|ui| {
             ui.label("Allowed miss");
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.impedance_ui.tune_tolerance)
                     .range(0.01..=10.0)
                     .speed(0.01)
                     .suffix(" mm"),
-            )
+                3,
+            ))
             .on_hover_text("Set how far the tuned result may land from the target, so tuning stops sooner. From 0.01 to 10 millimetres.");
         });
         ui.checkbox(&mut self.impedance_ui.tune_rounded, "Rounded bends")
