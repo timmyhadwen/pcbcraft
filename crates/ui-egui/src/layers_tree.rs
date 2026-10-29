@@ -3260,7 +3260,10 @@ mod tests {
                 .any(|r| r.kind == RowKind::Net && r.label == net)
         );
         assert!(list.iter().any(|r| r.key == "nets"));
-        view.query = "zzzz-no-such-thing".to_owned();
+        view = TreeView {
+            query: "zzzz-no-such-thing".to_owned(),
+            ..view
+        };
         assert!(rows(&env(&project, &[]), &mut view).is_empty());
     }
 
