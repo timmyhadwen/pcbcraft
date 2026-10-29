@@ -959,6 +959,8 @@ pub struct App {
     svg_path: String,
     part_search_focus: bool,
     needs_fit: bool,
+    /// The Renumber parts window, opened from the Edit menu.
+    renumber_open: bool,
     /// Left edge of the central page, so tests can check text keeps its margin.
     page_left: f32,
     schematic: Camera,
@@ -1439,6 +1441,7 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             needs_fit: true,
+            renumber_open: false,
             page_left: 0.0,
             schematic: Camera {
                 center: Point::new(40.0, 24.0),
@@ -3504,6 +3507,14 @@ impl App {
             {
                 self.paste_last_copy();
             }
+            if ui
+                .button(t!("menu.edit.renumber"))
+                .on_hover_text(t!("menu.edit.renumber.tip"))
+                .clicked()
+            {
+                self.renumber_open = true;
+                ui.close();
+            }
             if self.tab == Tab::Pcb
                 && ui
                     .button(t!("menu.edit.cleanup"))
@@ -3856,141 +3867,167 @@ impl App {
                         })
                         .map(|d| d.trim().to_owned())
                         .filter(|d| !d.is_empty());
-                    let origin = c.library_symbol.as_ref().map_or_else(
-                        || t!("library.browser.built_in"),
-                        |ls| t!("library.browser.from_name", name = ls.definition.name),
-                    );
-                    let note = what.map_or_else(
-                        || origin.clone(),
-                        |d| t!("library.browser.item_origin", item = d, origin = origin),
-                    );
-                    ui.label(
-                        egui::RichText::new(format!("    {note}"))
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-                if self.project.components.len() >= 2 {
-                    ui.add_space(12.0);
-                    ui.label(
-                        egui::RichText::new(t!("library.browser.renumber_parts"))
-                            .size(10.0)
-                            .color(self.muted()),
-                    );
-                    let mut prefixes: Vec<String> = self
-                        .project
-                        .components
-                        .iter()
-                        .map(|c| {
-                            c.reference
-                                .chars()
-                                .take_while(char::is_ascii_alphabetic)
-                                .collect::<String>()
-                        })
-                        .filter(|p| !p.is_empty())
-                        .collect();
-                    prefixes.sort();
-                    prefixes.dedup();
-                    let mut pick = self
-                        .renumber_plan
-                        .clone()
-                        .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
-                    ui.horizontal(|ui| {
-                        egui::ComboBox::from_id_salt("renumber-prefix")
-                            .selected_text(
-                                pick.clone()
-                                    .unwrap_or_else(|| t!("library.browser.all_letters")),
-                            )
-                            .show_ui(ui, |ui| {
-                                if ui
-                                    .selectable_label(
-                                        pick.is_none(),
-                                        t!("library.browser.all_letters"),
-                                    )
-                                    .on_hover_text(t!("library.browser.all_letters.tip"))
-                                    .clicked()
-                                {
-                                    pick = None;
-                                    ui.close();
-                                }
-                                for prefix in &prefixes {
-                                    if ui
-                                        .selectable_label(
-                                            pick.as_deref() == Some(prefix.as_str()),
-                                            prefix,
-                                        )
-                                        .on_hover_text(t!(
-                                            "library.browser.only_renumber_the_parts_that.tip"
-                                        ))
-                                        .clicked()
-                                    {
-                                        pick = Some(prefix.clone());
-                                        ui.close();
-                                    }
-                                }
-                            })
-                            .response
-                            .named("Renumber prefix")
-                            .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
-                        if ui
-                            .button(t!("library.browser.preview"))
-                            .on_hover_text(t!("library.browser.preview.tip"))
-                            .clicked()
-                        {
-                            let out = self.run_and_keep(
-                                "components.reannotate",
-                                json!({"dry_run": true, "prefix": pick}),
-                            );
-                            self.renumber_plan =
-                                out.get("renamed").and_then(Value::as_array).map(|rows| {
-                                    (
-                                        pick.clone(),
-                                        rows.iter()
-                                            .filter_map(|row| {
-                                                let from = row.get("from")?.as_str()?.to_owned();
-                                                let to = row.get("to")?.as_str()?.to_owned();
-                                                Some((from, to))
-                                            })
-                                            .collect(),
-                                    )
-                                });
+                    let origin = c
+                        .library_symbol
+                        .as_ref()
+                        .map(|ls| t!("library.browser.from_name", name = ls.definition.name));
+                    let note = match (what, origin) {
+                        (Some(d), Some(origin)) => {
+                            Some(t!("library.browser.item_origin", item = d, origin = origin))
                         }
-                    });
-                    if self.renumber_plan.is_none() {
-                        self.renumber_prefix = pick.clone();
-                    }
-                    if let Some((_, plan)) = self.renumber_plan.clone() {
-                        for (from, to) in plan.iter().take(12) {
-                            ui.label(
-                                egui::RichText::new(t!(
-                                    "library.browser.from_to",
-                                    from = from,
-                                    to = to
-                                ))
+                        (Some(d), None) => Some(d),
+                        (None, origin) => origin,
+                    };
+                    if let Some(note) = note {
+                        ui.label(
+                            egui::RichText::new(format!("    {note}"))
                                 .small()
                                 .color(self.muted()),
-                            );
-                        }
-                        ui.horizontal(|ui| {
-                            if ui
-                                .button(t!("library.browser.renumber"))
-                                .on_hover_text(t!("library.browser.renumber.tip"))
-                                .clicked()
-                            {
-                                self.renumber_plan = None;
-                                self.run("components.reannotate", json!({"prefix": pick}));
-                            }
-                            if ui
-                                .button(t!("library.browser.cancel"))
-                                .on_hover_text(t!("library.browser.cancel.tip"))
-                                .clicked()
-                            {
-                                self.renumber_plan = None;
-                            }
-                        });
+                        );
                     }
                 }
             });
+    }
+    /// The Renumber parts window, opened from Edit: pick a letter, preview the
+    /// new numbers, then write them as one undoable step.
+    ///
+    /// # Rules
+    /// Nothing changes until Renumber is pressed; Preview runs a dry run.
+    ///
+    /// # Dependencies
+    /// `crates/engine/src/lib.rs` for `components.reannotate`.
+    ///
+    /// # Do not
+    /// Show it as a permanent block in a side panel.
+    fn renumber_window(&mut self, ctx: &egui::Context) {
+        if !self.renumber_open {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new(t!("library.browser.renumber_title"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                if self.project.components.len() < 2 {
+                    ui.label(t!("library.browser.renumber_nothing"));
+                    return;
+                }
+            let mut prefixes: Vec<String> = self
+                .project
+                .components
+                .iter()
+                .map(|c| {
+                    c.reference
+                        .chars()
+                        .take_while(char::is_ascii_alphabetic)
+                        .collect::<String>()
+                })
+                .filter(|p| !p.is_empty())
+                .collect();
+            prefixes.sort();
+            prefixes.dedup();
+            let mut pick = self
+                .renumber_plan
+                .clone()
+                .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt("renumber-prefix")
+                    .selected_text(
+                        pick.clone()
+                            .unwrap_or_else(|| t!("library.browser.all_letters")),
+                    )
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(
+                                pick.is_none(),
+                                t!("library.browser.all_letters"),
+                            )
+                            .on_hover_text(t!("library.browser.all_letters.tip"))
+                            .clicked()
+                        {
+                            pick = None;
+                            ui.close();
+                        }
+                        for prefix in &prefixes {
+                            if ui
+                                .selectable_label(
+                                    pick.as_deref() == Some(prefix.as_str()),
+                                    prefix,
+                                )
+                                .on_hover_text(t!(
+                                    "library.browser.only_renumber_the_parts_that.tip"
+                                ))
+                                .clicked()
+                            {
+                                pick = Some(prefix.clone());
+                                ui.close();
+                            }
+                        }
+                    })
+                    .response
+                    .named("Renumber prefix")
+                    .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
+                if ui
+                    .button(t!("library.browser.preview"))
+                    .on_hover_text(t!("library.browser.preview.tip"))
+                    .clicked()
+                {
+                    let out = self.run_and_keep(
+                        "components.reannotate",
+                        json!({"dry_run": true, "prefix": pick}),
+                    );
+                    self.renumber_plan =
+                        out.get("renamed").and_then(Value::as_array).map(|rows| {
+                            (
+                                pick.clone(),
+                                rows.iter()
+                                    .filter_map(|row| {
+                                        let from = row.get("from")?.as_str()?.to_owned();
+                                        let to = row.get("to")?.as_str()?.to_owned();
+                                        Some((from, to))
+                                    })
+                                    .collect(),
+                            )
+                        });
+                }
+            });
+            if self.renumber_plan.is_none() {
+                self.renumber_prefix = pick.clone();
+            }
+            if let Some((_, plan)) = self.renumber_plan.clone() {
+                for (from, to) in plan.iter().take(12) {
+                    ui.label(
+                        egui::RichText::new(t!(
+                            "library.browser.from_to",
+                            from = from,
+                            to = to
+                        ))
+                        .small()
+                        .color(self.muted()),
+                    );
+                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(t!("library.browser.renumber"))
+                        .on_hover_text(t!("library.browser.renumber.tip"))
+                        .clicked()
+                    {
+                        self.renumber_plan = None;
+                        self.run("components.reannotate", json!({"prefix": pick}));
+                    }
+                    if ui
+                        .button(t!("library.browser.cancel"))
+                        .on_hover_text(t!("library.browser.cancel.tip"))
+                        .clicked()
+                    {
+                        self.renumber_plan = None;
+                    }
+                });
+            }
+
+            });
+        self.renumber_open = open;
     }
     /// The Nets tab of the left dock: add, spotlight and rename connections.
     fn nets_tab(&mut self, ui: &mut egui::Ui) {
@@ -7406,7 +7443,7 @@ impl App {
         if !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
             return;
         }
-        ui.horizontal_wrapped(|ui| {
+        egui::ScrollArea::horizontal().auto_shrink([false, true]).scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| { ui.horizontal(|ui| {
             ui.add_space(Self::PAGE_GUTTER);
             let select = |app: &mut App| {
                 app.tool = Tool::Select;
@@ -7568,7 +7605,7 @@ impl App {
                         .color(self.muted()),
                 );
             }
-        });
+        }); });
         ui.separator();
     }
 
@@ -7623,6 +7660,7 @@ impl App {
         self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);
+        self.renumber_window(&ctx);
         if self.home_open {
             self.start_home(ui);
         } else {

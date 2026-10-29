@@ -62,8 +62,8 @@ fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
 pub(crate) fn fit_camera(lo: Point, hi: Point, panel: (f32, f32)) -> Camera {
     let w = (hi.x - lo.x).max(1.0);
     let h = (hi.y - lo.y).max(1.0);
-    let zoom = ((panel.0 * 0.92) as f64 / w)
-        .min((panel.1 * 0.92) as f64 / h)
+    let zoom = ((panel.0 * 0.85) as f64 / w)
+        .min((panel.1 * 0.85) as f64 / h)
         .clamp(0.02, 100.0) as f32;
     Camera {
         center: Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0),
@@ -183,6 +183,8 @@ enum CanvasIcon {
     Fit,
     Move,
     Rotate,
+    ZoomIn,
+    ZoomOut,
 }
 impl App {
     /// One square icon button over the canvas. Its rectangle is published for
@@ -200,6 +202,8 @@ impl App {
             CanvasIcon::Fit => "Fit",
             CanvasIcon::Move => "Move",
             CanvasIcon::Rotate => "Rotate",
+            CanvasIcon::ZoomIn => "Zoom in",
+            CanvasIcon::ZoomOut => "Zoom out",
         };
         crate::a11y::name_control(&response, name, None);
         self.record_icon(id, rect);
@@ -227,6 +231,14 @@ impl App {
                     let corner = at(sx * 7.0, sy * 7.0);
                     painter.line_segment([corner, at(sx * 7.0, sy * 3.0)], stroke);
                     painter.line_segment([corner, at(sx * 3.0, sy * 7.0)], stroke);
+                }
+            }
+            CanvasIcon::ZoomIn | CanvasIcon::ZoomOut => {
+                painter.circle_stroke(at(-1.5, -1.5), 5.5, stroke);
+                painter.line_segment([at(2.5, 2.5), at(7.0, 7.0)], stroke);
+                painter.line_segment([at(-4.0, -1.5), at(1.0, -1.5)], stroke);
+                if matches!(icon, CanvasIcon::ZoomIn) {
+                    painter.line_segment([at(-1.5, -4.0), at(-1.5, 1.0)], stroke);
                 }
             }
             CanvasIcon::Move => {
@@ -386,10 +398,17 @@ impl App {
         } else {
             self.schematic
         };
-        if self.needs_fit && rect.width() > 40.0 && rect.height() > 40.0 {
+        // The window and the asides settle over the first frames, so an
+        // automatic fit follows the canvas size until the user moves the view.
+        let fit_key = egui::Id::new(("auto-fit", self.tab == Tab::Pcb));
+        let size = (rect.width().round() as i32, rect.height().round() as i32);
+        let fitted_at: Option<(i32, i32)> = ui.ctx().data(|d| d.get_temp(fit_key));
+        let resized = fitted_at.is_some_and(|last| last != size);
+        if (self.needs_fit || resized) && rect.width() > 40.0 && rect.height() > 40.0 {
             let (lo, hi) = view_bounds(&self.project, self.tab == Tab::Pcb);
             camera = fit_camera(lo, hi, (rect.width(), rect.height()));
             self.needs_fit = false;
+            ui.ctx().data_mut(|d| d.insert_temp(fit_key, size));
         }
         if response.hovered() {
             let scroll = motion::wheel_zoom_delta(ui, self.preferences.reduced_motion);
@@ -397,6 +416,7 @@ impl App {
                 && let Some(mouse) = ui.input(|i| i.pointer.hover_pos())
             {
                 let before = camera.world(mouse, rect);
+                ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
                 camera.zoom = (camera.zoom * (scroll * 0.003).exp()).clamp(0.02, 100.0);
                 let after = camera.world(mouse, rect);
                 camera.center = camera
@@ -406,6 +426,7 @@ impl App {
         }
         if response.dragged_by(egui::PointerButton::Middle) {
             let d = ui.input(|i| i.pointer.delta());
+            ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
             camera.center = camera.center.offset(Point::new(
                 -d.x as f64 / camera.zoom as f64,
                 -d.y as f64 / camera.zoom as f64,
@@ -491,13 +512,15 @@ impl App {
             Tool::DrawLayer => t!("board.canvas.draw_shape_pick_the_layer"),
             Tool::Measure => t!("board.canvas.measure_click_two_points"),
         };
-        painter.text(
-            rect.left_top() + Vec2::new(20.0, 20.0),
-            Align2::LEFT_TOP,
-            text,
-            FontId::monospace(10.0),
-            self.muted(),
-        );
+        if !matches!(self.tool, Tool::Select) {
+            painter.text(
+                rect.left_top() + Vec2::new(20.0, 20.0),
+                Align2::LEFT_TOP,
+                text,
+                FontId::monospace(10.0),
+                self.muted(),
+            );
+        }
         if let Some(focus) = &focus {
             let label = match focus.as_str() {
                 "copper:front" => "Top copper".to_owned(),
@@ -743,48 +766,68 @@ impl App {
         }
         // Fit and zoom stay on the canvas; board/schematic tools live in the strip under the tabs.
         egui::Area::new(egui::Id::new("fit-fab"))
-            .pivot(Align2::RIGHT_TOP)
-            .fixed_pos(rect.right_top() + Vec2::new(-12.0, 12.0))
+            .pivot(Align2::RIGHT_BOTTOM)
+            .fixed_pos(rect.right_bottom() + Vec2::new(-16.0, -16.0))
             .constrain_to(rect)
             .order(egui::Order::Foreground)
             .show(ui.ctx(), |ui| {
-                ui.horizontal(|ui| {
-                    if self
-                        .canvas_icon(
-                            ui,
-                            "canvas-fit",
-                            CanvasIcon::Fit,
-                            &t!("board.canvas.fit_zoom_the_view_so"),
-                        )
-                        .clicked()
-                    {
-                        self.needs_fit = true;
-                    }
-                    if ui
-                        .tap_button(t!("board.canvas.text"))
-                        .on_hover_text(t!("board.canvas.text.tip"))
-                        .clicked()
-                    {
-                        let zoom = if self.tab == Tab::Pcb {
-                            &mut self.pcb.zoom
-                        } else {
-                            &mut self.schematic.zoom
-                        };
-                        *zoom = (*zoom * 1.15).clamp(0.02, 100.0);
-                    }
-                    if ui
-                        .tap_button(t!("board.canvas.text2"))
-                        .on_hover_text(t!("board.canvas.text2.tip"))
-                        .clicked()
-                    {
-                        let zoom = if self.tab == Tab::Pcb {
-                            &mut self.pcb.zoom
-                        } else {
-                            &mut self.schematic.zoom
-                        };
-                        *zoom = (*zoom / 1.15).clamp(0.02, 100.0);
-                    }
-                });
+                egui::Frame::popup(ui.style())
+                    .inner_margin(egui::Margin::same(4))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let zoom_now = camera.zoom;
+                            let step = |app: &mut App, factor: f32| {
+                                let zoom = if app.tab == Tab::Pcb {
+                                    &mut app.pcb.zoom
+                                } else {
+                                    &mut app.schematic.zoom
+                                };
+                                *zoom = (*zoom * factor).clamp(0.02, 100.0);
+                            };
+                            if self
+                                .canvas_icon(
+                                    ui,
+                                    "canvas-zoom-out",
+                                    CanvasIcon::ZoomOut,
+                                    &t!("board.canvas.text2.tip"),
+                                )
+                                .clicked()
+                            {
+                                step(self, 1.0 / 1.15);
+                            }
+                            let base = if self.tab == Tab::Schematic { 15.0 } else { 11.0 };
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{}%",
+                                    (zoom_now / base * 100.0).round() as i32
+                                ))
+                                .size(12.0),
+                            )
+                            .on_hover_text(t!("board.footer.zoom_pct.tip"));
+                            if self
+                                .canvas_icon(
+                                    ui,
+                                    "canvas-zoom-in",
+                                    CanvasIcon::ZoomIn,
+                                    &t!("board.canvas.text.tip"),
+                                )
+                                .clicked()
+                            {
+                                step(self, 1.15);
+                            }
+                            if self
+                                .canvas_icon(
+                                    ui,
+                                    "canvas-fit",
+                                    CanvasIcon::Fit,
+                                    &t!("board.canvas.fit_zoom_the_view_so"),
+                                )
+                                .clicked()
+                            {
+                                self.needs_fit = true;
+                            }
+                        });
+                    });
             });
         if matches!(self.tab, Tab::Schematic | Tab::Pcb)
             && let Some(id) = self.selected
