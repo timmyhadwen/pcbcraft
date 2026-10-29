@@ -277,7 +277,8 @@ fn a_filter_on_category_package_value_range_voltage_stock_and_source_returns_onl
 
 #[test]
 fn missing_fields_never_match_a_numeric_filter() {
-    let blank = filter_listing("X", Category::Resistor, ListingSource::Installed, "Lib");
+    let mut blank = filter_listing("X", Category::Resistor, ListingSource::Installed, "Lib");
+    blank.stock = None;
     let numeric = [
         PartFilter {
             value_min: Some(0.0),
