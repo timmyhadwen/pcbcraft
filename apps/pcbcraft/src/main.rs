@@ -9,7 +9,7 @@ fn main() -> eframe::Result {
     };
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--select REFERENCE\n--left library|layers\n--context-menu"
+            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--select REFERENCE\n--left library|layers\n--context-menu\n--target silk|edge"
         );
         return Ok(());
     }
@@ -66,6 +66,7 @@ fn main() -> eframe::Result {
     let select = option("--select");
     let left = option("--left");
     let context_menu = args.iter().any(|a| a == "--context-menu");
+    let target = option("--target");
     let options = eframe::NativeOptions {
         viewport: egui_viewport(option("--size").as_deref()),
         ..Default::default()
@@ -80,6 +81,7 @@ fn main() -> eframe::Result {
                     .with_capture_select(select)
                     .with_left_tab(left)
                     .with_capture_view(context_menu)
+                    .with_capture_target(target)
                     .with_host(host::host()),
             ))
         }),
