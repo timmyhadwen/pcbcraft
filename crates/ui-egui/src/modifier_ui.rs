@@ -18,6 +18,7 @@
 //! # Do not
 //! - Hard-code a chord in a string; build it from the binding.
 
+use crate::a11y::Named;
 use egui::Key;
 use pcbcraft_text::t;
 
@@ -250,11 +251,15 @@ pub fn key_name(key: Key) -> String {
 pub fn keys_section(app: &mut crate::App, ui: &mut egui::Ui) {
     let platform = Platform::of(ui.ctx());
     ui.add_space(16.0);
-    ui.label(
-        egui::RichText::new(t!("modifier.prefs.title"))
-            .size(10.0)
-            .color(app.muted()),
-    );
+    egui::CollapsingHeader::new(t!("modifier.prefs.title"))
+        .default_open(false)
+        .show(ui, |ui| keys_rows(app, ui, platform))
+        .header_response
+        .on_hover_text(t!("modifier.prefs.title.tip"));
+}
+
+/// The rows inside the Keys section.
+fn keys_rows(app: &mut crate::App, ui: &mut egui::Ui, platform: Platform) {
     ui.label(
         egui::RichText::new(t!("modifier.prefs.intro"))
             .small()
@@ -275,6 +280,7 @@ pub fn keys_section(app: &mut crate::App, ui: &mut egui::Ui) {
                     }
                 })
                 .response
+                .named(&hotkey_words(h))
                 .on_hover_text(t!("modifier.prefs.hotkey.tip"));
             if app.preferences.modifiers.key_for(h) != h.default_key()
                 && ui
@@ -321,6 +327,7 @@ pub fn keys_section(app: &mut crate::App, ui: &mut egui::Ui) {
                     }
                 })
                 .response
+                .named(&effect(action))
                 .on_hover_text(t!("modifier.prefs.chord.tip"));
             if let Some(p) = pick {
                 app.preferences.modifiers.set_chord(action, p);

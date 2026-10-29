@@ -1976,3 +1976,4 @@ workspace.side.tip = Look at the board from the side edge.
 workspace.layout_reset = Layout reset.
 menu.view.reset_layout = Reset layout
 menu.view.reset_layout.tip = Put the side panels and the bottom panel back to how they started.
+modifier.prefs.title.tip = Show or hide the tool keys and modifier settings.
