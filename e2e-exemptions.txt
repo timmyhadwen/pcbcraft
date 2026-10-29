@@ -3,76 +3,6 @@
 # Every line below is a gap found by the first run and is tracked in #520. The list may only shrink:
 # fix the control, then delete its line. Lines that match nothing painted fail the gate.
 
-tooltip | button:# electrical · # board > | missing tooltip, tracked in #520
-tooltip | button:#D model (Step) | missing tooltip, tracked in #520
-tooltip | button:#D viewer file | missing tooltip, tracked in #520
-tooltip | button:Add area | missing tooltip, tracked in #520
-tooltip | button:Add label | missing tooltip, tracked in #520
-tooltip | button:Bottom copper wires | missing tooltip, tracked in #520
-tooltip | button:Connections | missing tooltip, tracked in #520
-tooltip | button:Copper & drill files | missing tooltip, tracked in #520
-tooltip | button:Declare pair | missing tooltip, tracked in #520
-tooltip | button:Design report | missing tooltip, tracked in #520
-tooltip | button:Drill map (CSV) | missing tooltip, tracked in #520
-tooltip | button:Editor | missing tooltip, tracked in #520
-tooltip | button:GND | missing tooltip, tracked in #520
-tooltip | button:Graphic # | missing tooltip, tracked in #520
-tooltip | button:Graphic # · unit # | missing tooltip, tracked in #520
-tooltip | button:Holes and cut-outs | missing tooltip, tracked in #520
-tooltip | button:Import as board edge | missing tooltip, tracked in #520
-tooltip | button:Import drawing | missing tooltip, tracked in #520
-tooltip | button:LED | missing tooltip, tracked in #520
-tooltip | button:Library | missing tooltip, tracked in #520
-tooltip | button:Machine layers you draw | missing tooltip, tracked in #520
-tooltip | button:Net list | missing tooltip, tracked in #520
-tooltip | button:New net | missing tooltip, tracked in #520
-tooltip | button:Original starter symbols | missing tooltip, tracked in #520
-tooltip | button:Pad # · thru_hole | missing tooltip, tracked in #520
-tooltip | button:Parts and pads | missing tooltip, tracked in #520
-tooltip | button:Parts list (CSV) | missing tooltip, tracked in #520
-tooltip | button:Pick and place file | missing tooltip, tracked in #520
-tooltip | button:Pin # · unit # | missing tooltip, tracked in #520
-tooltip | button:Pins | missing tooltip, tracked in #520
-tooltip | button:Poured copper | missing tooltip, tracked in #520
-tooltip | button:Preview panel | missing tooltip, tracked in #520
-tooltip | button:Printable drawing (PDF) | missing tooltip, tracked in #520
-tooltip | button:Project notes | missing tooltip, tracked in #520
-tooltip | button:Rename | missing tooltip, tracked in #520
-tooltip | button:Show connections | missing tooltip, tracked in #520
-tooltip | button:Show holes | missing tooltip, tracked in #520
-tooltip | button:Show machine layers | missing tooltip, tracked in #520
-tooltip | button:Show notes | missing tooltip, tracked in #520
-tooltip | button:Show parts | missing tooltip, tracked in #520
-tooltip | button:Show pours | missing tooltip, tracked in #520
-tooltip | button:Show rule areas | missing tooltip, tracked in #520
-tooltip | button:Show vias | missing tooltip, tracked in #520
-tooltip | button:Show wires | missing tooltip, tracked in #520
-tooltip | button:Show words | missing tooltip, tracked in #520
-tooltip | button:Stricter areas | missing tooltip, tracked in #520
-tooltip | button:This board | missing tooltip, tracked in #520
-tooltip | button:Top copper wires | missing tooltip, tracked in #520
-tooltip | button:VCC | missing tooltip, tracked in #520
-tooltip | button:Via holes | missing tooltip, tracked in #520
-tooltip | button:Watched pairs | missing tooltip, tracked in #520
-tooltip | button:Web drawing (SVG) | missing tooltip, tracked in #520
-tooltip | button:Words on the board | missing tooltip, tracked in #520
-tooltip | checkbox:Bottom copper | missing tooltip, tracked in #520
-tooltip | checkbox:Copper zones | missing tooltip, tracked in #520
-tooltip | checkbox:Cutouts | missing tooltip, tracked in #520
-tooltip | checkbox:Graphics | missing tooltip, tracked in #520
-tooltip | checkbox:Grid | missing tooltip, tracked in #520
-tooltip | checkbox:Net labels | missing tooltip, tracked in #520
-tooltip | checkbox:Package artwork | missing tooltip, tracked in #520
-tooltip | checkbox:Pads | missing tooltip, tracked in #520
-tooltip | checkbox:Parts here stand no taller than | missing tooltip, tracked in #520
-tooltip | checkbox:Show grid | missing tooltip, tracked in #520
-tooltip | checkbox:Symbols | missing tooltip, tracked in #520
-tooltip | checkbox:Top copper | missing tooltip, tracked in #520
-tooltip | checkbox:Vias | missing tooltip, tracked in #520
-tooltip | checkbox:Wires | missing tooltip, tracked in #520
-tooltip | textinput:USB | missing tooltip, tracked in #520
-tooltip | textinput:drawing file path (.svg) | missing tooltip, tracked in #520
-tooltip | textinput:folder for the files (blank means "outputs" beside the desig | missing tooltip, tracked in #520
 story | button:# | no a_newcomer story, tracked in #520
 story | button:# electrical · # board > | no a_newcomer story, tracked in #520
 story | button:# to fix | no a_newcomer story, tracked in #520
@@ -212,8 +142,6 @@ story | button:Pad | no a_newcomer story, tracked in #520
 story | button:Pads: net | no a_newcomer story, tracked in #520
 story | button:Pads: number | no a_newcomer story, tracked in #520
 story | button:Pads: off | no a_newcomer story, tracked in #520
-tooltip | checkbox:Plated board edge | has a tooltip but sits below the fold of the files panel, so the walk cannot hover it; scroll it into view in a walk step, tracked in #520
-tooltip | textinput:Search the whole board | has a tooltip but sits below the fold of the files panel, so the walk cannot hover it; scroll it into view in a walk step, tracked in #520
 story | button:Libraries | no a_newcomer story, tracked in #520
 story | button:Line | no a_newcomer story, tracked in #520
 story | icon:canvas-fit | no a_newcomer story, tracked in #520
@@ -221,28 +149,18 @@ story | button:Copper | no a_newcomer story, tracked in #520
 story | button:Graphics | no a_newcomer story, tracked in #520
 story | button:Measure | no a_newcomer story, tracked in #520
 story | button:Parts | no a_newcomer story, tracked in #520
-tooltip | button:Add datum | missing tooltip, tracked in #520
-tooltip | textinput:Datum name | missing tooltip, tracked in #520
 story | button:D# chip | no story yet, tracked in #520
 story | button:R# chip | no story yet, tracked in #520
 story | button:Reset view | no story yet, tracked in #520
 story | button:Top view | no story yet, tracked in #520
 story | textinput:Datum name | no story yet, tracked in #520
-tooltip | textinput:what to print | missing tooltip, tracked in #520
-tooltip | button:Pour copper | missing tooltip, tracked in #520
 story | button:#% | no story yet, tracked in #520
-tooltip | button:Attach PNG | missing tooltip, tracked in #520
-tooltip | textinput:PNG file path | missing tooltip, tracked in #520
-tooltip | button:Print art, bottom silkscreen | missing tooltip, tracked in #520
-tooltip | button:Print art, top silkscreen | missing tooltip, tracked in #520
 story | button:Print art, bottom silkscreen | no story yet, tracked in #520
 story | button:Forget Always allow | no story yet, tracked in #520
 story | checkbox:Show assistant | no story yet, tracked in #520
 story | radiobutton:Allow everything | no story yet, tracked in #520
 story | radiobutton:Ask every time | no story yet, tracked in #520
 story | radiobutton:Auto-allow design edits | no story yet, tracked in #520
-tooltip | button:Add hole | below the fold of the longer Settings page, tracked in #520
-tooltip | button:Apply board dimensions | below the fold of the longer Settings page, tracked in #520
 story | button:Add hole | below the fold of the longer Settings page, tracked in #520
 story | combobox:Custom check measure | missing story, newly named by #671 #672 #673, tracked in #520
 story | combobox:First net of the pair | missing story, newly named by #671 #672 #673, tracked in #520
@@ -282,37 +200,3 @@ story | textinput:Name | missing story, newly named by #671 #672 #673, tracked i
 story | textinput:Reference prefix | missing story, newly named by #671 #672 #673, tracked in #520
 story | textinput:Set name | missing story, newly named by #671 #672 #673, tracked in #520
 story | textinput:Suggested footprint | missing story, newly named by #671 #672 #673, tracked in #520
-tooltip | combobox:Add datum at | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | combobox:First net of the pair | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | combobox:Negative net | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | combobox:Positive net | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | combobox:Pour connection | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | combobox:Second net of the pair | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Area corner X | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Area corner Y | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Area height | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Area width | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Board height | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Board width | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Copies across | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Copies down | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Copper stays apart by | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Cutout X | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Cutout Y | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Cutout radius | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Gap between copies | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Pour X | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Pour Y | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Pour height | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Pour width | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Rail width | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Run together gap | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Text X | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Text Y | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | spinbutton:Text size | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | textinput:Default value | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | textinput:Description | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | textinput:Name | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | textinput:Reference prefix | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | textinput:Set name | missing tooltip, newly named by #671 #672 #673, tracked in #520
-tooltip | textinput:Suggested footprint | missing tooltip, newly named by #671 #672 #673, tracked in #520

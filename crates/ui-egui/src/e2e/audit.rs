@@ -15,7 +15,7 @@
 //! icons published through `App::record_icon`.
 
 use super::super::*;
-use super::support::frame;
+use super::support::{TALL_SCREEN, frame};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
@@ -226,10 +226,17 @@ fn settle(ctx: &egui::Context, app: &mut App) {
 
 /// Hover the control for two frames and say whether a tooltip appeared.
 /// The control is looked up again after the pointer leaves, because panels
-/// can still be moving when the page is first listed. A control scrolled out
-/// of its panel has no visible area to hover, so it cannot show a tooltip
-/// here and is reported until a test scrolls it into view (#520).
+/// can still be moving when the page is first listed. The hover runs on a
+/// screen tall enough for the whole page, so a control below the usual fold
+/// still has an area to hover (#520).
 fn shows_tooltip(ctx: &egui::Context, app: &mut App, control: &Control) -> bool {
+    TALL_SCREEN.with(|tall| tall.set(true));
+    let shown = shows_tooltip_on_tall_screen(ctx, app, control);
+    TALL_SCREEN.with(|tall| tall.set(false));
+    shown
+}
+
+fn shows_tooltip_on_tall_screen(ctx: &egui::Context, app: &mut App, control: &Control) -> bool {
     // Clear the previous control's tooltip first: it can sit over this control.
     for _ in 0..2 {
         frame(

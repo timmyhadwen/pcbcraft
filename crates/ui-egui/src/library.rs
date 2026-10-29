@@ -284,7 +284,7 @@ impl App {
                         ) {
                             changed |= ui
                                 .selectable_value(&mut self.library.path, path.to_owned(), name)
-                                .on_hover_text("Browse this collection.")
+                                .on_hover_text("Show the symbols and packages in this collection in the list.")
                                 .changed();
                         }
                     }

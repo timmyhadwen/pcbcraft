@@ -195,11 +195,11 @@ impl App {
             ui.label("X");
             ui.add(egui::DragValue::new(&mut self.datum_ui.x).speed(0.1))
                 .named("Datum X")
-                .on_hover_text("Across the board, in millimetres.");
+                .on_hover_text("Across the board, in millimetres. Use a value within the board.");
             ui.label("Y");
             ui.add(egui::DragValue::new(&mut self.datum_ui.y).speed(0.1))
                 .named("Datum Y")
-                .on_hover_text("Up the board, in millimetres.");
+                .on_hover_text("Up the board, in millimetres. Use a value within the board.");
         });
         if ui
             .button("Move")

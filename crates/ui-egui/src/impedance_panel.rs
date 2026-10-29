@@ -184,7 +184,7 @@ impl App {
                     .suffix(" mm"),
             )
             .named("Allowed miss")
-            .on_hover_text("How far from the target the result may land.");
+            .on_hover_text("How far from the target the result may land, from 0.01 to 10 mm.");
         });
         ui.checkbox(&mut self.impedance_ui.tune_rounded, "Rounded bends")
             .on_hover_text(

@@ -85,6 +85,11 @@ pub(crate) fn self_names(app: &App) -> Vec<String> {
         .map(|r| r.name.clone())
         .collect()
 }
+thread_local! {
+    /// When set, `frame` paints on a screen tall enough to show a whole page,
+    /// so the tooltip walk can hover controls that sit below the usual fold.
+    pub(crate) static TALL_SCREEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 pub(crate) fn frame(
     ctx: &egui::Context,
     app: &mut App,
@@ -98,7 +103,14 @@ pub(crate) fn frame(
         egui::RawInput {
             screen_rect: Some(Rect::from_min_size(
                 egui::Pos2::ZERO,
-                Vec2::new(1440.0, 940.0),
+                Vec2::new(
+                    1440.0,
+                    if TALL_SCREEN.with(std::cell::Cell::get) {
+                        6000.0
+                    } else {
+                        940.0
+                    },
+                ),
             )),
             events,
             ..Default::default()

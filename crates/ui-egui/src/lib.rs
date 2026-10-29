@@ -1586,7 +1586,9 @@ impl App {
                                 .suffix(" mm"),
                         )
                         .named("Layer thickness")
-                        .on_hover_text("How thick this layer is, in millimetres.");
+                        .on_hover_text(
+                            "How thick this layer is, in millimetres, between 0 and 100.",
+                        );
                     });
                     let apply = ui
                         .button("Apply")
@@ -1630,7 +1632,8 @@ impl App {
                 egui::TextEdit::singleline(&mut self.stack_name)
                     .desired_width(70.0)
                     .hint_text("layer name"),
-            ).named("layer name")
+            )
+            .named("layer name")
             .on_hover_text("Name this layer, for example Core, Prepreg or L2.");
             egui::ComboBox::from_id_salt("stack-add-kind")
                 .selected_text(self.stack_kind.clone())
@@ -1656,7 +1659,7 @@ impl App {
                     .suffix(" mm"),
             )
             .named("New layer thickness")
-            .on_hover_text("How thick this layer is, in millimetres.");
+            .on_hover_text("How thick this layer is, in millimetres, between 0 and 100.");
             if ui
                 .add_enabled(
                     !self.stack_name.trim().is_empty(),
@@ -1720,7 +1723,7 @@ impl App {
                     .suffix(" mm"),
             )
             .named("Thickness")
-            .on_hover_text("How thick the whole board is; the factory uses this to pick bits.");
+            .on_hover_text("How thick the whole board is, from 0.2 to 100 mm; the factory uses this to pick bits.");
             if ui
                 .button("Set thickness")
                 .on_hover_text("Record this board thickness.")
@@ -1794,7 +1797,7 @@ impl App {
                             .range(0.05..=25.0)
                             .suffix(" mm"),
                     ).named("Hole size")
-                    .on_hover_text("How wide this hole is drilled.");
+                    .on_hover_text("How wide this hole is drilled, between 0.05 and 25 mm.");
                     if ui
                         .button("Apply")
                         .on_hover_text("Resize this hole to that drill size.")
@@ -1884,7 +1887,7 @@ impl App {
                             .suffix(" mm"),
                     )
                     .named("Assembly mark size")
-                    .on_hover_text("How wide the bare copper disc is.");
+                    .on_hover_text("How wide the bare copper disc is, between 0.2 and 10 mm.");
                     if ui
                         .selectable_label(front, "Top")
                         .on_hover_text("Put the mark on the top side of the board.")
@@ -4026,7 +4029,10 @@ impl App {
             ui.selectable_value(&mut self.preferences.dark, false, "Light")
                 .on_hover_text("Light canvas and panels, easier on printed previews.");
         });
-        ui.checkbox(&mut self.preferences.grid, "Show grid");
+        ui.checkbox(&mut self.preferences.grid, "Show grid")
+            .on_hover_text(
+                "Draw a faint dot grid on the board and sheet to help you line things up.",
+            );
         ui.label("Interface size");
         ui.horizontal_wrapped(|ui| {
             for (label, scale) in a11y::UI_SCALE_STEPS {
@@ -4090,7 +4096,8 @@ impl App {
                     .speed(0.5)
                     .suffix(" mm"),
             )
-            .named("Board width");
+            .named("Board width")
+.on_hover_text("How wide the board is, in millimetres; it must be larger than zero. Press Apply board dimensions to resize it.");
         });
         ui.horizontal(|ui| {
             ui.label("H");
@@ -4099,7 +4106,8 @@ impl App {
                     .speed(0.5)
                     .suffix(" mm"),
             )
-            .named("Board height");
+            .named("Board height")
+.on_hover_text("How tall the board is, in millimetres; it must be larger than zero. Press Apply board dimensions to resize it.");
         });
         if ui
             .button("Apply board dimensions")
@@ -4131,14 +4139,16 @@ impl App {
                     .speed(0.5)
                     .suffix(" mm"),
             )
-            .named("Cutout X");
+            .named("Cutout X")
+.on_hover_text("Where the centre of the round hole sits across the board, in millimetres. It must stay within the board edge.");
             ui.label("Y");
             ui.add(
                 egui::DragValue::new(&mut self.cut_y)
                     .speed(0.5)
                     .suffix(" mm"),
             )
-            .named("Cutout Y");
+            .named("Cutout Y")
+.on_hover_text("Where the centre of the round hole sits up the board, in millimetres. It must stay within the board edge.");
         });
         ui.horizontal(|ui| {
             ui.label("Radius");
@@ -4148,7 +4158,8 @@ impl App {
                     .range(0.1..=50.0)
                     .suffix(" mm"),
             )
-            .named("Cutout radius");
+            .named("Cutout radius")
+.on_hover_text("How big the round hole is, from its centre to its edge, in millimetres. It accepts 0.1 to 50 mm.");
         });
         if ui
             .button("Add hole")
@@ -4186,14 +4197,16 @@ impl App {
                     .speed(0.5)
                     .suffix(" mm"),
             )
-            .named("Pour X");
+            .named("Pour X")
+.on_hover_text("Where the left side of the copper rectangle sits across the board, in millimetres. Keep it within the board.");
             ui.label("Y");
             ui.add(
                 egui::DragValue::new(&mut self.pour_y)
                     .speed(0.5)
                     .suffix(" mm"),
             )
-            .named("Pour Y");
+            .named("Pour Y")
+.on_hover_text("Where the bottom side of the copper rectangle sits up the board, in millimetres. Keep it within the board.");
         });
         ui.horizontal(|ui| {
             ui.label("W");
@@ -4203,7 +4216,10 @@ impl App {
                     .range(1.0..=500.0)
                     .suffix(" mm"),
             )
-            .named("Pour width");
+            .named("Pour width")
+            .on_hover_text(
+                "How wide the copper rectangle is, in millimetres. It accepts 1 to 500 mm.",
+            );
             ui.label("H");
             ui.add(
                 egui::DragValue::new(&mut self.pour_h)
@@ -4211,7 +4227,10 @@ impl App {
                     .range(1.0..=500.0)
                     .suffix(" mm"),
             )
-            .named("Pour height");
+            .named("Pour height")
+            .on_hover_text(
+                "How tall the copper rectangle is, in millimetres. It accepts 1 to 500 mm.",
+            );
         });
         let pour_net = self.pour_net;
         let net_choices: Vec<(Id, String)> = self
@@ -4229,7 +4248,8 @@ impl App {
                 }
             })
             .response
-            .named("Pour connection");
+            .named("Pour connection")
+.on_hover_text("Choose which connection the poured copper joins. Every pad and wire of that connection inside the rectangle is tied to it.");
         if ui
             .button("Pour copper")
             .on_hover_text(
@@ -4264,7 +4284,8 @@ impl App {
                 egui::TextEdit::singleline(&mut self.label_text)
                     .desired_width(110.0)
                     .hint_text("what to print"),
-            ).named("what to print")
+            )
+            .named("what to print")
             .on_hover_text("The words to print on the board.");
         });
         ui.horizontal(|ui| {
@@ -4274,13 +4295,15 @@ impl App {
                     .speed(0.5)
                     .suffix(" mm"),
             )
-            .named("Text X");
+            .named("Text X")
+.on_hover_text("Where the words start across the board, in millimetres. Keep them within the board to print.");
             ui.add(
                 egui::DragValue::new(&mut self.label_y)
                     .speed(0.5)
                     .suffix(" mm"),
             )
-            .named("Text Y");
+            .named("Text Y")
+.on_hover_text("Where the words sit up the board, in millimetres. Keep them within the board to print.");
             ui.add(
                 egui::DragValue::new(&mut self.label_size)
                     .range(0.3..=20.0)
@@ -4288,7 +4311,7 @@ impl App {
                     .suffix(" mm"),
             )
             .named("Text size")
-            .on_hover_text("How tall the letters are.");
+            .on_hover_text("How tall the letters are, between 0.3 and 20 millimetres.");
         });
         ui.horizontal(|ui| {
             ui.label("Side");
@@ -4403,7 +4426,8 @@ impl App {
                     .speed(0.1)
                     .suffix(" mm"),
             )
-            .named("Cutout radius");
+            .named("Cutout radius")
+.on_hover_text("The radius of the circle the cutout tool places, in millimetres. The whole circle must stay inside the board.");
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
         ui.add_space(12.0);
@@ -4593,7 +4617,7 @@ impl App {
                     .speed(1.0),
             )
             .named("Copies across")
-            .on_hover_text("How many copies of the board sit side by side.");
+            .on_hover_text("How many copies of the board sit side by side, from 1 to 32.");
             ui.add(
                 egui::DragValue::new(&mut self.panel_rows)
                     .range(1..=32)
@@ -4601,7 +4625,7 @@ impl App {
                     .speed(1.0),
             )
             .named("Copies down")
-            .on_hover_text("How many copies of the board sit top to bottom.");
+            .on_hover_text("How many copies of the board sit top to bottom, from 1 to 32.");
         });
         ui.horizontal(|ui| {
             ui.add(
@@ -5145,7 +5169,8 @@ impl App {
                         }
                     })
                     .response
-                    .named("First net of the pair");
+                    .named("First net of the pair")
+.on_hover_text("Choose the first connection of the pair. The checks watch the gap between it and the second one.");
                 ui.label("away from");
                 egui::ComboBox::from_id_salt("pair_b")
                     .selected_text(name_of(self.pair_b))
@@ -5156,7 +5181,8 @@ impl App {
                         }
                     })
                     .response
-                    .named("Second net of the pair");
+                    .named("Second net of the pair")
+.on_hover_text("Choose the second connection of the pair. It must differ from the first one.");
             });
             ui.horizontal(|ui| {
                 ui.label("Keep apart by");
@@ -5246,7 +5272,8 @@ impl App {
                     egui::TextEdit::singleline(&mut self.dp_name)
                         .hint_text("USB")
                         .desired_width(90.0),
-                ).named("USB")
+                )
+                .named("USB")
                 .on_hover_text("A name you will recognise, like USB or HDMI.");
             });
             ui.horizontal(|ui| {
@@ -5259,7 +5286,8 @@ impl App {
                         }
                     })
                     .response
-                    .named("Positive net");
+                    .named("Positive net")
+.on_hover_text("Choose the connection that carries the positive side of the pair, such as D+.");
                 ui.label("+");
                 egui::ComboBox::from_id_salt("dp_n")
                     .selected_text(name_of(self.dp_n))
@@ -5270,7 +5298,8 @@ impl App {
                         }
                     })
                     .response
-                    .named("Negative net");
+                    .named("Negative net")
+.on_hover_text("Choose the connection that carries the negative side of the pair, such as D-.");
             });
             ui.horizontal(|ui| {
                 ui.label("Run together with a gap of");
@@ -5347,13 +5376,19 @@ impl App {
                     .speed(0.5)
                     .suffix(" mm"),
             )
-            .named("Area corner X");
+            .named("Area corner X")
+            .on_hover_text(
+                "Where the left edge of the stricter area sits across the board, in millimetres.",
+            );
             ui.add(
                 egui::DragValue::new(&mut self.area_y)
                     .speed(0.5)
                     .suffix(" mm"),
             )
-            .named("Area corner Y");
+            .named("Area corner Y")
+            .on_hover_text(
+                "Where the bottom edge of the stricter area sits up the board, in millimetres.",
+            );
             ui.label("Size");
             ui.add(
                 egui::DragValue::new(&mut self.area_w)
@@ -5361,14 +5396,20 @@ impl App {
                     .range(1.0..=500.0)
                     .suffix(" mm"),
             )
-            .named("Area width");
+            .named("Area width")
+            .on_hover_text(
+                "How wide the stricter area is, in millimetres. It accepts 1 to 500 mm.",
+            );
             ui.add(
                 egui::DragValue::new(&mut self.area_h)
                     .speed(0.5)
                     .range(1.0..=500.0)
                     .suffix(" mm"),
             )
-            .named("Area height");
+            .named("Area height")
+            .on_hover_text(
+                "How tall the stricter area is, in millimetres. It accepts 1 to 500 mm.",
+            );
         });
         ui.horizontal(|ui| {
             ui.label("Copper stays apart by at least");
@@ -5853,7 +5894,7 @@ impl App {
                 .show_value(false)
                 .text("Resize"),
         )
-        .on_hover_text("Drag to give the Layers tree more or less room.");
+        .on_hover_text("Drag up or down to give the Layers tree more or less room. The Layers tree always keeps between a quarter and three quarters of the space.");
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.preferences.aside_lower_tab, 0, "Properties")
                 .on_hover_text("Details for whatever is selected on the drawing.");
@@ -6518,7 +6559,9 @@ impl App {
                     });
                 ui.add_space(10.0);
             }
-        });
+        })
+.header_response
+.on_hover_text("Show or hide the starter symbols that ship with the app. Each one can be placed straight into the schematic.");
     }
     fn checks_view(&mut self, ui: &mut egui::Ui) {
         ui.add_space(24.0);
@@ -6917,7 +6960,8 @@ impl App {
                     egui::TextEdit::singleline(&mut self.art_text)
                         .hint_text("words to print")
                         .desired_width(f32::INFINITY),
-                ).named("words to print")
+                )
+                .named("words to print")
                 .on_hover_text("The words a click will print on the active layer.");
             }
             ui.separator();

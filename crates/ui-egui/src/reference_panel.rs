@@ -84,7 +84,8 @@ impl App {
             egui::TextEdit::singleline(&mut form.path)
                 .hint_text("PNG file path")
                 .desired_width(180.0),
-        ).named("PNG file path")
+        )
+        .named("PNG file path")
         .on_hover_text("The path of a PNG picture on this computer, up to 4096 pixels on a side.");
         if ui
             .button("Attach PNG")
@@ -143,7 +144,7 @@ impl App {
                             .speed(0.005)
                             .suffix(" mm/px"),
                     ).named("Picture size")
-                    .on_hover_text("How many millimetres one picture pixel covers. Larger makes the picture bigger.");
+                    .on_hover_text("How many millimetres one picture pixel covers. Larger makes the picture bigger. It accepts 0.001 to 100.");
                 commit |= resp.drag_stopped() || resp.lost_focus();
             });
             ui.horizontal(|ui| {
@@ -326,7 +327,7 @@ impl App {
                         .suffix(" mm"),
                 )
                 .named("Smoothing")
-                .on_hover_text("Rounds off pixel steps. Larger gives fewer, straighter corners.");
+                .on_hover_text("Rounds off pixel steps, from 0 to 10 mm. Larger gives fewer, straighter corners.");
             });
             if ui
                 .button("Trace to layer")
