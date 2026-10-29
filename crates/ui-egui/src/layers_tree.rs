@@ -125,6 +125,8 @@ pub(crate) enum Action {
     Focus(Option<String>),
     /// Highlight a net on the canvas, or clear with None.
     HighlightNet(Option<Id>),
+    /// Make this copper side the active drawing target (the toolbar's Layer).
+    SetActive(Layer),
     /// Add a machine layer.
     NewArtLayer,
 }
@@ -1741,12 +1743,14 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
         }
     }
     let mut has_focus = false;
+    let spacing = ui.spacing().item_spacing.y;
+    ui.spacing_mut().item_spacing.y = 0.0;
     let output = scroll.show_rows(ui, ROW_HEIGHT, n, |ui, range| {
-        ui.spacing_mut().item_spacing.y = 0.0;
         for r in &all[range] {
             has_focus |= paint_row(ui, env, view, r, &colours, &mut actions);
         }
     });
+    ui.spacing_mut().item_spacing.y = spacing;
     view.offset = output.state.offset.y;
     view.viewport = output.inner_rect.height();
     view.has_focus = has_focus;
@@ -2282,6 +2286,13 @@ fn activate(view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
         return;
     }
     view.selected_key = Some(r.key.clone());
+    if r.kind == RowKind::Layer
+        && let Some(c) = &r.controls
+        && c.key.starts_with("copper:")
+        && !c.key.contains("inner")
+    {
+        actions.push(Action::SetActive(side_of(&c.key)));
+    }
     actions.push(Action::SelectKey(r.key.clone()));
     actions.push(Action::HighlightNet(r.net));
     if r.expandable && !r.key.ends_with("/root") {
@@ -2453,6 +2464,7 @@ impl crate::App {
                     );
                 }
                 Action::Focus(key) => self.focus_layer = key,
+                Action::SetActive(side) => self.route_layer = side,
                 Action::HighlightNet(net) => self.highlight_net = net,
                 Action::NewArtLayer => {
                     let name = t!(
