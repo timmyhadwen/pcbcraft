@@ -313,11 +313,11 @@ mod tests {
     /// The detector sees the calls it must forbid.
     #[test]
     fn the_detector_flags_raw_sizes() {
-        assert_eq!(ad_hoc_calls("ui.label(RichText::new(s).small());"), 1);
+        assert_eq!(ad_hoc_calls("ui.label(RichText::new(label).small());"), 1);
         assert_eq!(ad_hoc_calls("let a = x.small();"), 1);
         assert_eq!(ad_hoc_calls("ui.heading(\"x\");"), 1);
         assert_eq!(ad_hoc_calls("FontId::proportional(14.0)"), 1);
-        assert_eq!(ad_hoc_calls("RichText::new(s).size(20.0)"), 1);
+        assert_eq!(ad_hoc_calls("RichText::new(label).size(20.0)"), 1);
         assert_eq!(ad_hoc_calls("// ui.heading(\"x\")"), 0);
     }
 
