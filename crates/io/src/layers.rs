@@ -399,12 +399,13 @@ pub fn legend_shapes(
     profile_pad_clearance_mm: f64,
     include_values: bool,
 ) -> Result<LayerShapes, String> {
-    let fab_layer = match side {
-        Layer::Front => FabLayer::LegendTop,
-        Layer::Back => FabLayer::LegendBottom,
+    let fab_layer = if side == Layer::Back {
+        FabLayer::LegendBottom
+    } else {
+        FabLayer::LegendTop
     };
     let mut out = layer_shapes(p, fab_layer)?;
-    let top = matches!(side, Layer::Front);
+    let top = side != Layer::Back;
     for f in &p.board.footprints {
         if let Some(c) = p.component(f.component) {
             let (min, max) = footprint_bounds(p, f);
@@ -437,7 +438,6 @@ pub fn legend_shapes(
     Ok(out)
 }
 
-/// Collect drawable shapes for one fabrication layer.
 /// Collect drawable shapes for one fabrication layer.
 pub fn layer_shapes(p: &Project, layer: FabLayer) -> Result<LayerShapes, String> {
     p.validate()?;

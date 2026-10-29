@@ -303,10 +303,9 @@ fn encode_rgba_png(img: &RgbaImage, dpi: u32) -> Result<Vec<u8>, String> {
         unit: png::Unit::Meter,
     }));
     let mut writer = enc.write_header().map_err(|e| e.to_string())?;
-    for y in 0..h {
-        let row: Vec<u8> = (0..w).flat_map(|x| img.get_pixel(x, y).0).collect();
-        writer.write_image_data(&row).map_err(|e| e.to_string())?;
-    }
+    writer
+        .write_image_data(img.as_raw())
+        .map_err(|e| e.to_string())?;
     writer.finish().map_err(|e| e.to_string())?;
     Ok(out)
 }
@@ -325,10 +324,9 @@ fn encode_grey_png(img: &GrayImage, dpi: u32) -> Result<Vec<u8>, String> {
     }));
     {
         let mut writer = enc.write_header().map_err(|e| e.to_string())?;
-        for y in 0..h {
-            let row: Vec<u8> = (0..w).map(|x| img.get_pixel(x, y).0[0]).collect();
-            writer.write_image_data(&row).map_err(|e| e.to_string())?;
-        }
+        writer
+            .write_image_data(img.as_raw())
+            .map_err(|e| e.to_string())?;
     }
     Ok(out)
 }
@@ -456,6 +454,7 @@ pub fn write_uv_print_job_files(
     Ok(written)
 }
 
+#[cfg(test)]
 fn phys_from_png(bytes: &[u8]) -> Result<(u32, u32), String> {
     let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     let reader = decoder.read_info().map_err(|e| e.to_string())?;
@@ -470,7 +469,12 @@ fn phys_from_png(bytes: &[u8]) -> Result<(u32, u32), String> {
 fn decode_rgba_png(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
     let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
-    let mut rgba = vec![0u8; reader.output_buffer_size()];
+    let mut rgba = vec![
+        0u8;
+        reader
+            .output_buffer_size()
+            .ok_or_else(|| "png frame size is unknown".to_string())?
+    ];
     reader.next_frame(&mut rgba).map_err(|e| e.to_string())?;
     Ok((reader.info().width, reader.info().height, rgba))
 }
@@ -481,12 +485,29 @@ mod tests {
     use pcbcraft_doc::{Footprint, Project};
     use pcbcraft_library::{FootprintDefinition, FootprintPad, Graphic};
 
+    fn small_pad() -> FootprintPad {
+        FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: Point::new(0.0, 3.0),
+            rotation: 0.0,
+            size: Point::new(0.5, 0.5),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            raw_source: String::new(),
+            chamfer: None,
+            polygon: Vec::new(),
+        }
+    }
+
     fn test_fp(graphics: Vec<Graphic>) -> FootprintDefinition {
         FootprintDefinition {
             name: "fp".into(),
             description: String::new(),
             keywords: String::new(),
-            pads: vec![],
+            pads: vec![small_pad()],
             graphics,
             model: None,
             rules: None,
@@ -573,7 +594,8 @@ mod tests {
     #[test]
     fn white_mask_matches_opaque_colour_pixels() -> Result<(), String> {
         let p = small_board(20.0, 30.0)?;
-        let profile = eufymake_e1_profile();
+        let mut profile = eufymake_e1_profile();
+        profile.white_choke_mm = 0.0;
         let art = uv_print_artwork(
             &p,
             UvPrintSide::Top,
@@ -616,7 +638,15 @@ mod tests {
             kind: "resistor".into(),
             position: Point::default(),
             rotation: 0.0,
-            pins: vec![],
+            pins: vec![pcbcraft_doc::Pin {
+                number: "1".into(),
+                name: String::new(),
+                offset: Point::default(),
+                net: None,
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+            }],
             units: vec![],
             library_symbol: None,
             library_footprint: Some(pcbcraft_doc::LibraryFootprint {
@@ -637,7 +667,14 @@ mod tests {
             position: Point::default(),
             rotation: 0.0,
             locked: None,
-            pads: vec![],
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::new(0.0, 3.0),
+                diameter: 0.5,
+                net: None,
+                castellated: None,
+                geometry: Some(small_pad()),
+            }],
         });
         p.validate()?;
         let profile = eufymake_e1_profile();
@@ -700,7 +737,7 @@ mod tests {
             id: 9202,
             reference: "U1".into(),
             value: "test".into(),
-            kind: "ic".into(),
+            kind: "connector".into(),
             position: Point::default(),
             rotation: 0.0,
             pins: vec![pcbcraft_doc::Pin {
@@ -818,7 +855,15 @@ mod tests {
             kind: "resistor".into(),
             position: Point::default(),
             rotation: 0.0,
-            pins: vec![],
+            pins: vec![pcbcraft_doc::Pin {
+                number: "1".into(),
+                name: String::new(),
+                offset: Point::default(),
+                net: None,
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+            }],
             units: vec![],
             library_symbol: None,
             library_footprint: Some(pcbcraft_doc::LibraryFootprint {
@@ -838,7 +883,14 @@ mod tests {
             position: Point::new(5.0, 5.0),
             rotation: 0.0,
             locked: None,
-            pads: vec![],
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::new(0.0, 3.0),
+                diameter: 0.5,
+                net: None,
+                castellated: None,
+                geometry: Some(small_pad()),
+            }],
         });
         p.validate()?;
         let profile = eufymake_e1_profile();

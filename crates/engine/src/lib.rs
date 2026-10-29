@@ -11356,11 +11356,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let mut written: Vec<String> = vec![];
             for kind in &job.kinds {
                 if kind == "uv_print" {
-                    let settings = a.uv_print.as_ref().ok_or_else(|| {
-                        Error::Invalid(
-                            "uv_print jobs need uv_print settings on output_job.run".into(),
-                        )
-                    })?;
+                    let fallback: UvPrintJobParams = serde_json::from_value(json!({}))
+                        .map_err(|e| Error::Invalid(e.to_string()))?;
+                    let settings = a.uv_print.as_ref().unwrap_or(&fallback);
                     let side = match settings.side.as_str() {
                         "top" => pcbcraft_io::UvPrintSide::Top,
                         "bottom" => pcbcraft_io::UvPrintSide::Bottom,
