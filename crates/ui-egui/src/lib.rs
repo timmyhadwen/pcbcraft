@@ -9298,7 +9298,12 @@ mod tests {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         app.refresh();
         let layer = app.project.board.tracks.first().map(|t| t.layer);
-        assert_eq!(layer, Some(Layer::Back), "Assign layer moves the wire: {}", app.message);
+        assert_eq!(
+            layer,
+            Some(pcbcraft_doc::Layer::Back),
+            "Assign layer moves the wire: {}",
+            app.message
+        );
         Ok(())
     }
 

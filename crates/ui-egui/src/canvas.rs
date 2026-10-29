@@ -1202,8 +1202,18 @@ impl App {
         let mut done = false;
         ui.menu_button("Assign layer", |ui| {
             for (layer, label, name, tip) in [
-                (Layer::Front, "Front", "F.Cu", "Move this wire to the front copper layer."),
-                (Layer::Back, "Back", "B.Cu", "Move this wire to the back copper layer."),
+                (
+                    Layer::Front,
+                    "Front",
+                    "F.Cu",
+                    "Move this wire to the front copper layer.",
+                ),
+                (
+                    Layer::Back,
+                    "Back",
+                    "B.Cu",
+                    "Move this wire to the back copper layer.",
+                ),
             ] {
                 if layer == current {
                     continue;
@@ -1211,7 +1221,7 @@ impl App {
                 if Self::canvas_menu_button(ui, label, tip) {
                     self.run("track.set_layer", json!({"id": id, "layer": name}));
                     done = true;
-                    ui.close_menu();
+                    ui.close();
                 }
             }
         })
