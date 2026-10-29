@@ -667,6 +667,8 @@ pub struct App {
     svg_path: String,
     part_search_focus: bool,
     needs_fit: bool,
+    /// Left edge of the central page, so tests can check text keeps its margin.
+    page_left: f32,
     schematic: Camera,
     pcb: Camera,
     drag: Option<(Id, Point)>,
@@ -1006,6 +1008,7 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             needs_fit: true,
+            page_left: 0.0,
             schematic: Camera {
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
@@ -1251,8 +1254,13 @@ impl App {
         {
             self.selected = Some(f.component);
         }
+        // Rules, Checks and Settings are pages, not canvases: going to one or
+        // coming back from one keeps the user's zoom and pan.
+        let page = |t: Tab| matches!(t, Tab::Rules | Tab::Checks | Tab::Settings);
+        if !page(tab) && !page(self.tab) {
+            self.needs_fit = true;
+        }
         self.tab = tab;
-        self.needs_fit = true;
         self.tool = Tool::Select;
         self.drag = None;
         self.load_properties();
@@ -6716,6 +6724,7 @@ impl App {
                 .show(ui, |ui| {
                     self.workbench_tabs(ui);
                     self.tool_strip(ui);
+                    self.page_left = ui.max_rect().left();
                     match self.tab {
                         Tab::Schematic | Tab::Pcb => self.canvas(ui),
                         Tab::Files => {
@@ -6739,8 +6748,7 @@ impl App {
                         }
                         Tab::Checks => {
                             egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.checks_view(ui))
-                                .inner
+                                .show(ui, |ui| Self::margined(ui, |ui| self.checks_view(ui)));
                         }
                         Tab::Settings => {
                             egui::ScrollArea::vertical()
