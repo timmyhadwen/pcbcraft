@@ -9,7 +9,6 @@ use std::path::Path;
 mod board_mesh;
 mod gerber;
 mod library_render;
-mod board_mesh;
 mod machine_profile;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
