@@ -722,8 +722,13 @@ impl App {
                 .fixed_pos(screen)
                 .order(egui::Order::Foreground)
                 .show(ui.ctx(), |ui| {
-                    ui.set_min_width(140.0);
-                    close |= self.paint_canvas_menu(ui, &kind);
+                    egui::Frame::menu(ui.style())
+                        .inner_margin(egui::Margin::same(8))
+                        .show(ui, |ui| {
+                            ui.set_min_width(140.0);
+                            ui.spacing_mut().item_spacing.y = 4.0;
+                            close |= self.paint_canvas_menu(ui, &kind);
+                        });
                 });
             if !close {
                 self.canvas_menu = Some((screen, kind));
