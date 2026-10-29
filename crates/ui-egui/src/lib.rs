@@ -10,8 +10,8 @@ mod editing;
 mod footprint_wizard;
 mod icons;
 mod impedance_panel;
-mod library;
 mod layers_tree;
+mod library;
 mod library_dock;
 mod library_quality;
 mod motion;
@@ -2354,7 +2354,11 @@ impl App {
                     text.color(self.muted())
                 };
                 let response = ui
-                    .add(egui::Button::new(text).frame(false).min_size(egui::vec2(0.0, 32.0)))
+                    .add(
+                        egui::Button::new(text)
+                            .frame(false)
+                            .min_size(egui::vec2(0.0, 32.0)),
+                    )
                     .on_hover_text(t!(
                         "docks.workbench_tabs.switch_to_the_label_view2",
                         label = label
@@ -2838,8 +2842,16 @@ impl App {
                     &colours,
                     self.preferences.left_tab,
                     &[
-                        (layers_tree::Glyph::Layer, t!("tree.tab.layers"), t!("tree.tab.layers.tip")),
-                        (layers_tree::Glyph::Part, t!("tree.tab.library"), t!("tree.tab.library.tip")),
+                        (
+                            layers_tree::Glyph::Layer,
+                            t!("tree.tab.layers"),
+                            t!("tree.tab.layers.tip"),
+                        ),
+                        (
+                            layers_tree::Glyph::Part,
+                            t!("tree.tab.library"),
+                            t!("tree.tab.library.tip"),
+                        ),
                     ],
                 ) {
                     self.preferences.left_tab = tab;
@@ -2854,74 +2866,73 @@ impl App {
     /// The Library tab: the searchable parts browser over built-in, project and
     /// installed libraries (`library_dock.rs`), then the parts in this design.
     fn library_body(&mut self, ui: &mut egui::Ui) {
-                egui::ScrollArea::vertical()
-                    .id_salt("library-dock-scroll")
-                    .auto_shrink([false, false])
-                    .show_viewport(ui, |ui, viewport| {
-                        self.library_dock_body(ui, viewport);
-                        ui.add_space(12.0);
+        egui::ScrollArea::vertical()
+            .id_salt("library-dock-scroll")
+            .auto_shrink([false, false])
+            .show_viewport(ui, |ui, viewport| {
+                self.library_dock_body(ui, viewport);
+                ui.add_space(12.0);
+                ui.label(
+                    egui::RichText::new(t!("library.browser.components"))
+                        .size(10.0)
+                        .color(self.muted()),
+                );
+                for c in self.project.components.clone() {
+                    let id = if self.tab == Tab::Pcb {
+                        self.project
+                            .board
+                            .footprints
+                            .iter()
+                            .find(|f| f.component == c.id)
+                            .map(|f| f.id)
+                            .unwrap_or(c.id)
+                    } else {
+                        c.id
+                    };
+                    if ui
+                        .selectable_label(
+                            self.selected == Some(id),
+                            t!(
+                                "library.browser.reference_value",
+                                reference = c.reference,
+                                value = c.value
+                            ),
+                        )
+                        .on_hover_text(t!("library.browser.reference_value.tip"))
+                        .clicked()
+                    {
+                        self.select(Some(id));
+                    }
+                    let what = c
+                        .field(&t!("library.browser.description"))
+                        .map(str::to_owned)
+                        .or_else(|| {
+                            c.library_symbol
+                                .as_ref()
+                                .map(|ls| ls.definition.description.clone())
+                        })
+                        .map(|d| d.trim().to_owned())
+                        .filter(|d| !d.is_empty());
+                    let origin = c
+                        .library_symbol
+                        .as_ref()
+                        .map(|ls| t!("library.browser.from_name", name = ls.definition.name));
+                    let note = match (what, origin) {
+                        (Some(d), Some(origin)) => {
+                            Some(t!("library.browser.item_origin", item = d, origin = origin))
+                        }
+                        (Some(d), None) => Some(d),
+                        (None, origin) => origin,
+                    };
+                    if let Some(note) = note {
                         ui.label(
-                            egui::RichText::new(t!("library.browser.components"))
-                                .size(10.0)
+                            egui::RichText::new(format!("    {note}"))
+                                .small()
                                 .color(self.muted()),
                         );
-                        for c in self.project.components.clone() {
-                            let id = if self.tab == Tab::Pcb {
-                                self.project
-                                    .board
-                                    .footprints
-                                    .iter()
-                                    .find(|f| f.component == c.id)
-                                    .map(|f| f.id)
-                                    .unwrap_or(c.id)
-                            } else {
-                                c.id
-                            };
-                            if ui
-                                .selectable_label(
-                                    self.selected == Some(id),
-                                    t!(
-                                        "library.browser.reference_value",
-                                        reference = c.reference,
-                                        value = c.value
-                                    ),
-                                )
-                                .on_hover_text(t!("library.browser.reference_value.tip"))
-                                .clicked()
-                            {
-                                self.select(Some(id));
-                            }
-                            let what = c
-                                .field(&t!("library.browser.description"))
-                                .map(str::to_owned)
-                                .or_else(|| {
-                                    c.library_symbol
-                                        .as_ref()
-                                        .map(|ls| ls.definition.description.clone())
-                                })
-                                .map(|d| d.trim().to_owned())
-                                .filter(|d| !d.is_empty());
-                            let origin = c.library_symbol.as_ref().map(|ls| {
-                                t!("library.browser.from_name", name = ls.definition.name)
-                            });
-                            let note = match (what, origin) {
-                                (Some(d), Some(origin)) => Some(t!(
-                                    "library.browser.item_origin",
-                                    item = d,
-                                    origin = origin
-                                )),
-                                (Some(d), None) => Some(d),
-                                (None, origin) => origin,
-                            };
-                            if let Some(note) = note {
-                                ui.label(
-                                    egui::RichText::new(format!("    {note}"))
-                                        .small()
-                                        .color(self.muted()),
-                                );
-                            }
-                        }
-                    });
+                    }
+                }
+            });
     }
     /// The Renumber parts window, opened from Edit: pick a letter, preview the
     /// new numbers, then write them as one undoable step.
