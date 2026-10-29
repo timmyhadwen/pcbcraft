@@ -2965,6 +2965,7 @@ struct HolePlaceParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct FiducialPlaceParams {
     position: Point,
     diameter: f64,
@@ -3061,6 +3062,7 @@ struct ZoneParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct TeardropParams {
     #[serde(default)]
     net: Option<Id>,
@@ -3095,6 +3097,7 @@ fn teardrop_depth() -> f64 {
 type Junction = (Point, (f64, f64), f64, f64, f64, Id, Layer);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct TeardropRemoveParams {
     #[serde(default)]
     net: Option<Id>,
@@ -3471,6 +3474,7 @@ fn art_range(x: f64, y: f64) -> Result<(), Error> {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct RuleAreaParams {
     #[serde(default)]
     name: Option<String>,
@@ -3649,6 +3653,7 @@ struct ItemsUpdateParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct ItemFindParams {
     kind: String,
     #[serde(default)]
@@ -11121,7 +11126,7 @@ fn run_command(
                     "layer record name must be 1 to 64 characters".into(),
                 ));
             }
-            let mut trial: Vec<_> = p
+            let trial: Vec<_> = p
                 .board
                 .layer_records
                 .iter()
