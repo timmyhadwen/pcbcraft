@@ -13,3 +13,4 @@ mod library;
 mod nets;
 mod rules;
 mod shell;
+mod vias;
