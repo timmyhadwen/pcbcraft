@@ -3488,14 +3488,16 @@ mod tests {
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: None,
-            });
+..Default::default()
+});
             if i < 6 {
                 p.board.layer_records.push(pcbcraft_doc::LayerRecord {
                     name: format!("P{i}"),
                     kind: "prepreg".into(),
                     thickness: 0.2,
                     copper_role: None,
-                });
+..Default::default()
+});
             }
         }
         p.nets.push(pcbcraft_doc::Net {
