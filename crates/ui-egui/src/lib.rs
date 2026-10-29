@@ -470,7 +470,7 @@ struct Preferences {
     library_dock_open: bool,
 }
 fn default_aside_split() -> f32 {
-    0.55
+    0.32
 }
 fn default_true() -> bool {
     true
@@ -1772,6 +1772,8 @@ impl App {
         self.tree_hidden.iter().any(|hidden| hidden == kind)
     }
     fn layers_tab(&mut self, ui: &mut egui::Ui) {
+        self.stackup_section(ui);
+        ui.separator();
         ui.horizontal(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.tree_query)
@@ -1829,7 +1831,6 @@ impl App {
             .id_salt("anat-board-root")
             .default_open(true)
             .show(ui, |ui| {
-            self.stackup_section(ui);
             self.holes_section(ui);
             self.fiducials_section(ui);
             ui.add_space(16.0);
@@ -3181,7 +3182,7 @@ impl App {
                     let query_box = ui
                         .add(
                             egui::TextEdit::singleline(&mut self.part_search)
-                                .hint_text("Keyword or part number")
+                                .hint_text("Search parts by name")
                                 .desired_width(f32::INFINITY),
                         )
                         .on_hover_text("Type any part name; the list below narrows as you type.");
@@ -3262,11 +3263,226 @@ impl App {
                                         .size(10.0)
                                         .color(self.muted()),
                                 );
+                                let mut sets: std::collections::BTreeMap<
+                                    String,
+                                    Vec<pcbcraft_library::SymbolDefinition>,
+                                > = std::collections::BTreeMap::new();
                                 for definition in saved {
+                                    sets.entry(definition.set.trim().to_owned())
+                                        .or_default()
+                                        .push(definition);
+                                }
+                                let loose = sets.remove("");
+                                for (set, definitions) in &sets {
+                                    let mut shown = !self.hidden_sets.iter().any(|h| h == set);
+                                    let row = ui.checkbox(
+                                        &mut shown,
+                                        egui::RichText::new(format!(
+                                            "{set} ({} part{})",
+                                            definitions.len(),
+                                            if definitions.len() == 1 {
+                                                ""
+                                            } else {
+                                                "s"
+                                            }
+                                        ))
+                                        .strong(),
+                                    )
+                                    .on_hover_text(
+                                        "Parts grouped under this name. Untick to hide the whole group while you add parts.",
+                                    );
+                                    if row.changed() {
+                                        if shown {
+                                            self.hidden_sets.retain(|h| h != set);
+                                        } else {
+                                            self.hidden_sets.push(set.clone());
+                                        }
+                                    }
+                                    if !shown {
+                                        continue;
+                                    }
+                                    for definition in definitions {
+                                        self.part_card(ui, definition);
+                                    }
+                                }
+                                for definition in loose.unwrap_or_default() {
                                     self.part_card(ui, &definition);
                                 }
                             }
                         });
+                }
+                ui.add_space(12.0);
+                ui.label(
+                    egui::RichText::new("COMPONENTS")
+                        .size(10.0)
+                        .color(self.muted()),
+                );
+                for c in self.project.components.clone() {
+                    let id = if self.tab == Tab::Pcb {
+                        self.project
+                            .board
+                            .footprints
+                            .iter()
+                            .find(|f| f.component == c.id)
+                            .map(|f| f.id)
+                            .unwrap_or(c.id)
+                    } else {
+                        c.id
+                    };
+                    if ui
+                        .selectable_label(
+                            self.selected == Some(id),
+                            format!("{}   {}", c.reference, c.value),
+                        )
+                        .on_hover_text("Select this component and show its properties.")
+                        .clicked()
+                    {
+                        self.select(Some(id));
+                    }
+                    let what = c
+                        .field("Description")
+                        .map(str::to_owned)
+                        .or_else(|| {
+                            c.library_symbol.as_ref().map(|ls| ls.definition.description.clone())
+                        })
+                        .map(|d| d.trim().to_owned())
+                        .filter(|d| !d.is_empty());
+                    let origin = c.library_symbol.as_ref().map_or_else(
+                        || "built in".to_string(),
+                        |ls| format!("from {}", ls.definition.name),
+                    );
+                    let note = what.map_or_else(
+                        || origin.clone(),
+                        |d| format!("{d} · {origin}"),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!("    {note}"))
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+                if self.project.components.len() >= 2 {
+                    ui.add_space(12.0);
+                    ui.label(
+                        egui::RichText::new("RENUMBER PARTS")
+                            .size(10.0)
+                            .color(self.muted()),
+                    );
+                    let mut prefixes: Vec<String> = self
+                        .project
+                        .components
+                        .iter()
+                        .map(|c| {
+                            c.reference
+                                .chars()
+                                .take_while(char::is_ascii_alphabetic)
+                                .collect::<String>()
+                        })
+                        .filter(|p| !p.is_empty())
+                        .collect();
+                    prefixes.sort();
+                    prefixes.dedup();
+                    let mut pick = self.renumber_plan.clone().map_or_else(
+                        || self.renumber_prefix.clone(),
+                        |(prefix, _)| prefix,
+                    );
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt("renumber-prefix")
+                            .selected_text(pick.clone().unwrap_or_else(|| "all letters".into()))
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_label(pick.is_none(), "all letters")
+                                    .on_hover_text(
+                                        "Number every kind of part again, one run of numbers per letter.",
+                                    )
+                                    .clicked()
+                                {
+                                    pick = None;
+                                    ui.close();
+                                }
+                                for prefix in &prefixes {
+                                    if ui
+                                        .selectable_label(
+                                            pick.as_deref() == Some(prefix.as_str()),
+                                            prefix,
+                                        )
+                                        .on_hover_text(
+                                            "Only renumber the parts that start with this letter.",
+                                        )
+                                        .clicked()
+                                    {
+                                        pick = Some(prefix.clone());
+                                        ui.close();
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text(
+                                "Renumber one kind of part, or every part at once.",
+                            );
+                        if ui
+                            .button("Preview")
+                            .on_hover_text(
+                                "Show the new numbers, in placement order, before anything changes.",
+                            )
+                            .clicked()
+                        {
+                            let out = self.run_and_keep(
+                                "components.reannotate",
+                                json!({"dry_run": true, "prefix": pick}),
+                            );
+                            self.renumber_plan = out
+                                .get("renamed")
+                                .and_then(Value::as_array)
+                                .map(|rows| {
+                                    (
+                                        pick.clone(),
+                                        rows.iter()
+                                            .filter_map(|row| {
+                                                let from =
+                                                    row.get("from")?.as_str()?.to_owned();
+                                                let to = row.get("to")?.as_str()?.to_owned();
+                                                Some((from, to))
+                                            })
+                                            .collect(),
+                                    )
+                                });
+                        }
+                    });
+                    if self.renumber_plan.is_none() {
+                        self.renumber_prefix = pick.clone();
+                    }
+                    if let Some((_, plan)) = self.renumber_plan.clone() {
+                        for (from, to) in plan.iter().take(12) {
+                            ui.label(
+                                egui::RichText::new(format!("{from}  →  {to}"))
+                                    .small()
+                                    .color(self.muted()),
+                            );
+                        }
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button("Renumber")
+                                .on_hover_text(
+                                    "Write these numbers now; Undo puts the old ones back.",
+                                )
+                                .clicked()
+                            {
+                                self.renumber_plan = None;
+                                self.run(
+                                    "components.reannotate",
+                                    json!({"prefix": pick}),
+                                );
+                            }
+                            if ui
+                                .button("Cancel")
+                                .on_hover_text("Drop this plan; nothing changes.")
+                                .clicked()
+                            {
+                                self.renumber_plan = None;
+                            }
+                        });
+                    }
                 }
             });
     }
@@ -5260,7 +5476,7 @@ impl App {
                                 .color(self.ink()),
                         );
                         ui.label(
-                            egui::RichText::new("LAYERS")
+                            egui::RichText::new("Layers")
                                 .size(10.0)
                                 .color(self.muted()),
                         );
@@ -6432,7 +6648,7 @@ impl App {
                     .tool_strip_button(
                         ui,
                         "tool-noconnect",
-                        "NC",
+                        "No connect",
                         "Mark a pin deliberately unconnected.",
                         matches!(self.tool, Tool::NoConnect),
                     )
@@ -6469,6 +6685,18 @@ impl App {
                         self.art_start = None;
                         self.art_points.clear();
                     }
+                }
+                if ui
+                    .selectable_label(matches!(self.tool, Tool::DrawLayer), "Draw shape")
+                    .on_hover_text(
+                        "Draw cut lines, perforations or printed marks on your own layer.",
+                    )
+                    .clicked()
+                {
+                    self.tool = Tool::DrawLayer;
+                    self.art_shape = DrawShape::Line;
+                    self.art_start = None;
+                    self.art_points.clear();
                 }
                 if ui
                     .selectable_label(matches!(self.tool, Tool::Cutout), "Cutout")
@@ -6514,6 +6742,11 @@ impl App {
             ui.heading("Project files");
             ui.label(format!("Design file: {}", self.path.trim()));
             ui.add_space(12.0);
+            ui.label(
+                egui::RichText::new("Builds")
+                    .size(10.0)
+                    .color(self.muted()),
+            );
             self.builds_tab(ui);
         });
     }
@@ -7927,6 +8160,8 @@ mod tests {
         app.tool_call("sample_design", json!({}));
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Files")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         authoring::tests::tap(&ctx, &mut app, "Builds")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
@@ -8467,7 +8702,7 @@ mod tests {
                 &ctx,
                 &mut app,
                 vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, -4.0),
@@ -8558,7 +8793,7 @@ mod tests {
                 &ctx,
                 &mut app,
                 vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, -4.0),
@@ -8584,7 +8819,7 @@ mod tests {
                 &ctx,
                 &mut app,
                 vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, -4.0),
@@ -8611,7 +8846,7 @@ mod tests {
                 &ctx,
                 &mut app,
                 vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, -4.0),
@@ -8734,7 +8969,7 @@ mod tests {
                 &ctx,
                 &mut app,
                 vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, -4.0),
@@ -8807,7 +9042,7 @@ mod tests {
                 &ctx,
                 &mut app,
                 vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, -4.0),
@@ -8870,7 +9105,7 @@ mod tests {
                 &ctx,
                 &mut app,
                 vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, -4.0),
@@ -8930,7 +9165,7 @@ mod tests {
                 &ctx,
                 &mut app,
                 vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, -4.0),
@@ -9257,6 +9492,7 @@ mod tests {
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.refresh();
         app.tool_call("sample_design", json!({}));
+        app.change_tab(Tab::Pcb);
         app.select(Some(10));
         app.refresh();
         let ctx = egui::Context::default();
@@ -10076,6 +10312,8 @@ mod tests {
         app.tool_call("sample_design", json!({}));
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Files")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         authoring::tests::tap(&ctx, &mut app, "Builds")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         authoring::tests::tap(&ctx, &mut app, "New build")?;
@@ -10781,23 +11019,8 @@ mod tests {
             1,
             "editor must have only its root window"
         );
-        let pos = egui::Pos2::new(220.0, 64.0);
-        for pressed in [true, false] {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(pos),
-                    egui::Event::PointerButton {
-                        pos,
-                        button: egui::PointerButton::Primary,
-                        pressed,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
+        authoring::tests::tap(&ctx, &mut app, "Layout")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(matches!(app.tab, Tab::Pcb));
         assert_eq!(app.selected, Some(11));
         let key = |key, modifiers| egui::Event::Key {
@@ -10943,7 +11166,7 @@ mod tests {
                 &ctx,
                 &mut app,
                 vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                    egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, -4.0),

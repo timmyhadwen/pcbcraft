@@ -690,7 +690,7 @@ impl App {
                                     self.tool = Tool::Move;
                                 }
                                 if ui
-                                    .small_button("\u{21bb}")
+                                    .small_button("Rotate")
                                     .on_hover_text(command_tip("component.rotate"))
                                     .clicked()
                                 {
