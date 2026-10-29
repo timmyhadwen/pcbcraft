@@ -38,7 +38,7 @@ pub struct OhmsLawOut {
 /// - A zero denominator (0 V with 0 A, or 0 V with 0 ohm style pairs)
 ///   comes back as `Error::Invalid`, never as an infinite value.
 /// # Dependencies
-/// - `crate::num`, `crate::opt_num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::opt_num`, `crate::finite`.
 /// # Do not
 /// - Use for reactive loads; reach for `reactance` instead.
 pub fn ohms_law(a: OhmsLaw) -> Result<OhmsLawOut, Error> {
@@ -100,7 +100,7 @@ pub struct SeriesParallelOut {
 /// - R and L: series is the sum, parallel is the reciprocal sum.
 ///   C is the reverse. Values must be inside 1e-15 to 1e12.
 /// # Dependencies
-/// - `crate::num`, `crate::Error`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::Error`.
 /// # Do not
 /// - Pass fewer than two or more than 16 values; the call is refused.
 pub fn series_parallel(a: SeriesParallel) -> Result<SeriesParallelOut, Error> {
@@ -158,7 +158,7 @@ pub struct VoltageDividerOut {
 /// - With a load, r2 is replaced by r2 || load before dividing.
 /// - Power in r2 is computed with the effective bottom resistance.
 /// # Dependencies
-/// - `crate::num`, `crate::opt_num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::opt_num`, `crate::finite`.
 /// # Do not
 /// - Model a non-resistive load; the model is a resistor to ground.
 pub fn voltage_divider(a: VoltageDivider) -> Result<VoltageDividerOut, Error> {
@@ -238,7 +238,7 @@ pub struct LedResistorOut {
 /// - Refuses when forward_voltage is at or above supply (no headroom).
 /// - The nearest standard value uses log distance in `e_series`.
 /// # Dependencies
-/// - `crate::num`, `crate::finite`, `crate::components::nearest_e_series`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::finite`, `crate::components::nearest_e_series`.
 /// # Do not
 /// - Treat the result as final; forward voltage moves with current.
 pub fn led_resistor(a: LedResistor) -> Result<LedResistorOut, Error> {
@@ -305,7 +305,7 @@ pub struct RcRlOut {
 /// - rc needs capacitance, rl needs inductance; the other is ignored.
 /// - tau = R C or L / R; cutoff = 1 / (2 pi tau).
 /// # Dependencies
-/// - `crate::num`, `crate::opt_num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::opt_num`, `crate::finite`.
 /// # Do not
 /// - Apply to multi-pole networks; only the single-pole corner is modelled.
 pub fn rc_rl_time_constant(a: RcRl) -> Result<RcRlOut, Error> {
@@ -363,7 +363,7 @@ pub struct LcResonanceOut {
 /// - Exactly two inputs must be present.
 /// - characteristic_impedance is Some only when both L and C are known.
 /// # Dependencies
-/// - `crate::num`, `crate::opt_num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::opt_num`, `crate::finite`.
 /// # Do not
 /// - Expect the real part's self-resonance or parasitics here.
 pub fn lc_resonance(a: LcResonance) -> Result<LcResonanceOut, Error> {
@@ -430,7 +430,7 @@ pub struct ReactanceOut {
 /// # Rules
 /// - Xc = 1 / (2 pi f C); Xl = 2 pi f L. Magnitudes are reported.
 /// # Dependencies
-/// - `crate::num`, `crate::opt_num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::opt_num`, `crate::finite`.
 /// # Do not
 /// - Use near a part's self-resonance; ESR and SRF are not modelled.
 pub fn reactance(a: Reactance) -> Result<ReactanceOut, Error> {
@@ -490,7 +490,7 @@ pub struct DecibelOut {
 /// - Ratio modes need a positive value; dBm modes accept down to -300.
 /// - dBm = 10 log10(P / 1 mW); P = 1 mW times 10^(dBm / 10).
 /// # Dependencies
-/// - `crate::num`, `crate::finite`, `crate::Error`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::finite`, `crate::Error`.
 /// # Do not
 /// - Mix the voltage form with unequal source and load impedances.
 pub fn decibel(a: Decibel) -> Result<DecibelOut, Error> {

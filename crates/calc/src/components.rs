@@ -137,7 +137,7 @@ pub fn e_series_values(count: usize) -> Vec<f64> {
 /// - Deterministic: ties keep the earlier candidate (`min` on the
 ///   first strictly smaller distance).
 /// # Dependencies
-/// - [`e_series_values`].
+/// - `crates/calc/src/lib.rs` for [`e_series_values`].
 /// # Do not
 /// - Feed non-positive values; the logarithm needs value > 0.
 pub fn nearest_e_series(value: f64, count: usize) -> f64 {
@@ -201,7 +201,7 @@ pub struct ESeriesOut {
 ///   up, both by log distance like [`nearest_e_series`].
 /// - An exact member returns itself for all three and error 0.
 /// # Dependencies
-/// - [`e_series_values`], `nearest_from`, `crate::num`.
+/// - `crates/calc/src/lib.rs` for [`e_series_values`], `nearest_from`, `crate::num`.
 /// # Do not
 /// - Mix series between the three outputs; one series per call.
 pub fn e_series(a: ESeriesInput) -> Result<ESeriesOut, Error> {
@@ -296,7 +296,7 @@ pub struct DecouplingOut {
 /// - First-order starting point; several values in parallel widen the
 ///   useful band.
 /// # Dependencies
-/// - `crate::num`, `crate::opt_num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::opt_num`, `crate::finite`.
 /// # Do not
 /// - Read the SRF as the place the capacitor stops working; the
 ///   mounting inductance takes over near it.
@@ -366,7 +366,7 @@ pub struct I2cPullupOut {
 ///   0.8473 being ln(0.7 / 0.3) for the 30 % to 70 % edge.
 /// - `suggested` is the nearest E24 value to sqrt(Rp_min Rp_max).
 /// # Dependencies
-/// - [`nearest_e_series`], `crate::num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for [`nearest_e_series`], `crate::num`, `crate::finite`.
 /// # Do not
 /// - Exceed the bus-capacitance limits of the I2C specification;
 ///   Rp_max assumes the budget and capacitance you supplied are legal.
@@ -423,7 +423,7 @@ pub struct CrystalCapsOut {
 /// - Check mode returns the effective load of the fitted pair instead
 ///   of a pair suggestion.
 /// # Dependencies
-/// - [`nearest_e_series`], `crate::num`, `crate::opt_num`.
+/// - `crates/calc/src/lib.rs` for [`nearest_e_series`], `crate::num`, `crate::opt_num`.
 /// # Do not
 /// - Forget the stray estimate; 2 to 5 pF is typical and it shifts CL
 ///   one-for-one.
@@ -510,7 +510,7 @@ pub struct Timer555Out {
 ///   f = 1 / (t_high + t_low), duty = (R1 + R2) / (R1 + 2 R2).
 /// - Monostable: t = ln3 R C (the usual 1.1 R C rounded).
 /// # Dependencies
-/// - `crate::num`, `crate::opt_num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::opt_num`, `crate::finite`.
 /// # Do not
 /// - Expect duty below 50 % from the basic astable; the discharge
 ///   diode mod is a different circuit.
@@ -589,7 +589,7 @@ pub struct OpampGainOut {
 ///   non-inverting G = 1 + Rf / Rg.
 /// - dB always uses |G|.
 /// # Dependencies
-/// - `crate::num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::finite`.
 /// # Do not
 /// - Push the closed-loop gain near the open-loop gain at the frequency
 ///   of interest; the ideal model stops holding there.
@@ -663,7 +663,7 @@ pub struct LdoThermalOut {
 ///   Imax = (((Tjmax - Ta) / theta_JA) - Vin Iq) / (Vin - Vout).
 /// - Vin must exceed Vout; equal voltages give no dissipation model.
 /// # Dependencies
-/// - `crate::num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::finite`.
 /// # Do not
 /// - Trust theta_JA across copper areas; take the datasheet value for
 ///   the package and copper closest to the real board.
@@ -738,7 +738,7 @@ pub struct BatteryLifeOut {
 ///   divided by Iavg.
 /// - A zero average current has no finite run time.
 /// # Dependencies
-/// - `crate::num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::finite`.
 /// # Do not
 /// - Use the cell's terminal voltage curve or Peukert effects; this
 ///   is a charge balance with a derating knob.
@@ -825,7 +825,7 @@ pub struct WireGaugeOut {
 /// - For a current, scan gauges 30 up to 10 and take the first whose
 ///   tabulated ampacity at the rating reaches it.
 /// # Dependencies
-/// - `crate::consts` (RHO_CU), `AMPACITY`, `crate::num`,
+/// - `crates/calc/src/lib.rs` for `crate::consts` (RHO_CU), `AMPACITY`, `crate::num`,
 ///   `crate::int_num`.
 /// # Do not
 /// - Treat the ampacity as a PCB trace limit; these are building-wire
@@ -1128,7 +1128,7 @@ fn encode_resistor(value: f64) -> (String, String) {
 /// - Encode mode rounds to E24 and emits the 3-digit and EIA-96
 ///   markings.
 /// # Dependencies
-/// - `colour_digit`, `decode_smd`, `encode_resistor`,
+/// - `crates/calc/src/lib.rs` for `colour_digit`, `decode_smd`, `encode_resistor`,
 ///   [`e_series_values`], `nearest_from`.
 /// # Do not
 /// - Accept band counts other than 4, 5 or 6; 3-band parts are not a

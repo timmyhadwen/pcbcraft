@@ -109,7 +109,7 @@ pub struct TraceWidthOut {
 ///   `scaled_from_1oz`. auto picks the table inside its range.
 /// - `method_used` states which rule answered; callers must show it.
 /// # Dependencies
-/// - `crate::consts` (OZ_UM, MIL_MM), `crate::num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::consts` (OZ_UM, MIL_MM), `crate::num`, `crate::finite`.
 /// # Do not
 /// - Quote paywalled IPC text; only the reproduced public table is used.
 pub fn trace_width(a: TraceWidth) -> Result<TraceWidthOut, Error> {
@@ -194,7 +194,7 @@ pub struct ViaCurrentOut {
 ///   internal constant, the usual via convention.
 /// - count = ceil(target_current / current), present only when asked.
 /// # Dependencies
-/// - `crate::consts` (RHO_CU, MIL_MM), `crate::num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::consts` (RHO_CU, MIL_MM), `crate::num`, `crate::finite`.
 /// # Do not
 /// - Add pad-to-barrel spreading resistance; the model is a cylinder.
 pub fn via_current_resistance(a: ViaCurrent) -> Result<ViaCurrentOut, Error> {
@@ -265,7 +265,7 @@ pub struct TraceResistanceOut {
 /// - t = oz times 34.79 um; R = RHO_CU L / (w t) scaled by
 ///   1 + ALPHA_CU (T - 20).
 /// # Dependencies
-/// - `crate::consts` (RHO_CU, ALPHA_CU, OZ_UM), `crate::num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::consts` (RHO_CU, ALPHA_CU, OZ_UM), `crate::num`, `crate::finite`.
 /// # Do not
 /// - Trust it above about 1 MHz; skin effect thins the effective copper.
 pub fn trace_resistance_drop(a: TraceResistance) -> Result<TraceResistanceOut, Error> {

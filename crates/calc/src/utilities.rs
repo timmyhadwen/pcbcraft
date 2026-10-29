@@ -94,7 +94,7 @@ pub struct UnitConvertOut {
 ///   (1 oz = 34.79 um) and converts only to and from length units.
 /// - Same-unit input returns the value unchanged.
 /// # Dependencies
-/// - `crate::consts` (MIL_MM, OZ_UM), `LengthUnit::to_mm`.
+/// - `crates/calc/src/lib.rs` for `crate::consts` (MIL_MM, OZ_UM), `LengthUnit::to_mm`.
 /// # Do not
 /// - Convert oz to a mass or a sheet area; this table only knows the
 ///   equivalent copper thickness.
@@ -154,7 +154,7 @@ pub struct ThermalViasOut {
 ///   array hint = ceil(sqrt(count)).
 /// - Order of magnitude; spreading resistance is ignored.
 /// # Dependencies
-/// - `crate::consts` (K_CU), `crate::num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::consts` (K_CU), `crate::num`, `crate::finite`.
 /// # Do not
 /// - Stack more than about 16 vias expecting linear gains; the pad
 ///   spreading resistance flattens the curve.

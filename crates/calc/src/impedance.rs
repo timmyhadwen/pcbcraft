@@ -95,7 +95,7 @@ pub struct MicrostripOut {
 ///   bisection on 0.01 to 100 mm, 80 steps.
 /// - Hammerstad-Jensen 1980 with the Hammerstad thickness correction.
 /// # Dependencies
-/// - `crate::consts` (C0, ZF0), `crate::num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::consts` (C0, ZF0), `crate::num`, `crate::finite`.
 /// # Do not
 /// - Add solder mask; it lowers Z0 by 1 to 3 ohm and is not modelled.
 pub fn microstrip(a: Microstrip) -> Result<MicrostripOut, Error> {
@@ -183,7 +183,7 @@ pub struct EmbeddedMicrostripOut {
 /// - Engineering estimate, about 5 %; the metadata accuracy label says
 ///   so and the UI must repeat it.
 /// # Dependencies
-/// - [`microstrip`]'s helpers `hj` and `crate::num`.
+/// - `crates/calc/src/lib.rs` for [`microstrip`]'s helpers `hj` and `crate::num`.
 /// # Do not
 /// - Use for cover >= 2 h; a stripline model is better there.
 pub fn embedded_microstrip(a: EmbeddedMicrostrip) -> Result<EmbeddedMicrostripOut, Error> {
@@ -239,7 +239,7 @@ pub struct StriplineOut {
 /// - Effective width shrinks by (0.35 - W)^2 / (1 + 12 T) only for
 ///   W < 0.35; the flat-plate term Cf corrects the finite thickness.
 /// # Dependencies
-/// - `crate::consts` (C0), `crate::num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::consts` (C0), `crate::num`, `crate::finite`.
 /// # Do not
 /// - Use for an offset stripline; the symmetric form is all this models.
 pub fn stripline(a: Stripline) -> Result<StriplineOut, Error> {
@@ -310,7 +310,7 @@ pub struct CoplanarWaveguideOut {
 /// - Ground-backed mode uses the tanh ratio k3 and adds its weight q
 ///   to the permittivity; ungrounded mode uses the sinh ratio k2.
 /// # Dependencies
-/// - `kk` (Hilberg ratio), `delay_ps_mm`, `crate::num`.
+/// - `crates/calc/src/lib.rs` for `kk` (Hilberg ratio), `delay_ps_mm`, `crate::num`.
 /// # Do not
 /// - Assume narrow side grounds; the formula needs grounds much wider
 ///   than w + 2s.
@@ -389,7 +389,7 @@ pub struct DifferentialPairOut {
 ///   IPC-2141 attribution, so the result is labelled an estimate.
 /// - `target` solves width by bisection with the gap fixed.
 /// # Dependencies
-/// - [`microstrip`]'s helper `hj`, `crate::num`, `crate::opt_num`.
+/// - `crates/calc/src/lib.rs` for [`microstrip`]'s helper `hj`, `crate::num`, `crate::opt_num`.
 /// # Do not
 /// - Trust it for s < w; loosely coupled pairs (s >= w) are the model's
 ///   range.
@@ -458,7 +458,7 @@ pub struct PropagationDelayOut {
 ///   the 25.4 mm definition.
 /// - `length` and `skew_budget` are independent extras; give neither.
 /// # Dependencies
-/// - `crate::consts` (C0), `delay_ps_mm`, `crate::opt_num`.
+/// - `crates/calc/src/lib.rs` for `crate::consts` (C0), `delay_ps_mm`, `crate::opt_num`.
 /// # Do not
 /// - Reuse a stripline eeff for a microstrip of the same stackup;
 ///   take eeff from the matching impedance calculator.
@@ -508,7 +508,7 @@ pub struct CrosstalkOut {
 ///   is 2 w edge to edge; -20 dB needs s = 3 h.
 /// - Rule of thumb, real values land within a factor of 2.
 /// # Dependencies
-/// - `crate::num`, `crate::finite`.
+/// - `crates/calc/src/lib.rs` for `crate::num`, `crate::finite`.
 /// # Do not
 /// - Apply to stripline (couples less) or to long coupled lengths
 ///   comparable with the rise time.
