@@ -30,3 +30,7 @@ its KiCad data license and design-output exception. Dependencies retain their ow
 The octagonal-hull walkaround and shove router in crates/engine/src/route and
 crates/geom/src/hull.rs is an original implementation from published algorithm
 descriptions. No third-party router source was copied or ported.
+
+## UI icons (assets/icons/ui)
+
+Generic icons are copied from Lucide (lucide-static 0.468.0), ISC license with MIT for parts derived from Feather; the license text is in assets/icons/ui/LICENSE-lucide.txt. Each file names its source icon in a leading comment. Domain icons (via, pads, zone, keepout, net, track, diff pair, footprint, courtyard, drill, stackup, layers, board outline, cutout, mounting hole, wire, bus, label, port, power, no-connect, junction, part, sheet, drill file) are drawn for PCBCraft and carry the project license.
