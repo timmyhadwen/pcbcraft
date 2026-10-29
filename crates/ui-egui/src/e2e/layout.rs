@@ -241,7 +241,7 @@ fn a_newcomer_lengthens_a_wire_to_match_its_partner() -> Result<(), String> {
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "Before")?,
+        scrolled_to(&ctx, &mut app, "Before")?,
         "the panel reports the length before and after: {}",
         app.message
     );
@@ -289,11 +289,7 @@ fn spilled_text(output: &egui::FullOutput, width: f32) -> Vec<String> {
 /// Text that spills past a 320 point window today (issue #647 report). The
 /// walk fails on a new spill and on a listed one that no longer happens, so
 /// the list shrinks as the layout is fixed.
-const KNOWN_REFLOW_DEFECTS: [&str; 1] = [
-    // Drawing content, not a control: the sample symbol label sits past the
-    // right edge until the view is panned. Follow-up issue to be filed (schematic fit-to-view at narrow widths).
-    "Schematic: \"Green LED\" ends at 328",
-];
+const KNOWN_REFLOW_DEFECTS: [&str; 0] = [];
 
 #[test]
 fn a_newcomer_zooms_to_four_hundred_percent_and_every_dock_still_fits() -> Result<(), String> {

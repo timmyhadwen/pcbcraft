@@ -690,8 +690,9 @@ fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
         "the review names the conflict in plain words: {}",
         app.message
     );
+    let one_error = app.catalog.plural("board.footer.errors", 1);
     assert!(
-        paints_text(&ctx, &mut app, "1 to fix")?,
+        paints_text(&ctx, &mut app, &one_error)?,
         "a cut through a via lands in the footer count: {}",
         app.message
     );

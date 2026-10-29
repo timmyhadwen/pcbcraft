@@ -13,7 +13,11 @@ fn a_newcomer_visits_settings_and_comes_back_to_the_same_zoom() -> Result<(), St
     let mut app = fresh();
     let ctx = egui::Context::default();
     app.change_tab(Tab::Pcb);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The asides settle over the first frames and the automatic fit follows
+    // them; let that finish before the person sets their own zoom.
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     app.pcb.zoom = 33.0;
     for tab in [Tab::Settings, Tab::Rules, Tab::Checks, Tab::Pcb] {
         app.change_tab(tab);
@@ -100,7 +104,7 @@ fn a_newcomer_types_a_decimal_comma_in_german() -> Result<(), String> {
     app.width = 12.5;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "12,5")?,
+        scrolled_to_at(&ctx, &mut app, "12,5", 700.0)?,
         "a German install shows the board width with a comma"
     );
     type_into_the_width_box(&ctx, &mut app, "12,5", "1,6")?;

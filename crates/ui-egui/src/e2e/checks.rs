@@ -34,17 +34,8 @@ fn a_newcomer_sees_findings_grouped_by_check() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::open_page(&ctx, &mut app, "Checks")?;
-    let words = code.replace('_', " ");
-    let mut chars = words.chars();
-    let human = match chars.next() {
-        Some(first) => first
-            .to_uppercase()
-            .next()
-            .into_iter()
-            .chain(chars)
-            .collect::<String>(),
-        None => words,
-    };
+    // The heading is the check's plain name, as the page words it.
+    let human = custom_heading(&app.project, &code);
     let title = format!("{human} · {count} places");
     let mut shown = false;
     for _ in 0..10 {
@@ -331,8 +322,9 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
         "the review shows the check under the name it was given: {}",
         app.message
     );
+    let one_error = app.catalog.plural("board.footer.errors", 1);
     assert!(
-        paints_text(&ctx, &mut app, "1 to fix")?,
+        paints_text(&ctx, &mut app, &one_error)?,
         "a breach of a must-fix check lands in the footer count: {}",
         app.message
     );
