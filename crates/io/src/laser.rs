@@ -916,13 +916,13 @@ pub mod tests {
     fn laser_job_bottom_side_mirrors_fiducials_onto_top() -> Result<(), String> {
         let mut project = laser_job_two_pad_one_track_project();
         project.board.fiducials.push(Fiducial {
-            id: 9,
+            id: 9001,
             position: Point::new(3.0, 4.0),
             diameter: 1.0,
             layer: Layer::Front,
         });
         project.board.fiducials.push(Fiducial {
-            id: 10,
+            id: 9002,
             position: Point::new(3.0, 4.0),
             diameter: 1.0,
             layer: Layer::Back,

@@ -276,18 +276,20 @@ fn track_capsule_outline(start: Point, end: Point, half_width: f64) -> Vec<Point
     hull::octagon(&[start, end], half_width)
 }
 
-fn copper_item_ring(item: &Copper) -> Option<Vec<Point>> {
-    if let Some(outline) = &item.outline {
-        let mut ring = outline.clone();
-        if ring
-            .first()
-            .is_some_and(|p| ring.last().is_some_and(|q| p.distance(*q) > 1e-9))
-        {
-            if let Some(first) = ring.first().copied() {
-                ring.push(first);
+fn open_ring(mut ring: Vec<Point>) -> Vec<Point> {
+    if ring.len() >= 2 {
+        if let (Some(first), Some(last)) = (ring.first(), ring.last()) {
+            if first.distance(*last) < 1e-9 {
+                ring.pop();
             }
         }
-        return Some(ring);
+    }
+    ring
+}
+
+fn copper_item_ring(item: &Copper) -> Option<Vec<Point>> {
+    if let Some(outline) = &item.outline {
+        return Some(open_ring(outline.clone()));
     }
     if item.start.distance(item.end) < 1e-9 {
         return Some(hull::octagon(&[item.start], item.radius));
