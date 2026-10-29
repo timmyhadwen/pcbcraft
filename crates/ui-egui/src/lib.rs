@@ -6523,7 +6523,7 @@ impl App {
         if !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
             return;
         }
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add_space(8.0);
             let select = |app: &mut App| {
                 app.tool = Tool::Select;
@@ -6633,15 +6633,13 @@ impl App {
                     self.tool = Tool::Fiducial;
                 }
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if !matches!(self.tool, Tool::Select) {
-                    ui.label(
-                        egui::RichText::new(tool_hint(&self.tool))
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-            });
+            if !matches!(self.tool, Tool::Select) {
+                ui.label(
+                    egui::RichText::new(tool_hint(&self.tool))
+                        .small()
+                        .color(self.muted()),
+                );
+            }
         });
         ui.separator();
     }
