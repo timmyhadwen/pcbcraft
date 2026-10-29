@@ -2676,8 +2676,10 @@ dependencies = [
  "pcbcraft-assistant",
  "pcbcraft-engine",
  "pcbcraft-io",
+ "pcbcraft-library",
  "pcbcraft-mcp",
  "pcbcraft-ui-egui",
+ "tempfile",
  "ureq",
 ]
 

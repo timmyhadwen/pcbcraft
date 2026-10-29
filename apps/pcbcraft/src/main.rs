@@ -1,4 +1,7 @@
 mod host;
+// The Online library hooks it up in the Library tab (#788); until then nothing calls it.
+#[allow(dead_code)]
+mod online_http;
 fn main() -> eframe::Result {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let option = |key: &str| {
