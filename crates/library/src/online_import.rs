@@ -5,9 +5,8 @@
 //!
 //! # Rules
 //! - The symbol is picked by name from the fetched file; nothing is guessed.
-//! - A footprint's own 3D model reference is kept only when a model file was
-//!   fetched: its path becomes the cached file and its transform stays. With no
-//!   model fetched the reference is dropped, because it would point nowhere.
+//! - A footprint keeps its 3D model reference only when a model file was fetched:
+//!   the path becomes the cached file and the transform stays. Otherwise it is dropped.
 //! - Every definition is validated here, so a bad file fails before the engine sees it.
 //!
 //! # Dependencies
@@ -23,7 +22,9 @@ use std::path::PathBuf;
 /// One part ready for the engine.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImportedPart {
+    /// The symbol, validated.
     pub symbol: SymbolDefinition,
+    /// The footprint, validated, with its 3D model reference pointing at the cached file.
     pub footprint: Option<FootprintDefinition>,
     /// The cached 3D model file on this computer, when one was fetched and
     /// the source keeps files on disk.
