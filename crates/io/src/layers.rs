@@ -500,9 +500,9 @@ fn push_art_shape(shapes: &mut Vec<Shape>, shape: &ArtShape, p: &Project) {
             if points.len() >= 2 {
                 let mut ring: Vec<Point> =
                     points.iter().map(|pt| fabrication_point(p, *pt)).collect();
-                if ring.first() != ring.last() {
-                    if let Some(first) = ring.first().copied() {
-                        ring.push(first);
+                if let (Some(first), Some(last)) = (ring.first(), ring.last()) {
+                    if first.distance(*last) > 1e-9 {
+                        ring.push(*first);
                     }
                 }
                 shapes.push(Shape::Stroke(ring, 0.1, true, ShapePolarity::Positive));
@@ -590,7 +590,9 @@ pub fn copper_shape_counts(p: &Project, top: bool) -> Result<(usize, usize), Str
     Ok((flashes, regions))
 }
 
-pub fn gerber_copper_counts(p: &Project) -> Result<((usize, usize), (usize, usize)), String> {
+pub type GerberCopperCounts = ((usize, usize), (usize, usize));
+
+pub fn gerber_copper_counts(p: &Project) -> Result<GerberCopperCounts, String> {
     let files = crate::gerber_files(p)?;
     let front = files.get("pcb-F.Cu.gbr").ok_or("missing front copper")?;
     let back = files.get("pcb-B.Cu.gbr").ok_or("missing back copper")?;

@@ -199,17 +199,15 @@ fn draw_stroke(
         .collect();
     let radius = width_mm * f64::from(opts.dpi) / 25.4 / 2.0;
     let color = ink(pol);
-    let segments: usize = if closed {
-        pts.len().saturating_sub(1)
-    } else {
-        pts.len().saturating_sub(1)
-    };
+    let segments = pts.len().saturating_sub(1);
     for i in 0..segments {
         let a = pts[i];
-        let b = if closed && i + 1 == pts.len() - 1 {
+        let b = if closed && i + 1 == segments {
             pts[0]
+        } else if i + 1 < pts.len() {
+            pts[i + 1]
         } else {
-            pts.get(i + 1).copied().unwrap_or(a)
+            a
         };
         line_grey(img, a, b, radius.max(0.5), color);
     }
@@ -355,12 +353,13 @@ fn encode_grey_png(img: &GrayImage, dpi: u32, depth: RasterDepth) -> Result<Vec<
     let xppu = (f64::from(dpi) / 0.0254).round() as u32;
     match depth {
         RasterDepth::Bits1 => {
-            let mut packed = vec![0u8; ((w as usize + 7) / 8) * h as usize];
+            let row_bytes = (w as usize).div_ceil(8);
+            let mut packed = vec![0u8; row_bytes * h as usize];
             for y in 0..h {
                 for x in 0..w {
                     if img.get_pixel(x, y).0[0] < 128 {
-                        let idx = y as usize * ((w as usize + 7) / 8) + x as usize / 8;
-                        packed[idx] |= 0x80 >> (x % 8);
+                        let idx = y as usize * row_bytes + x as usize / 8;
+                        packed[idx] |= 0x80_u8 >> (x % 8);
                     }
                 }
             }
@@ -791,7 +790,10 @@ mod tests {
             margin_mm: 0.0,
             depth: RasterDepth::Grey8,
         };
-        let err = layer_raster(&p, &opts).unwrap_err();
+        let err = match layer_raster(&p, &opts) {
+            Err(reason) => reason,
+            Ok(_) => return Err("expected an oversized raster to be refused".into()),
+        };
         assert!(err.contains("500"), "reason should name width: {err}");
         assert!(
             err.contains("64 million"),

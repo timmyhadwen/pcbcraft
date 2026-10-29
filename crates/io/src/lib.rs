@@ -17,8 +17,8 @@ pub use board_mesh::{
 };
 pub use gerber::gerber_copper;
 pub use layers::{
-    FabLayer, LayerShapes, Shape, ShapePolarity, copper_shape_counts, fabrication_point,
-    gerber_copper_counts, layer_shapes,
+    FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
+    fabrication_point, gerber_copper_counts, layer_shapes,
 };
 use library_render::*;
 pub use pcbcraft_doc::Layer;
