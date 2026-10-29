@@ -3914,119 +3914,115 @@ impl App {
                     ui.label(t!("library.browser.renumber_nothing"));
                     return;
                 }
-            let mut prefixes: Vec<String> = self
-                .project
-                .components
-                .iter()
-                .map(|c| {
-                    c.reference
-                        .chars()
-                        .take_while(char::is_ascii_alphabetic)
-                        .collect::<String>()
-                })
-                .filter(|p| !p.is_empty())
-                .collect();
-            prefixes.sort();
-            prefixes.dedup();
-            let mut pick = self
-                .renumber_plan
-                .clone()
-                .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
-            ui.horizontal(|ui| {
-                egui::ComboBox::from_id_salt("renumber-prefix")
-                    .selected_text(
-                        pick.clone()
-                            .unwrap_or_else(|| t!("library.browser.all_letters")),
-                    )
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(
-                                pick.is_none(),
-                                t!("library.browser.all_letters"),
-                            )
-                            .on_hover_text(t!("library.browser.all_letters.tip"))
-                            .clicked()
-                        {
-                            pick = None;
-                            ui.close();
-                        }
-                        for prefix in &prefixes {
+                let mut prefixes: Vec<String> = self
+                    .project
+                    .components
+                    .iter()
+                    .map(|c| {
+                        c.reference
+                            .chars()
+                            .take_while(char::is_ascii_alphabetic)
+                            .collect::<String>()
+                    })
+                    .filter(|p| !p.is_empty())
+                    .collect();
+                prefixes.sort();
+                prefixes.dedup();
+                let mut pick = self
+                    .renumber_plan
+                    .clone()
+                    .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_salt("renumber-prefix")
+                        .selected_text(
+                            pick.clone()
+                                .unwrap_or_else(|| t!("library.browser.all_letters")),
+                        )
+                        .show_ui(ui, |ui| {
                             if ui
-                                .selectable_label(
-                                    pick.as_deref() == Some(prefix.as_str()),
-                                    prefix,
-                                )
-                                .on_hover_text(t!(
-                                    "library.browser.only_renumber_the_parts_that.tip"
-                                ))
+                                .selectable_label(pick.is_none(), t!("library.browser.all_letters"))
+                                .on_hover_text(t!("library.browser.all_letters.tip"))
                                 .clicked()
                             {
-                                pick = Some(prefix.clone());
+                                pick = None;
                                 ui.close();
                             }
-                        }
-                    })
-                    .response
-                    .named("Renumber prefix")
-                    .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
-                if ui
-                    .button(t!("library.browser.preview"))
-                    .on_hover_text(t!("library.browser.preview.tip"))
-                    .clicked()
-                {
-                    let out = self.run_and_keep(
-                        "components.reannotate",
-                        json!({"dry_run": true, "prefix": pick}),
-                    );
-                    self.renumber_plan =
-                        out.get("renamed").and_then(Value::as_array).map(|rows| {
-                            (
-                                pick.clone(),
-                                rows.iter()
-                                    .filter_map(|row| {
-                                        let from = row.get("from")?.as_str()?.to_owned();
-                                        let to = row.get("to")?.as_str()?.to_owned();
-                                        Some((from, to))
-                                    })
-                                    .collect(),
-                            )
-                        });
-                }
-            });
-            if self.renumber_plan.is_none() {
-                self.renumber_prefix = pick.clone();
-            }
-            if let Some((_, plan)) = self.renumber_plan.clone() {
-                for (from, to) in plan.iter().take(12) {
-                    ui.label(
-                        egui::RichText::new(t!(
-                            "library.browser.from_to",
-                            from = from,
-                            to = to
-                        ))
-                        .small()
-                        .color(self.muted()),
-                    );
-                }
-                ui.horizontal(|ui| {
+                            for prefix in &prefixes {
+                                if ui
+                                    .selectable_label(
+                                        pick.as_deref() == Some(prefix.as_str()),
+                                        prefix,
+                                    )
+                                    .on_hover_text(t!(
+                                        "library.browser.only_renumber_the_parts_that.tip"
+                                    ))
+                                    .clicked()
+                                {
+                                    pick = Some(prefix.clone());
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .named("Renumber prefix")
+                        .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
                     if ui
-                        .button(t!("library.browser.renumber"))
-                        .on_hover_text(t!("library.browser.renumber.tip"))
+                        .button(t!("library.browser.preview"))
+                        .on_hover_text(t!("library.browser.preview.tip"))
                         .clicked()
                     {
-                        self.renumber_plan = None;
-                        self.run("components.reannotate", json!({"prefix": pick}));
-                    }
-                    if ui
-                        .button(t!("library.browser.cancel"))
-                        .on_hover_text(t!("library.browser.cancel.tip"))
-                        .clicked()
-                    {
-                        self.renumber_plan = None;
+                        let out = self.run_and_keep(
+                            "components.reannotate",
+                            json!({"dry_run": true, "prefix": pick}),
+                        );
+                        self.renumber_plan =
+                            out.get("renamed").and_then(Value::as_array).map(|rows| {
+                                (
+                                    pick.clone(),
+                                    rows.iter()
+                                        .filter_map(|row| {
+                                            let from = row.get("from")?.as_str()?.to_owned();
+                                            let to = row.get("to")?.as_str()?.to_owned();
+                                            Some((from, to))
+                                        })
+                                        .collect(),
+                                )
+                            });
                     }
                 });
-            }
-
+                if self.renumber_plan.is_none() {
+                    self.renumber_prefix = pick.clone();
+                }
+                if let Some((_, plan)) = self.renumber_plan.clone() {
+                    for (from, to) in plan.iter().take(12) {
+                        ui.label(
+                            egui::RichText::new(t!(
+                                "library.browser.from_to",
+                                from = from,
+                                to = to
+                            ))
+                            .small()
+                            .color(self.muted()),
+                        );
+                    }
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(t!("library.browser.renumber"))
+                            .on_hover_text(t!("library.browser.renumber.tip"))
+                            .clicked()
+                        {
+                            self.renumber_plan = None;
+                            self.run("components.reannotate", json!({"prefix": pick}));
+                        }
+                        if ui
+                            .button(t!("library.browser.cancel"))
+                            .on_hover_text(t!("library.browser.cancel.tip"))
+                            .clicked()
+                        {
+                            self.renumber_plan = None;
+                        }
+                    });
+                }
             });
         self.renumber_open = open;
     }

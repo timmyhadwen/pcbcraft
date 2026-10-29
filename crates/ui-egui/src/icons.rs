@@ -195,30 +195,41 @@ pub(crate) fn icon_label_button(
 mod tests {
     use super::*;
 
-    #[test]
-    fn every_icon_file_is_in_the_set() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/icons/ui");
-        let mut missing = Vec::new();
-        for entry in std::fs::read_dir(dir).expect("icon dir") {
-            let path = entry.expect("entry").path();
-            if path.extension().is_some_and(|e| e == "svg") {
-                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                if !exists(stem) {
-                    missing.push(stem.to_owned());
-                }
+    fn svg_stems(dir: &std::path::Path) -> Result<Vec<String>, String> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if path.extension().is_some_and(|e| e == "svg")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                out.push(stem.to_owned());
             }
         }
-        assert!(missing.is_empty(), "icons not in the set: {missing:?}");
+        Ok(out)
     }
 
     #[test]
-    fn icons_are_drawn_only_in_the_icon_module() {
+    fn every_icon_file_is_in_the_set() -> Result<(), String> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/icons/ui");
+        let missing: Vec<String> = svg_stems(&dir)?
+            .into_iter()
+            .filter(|stem| !exists(stem))
+            .collect();
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("icons not in the set: {missing:?}"))
+        }
+    }
+
+    #[test]
+    fn icons_are_drawn_only_in_the_icon_module() -> Result<(), String> {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut stack = vec![dir];
         let mut bad = Vec::new();
         while let Some(d) = stack.pop() {
-            for entry in std::fs::read_dir(d).expect("src dir") {
-                let path = entry.expect("entry").path();
+            for entry in std::fs::read_dir(d).map_err(|e| e.to_string())? {
+                let path = entry.map_err(|e| e.to_string())?.path();
                 if path.is_dir() {
                     stack.push(path);
                 } else if path.extension().is_some_and(|e| e == "rs")
@@ -233,6 +244,10 @@ mod tests {
                 }
             }
         }
-        assert!(bad.is_empty(), "{bad:?}");
+        if bad.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("{bad:?}"))
+        }
     }
 }
