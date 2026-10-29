@@ -500,10 +500,10 @@ fn push_art_shape(shapes: &mut Vec<Shape>, shape: &ArtShape, p: &Project) {
             if points.len() >= 2 {
                 let mut ring: Vec<Point> =
                     points.iter().map(|pt| fabrication_point(p, *pt)).collect();
-                if let (Some(first), Some(last)) = (ring.first(), ring.last()) {
-                    if first.distance(*last) > 1e-9 {
-                        ring.push(*first);
-                    }
+                if let (Some(first), Some(last)) = (ring.first(), ring.last())
+                    && first.distance(*last) > 1e-9
+                {
+                    ring.push(*first);
                 }
                 shapes.push(Shape::Stroke(ring, 0.1, true, ShapePolarity::Positive));
             }
