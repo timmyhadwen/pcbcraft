@@ -306,6 +306,7 @@ fn section(key: &str, label: String, n: usize) -> Row {
     r
 }
 
+#[allow(clippy::too_many_arguments)]
 fn layer_row(
     path: &str,
     key: &str,
@@ -1549,6 +1550,7 @@ fn visible(env: &Env, ctl: &LayerControls) -> bool {
 
 /// A square icon button drawn with [`glyph`], with a tooltip and a name for
 /// screen readers.
+#[allow(clippy::too_many_arguments)]
 fn icon_button(
     ui: &mut Ui,
     id: egui::Id,
@@ -2503,6 +2505,7 @@ impl crate::App {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
