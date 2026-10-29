@@ -42,6 +42,17 @@ const NOTE_REFUSED: &str =
 const HIDDEN_TOOLS: &[&str] = &[];
 
 /// Which wire shape the endpoint speaks.
+///
+/// # Dependencies
+/// - `derive`: `Clone`, `Copy`, `Debug`, `PartialEq`, `Eq`, `serde::Serialize`, `serde::Deserialize`
+/// - `crate`: `serde` (for serialization)
+///
+/// # Rules
+/// - This enum represents the protocol used to communicate with the model.
+/// - Each variant corresponds to a specific API protocol.
+///
+/// # Do not
+/// - Add new variants without updating the `tool_list` and `tool_names` logic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Protocol {
     OpenAi,
@@ -49,6 +60,19 @@ pub enum Protocol {
 }
 
 /// Where the model is and how to reach it.
+///
+/// # Dependencies
+/// - `crate`: `serde` (for serialization)
+/// - `crate`: `std` (for `Arc`, `AtomicBool`, etc.)
+///
+/// # Rules
+/// - This struct holds the configuration for connecting to the model.
+/// - `protocol` specifies the API protocol to use.
+/// - `base_url` is the address of the model.
+/// - `key` is the authentication key, sent only over HTTPS or to this computer.
+///
+/// # Do not
+/// - Store sensitive information in plain text; use secure storage mechanisms.
 #[derive(Clone)]
 pub struct ApiConfig {
     pub protocol: Protocol,
