@@ -401,8 +401,14 @@ mod tests {
         let job: Value =
             serde_json::from_str(&files["pcb-job.gbrjob"]).map_err(|e| e.to_string())?;
         let rule = &job["DesignRules"][0];
-        assert_eq!(rule["MinLineWidth"], 0.127, "min_track becomes the line width");
-        assert_eq!(rule["TrackToTrack"], 0.15, "min_space becomes the separation");
+        assert_eq!(
+            rule["MinLineWidth"], 0.127,
+            "min_track becomes the line width"
+        );
+        assert_eq!(
+            rule["TrackToTrack"], 0.15,
+            "min_space becomes the separation"
+        );
         assert_eq!(rule["PadToPad"], 0.15);
         Ok(())
     }
