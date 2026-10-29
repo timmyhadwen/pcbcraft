@@ -9,6 +9,9 @@ architecture. Uses the pinned `craft-ui` library from `storytold/craft-libs`.
 vertical slice is a flat schematic → assigned SMD PCB → basic routing → checks → KiCad
 board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 
+New here? Start with [docs/getting-started.md](docs/getting-started.md) (clone,
+first run, fork CI proof, and doc map).
+
 ## What works
 
 - One native Rust window with Schematic, PCB Layout, Libraries and Checks tabs;
@@ -232,6 +235,8 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   panel, drawn-layer plots and other writers) into one folder after edits.
   Drawn silk, mask and machine layers plot to their own Gerber, DXF, SVG and
   HP-GL files as positive ink, not negative soldermask derived from pads.
+  A `raster` output job writes high-DPI PNGs of the six fabrication views
+  (top and bottom copper, mask and legend) for photo exposure and laser workflows.
   Panel fabrication export duplicates gerbers, drill and pick-and-place for
   every copy when a panel grid is enabled, and adds breakaway and tooling
   holes plus a panel placement listing. A plain-text netlist, one line per net
@@ -255,9 +260,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 297 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 305 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 350 MCP tools: every engine command plus library discovery/search/inspection,
+- 358 MCP tools: every engine command plus library discovery/search/inspection,
   source management for adding library folders from anywhere, recent designs,
   design inspection, checks, persistence,
   export, PNG raster previews saved to disk or returned inline, SVG vector
@@ -384,7 +389,8 @@ cd apps/pcbcraft-web && trunk serve
 Keep build products outside the mounted Windows tree in WSL for better filesystem
 performance, e.g. `CARGO_TARGET_DIR=$HOME/.cache/pcbcraft-target`.
 
-Architecture: [docs/architecture.md](docs/architecture.md). Agent instructions:
+Architecture: [docs/architecture.md](docs/architecture.md). Getting started map:
+[docs/getting-started.md](docs/getting-started.md). Agent instructions:
 [AGENTS.md](AGENTS.md) ([CLAUDE.md](CLAUDE.md), [Cursor rules](.cursor/rules/), [role briefs](docs/agents/)).
 Provenance: [ATTRIBUTION.md](ATTRIBUTION.md).
 How work flows through the tracker, from issue to merge: [CONTRIBUTING.md](CONTRIBUTING.md).

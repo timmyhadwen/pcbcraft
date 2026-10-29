@@ -67,7 +67,7 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 
 - [ ] Line/arc outline sketch model inspired by a planar sketch workflow (#287)
 - [ ] Dimensions, constraints, named parameters and expression-driven regeneration (#288)
-- [ ] Slots, notches, mounting holes and dimensioned patterns (#289)
+- [x] Unplated mounting holes, routed slots and rectangular edge notches (#289 subset on fork main; sketch-driven patterns remain in #287)
 - [ ] PCB/enclosure coordination, shared mounting datums and STEP exchange (#290)
 - [ ] Component bodies in STEP and enclosure model import (#321)
 - [ ] Real 3D board tab with component bodies and inspection (#291)
@@ -106,7 +106,7 @@ for in-house machines.
 - [ ] Fabrication-house plots with attributes, drill split and drill map (#325)
 - [ ] BOM artifact (#326)
 - [ ] Assembly and fabrication drawings (#327)
-- [ ] Raster images for photo-exposure, laser and UV print (#328)
+- [x] Fabrication-layer PNG rasters via output jobs (#328 subset on fork main; UV-specific workflows and drawn-layer BMP export remain open)
 - [ ] CNC isolation G-code (#329)
 - [ ] CNC drilling and outline G-code (#330)
 - [ ] Paste stencil and laser cut paths (#331)
