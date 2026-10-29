@@ -3,9 +3,8 @@
 //! Local rules: the listener only ever binds an address that `loopback` accepts, every
 //! request needs the per-run bearer token, and a browser `Origin` that is not a loopback
 //! origin is refused (DNS rebinding guard). The transport is stateless: no session id is
-//! issued, so the lifecycle gate of `serve` does not apply. There is no event stream; GET
-//! and DELETE answer 405. Requests run one at a time on the accept loop (one design
-//! session). Every request goes to `handle_rpc`, the same dispatcher stdio uses.
+//! issued, so the lifecycle gate of `serve` does not apply. No event stream: GET and DELETE
+//! answer 405. Requests run one at a time (one design session) through `handle_rpc`.
 //!
 //! # Dependencies
 //! `crates/mcp/src/lib.rs` (`handle_rpc`, `loopback`, `rpc_error`, `MAX_MESSAGE`,

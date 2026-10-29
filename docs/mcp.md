@@ -45,6 +45,9 @@ with filesystem access as the invoking user. It has no remote authentication.
 Only tools/call requests are forwarded; tool discovery comes from the same registry.
 Do not expose this port through forwarding to an untrusted network.
 
+How the server measures against the specification, and the test list, are in
+[mcp-conformance.md](mcp-conformance.md).
+
 ## Recommended agent flow
 
 1. `inspect_design`: read current revision, stable IDs and capability limits.
