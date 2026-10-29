@@ -6,7 +6,6 @@ mod library_quality;
 mod plot_viewer;
 mod sources;
 mod via_covering;
-use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
@@ -660,6 +659,8 @@ pub struct App {
     stack_thickness: f64,
     stack_edit: Option<(String, String, f64)>,
     anat_open: Vec<String>,
+    /// Optional workspace tabs the user closed; the + menu reopens them.
+    closed_tabs: Vec<Tab>,
     notes_thick: f64,
     notes_er: f64,
     net_editor: Option<pcbcraft_doc::Id>,
@@ -1005,6 +1006,7 @@ impl App {
             stack_thickness: 1.2,
             stack_edit: None,
             anat_open: vec!["connections".to_owned()],
+            closed_tabs: Vec::new(),
             notes_thick: 1.6,
             notes_er: 4.4,
             net_editor: None,
@@ -1270,6 +1272,7 @@ impl App {
         {
             self.selected = Some(f.component);
         }
+        self.closed_tabs.retain(|t| *t != tab);
         // Rules, Checks and Settings are pages, not canvases: going to one or
         // coming back from one keeps the user's zoom and pan.
         let page = |t: Tab| matches!(t, Tab::Rules | Tab::Checks | Tab::Settings);
@@ -2626,130 +2629,120 @@ impl App {
         egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(16, 12))
     }
     const APP_BAR_HEIGHT: f32 = 34.0;
+    /// The slim top bar: the brand and the menus, nothing else. Save, Undo
+    /// and Redo, settings, bug reports and the version live in the menus.
     fn header(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("app-bar")
             .exact_size(Self::APP_BAR_HEIGHT)
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        let brand = ui.add(
-                            egui::Label::new(
-                                egui::RichText::new("PCBCraft")
-                                    .size(15.0)
-                                    .strong()
-                                    .color(self.accent()),
-                            )
-                            .sense(egui::Sense::click()),
-                        );
-                        if brand
-                            .on_hover_text("Back to the start screen, where you open or begin a design.")
-                            .clicked()
-                        {
-                            self.home_open = true;
-                        }
-                        if ui
-                            .button("Home")
-                            .on_hover_text("Open the start screen.")
-                            .clicked()
-                        {
-                            self.home_open = true;
-                        }
-                        if self.library.editor.mode == 0 {
-                            ui.separator();
-                            self.file_menu(ui);
-                            self.edit_menu(ui);
-                            self.help_menu(ui);
-                            if ui
-                                .button("Save")
-                                .on_hover_text("Write the design to its file on disk.")
-                                .clicked()
-                            {
-                                self.tool_call("save", json!({"path": self.path}));
-                            }
-                            if ui
-                                .button("Undo")
-                                .on_hover_text(command_tip("undo"))
-                                .clicked()
-                            {
-                                self.tool_call("undo", json!({}));
-                            }
-                            if ui
-                                .button("Redo")
-                                .on_hover_text(command_tip("redo"))
-                                .clicked()
-                            {
-                                self.tool_call("redo", json!({}));
-                            }
-                        }
-                        ui.separator();
-                        let tab_label = self.project.name.clone();
-                        ui.label(
-                            egui::RichText::new(tab_label)
+                    let brand = ui.add(
+                        egui::Label::new(
+                            egui::RichText::new("PCBCraft")
+                                .size(15.0)
                                 .strong()
-                                .color(self.ink()),
+                                .color(self.accent()),
                         )
-                        .on_hover_text("This document tab names the open design.");
-                        if ui
-                            .button("+")
-                            .on_hover_text("Start another design from the New section on the start screen.")
-                            .clicked()
-                        {
-                            self.home_open = true;
-                        }
-                    });
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            egui::RichText::new(env!("CARGO_PKG_VERSION"))
-                                .small()
-                                .color(self.muted()),
+                        .sense(egui::Sense::click()),
+                    );
+                    if brand
+                        .on_hover_text(
+                            "Back to the start screen, where you open or begin a design.",
                         )
-                        .on_hover_text("Application version.");
-                        if ui
-                            .button("Report a bug")
-                            .on_hover_text("Open a prefilled issue with version and environment details.")
-                            .clicked()
-                        {
-                            let url = format!(
-                                "https://github.com/tangency-labs/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
-                                env!("CARGO_PKG_VERSION")
-                            );
-                            ui.ctx().open_url(egui::OpenUrl::same_tab(url));
-                        }
-                        if ui
-                            .button("Settings")
-                            .on_hover_text("Project settings, appearance, and library sources.")
-                            .clicked()
-                        {
-                            self.change_tab(Tab::Settings);
-                        }
-                    });
+                        .clicked()
+                    {
+                        self.home_open = true;
+                    }
+                    if self.library.editor.mode == 0 {
+                        ui.separator();
+                        self.file_menu(ui);
+                        self.edit_menu(ui);
+                        self.help_menu(ui);
+                    }
                 });
             });
     }
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
+        let optional = [Tab::Rules, Tab::Checks, Tab::Settings];
+        let mut shown: Vec<(Tab, &str)> = vec![
+            (Tab::Files, "Files"),
+            (Tab::Schematic, "Schematic"),
+            (Tab::Pcb, "Layout"),
+            (Tab::Board3d, "3D View"),
+        ];
+        if self.tab == Tab::Libraries {
+            shown.push((Tab::Libraries, "Libraries"));
+        }
+        for (tab, label) in [
+            (Tab::Rules, "Rules"),
+            (Tab::Checks, "Checks"),
+            (Tab::PlotFiles, "Plot files"),
+            (Tab::Settings, "Settings"),
+        ] {
+            if !self.closed_tabs.contains(&tab) {
+                shown.push((tab, label));
+            }
+        }
+        let used = shown.len() as f32 * 90.0 + 40.0;
+        let mut close = None;
         ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            for (tab, label) in [
-                (Tab::Files, "Files"),
-                (Tab::Schematic, "Schematic"),
-                (Tab::Pcb, "Layout"),
-                (Tab::Board3d, "3D View"),
-                (Tab::Rules, "Rules"),
-                (Tab::Checks, "Checks"),
-                (Tab::PlotFiles, "Plot files"),
-                (Tab::Settings, "Settings"),
-            ] {
+            ui.add_space(((ui.available_width() - used) / 2.0).max(8.0));
+            for (tab, label) in shown.iter().copied() {
                 let selected = self.tab == tab;
-                if ui
-                    .selectable_label(selected, label)
-                    .on_hover_text(format!("Switch to the {label} view."))
-                    .clicked()
-                {
+                let response = ui.selectable_label(selected, label).on_hover_text(
+                    if optional.contains(&tab) {
+                        format!("Switch to the {label} view. Right-click to close it.")
+                    } else {
+                        format!("Switch to the {label} view.")
+                    },
+                );
+                if response.clicked() {
                     self.change_tab(tab);
                 }
+                if optional.contains(&tab) {
+                    response.context_menu(|ui| {
+                        if ui
+                            .button("Close")
+                            .on_hover_text("Hide this view; the + menu brings it back.")
+                            .clicked()
+                        {
+                            close = Some(tab);
+                            ui.close();
+                        }
+                    });
+                }
             }
+            let closed = self.closed_tabs.clone();
+            ui.menu_button("+", |ui| {
+                if closed.is_empty() {
+                    ui.add_enabled(false, egui::Label::new("Every view is open"));
+                }
+                for tab in closed {
+                    let name = match tab {
+                        Tab::Rules => "Rules",
+                        Tab::Checks => "Checks",
+                        _ => "Settings",
+                    };
+                    if ui
+                        .button(name)
+                        .on_hover_text("Open this view again.")
+                        .clicked()
+                    {
+                        self.change_tab(tab);
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text("Open a view you closed.");
         });
+        if let Some(tab) = close {
+            self.closed_tabs.push(tab);
+            if self.tab == tab {
+                self.change_tab(Tab::Schematic);
+            }
+        }
         if !matches!(self.tool, Tool::Select) && !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
             ui.horizontal(|ui| {
                 ui.add_space(16.0);
@@ -2978,16 +2971,27 @@ impl App {
     }
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Edit", |ui| {
+            let (can_undo, can_redo) = self
+                .session
+                .lock()
+                .map(|s| (s.can_undo(), s.can_redo()))
+                .unwrap_or((false, false));
             if ui
-                .button("Undo")
-                .on_hover_text("Step back one action; every edit here is one undoable step.")
+                .add_enabled(can_undo, egui::Button::new("Undo"))
+                .on_hover_text(if can_undo {
+                    "Step back one action; every edit here is one undoable step."
+                } else {
+                    "Nothing to undo yet: make an edit first."
+                })
+                .on_disabled_hover_text("Nothing to undo yet: make an edit first.")
                 .clicked()
             {
                 self.tool_call("undo", json!({}));
             }
             if ui
-                .button("Redo")
+                .add_enabled(can_redo, egui::Button::new("Redo"))
                 .on_hover_text("Step forward to the action you undid.")
+                .on_disabled_hover_text("Nothing to redo: undo an action first.")
                 .clicked()
             {
                 self.tool_call("redo", json!({}));
@@ -3036,14 +3040,14 @@ impl App {
     fn help_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Help", |ui| {
             if ui
-                .button("Keyboard shortcuts")
+                .button("Shortcuts")
                 .on_hover_text("Show every keyboard shortcut and mouse gesture in one list.")
                 .clicked()
             {
                 self.shortcuts_open = !self.shortcuts_open;
             }
             if ui
-                .button("Commands  Ctrl+K")
+                .button("Commands")
                 .on_hover_text(
                     "Search every command by name and run it, with its parameters explained.",
                 )
@@ -3053,9 +3057,27 @@ impl App {
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
+            ui.separator();
+            if ui
+                .button("Report a bug")
+                .on_hover_text("Open a prefilled bug report with your version filled in.")
+                .clicked()
+            {
+                let url = format!(
+                    "https://github.com/tangency-labs/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
+                    env!("CARGO_PKG_VERSION")
+                );
+                ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+            }
+            ui.label(
+                egui::RichText::new(format!("PCBCraft {}", env!("CARGO_PKG_VERSION")))
+                    .small()
+                    .color(self.muted()),
+            )
+            .on_hover_text("The version of PCBCraft you are running.");
         })
         .response
-        .on_hover_text("Shortcuts list and the command search.");
+        .on_hover_text("Shortcuts, the command search and bug reports.");
     }
     fn browser(&mut self, ui: &mut egui::Ui) {
         egui::Panel::left("left-rail")
@@ -6424,61 +6446,15 @@ impl App {
         self.icon_rects.insert(_id.to_owned(), _rect);
     }
 
-    fn icon_button_style(&self) -> IconButtonStyle {
-        let stroke = Stroke::new(1.0, self.ink().gamma_multiply(0.35));
-        let fill = if self.preferences.dark {
-            Color32::from_rgb(28, 40, 56)
-        } else {
-            Color32::from_rgb(220, 228, 238)
-        };
-        let hover = if self.preferences.dark {
-            Color32::from_rgb(40, 58, 80)
-        } else {
-            Color32::from_rgb(200, 212, 228)
-        };
-        IconButtonStyle {
-            normal: ButtonVisuals {
-                fill,
-                stroke,
-                icon: self.ink(),
-            },
-            hovered: ButtonVisuals {
-                fill: hover,
-                stroke,
-                icon: self.ink(),
-            },
-            pressed: None,
-            selected: ButtonVisuals {
-                fill: self.accent().gamma_multiply(0.35),
-                stroke: Stroke::new(1.0, self.accent()),
-                icon: self.ink(),
-            },
-            corner_radius: egui::CornerRadius::same(6),
-            focus_stroke: Stroke::new(1.0, self.accent()),
-        }
-    }
-
     fn tool_strip_button(
         &mut self,
         ui: &mut egui::Ui,
         id: &str,
-        glyph: &str,
+        label: &str,
         tip: &str,
         selected: bool,
     ) -> egui::Response {
-        let style = self.icon_button_style();
-        let response = IconButton::new(id, Vec2::splat(28.0), &style)
-            .selected(selected)
-            .show(ui, |ui, rect, tint| {
-                ui.painter().text(
-                    rect.center(),
-                    Align2::CENTER_CENTER,
-                    glyph,
-                    FontId::proportional(13.0),
-                    tint,
-                );
-            })
-            .on_hover_text(tip);
+        let response = ui.selectable_label(selected, label).on_hover_text(tip);
         self.record_icon(id, response.rect);
         response
     }
@@ -6583,19 +6559,19 @@ impl App {
         if !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
             return;
         }
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add_space(8.0);
             let select = |app: &mut App| {
                 app.tool = Tool::Select;
             };
             if self
-                .tool_strip_button(ui, "tool-select", "Sel", "Select objects on the drawing.", matches!(self.tool, Tool::Select))
+                .tool_strip_button(ui, "tool-select", "Select", "Select objects on the drawing.", matches!(self.tool, Tool::Select))
                 .clicked()
             {
                 select(self);
             }
             if self
-                .tool_strip_button(ui, "tool-move", "Mv", "Move tool: drop the selection at the cursor.", matches!(self.tool, Tool::Move))
+                .tool_strip_button(ui, "tool-move", "Move", "Move tool: drop the selection at the cursor.", matches!(self.tool, Tool::Move))
                 .clicked()
             {
                 self.tool = Tool::Move;
@@ -6605,7 +6581,7 @@ impl App {
                     .tool_strip_button(
                         ui,
                         "tool-wire",
-                        "W",
+                        "Wire",
                         "Wire tool: click two pins to connect them.",
                         matches!(self.tool, Tool::Wire(_)),
                     )
@@ -6631,7 +6607,7 @@ impl App {
                     .tool_strip_button(
                         ui,
                         "tool-route",
-                        "Rt",
+                        "Route",
                         "Route tool: click two pads to start a track.",
                         matches!(self.tool, Tool::Route(_)),
                     )
@@ -6640,11 +6616,11 @@ impl App {
                     self.tool = Tool::Route(None);
                 }
                 for (shape, id, glyph, tip) in [
-                    (DrawShape::Line, "tool-line", "Ln", "Draw a straight line on a user layer."),
-                    (DrawShape::Rect, "tool-box", "Bx", "Draw a box on a user layer."),
-                    (DrawShape::Circle, "tool-circle", "Cr", "Draw a circle on a user layer."),
-                    (DrawShape::Poly, "tool-outline", "Pl", "Draw an outline on a user layer."),
-                    (DrawShape::Words, "tool-words", "Tx", "Print words on a user layer."),
+                    (DrawShape::Line, "tool-line", "Line", "Draw a straight line on a user layer."),
+                    (DrawShape::Rect, "tool-box", "Box", "Draw a box on a user layer."),
+                    (DrawShape::Circle, "tool-circle", "Circle", "Draw a circle on a user layer."),
+                    (DrawShape::Poly, "tool-outline", "Outline", "Draw an outline on a user layer."),
+                    (DrawShape::Words, "tool-words", "Text", "Print words on a user layer."),
                 ] {
                     let armed =
                         matches!(self.tool, Tool::DrawLayer) && self.art_shape == shape;
@@ -6693,15 +6669,13 @@ impl App {
                     self.tool = Tool::Fiducial;
                 }
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if !matches!(self.tool, Tool::Select) {
-                    ui.label(
-                        egui::RichText::new(tool_hint(&self.tool))
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-            });
+            if !matches!(self.tool, Tool::Select) {
+                ui.label(
+                    egui::RichText::new(tool_hint(&self.tool))
+                        .small()
+                        .color(self.muted()),
+                );
+            }
         });
         ui.separator();
     }
@@ -6710,6 +6684,14 @@ impl App {
         Self::margined(ui, |ui| {
             ui.heading("Project files");
             ui.label(format!("Design file: {}", self.path.trim()));
+            ui.add_space(8.0);
+            if ui
+                .button("Library sources")
+                .on_hover_text("Manage the folders that feed the component list.")
+                .clicked()
+            {
+                self.change_tab(Tab::Libraries);
+            }
             ui.add_space(12.0);
             ui.label(egui::RichText::new("Builds").size(10.0).color(self.muted()));
             self.builds_tab(ui);
@@ -7228,19 +7210,30 @@ mod tests {
             !paints_text(&ctx, &mut app, "Sync to PCB >")?,
             "sync moved into the Edit menu"
         );
+        let fit = app
+            .icon_rects
+            .get("canvas-fit")
+            .copied()
+            .ok_or("a floating Fit icon sits in the work area")?;
         assert!(
-            paints_text(&ctx, &mut app, "Fit")?,
-            "a floating Fit control sits in the work area"
+            fit.max.x <= 1440.0 - 280.0 && fit.min.y > 60.0,
+            "the Fit icon stays inside the canvas, left of the right aside: {fit:?}"
         );
         let first = app.project.components[0].id;
         let before = app.project.components[0].rotation;
         app.select(Some(first));
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let handle = app
+            .icon_rects
+            .get("handle-rotate")
+            .copied()
+            .ok_or("a selected part grows a Rotate handle beside it")?;
         assert!(
-            paints_text(&ctx, &mut app, "Rotate")?,
-            "a selected part grows a Rotate handle beside it"
+            handle.max.x <= 1440.0 - 280.0,
+            "the handle stays inside the canvas: {handle:?}"
         );
-        authoring::tests::tap(&ctx, &mut app, "Rotate")?;
+        authoring::tests::tap_icon(&ctx, &mut app, "handle-rotate")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let after = app
             .project
