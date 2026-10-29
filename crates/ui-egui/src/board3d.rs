@@ -449,3 +449,27 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     );
     picked
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_target_projects_to_the_centre_and_a_ray_returns_to_it() {
+        let view = View3d {
+            target: [10.0, 20.0, 0.0],
+            dist: 50.0,
+            ..View3d::default()
+        };
+        let rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let (pos, depth) = view
+            .project_point(rect, view.target)
+            .unwrap_or((Pos2::ZERO, 0.0));
+        assert!((pos.x - 400.0).abs() < 0.01 && (pos.y - 300.0).abs() < 0.01);
+        assert!((depth - 50.0).abs() < 1e-9);
+        let (o, d) = view.ray(rect, pos);
+        let t = depth;
+        let hit = [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t];
+        assert!(sub(hit, view.target).iter().all(|v| v.abs() < 1e-6));
+    }
+}
