@@ -587,7 +587,10 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
         assert!(text_row(&ctx, &mut app, cryptic).is_none(), "no {cryptic}");
     }
     authoring::tests::open_page(&ctx, &mut app, "Rules")?;
-    assert!(matches!(app.tab, Tab::Rules), "View > Rules opens the rules page");
+    assert!(
+        matches!(app.tab, Tab::Rules),
+        "View > Rules opens the rules page"
+    );
     authoring::tests::tap(&ctx, &mut app, "Files")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;
     assert!(
@@ -701,7 +704,7 @@ fn tab_to(ctx: &egui::Context, app: &mut App, name: &str) -> Result<Vec<String>,
 #[test]
 fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result<(), String> {
     let (ctx, mut app) = practice_app();
-    let seen = tab_to(&ctx, &mut app, "Settings")?;
+    let seen = tab_to(&ctx, &mut app, "Edit")?;
     assert_eq!(
         seen.first().map(String::as_str),
         Some("PCBCraft start screen"),
@@ -716,6 +719,17 @@ fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result
         shown.shapes.iter().any(|s| matches!(&s.shape,
             egui::Shape::Rect(r) if r.stroke.width >= 2.0 && r.stroke.color == app.accent())),
         "the focused control wears a visible ring"
+    );
+    frame(
+        &ctx,
+        &mut app,
+        vec![key(egui::Key::Enter)],
+        egui::Modifiers::NONE,
+    );
+    let more = tab_to(&ctx, &mut app, "Preferences")?;
+    assert!(
+        more.iter().any(|n| n == "Preferences"),
+        "the Edit menu items are reachable: {more:?}"
     );
     frame(
         &ctx,

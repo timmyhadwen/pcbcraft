@@ -332,38 +332,49 @@ impl App {
     /// The 3D controls that replace the Layout toolbar in 3D.
     fn view3d_controls(&mut self, ui: &mut egui::Ui) {
         use std::f64::consts::FRAC_PI_2;
-        ui.horizontal(|ui| {
-            ui.add_space(Self::PAGE_GUTTER);
-            let v = &mut self.view3d;
-            if ui
-                .button(t!("workspace.turn"))
-                .on_hover_text(t!("workspace.turn.tip"))
-                .clicked()
-            {
-                v.yaw += FRAC_PI_2;
-            }
-            for (label, tip, yaw, pitch) in [
-                (
-                    t!("board.board3d.top_view"),
-                    t!("board.board3d.top_view.tip"),
-                    -FRAC_PI_2,
-                    1.5,
-                ),
-                (t!("workspace.front"), t!("workspace.front.tip"), -FRAC_PI_2, 0.0),
-                (t!("workspace.side"), t!("workspace.side.tip"), 0.0, 0.0),
-            ] {
-                if ui.button(label).on_hover_text(tip).clicked() {
-                    v.yaw = yaw;
-                    v.pitch = pitch;
-                }
-            }
-            if ui
-                .button(t!("board.board3d.reset_view"))
-                .on_hover_text(t!("board.board3d.reset_view.tip"))
-                .clicked()
-            {
-                v.fit();
-            }
-        });
+        // Like the tool strip, it scrolls sideways in a narrow window.
+        egui::ScrollArea::horizontal()
+            .auto_shrink([false, true])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_space(Self::PAGE_GUTTER);
+                    let v = &mut self.view3d;
+                    if ui
+                        .button(t!("workspace.turn"))
+                        .on_hover_text(t!("workspace.turn.tip"))
+                        .clicked()
+                    {
+                        v.yaw += FRAC_PI_2;
+                    }
+                    for (label, tip, yaw, pitch) in [
+                        (
+                            t!("board.board3d.top_view"),
+                            t!("board.board3d.top_view.tip"),
+                            -FRAC_PI_2,
+                            1.5,
+                        ),
+                        (
+                            t!("workspace.front"),
+                            t!("workspace.front.tip"),
+                            -FRAC_PI_2,
+                            0.0,
+                        ),
+                        (t!("workspace.side"), t!("workspace.side.tip"), 0.0, 0.0),
+                    ] {
+                        if ui.button(label).on_hover_text(tip).clicked() {
+                            v.yaw = yaw;
+                            v.pitch = pitch;
+                        }
+                    }
+                    if ui
+                        .button(t!("board.board3d.reset_view"))
+                        .on_hover_text(t!("board.board3d.reset_view.tip"))
+                        .clicked()
+                    {
+                        v.fit();
+                    }
+                });
+            });
     }
 }

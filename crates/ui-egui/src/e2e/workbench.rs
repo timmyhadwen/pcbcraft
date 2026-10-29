@@ -90,7 +90,10 @@ fn a_newcomer_switches_the_left_aside_between_layers_and_library() -> Result<(),
     app.change_tab(Tab::Schematic);
     settled(&ctx, &mut app);
     for word in ["Layers", "Library"] {
-        assert!(paints_text(&ctx, &mut app, word)?, "the left aside offers {word}");
+        assert!(
+            paints_text(&ctx, &mut app, word)?,
+            "the left aside offers {word}"
+        );
     }
     assert!(
         !paints_text(&ctx, &mut app, "Hide")?,
@@ -125,7 +128,11 @@ fn view_reset_layout_puts_every_region_back() -> Result<(), String> {
     settled(&ctx, &mut app);
     authoring::tests::tap(&ctx, &mut app, "View")?;
     authoring::tests::tap(&ctx, &mut app, "Reset layout")?;
-    assert_eq!(app.region().left_tab, "layers", "the default left tab returns");
+    assert_eq!(
+        app.region().left_tab,
+        "layers",
+        "the default left tab returns"
+    );
     assert!(!app.region().bottom_open, "the sheet collapses again");
     Ok(())
 }

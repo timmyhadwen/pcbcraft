@@ -687,8 +687,16 @@ fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::open_page(&ctx, &mut app, "Checks")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let message = ["erc", "drc"]
+        .iter()
+        .filter_map(|k| app.checks.get(*k).and_then(Value::as_array))
+        .flatten()
+        .find(|r| r.get("code").and_then(Value::as_str) == Some("cut_hits_via"))
+        .and_then(|r| r.get("message").and_then(Value::as_str))
+        .map(str::to_owned)
+        .ok_or("the cut conflict should carry a message")?;
     assert!(
-        paints_text(&ctx, &mut app, "Cut hits via")?,
+        paints_text(&ctx, &mut app, &message)?,
         "the review names the conflict in plain words: {}",
         app.message
     );

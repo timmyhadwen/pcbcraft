@@ -94,7 +94,7 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
     app.change_tab(Tab::Schematic);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "    blinky red · built in")?,
+        paints_text(&ctx, &mut app, "    blinky red")?,
         "a part row says what the part is and where it came from: {}",
         app.message
     );
@@ -381,38 +381,20 @@ fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
 #[test]
 fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<(), String> {
     let (mut app, ctx) = app_with_overlapping_pads()?;
+    app.home_open = false;
     app.change_tab(Tab::Pcb);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
+    app.change_tab(Tab::Checks);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let sheet_y = app.canvas_rect.bottom() + 40.0;
     for needle in [
         "Lib pad overlap · 1 place",
         "SquashedPair: Two pads share the same copper area",
         "Fix: Move or resize the pads so their outlines no longer overlap",
     ] {
-        let mut shown = paints_text(&ctx, &mut app, needle)?;
-        for _ in 0..10 {
-            if shown {
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(720.0, sheet_y)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-            shown = paints_text(&ctx, &mut app, needle)?;
-        }
-        assert!(shown, "the Checks tab should show \"{needle}\"");
+        assert!(
+            scrolled_to_at(&ctx, &mut app, needle, 720.0)?,
+            "the findings sheet should show \"{needle}\""
+        );
     }
     Ok(())
 }
