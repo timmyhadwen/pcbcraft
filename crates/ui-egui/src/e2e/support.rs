@@ -285,7 +285,7 @@ pub(crate) fn type_into(
 }
 
 /// Select a row of the left aside's Layers tree that is not one object, so
-/// Properties shows it: `sec:board/root` for the board settings, `sec:nets`
+/// Properties shows it: `root` for the board settings, `nets`
 /// for the connections editor.
 pub(crate) fn open_tree_row(ctx: &egui::Context, app: &mut App, key: &str) {
     app.preferences.left_tab = 0;

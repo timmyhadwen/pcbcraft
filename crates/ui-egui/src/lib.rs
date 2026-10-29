@@ -2876,7 +2876,7 @@ impl App {
                     self.preferences.left_tab = tab;
                 }
                 if self.preferences.left_tab == 0 {
-                    self.layers_tree_panel(ui);
+                    layers_tree::layers_tab(ui, self);
                 } else {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
@@ -7330,7 +7330,7 @@ mod tests {
         let ctx = egui::Context::default();
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
-        crate::e2e::support::press_on(&ctx, &mut app, "sec:sheet:0/layer:wires", egui::Key::Space);
+        crate::e2e::support::press_on(&ctx, &mut app, "nets", egui::Key::Space);
         assert!(
             app.preferences.hidden_layers.iter().any(|h| h == "Wires"),
             "unticking the row hides the wires layer"
@@ -7413,7 +7413,7 @@ mod tests {
         let before = app.project.nets.len();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        crate::e2e::support::open_tree_row(&ctx, &mut app, "sec:nets");
+        crate::e2e::support::open_tree_row(&ctx, &mut app, "nets");
         assert!(
             scrolled_to(&ctx, &mut app, "New net")?,
             "the layers tree offers a way to add a connection"
@@ -7997,7 +7997,7 @@ mod tests {
         );
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        crate::e2e::support::open_tree_row(&ctx, &mut app, "sec:nets");
+        crate::e2e::support::open_tree_row(&ctx, &mut app, "nets");
         assert!(
             scrolled_to(&ctx, &mut app, "of 3 nets routed")?,
             "the dock totals the routing at a glance: {}",

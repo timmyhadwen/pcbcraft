@@ -9,7 +9,7 @@ fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), Stri
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "sec:board/root");
+    open_tree_row(&ctx, &mut app, "root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "HASL")?,
@@ -61,7 +61,7 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "sec:board/root");
+    open_tree_row(&ctx, &mut app, "root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "Nothing recorded yet")?,
@@ -132,7 +132,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "sec:board/root");
+    open_tree_row(&ctx, &mut app, "root");
     let mut shown = false;
     for _ in 0..8 {
         if paints_text(&ctx, &mut app, "START FROM A SHAPE")? {
@@ -221,7 +221,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         .find(|t| t.id == id)
         .map(|t| t.net)
         .ok_or("the wire should belong to a net")?;
-    let tracks = "sec:copper/layer:copper:front/tracks".to_owned();
+    let tracks = "side:top/copper".to_owned();
     let row = format!("{tracks}/net:{net}/track:{id}");
     app.tree
         .expanded
@@ -450,7 +450,7 @@ fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
     app.change_tab(Tab::Pcb);
     app.refresh();
     let ctx = egui::Context::default();
-    open_tree_row(&ctx, &mut app, "sec:board/root");
+    open_tree_row(&ctx, &mut app, "root");
     assert!(
         scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?,
         "the hole list is the place a slot is read: {}",
@@ -509,7 +509,7 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     app.tool = Tool::Select;
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "sec:board/root");
+    open_tree_row(&ctx, &mut app, "root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "3.20 mm")?,
@@ -1243,7 +1243,7 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
         .first()
         .map(|h| h.id)
         .ok_or("the mounting hole should exist")?;
-    open_tree_row(&ctx, &mut app, "sec:board/root");
+    open_tree_row(&ctx, &mut app, "root");
     assert!(
         scrolled_to(&ctx, &mut app, "DATUMS")?,
         "the tree offers a DATUMS group"
@@ -1313,7 +1313,7 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
 #[test]
 fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
     let (ctx, mut app) = fresh_board_app();
-    open_tree_row(&ctx, &mut app, "sec:board/root");
+    open_tree_row(&ctx, &mut app, "root");
     assert!(scrolled_to(&ctx, &mut app, "DATUMS")?);
     app.datum_ui.add_name = "bad name!".into();
     scrolled_to(&ctx, &mut app, "Add datum")?;
@@ -1514,13 +1514,12 @@ fn sample_on(tab: Tab) -> (App, egui::Context) {
 fn a_newcomer_hides_and_shows_each_kind_of_thing_on_the_board() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Pcb);
     for (row, name) in [
-        ("sec:copper/layer:copper:front", "Top copper"),
-        ("sec:copper/layer:copper:back", "Bottom copper"),
-        ("sec:copper/layer:copper:front/pads", "Pads"),
-        ("sec:copper/layer:copper:front/vias", "Vias"),
-        ("sec:copper/layer:copper:front/zones", "Copper zones"),
-        ("sec:board/root", "Cutouts"),
-        ("sec:silk/layer:silk:front", "Package artwork"),
+        ("side:top/copper", "Top copper"),
+        ("side:bottom/copper", "Bottom copper"),
+        ("side:top/components", "Pads"),
+        ("drills", "Vias"),
+        ("edge", "Cutouts"),
+        ("side:top/silk", "Package artwork"),
     ] {
         press_on(&ctx, &mut app, row, egui::Key::Space);
         assert!(

@@ -18,13 +18,13 @@ fn pcb_app() -> (egui::Context, App) {
 fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
     assert!(
-        paints_text(&ctx, &mut app, "COPPER")?,
-        "the tree opens on the copper group: {}",
+        paints_text(&ctx, &mut app, "Layer 1 · Top")?,
+        "the tree opens on the top layer: {}",
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "Top copper")?,
-        "the copper layers are rows of the tree: {}",
+        paints_text(&ctx, &mut app, "Copper")?,
+        "the copper sublayer is a row of the tree: {}",
         app.message
     );
     // Search a net, select it, see it highlighted.
@@ -34,7 +34,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     press_on(
         &ctx,
         &mut app,
-        &format!("sec:nets/net:{}", net.id),
+        &format!("nets/net:{}", net.id),
         egui::Key::Enter,
     );
     assert_eq!(
@@ -49,7 +49,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     press_on(
         &ctx,
         &mut app,
-        "sec:copper/layer:copper:front",
+        "side:top/copper",
         egui::Key::F,
     );
     assert_eq!(
@@ -66,7 +66,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     key(&ctx, &mut app, egui::Key::F);
     assert_eq!(app.focus_layer, None, "F again brings everything back");
     // The board outline row opens the board settings in Properties.
-    press_on(&ctx, &mut app, "sec:board/root", egui::Key::Enter);
+    press_on(&ctx, &mut app, "root", egui::Key::Enter);
     assert!(
         paints_text(&ctx, &mut app, "Board settings")?,
         "the board row opens board settings: {}",
@@ -81,7 +81,7 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
     press_on(
         &ctx,
         &mut app,
-        "sec:copper/layer:copper:front",
+        "side:top/copper",
         egui::Key::Space,
     );
     assert!(
@@ -126,18 +126,18 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
 #[test]
 fn selecting_on_the_canvas_reveals_the_row_in_the_tree() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
-    app.tree.expanded.remove("sec:parts");
+    app.tree.expanded.remove("components");
     let id = app.project.board.footprints[0].id;
     app.select(Some(id));
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        app.tree.expanded.contains("sec:parts"),
+        app.tree.expanded.contains("components"),
         "the Parts group opens for a part picked on the drawing"
     );
     assert_eq!(
         app.tree.cursor.as_deref(),
-        Some(format!("sec:parts/fp:{id}").as_str())
+        Some(format!("components/fp:{id}").as_str())
     );
     let reference = app
         .project
@@ -162,7 +162,7 @@ fn a_board_of_two_thousand_parts_keeps_the_tree_interactive() -> Result<(), Stri
         app.project.board.footprints.push(f);
     }
     app.revision = app.revision.wrapping_add(1);
-    app.tree.expanded.insert("sec:parts".to_owned());
+    app.tree.expanded.insert("components".to_owned());
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let start = std::time::Instant::now();
     for _ in 0..5 {

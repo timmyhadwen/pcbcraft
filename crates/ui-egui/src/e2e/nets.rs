@@ -12,7 +12,7 @@ fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), S
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    open_tree_row(&ctx, &mut app, "sec:nets");
+    open_tree_row(&ctx, &mut app, "nets");
     assert!(
         scrolled_to(&ctx, &mut app, "New net")?,
         "the layers tree offers a way to add a connection"
