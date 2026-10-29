@@ -32,7 +32,7 @@ pub(crate) fn scrolled_to(
     scrolled_to_at(ctx, app, needle, 1280.0)
 }
 /// Same, but over a panel whose horizontal centre is at `x`: 150 is the
-/// left dock, 300 the middle page (Rules, Settings, Checks).
+/// left dock, 700 the middle page (Rules, Settings, Checks).
 pub(crate) fn scrolled_to_at(
     ctx: &egui::Context,
     app: &mut App,
@@ -42,13 +42,16 @@ pub(crate) fn scrolled_to_at(
     // One fixed pointer can land on a text field, which swallows the
     // wheel; step down the same column so the scroll always finds a gap.
     let lanes = [(x, 500.0), (x, 300.0), (x, 700.0), (x, 880.0)];
-    for step in 0..80 {
+    // Down first, then back up, in case the label sits above where an earlier
+    // search left the scroll.
+    for step in 0..300 {
         let (lane_x, lane_y) = lanes[step % lanes.len()];
+        let direction = if step < 150 { -60.0 } else { 60.0 };
         // Small point-sized steps: a line-sized jump can sail a short
         // button clean past the viewport between two polls.
         let wheel = egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
-            delta: egui::vec2(0.0, -60.0),
+            delta: egui::vec2(0.0, direction),
             phase: egui::TouchPhase::Move,
             modifiers: egui::Modifiers::NONE,
         };
