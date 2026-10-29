@@ -1267,6 +1267,19 @@ impl App {
         self.capture_select = reference;
         self
     }
+    /// Start with a drawing target (`silk`, `edge` or `copper`) so a
+    /// `--capture` image shows the Active tag on that layer.
+    pub fn with_capture_target(mut self, name: Option<String>) -> Self {
+        use draw_target::{Side, Target};
+        let target = match name.as_deref() {
+            Some("silk") => Target::Silk(Side::Top),
+            Some("edge") => Target::Edge,
+            _ => return self,
+        };
+        self.set_target(target);
+        self.tree.expanded.insert("side:top".into());
+        self
+    }
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         session: SharedSession,
