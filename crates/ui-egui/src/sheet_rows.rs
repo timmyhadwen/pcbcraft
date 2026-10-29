@@ -393,19 +393,10 @@ impl App {
         let mut pick = None;
         for (id, net) in &ports {
             form_row(ui, ROW, net, None, None, |ui| {
-                let at = self
-                    .project
-                    .labels
-                    .iter()
-                    .find(|l| l.id == *id)
-                    .map(|l| format!("{:.1}, {:.1}", l.position.x, l.position.y))
-                    .unwrap_or_default();
-                let ink = theme::tokens(ui.ctx()).muted;
-                ui.label(fonts::text(Role::Mono, at).color(ink));
                 if secondary_button(
                     ui,
                     None,
-                    &t!("tree.menu.select"),
+                    &t!("props.sheet.power.select"),
                     &t!("props.sheet.power.row.tip"),
                     Size::Normal,
                     true,

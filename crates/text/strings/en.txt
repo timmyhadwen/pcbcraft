@@ -2224,3 +2224,4 @@ props.sheet.drawing.colour.reset = Theme ink
 props.sheet.drawing.colour.reset.tip = Go back to the default ink colour for new graphics.
 props.sheet.power.no_nets = Connect a part to a net first; a power port ties to an existing net.
 tree.explain.net_layer = The copper of this net on one layer: the tracks and pours that carry it there.
+props.sheet.power.select = Select
