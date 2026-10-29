@@ -3629,7 +3629,9 @@ impl Project {
                 return Err("invalid via geometry or net".into());
             }
             if v.drill <= 0.0 && v.covering.is_some_and(|c| c != ViaCovering::Open) {
-                return Err("a via without a drilled hole cannot be tented, plugged or filled".into());
+                return Err(
+                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
+                );
             }
         }
         for z in &b.zones {
@@ -4769,7 +4771,10 @@ mod via_covering_tests {
         assert!(text.contains("\"tented_covered\"") && text.contains("\"plugged\""));
         let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
         assert_eq!(back.board.via_covering_default, ViaCovering::Plugged);
-        assert_eq!(back.board.vias[0].covering, Some(ViaCovering::TentedCovered));
+        assert_eq!(
+            back.board.vias[0].covering,
+            Some(ViaCovering::TentedCovered)
+        );
         let plain = serde_json::to_string(&with_via(0.3, None)).map_err(|e| e.to_string())?;
         assert!(!plain.contains("covering"), "open boards write no covering");
         let old: Project = serde_json::from_str(&plain).map_err(|e| e.to_string())?;
@@ -4783,7 +4788,11 @@ mod via_covering_tests {
             .map_err(|e| e.to_string())?;
         let bad = text.replace("\"tented\"", "\"glued\"");
         assert!(serde_json::from_str::<Project>(&bad).is_err());
-        assert!(with_via(0.0, Some(ViaCovering::Plugged)).validate().is_err());
+        assert!(
+            with_via(0.0, Some(ViaCovering::Plugged))
+                .validate()
+                .is_err()
+        );
         with_via(0.0, Some(ViaCovering::Open)).validate()?;
         with_via(0.3, Some(ViaCovering::FilledCapped)).validate()?;
         Ok(())

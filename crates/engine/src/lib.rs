@@ -12847,7 +12847,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .iter_mut()
                 .find(|v| v.id == a.id)
                 .ok_or_else(missing)?;
-            if via.drill <= 0.0 && a.covering.is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+            if via.drill <= 0.0
+                && a.covering
+                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
             {
                 return Err(Error::Invalid(
                     "a via without a drilled hole cannot be tented, plugged or filled".into(),
@@ -12880,7 +12882,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "via drill must be smaller than its pad".into(),
                 ));
             }
-            if drill <= 0.0 && via.covering.is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open) {
+            if drill <= 0.0
+                && via
+                    .covering
+                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+            {
                 return Err(Error::Invalid(
                     "a tented, plugged or filled via needs a drilled hole".into(),
                 ));
@@ -20955,17 +20961,30 @@ mod tests {
             Some(pcbcraft_doc::ViaCovering::FilledCapped)
         );
         s.execute("via.set_covering", json!({"id":via}), None)?;
-        assert_eq!(s.project.board.vias[0].covering, None, "omitted follows the default");
+        assert_eq!(
+            s.project.board.vias[0].covering, None,
+            "omitted follows the default"
+        );
         let before = s.inspect();
         for (command, params) in [
             ("via.set_covering", json!({"id":via,"covering":"glued"})),
             ("via.set_covering", json!({"id":9999,"covering":"tented"})),
-            ("board.set_via_covering_default", json!({"covering":"glued"})),
+            (
+                "board.set_via_covering_default",
+                json!({"covering":"glued"}),
+            ),
             ("board.set_via_covering_default", json!({})),
         ] {
-            assert!(s.execute(command, params, None).is_err(), "{command} must refuse");
+            assert!(
+                s.execute(command, params, None).is_err(),
+                "{command} must refuse"
+            );
         }
-        assert_eq!(s.inspect(), before, "refused commands leave the design untouched");
+        assert_eq!(
+            s.inspect(),
+            before,
+            "refused commands leave the design untouched"
+        );
         let blind = s.execute(
             "via.place",
             json!({"net":net,"position":{"x":9.0,"y":5.0},"diameter":0.6,"drill":0.0}),
@@ -20974,14 +20993,26 @@ mod tests {
             .as_u64()
             .ok_or(Error::Invalid("via id".into()))?;
         assert!(
-            s.execute("via.set_covering", json!({"id":blind,"covering":"plugged"}), None)
-                .is_err(),
+            s.execute(
+                "via.set_covering",
+                json!({"id":blind,"covering":"plugged"}),
+                None
+            )
+            .is_err(),
             "a via with no drilled hole cannot be plugged"
         );
-        s.execute("via.set_covering", json!({"id":via,"covering":"plugged"}), None)?;
+        s.execute(
+            "via.set_covering",
+            json!({"id":via,"covering":"plugged"}),
+            None,
+        )?;
         assert!(
-            s.execute("via.set_size", json!({"id":via,"diameter":0.6,"drill":0.0}), None)
-                .is_err(),
+            s.execute(
+                "via.set_size",
+                json!({"id":via,"diameter":0.6,"drill":0.0}),
+                None
+            )
+            .is_err(),
             "removing the hole of a plugged via is refused"
         );
         s.undo()?;

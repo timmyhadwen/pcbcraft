@@ -19,7 +19,9 @@ pub(crate) fn covering_name(c: ViaCovering) -> &'static str {
 fn covering_help(c: ViaCovering) -> &'static str {
     match c {
         ViaCovering::Open => "The solder mask opens around the hole, so the copper stays bare.",
-        ViaCovering::Tented => "Solder mask bridges over the hole. Type I of the via protection standard.",
+        ViaCovering::Tented => {
+            "Solder mask bridges over the hole. Type I of the via protection standard."
+        }
         ViaCovering::TentedCovered => "Mask covers the hole and the ring around it. Type II.",
         ViaCovering::Plugged => "The hole is plugged with resin or mask. Type III.",
         ViaCovering::PluggedCovered => "Plugged, then covered by mask. Type IV.",

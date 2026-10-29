@@ -12180,27 +12180,34 @@ mod tests {
     #[test]
     fn tented_via_has_no_mask_opening_and_open_via_keeps_it() -> Result<(), String> {
         use pcbcraft_doc::ViaCovering;
-        let openings = |files: &BTreeMap<String, String>| {
-            files["pcb-F.Mask.gbr"].matches("G36*").count()
-        };
+        let openings =
+            |files: &BTreeMap<String, String>| files["pcb-F.Mask.gbr"].matches("G36*").count();
         let open = gerber_files(&covering_fixture(ViaCovering::Open, None)?)?;
         assert_eq!(openings(&open), 2, "both open vias keep their opening");
-        let one_tented =
-            gerber_files(&covering_fixture(ViaCovering::Open, Some(ViaCovering::Tented))?)?;
+        let one_tented = gerber_files(&covering_fixture(
+            ViaCovering::Open,
+            Some(ViaCovering::Tented),
+        )?)?;
         assert_eq!(
             openings(&one_tented),
             1,
             "the tented via loses its opening, the open one keeps it"
         );
         let tented = gerber_files(&covering_fixture(ViaCovering::Tented, None)?)?;
-        assert_eq!(openings(&tented), 0, "a tented board default closes every via");
+        assert_eq!(
+            openings(&tented),
+            0,
+            "a tented board default closes every via"
+        );
         assert_eq!(
             tented["pcb-B.Mask.gbr"].matches("G36*").count(),
             0,
             "the back mask closes too"
         );
-        let own_open =
-            gerber_files(&covering_fixture(ViaCovering::Tented, Some(ViaCovering::Open))?)?;
+        let own_open = gerber_files(&covering_fixture(
+            ViaCovering::Tented,
+            Some(ViaCovering::Open),
+        )?)?;
         assert_eq!(openings(&own_open), 1, "a via's own open beats the default");
         Ok(())
     }
@@ -12232,7 +12239,10 @@ mod tests {
             Some(ViaCovering::Plugged),
         )?)?;
         let drill = &files["pcb-Plated.drl"];
-        assert!(drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill\n"), "{drill}");
+        assert!(
+            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill\n"),
+            "{drill}"
+        );
         assert!(drill.contains("; via protection: tented\n"), "{drill}");
         assert!(drill.contains("; via protection: plugged\n"), "{drill}");
         assert_eq!(
