@@ -20,6 +20,7 @@
 //! - crates/ui-egui/src/ui_kit/form_row.rs
 //! - crates/ui-egui/src/ui_kit/number_field.rs
 //! - crates/ui-egui/src/ui_kit/rows.rs
+//! - crates/ui-egui/src/ui_kit/section.rs
 //! - crates/ui-egui/src/ui_kit/select.rs
 //! - crates/ui-egui/src/ui_kit/empty_state.rs
 //! - crates/ui-egui/src/ui_kit/panel_header.rs
@@ -45,6 +46,7 @@ pub mod icons;
 pub mod number_field;
 pub mod panel_header;
 pub mod rows;
+pub mod section;
 pub mod segmented;
 pub mod select;
 pub mod status_item;
