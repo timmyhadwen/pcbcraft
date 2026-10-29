@@ -9255,6 +9255,54 @@ mod tests {
     }
 
     #[test]
+    fn a_newcomer_right_clicks_a_wire_and_assigns_its_layer() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        let middle = app
+            .project
+            .board
+            .tracks
+            .first()
+            .map(|t| Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0))
+            .ok_or("routing should leave a wire")?;
+        app.change_tab(Tab::Pcb);
+        app.needs_fit = true;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let screen = pcb_screen(&app, middle);
+        for pressed in [true, false] {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(screen),
+                    egui::Event::PointerButton {
+                        pos: screen,
+                        button: egui::PointerButton::Secondary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        authoring::tests::tap(&ctx, &mut app, "Assign layer")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Back")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        let layer = app.project.board.tracks.first().map(|t| t.layer);
+        assert_eq!(layer, Some(Layer::Back), "Assign layer moves the wire: {}", app.message);
+        Ok(())
+    }
+
+    #[test]
     fn a_newcomer_right_clicks_a_wire_and_cuts_it() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);

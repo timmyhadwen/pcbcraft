@@ -1186,6 +1186,39 @@ impl App {
     fn canvas_menu_button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
         ui.button(label).on_hover_text(tip).clicked()
     }
+    /// "Assign layer": a small submenu listing the copper faces a track can
+    /// move to. The face it is already on is left out.
+    fn assign_layer_menu(&mut self, ui: &mut egui::Ui, id: Id) -> bool {
+        let Some(current) = self
+            .project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.layer)
+        else {
+            return false;
+        };
+        let mut done = false;
+        ui.menu_button("Assign layer", |ui| {
+            for (layer, label, name, tip) in [
+                (Layer::Front, "Front", "F.Cu", "Move this wire to the front copper layer."),
+                (Layer::Back, "Back", "B.Cu", "Move this wire to the back copper layer."),
+            ] {
+                if layer == current {
+                    continue;
+                }
+                if Self::canvas_menu_button(ui, label, tip) {
+                    self.run("track.set_layer", json!({"id": id, "layer": name}));
+                    done = true;
+                    ui.close_menu();
+                }
+            }
+        })
+        .response
+        .on_hover_text("Choose which copper layer this wire lives on.");
+        done
+    }
     fn paint_canvas_menu(&mut self, ui: &mut egui::Ui, kind: &CanvasMenuKind) -> bool {
         match kind {
             CanvasMenuKind::Empty => {
@@ -1286,6 +1319,9 @@ impl App {
                     );
                     return true;
                 }
+                if self.assign_layer_menu(ui, *id) {
+                    return true;
+                }
                 if Self::canvas_menu_button(ui, "Properties", "Load this wire into the inspector.")
                 {
                     self.load_properties();
@@ -1373,6 +1409,9 @@ impl App {
                             "track.set_width",
                             json!({"id": *id, "width": self.track_width}),
                         );
+                        return true;
+                    }
+                    if self.assign_layer_menu(ui, *id) {
                         return true;
                     }
                 }
