@@ -93,6 +93,7 @@ impl View3d {
         f64::from(rect.height()) / 2.0 / FOV_TAN
     }
     /// Screen position and view depth of a board-space point.
+    #[cfg(test)]
     pub(crate) fn project_point(&self, rect: Rect, p: V) -> Option<(Pos2, f64)> {
         self.project_with(&self.basis(), rect, p)
     }
@@ -133,7 +134,7 @@ impl View3d {
         let mut best: Option<(Id, f64)> = None;
         for part in &mesh.parts {
             let Some(id) = part.component else { continue };
-            for tri in part.indices.chunks_exact(3) {
+            for tri in part.indices.as_chunks::<3>().0.iter() {
                 let (Some(a), Some(b), Some(c)) = (
                     part.positions.get(tri[0] as usize),
                     part.positions.get(tri[1] as usize),
@@ -150,6 +151,7 @@ impl View3d {
         }
         best
     }
+    #[cfg(test)]
     pub(crate) fn body_bounds(&self, id: Id) -> Option<(V, V)> {
         let (_, mesh) = self.mesh.as_ref()?;
         mesh.parts
@@ -158,6 +160,7 @@ impl View3d {
             .and_then(|p| p.bounds())
     }
     /// The family word the parts list shows after the reference.
+    #[cfg(test)]
     pub(crate) fn body_family(&self, id: Id) -> Option<String> {
         let (_, mesh) = self.mesh.as_ref()?;
         mesh.parts
@@ -277,7 +280,7 @@ fn paint_mesh(view: &View3d, painter: &egui::Painter, rect: Rect, env: &Env<'_>)
             }
             let base = kind_color(part.kind, env.dark);
             let picked = part.component.is_some() && part.component == env.selected;
-            for tri in part.indices.chunks_exact(3) {
+            for tri in part.indices.as_chunks::<3>().0.iter() {
                 let (Some(a), Some(b), Some(c)) = (
                     part.positions.get(tri[0] as usize),
                     part.positions.get(tri[1] as usize),
