@@ -9,17 +9,27 @@ use std::path::Path;
 mod board_mesh;
 mod drawn;
 mod gerber;
+mod layers;
 mod library_render;
 mod panel_export;
+mod raster;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use gerber::gerber_copper;
+pub use layers::{
+    FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
+    fabrication_point, gerber_copper_counts, layer_shapes,
+};
 use library_render::*;
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
 pub use pcbcraft_doc::Layer;
+pub use raster::{
+    Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
+    layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg,
+};
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
