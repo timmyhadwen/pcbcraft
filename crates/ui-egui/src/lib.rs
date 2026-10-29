@@ -2,11 +2,11 @@
 mod authoring;
 mod canvas;
 mod library;
-mod via_span;
 mod library_quality;
 mod plot_viewer;
 mod sources;
 mod via_covering;
+mod via_span;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;

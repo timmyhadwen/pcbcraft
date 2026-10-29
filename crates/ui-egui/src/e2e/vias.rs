@@ -128,6 +128,8 @@ fn a_newcomer_allows_and_removes_a_buried_via_span() -> Result<(), String> {
     let (mut app, ctx) = four_layer_app()?;
     app.select(None);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?;
     assert!(
         scrolled_to(&ctx, &mut app, "VIA SPANS")?,
         "the board lists the spans a via may use: {}",
