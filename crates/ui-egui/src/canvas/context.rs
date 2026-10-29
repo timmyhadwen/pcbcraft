@@ -11,7 +11,7 @@
 //! # Dependencies
 //! - crates/ui-egui/src/ui_kit/menu.rs
 //! - crates/ui-egui/src/ui_kit/menu_icons.rs
-//! - crates/ui-egui/src/modifier_ui.rs (`menu_hint`, the footer line)
+//! - crates/ui-egui/src/modifier_ui.rs (`menu_rows`, the footer key list)
 //! - crates/ui-egui/src/canvas.rs (`CanvasMenuKind`)
 //!
 //! # Do not
@@ -245,7 +245,7 @@ impl App {
                 );
             }
         }
-        let hint = crate::modifier_ui::menu_hint(
+        let hint = crate::modifier_ui::menu_rows(
             &self.preferences.modifiers,
             self.tool.kind(),
             crate::tool_modifiers::Platform::of(ctx),

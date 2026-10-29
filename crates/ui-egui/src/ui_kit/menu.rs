@@ -147,10 +147,10 @@ pub enum Entry<T> {
     Submenu(Submenu<T>),
     /// A rule between groups.
     Separator,
-    /// A muted line at the bottom (the modifier hint), with its tooltip.
+    /// A muted key list at the bottom (the modifier hint), one row per line.
     Footer {
-        /// The muted words.
-        text: String,
+        /// Rows of (key, action): the key in muted Mono, the action beside it.
+        rows: Vec<(String, String)>,
         /// The tooltip.
         tip: String,
     },
@@ -212,7 +212,7 @@ impl<T> Entry<T> {
 pub struct Menu<T> {
     groups: Vec<Vec<Entry<T>>>,
     destructive: Vec<Item<T>>,
-    footer: Option<(String, String)>,
+    footer: Option<(Vec<(String, String)>, String)>,
 }
 
 impl<T> Default for Menu<T> {
@@ -248,10 +248,9 @@ impl<T> Menu<T> {
     }
 
     /// Add the muted footer line.
-    pub fn footer(mut self, text: impl Into<String>, tip: impl Into<String>) -> Self {
-        let text = text.into();
-        if !text.is_empty() {
-            self.footer = Some((text, tip.into()));
+    pub fn footer(mut self, rows: Vec<(String, String)>, tip: impl Into<String>) -> Self {
+        if !rows.is_empty() {
+            self.footer = Some((rows, tip.into()));
         }
         self
     }
@@ -269,11 +268,11 @@ impl<T> Menu<T> {
             }
             out.extend(group);
         }
-        if let Some((text, tip)) = self.footer {
+        if let Some((rows, tip)) = self.footer {
             if !out.is_empty() {
                 out.push(Entry::Separator);
             }
-            out.push(Entry::Footer { text, tip });
+            out.push(Entry::Footer { rows, tip });
         }
         out
     }
@@ -610,17 +609,40 @@ fn draw_list<T: Clone>(ui: &mut Ui, entries: &[Entry<T>], d: &mut Draw<'_, T>, a
                     Stroke::new(theme::BORDER, d.t.line),
                 );
             }
-            Entry::Footer { text, tip } => {
-                let galley = ui.painter().layout(
-                    text.clone(),
-                    Role::Caption.font(),
-                    d.t.muted,
-                    d.width - PAD * 2.0,
-                );
-                let size = vec2(d.width, galley.size().y + 12.0);
+            Entry::Footer { rows, tip } => {
+                let line = Role::Caption.font().size + 6.0;
+                let size = vec2(d.width, line * rows.len() as f32 + 12.0);
                 let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-                ui.painter()
-                    .galley(rect.min + vec2(PAD, 6.0), galley, d.t.muted);
+                let key_width = rows
+                    .iter()
+                    .map(|(k, _)| {
+                        ui.painter()
+                            .layout_no_wrap(k.clone(), shortcut_font(), d.t.muted)
+                            .size()
+                            .x
+                    })
+                    .fold(0.0f32, f32::max);
+                for (n, (key, action)) in rows.iter().enumerate() {
+                    let y = rect.top() + 6.0 + line * n as f32 + line / 2.0;
+                    let k = ui
+                        .painter()
+                        .layout_no_wrap(key.clone(), shortcut_font(), d.t.muted);
+                    ui.painter().galley(
+                        pos2(rect.left() + PAD, y - k.size().y / 2.0),
+                        k,
+                        d.t.muted,
+                    );
+                    let a = ui.painter().layout_no_wrap(
+                        action.clone(),
+                        Role::Caption.font(),
+                        d.t.muted,
+                    );
+                    ui.painter().galley(
+                        pos2(rect.left() + PAD + key_width + PAD, y - a.size().y / 2.0),
+                        a,
+                        d.t.muted,
+                    );
+                }
                 response.on_hover_text(tip);
             }
             Entry::Item(item) => {
@@ -1072,7 +1094,7 @@ mod tests {
             Entry::Item(item) => item.label.clone(),
             Entry::Submenu(sub) => sub.label.clone(),
             Entry::Separator => "-".into(),
-            Entry::Footer { text, .. } => format!("footer:{text}"),
+            Entry::Footer { rows, .. } => format!("footer:{}", rows.len()),
         }
     }
 
@@ -1083,20 +1105,12 @@ mod tests {
             .group([Item::new(2, "Copy", "Copy it.").into()])
             .group(Vec::<Entry<i32>>::new())
             .group([Item::new(3, "Fit view", "Fit.").into()])
-            .footer("Shift: add", "Modifier keys.")
+            .footer(vec![("Shift+click".into(), "Add".into())], "Modifier keys.")
             .entries();
         let labels: Vec<String> = list.iter().map(label_of).collect();
         assert_eq!(
             labels,
-            [
-                "Copy",
-                "-",
-                "Fit view",
-                "-",
-                "Delete",
-                "-",
-                "footer:Shift: add"
-            ],
+            ["Copy", "-", "Fit view", "-", "Delete", "-", "footer:1"],
             "an empty group leaves no double separator; Delete sits after the rest"
         );
         assert!(
