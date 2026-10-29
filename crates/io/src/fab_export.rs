@@ -11,12 +11,12 @@
 //! - X2 extended attributes are written for designators and layer names.
 //!
 //! # Dependencies
-//! - `pcbcraft_doc`: Board, Layer, Project, Via, ViaCovering
-//! - `pcbcraft_geom`: Point
-//! - `pcbcraft_library`: FootprintRules
-//! - `super::gerber`: GerberWriter, Aperture, Operation
-//! - `super::excellon`: ExcellonWriter, Tool, Hit
-//! - `super::pickplace`: PickPlaceWriter
+//! - crates/doc/src/lib.rs Board, Layer, Project, Via, ViaCovering
+//! - crates/geom/src/lib.rs Point
+//! - crates/library/src/lib.rs FootprintRules
+//! - crates/io/src/gerber.rs GerberWriter, Aperture, Operation
+//! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
+//! - crates/io/src/lib.rs PickPlaceWriter
 use pcbcraft_doc::{Board, Layer, Project, Via, ViaCovering};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;

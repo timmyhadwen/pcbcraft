@@ -14,8 +14,8 @@
 //! - Pad polygons must be simple, bounded, and contain the pad anchor.
 //!
 //! # Dependencies
-//! - `crate::*`: all library types
-//! - `pcbcraft_geom`: point-in-polygon, segment intersection, boundary distance
+//! - crates/library/src/validation.rs `crate::*`: all library types
+//! - crates/geom/src/lib.rs point-in-polygon, segment intersection, boundary distance
 //!
 //! # Do not
 //! - Add behavioral side effects to validation.

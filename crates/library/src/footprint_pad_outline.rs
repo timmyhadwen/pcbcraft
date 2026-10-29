@@ -11,8 +11,8 @@ const OUTLINE_ARC_STEPS: usize = 16;
 /// - All pad shapes are supported: circle, oval, roundrect, chamfered, custom
 ///
 /// # Dependencies
-/// - [`FootprintPad`] for pad geometry
-/// - [`pcbcraft_geom::Point`] for coordinate math
+/// - crates/library/src/footprint_pad_outline.rs [`FootprintPad`] for pad geometry
+/// - crates/library/src/footprint_pad_outline.rs [`pcbcraft_geom::Point`] for coordinate math
 ///
 /// # Do not
 /// - Assume the returned ring is convex; custom polygons may be concave
@@ -129,8 +129,8 @@ fn chamfered_rect(size: Point, chamfer: PadChamfer) -> Vec<Point> {
 /// - Handles all pad shapes via pad_outline_closed
 ///
 /// # Dependencies
-/// - [`pad_outline_closed`] for outline extraction
-/// - [`pcbcraft_geom::point_in_polygon`] for containment tests
+/// - crates/library/src/footprint_pad_outline.rs [`pad_outline_closed`] for outline extraction
+/// - crates/library/src/footprint_pad_outline.rs [`pcbcraft_geom::point_in_polygon`] for containment tests
 ///
 /// # Do not
 /// - Use this for clearance checks; it detects overlap, not proximity

@@ -13,9 +13,9 @@
 //! - Output is DXF R12 format for maximum compatibility.
 //!
 //! # Dependencies
-//! - `super::DxfWriter`
-//! - `pcbcraft_doc`: ArtKind, ArtLayer, ArtPath, Id, Project
-//! - `pcbcraft_geom`: Point
+//! - crates/io/src/lib.rs DxfWriter
+//! - crates/doc/src/lib.rs ArtKind, ArtLayer, ArtPath, Id, Project
+//! - crates/geom/src/lib.rs Point
 
 use super::DxfWriter;
 use pcbcraft_doc::{ArtKind, ArtLayer, ArtPath, Id, Project};

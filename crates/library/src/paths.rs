@@ -11,8 +11,8 @@
 //! - Degenerate geometry falls back to minimal point sets
 //!
 //! # Dependencies
-//! - ../lib.rs: Graphic enum and its validate() method
-//! - ../../geom/src/lib.rs: Point type
+//! - crates/library/src/lib.rs Graphic enum and its validate() method
+//! - crates/geom/src/lib.rs Point type
 //!
 //! # Do not
 //! - Change tessellation counts without updating doc and tests

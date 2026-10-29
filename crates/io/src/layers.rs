@@ -10,9 +10,9 @@
 //! - Vias are included on the layers they connect through.
 //!
 //! # Dependencies
-//! - `pcbcraft_doc`: ArtShape, BoardText, CopperZone, Fiducial, Footprint, Id, Layer, Project, Track, Via
-//! - `pcbcraft_geom`: Point
-//! - `pcbcraft_library`: Graphic
+//! - crates/doc/src/lib.rs ArtShape, BoardText, CopperZone, Fiducial, Footprint, Id, Layer, Project, Track, Via
+//! - crates/geom/src/lib.rs Point
+//! - crates/library/src/lib.rs Graphic
 use pcbcraft_doc::{
     ArtShape, BoardText, CopperZone, Fiducial, Footprint, Id, Layer, Project, Track, Via,
 };

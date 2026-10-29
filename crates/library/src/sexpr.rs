@@ -12,7 +12,7 @@
 //! - Input must contain exactly one top-level expression.
 //!
 //! # Dependencies
-//! - crates/geom/src/units.rs: Unit conversion constants
+//! - crates/geom/src/lib.rs Unit conversion constants
 //!
 //! # Do not
 //! - Add whitespace tolerance inside quoted strings.
@@ -29,7 +29,7 @@ use thiserror::Error;
 /// - `Invalid` errors describe structural problems.
 ///
 /// # Dependencies
-/// - thiserror for derive macros
+/// - crates/library/Cargo.toml thiserror for derive macros
 ///
 /// # Do not
 /// - Add line/column numbers; byte offset is sufficient for error reporting.
@@ -52,7 +52,7 @@ pub enum Error {
 /// - `atom_bytes`: maximum atom or string length
 ///
 /// # Dependencies
-/// - none
+/// - crates/library/src/sexpr.rs none outside this file
 ///
 /// # Do not
 /// - Change default values without updating reader.rs callers.
@@ -87,7 +87,7 @@ impl Default for Limits {
 /// - `span` is the byte range of this node in the input
 ///
 /// # Dependencies
-/// - none
+/// - crates/library/src/sexpr.rs none outside this file
 ///
 /// # Do not
 /// - Expose this type publicly; it is an internal parser result.
@@ -108,7 +108,7 @@ impl Node {
     /// - Used to get the tag name of a KiCad S-expression record.
     ///
     /// # Dependencies
-    /// - none
+    /// - crates/library/src/sexpr.rs none outside this file
     ///
     /// # Do not
     /// - Return Option; empty string is the sentinel for missing names.
@@ -125,7 +125,7 @@ impl Node {
     /// - Used to get positional values in KiCad S-expressions.
     ///
     /// # Dependencies
-    /// - none
+    /// - crates/library/src/sexpr.rs none outside this file
     ///
     /// # Do not
     /// - Return Option; empty string is the sentinel for missing values.
@@ -142,7 +142,7 @@ impl Node {
     /// - Returns the first child whose name matches.
     ///
     /// # Dependencies
-    /// - none
+    /// - crates/library/src/sexpr.rs none outside this file
     ///
     /// # Do not
     /// - Return all matching children; KiCad uses unique field names.
@@ -156,7 +156,7 @@ impl Node {
     /// - Used for KiCad's (field_name "value") pattern.
     ///
     /// # Dependencies
-    /// - none
+    /// - crates/library/src/sexpr.rs none outside this file
     ///
     /// # Do not
     /// - Return Option; empty string is the sentinel for missing fields.
@@ -172,7 +172,7 @@ impl Node {
 /// - Trailing input after the expression is an error.
 ///
 /// # Dependencies
-/// - parse_limits for the actual parsing logic
+/// - crates/library/src/sexpr.rs parse_limits for the actual parsing logic
 ///
 /// # Do not
 /// - Allow multiple top-level expressions; that is a KiCad format error.
@@ -188,7 +188,7 @@ pub(crate) fn parse(text: &str) -> Result<Node, Error> {
 /// - Trailing input after the expression is an error.
 ///
 /// # Dependencies
-/// - Parser struct for the actual parsing logic
+/// - crates/library/src/sexpr.rs Parser struct for the actual parsing logic
 ///
 /// # Do not
 /// - Silently truncate input; always error on limit violations.

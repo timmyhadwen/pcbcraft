@@ -95,14 +95,14 @@ pub enum SourceError {
 ///   `RateLimited` (back off), `Unavailable` (service down).
 ///
 /// # Dependencies
-/// - `PartResult` (this module): the record returned by searches.
-/// - `SourceError` (this module): error types.
-/// - `SetupCard` (this module): setup instructions shown to the user.
-/// - `Attribution` (this module): credit text and link.
+/// - crates/library/src/sources.rs `PartResult` (this module): the record returned by searches.
+/// - crates/library/src/sources.rs `SourceError` (this module): error types.
+/// - crates/library/src/sources.rs `SetupCard` (this module): setup instructions shown to the user.
+/// - crates/library/src/sources.rs `Attribution` (this module): credit text and link.
 ///
 /// # Implementations
-/// - `FixtureSource` (this module): recorded answers from JSON files.
-/// - Live distributor sources: separate crates that implement this trait and
+/// - crates/library/src/sources.rs `FixtureSource` (this module): recorded answers from JSON files.
+/// - crates/library/src/sources.rs Live distributor sources: separate crates that implement this trait and
 ///   are discovered through the source registry.
 ///
 /// # Do not

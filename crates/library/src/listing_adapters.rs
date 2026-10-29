@@ -141,8 +141,8 @@ pub fn listing_from_symbol(
 /// - Each symbol is converted via [`listing_from_symbol`]
 ///
 /// # Dependencies
-/// - [`listing_from_symbol`] for per-symbol conversion
-/// - [`SymbolListings`] for return structure
+/// - crates/library/src/listing_adapters.rs [`listing_from_symbol`] for per-symbol conversion
+/// - crates/library/src/listing_adapters.rs [`SymbolListings`] for return structure
 ///
 /// # Do not
 /// - Assume room is honored if it exceeds MAX_LISTINGS

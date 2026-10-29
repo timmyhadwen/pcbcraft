@@ -62,7 +62,6 @@ pub use diff::{DesignChange, DesignDiff, project_diff};
 /// # Dependencies
 /// - crates/io/src/drawn.rs
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
-pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };

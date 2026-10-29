@@ -137,7 +137,7 @@ impl SymbolPin {
     /// - Returns 16 points regardless of radius.
     ///
     /// # Dependencies
-    /// - `Point` from `pcbcraft_geom`.
+    /// - crates/library/src/lib.rs `Point` from `pcbcraft_geom`.
     ///
     /// # Do not
     /// - Use for rendering; this is a geometry utility.
@@ -194,7 +194,7 @@ impl SymbolPin {
     /// - Returns empty for non-inverted and non-clock pins.
     ///
     /// # Dependencies
-    /// - `decoration_bubbles_draw()` for the implementation.
+    /// - crates/library/src/lib.rs `decoration_bubbles_draw()` for the implementation.
     ///
     /// # Do not
     /// - Use for rendering; this is a geometry query.
@@ -208,7 +208,7 @@ impl SymbolPin {
     /// - Returns empty for non-inverted and non-clock pins.
     ///
     /// # Dependencies
-    /// - `decoration_bubbles()` for the visible-only variant.
+    /// - crates/library/src/lib.rs `decoration_bubbles()` for the visible-only variant.
     ///
     /// # Do not
     /// - Use for rendering; this is a geometry query.
@@ -232,7 +232,7 @@ impl SymbolPin {
     /// - Paths are in y-down millimetres.
     ///
     /// # Dependencies
-    /// - `decoration_paths_draw()` for the implementation.
+    /// - crates/library/src/lib.rs `decoration_paths_draw()` for the implementation.
     ///
     /// # Do not
     /// - Use for rendering; this is a geometry query.
@@ -247,7 +247,7 @@ impl SymbolPin {
     /// - Paths are in y-down millimetres.
     ///
     /// # Dependencies
-    /// - `decoration_paths()` for the visible-only variant.
+    /// - crates/library/src/lib.rs `decoration_paths()` for the visible-only variant.
     ///
     /// # Do not
     /// - Use for rendering; this is a geometry query.
@@ -565,7 +565,7 @@ impl FootprintPad {
     /// - Returns `PadShape::Custom` only if `polygon` is non-empty.
     ///
     /// # Dependencies
-    /// - `PadShape` enum for the return type.
+    /// - crates/library/src/lib.rs `PadShape` enum for the return type.
     ///
     /// # Do not
     /// - Use for rendering; this is a classification query.

@@ -12,9 +12,9 @@
 //! - Unsupported features are preserved in raw_source with a note
 //!
 //! # Dependencies
-//! - ../lib.rs: SymbolDefinition, FootprintDefinition, and other public types
-//! - sexpr.rs: S-expression parser for KiCad file format
-//! - ../../geom/src/lib.rs: Point type
+//! - crates/library/src/lib.rs SymbolDefinition, FootprintDefinition, and other public types
+//! - crates/library/src/sexpr.rs S-expression parser for KiCad file format
+//! - crates/geom/src/lib.rs Point type
 //!
 //! # Do not
 //! - Change coordinate system handling (y-flip for symbol pins)

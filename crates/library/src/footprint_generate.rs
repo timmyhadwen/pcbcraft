@@ -89,8 +89,8 @@ pub struct LandPatternParams {
 /// - The resulting footprint is validated and must pass
 ///
 /// # Dependencies
-/// - [`LandPatternParams`] for bounded input validation
-/// - [`FootprintDefinition`] for output structure
+/// - crates/library/src/footprint_generate.rs [`LandPatternParams`] for bounded input validation
+/// - crates/library/src/footprint_generate.rs [`FootprintDefinition`] for output structure
 ///
 /// # Do not
 /// - Change density constants without updating IPC-7351B reference

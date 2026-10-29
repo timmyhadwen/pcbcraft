@@ -20,7 +20,7 @@ const REFDES_LAYER: &str = "F.Fab";
 /// - `Warning` findings are advisory and may be accepted by the library owner.
 ///
 /// # Dependencies
-/// - None.
+/// - crates/library/src/footprint_check.rs None.
 ///
 /// # Do not
 /// - Add intermediate severity levels; the two-tier model is intentional.
@@ -40,7 +40,7 @@ pub enum FindingSeverity {
 /// - `hint` suggests how to fix the issue.
 ///
 /// # Dependencies
-/// - `FindingSeverity`
+/// - crates/library/src/footprint_check.rs `FindingSeverity`
 ///
 /// # Do not
 /// - Change `code` values without updating all callers.
@@ -61,10 +61,10 @@ pub struct FootprintFinding {
 /// - Early returns on error findings within each check category.
 ///
 /// # Dependencies
-/// - `FootprintDefinition`
-/// - `FootprintFinding`
-/// - `FindingSeverity`
-/// - `pad_outline_closed`, `pad_outlines_overlap` from `footprint_pad_outline`
+/// - crates/library/src/lib.rs `FootprintDefinition`
+/// - crates/library/src/footprint_check.rs `FootprintFinding`
+/// - crates/library/src/footprint_check.rs `FindingSeverity`
+/// - crates/library/src/footprint_pad_outline.rs `pad_outline_closed`, `pad_outlines_overlap` from `footprint_pad_outline`
 ///
 /// # Do not
 /// - Change the order of checks without updating the test suite.
