@@ -105,7 +105,10 @@ pub(crate) fn frame(
     }) {
         let mut warm = ctx.run_ui(
             egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1440.0, 940.0))),
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(1440.0, 940.0),
+                )),
                 ..Default::default()
             },
             |ui| app.show(ui),

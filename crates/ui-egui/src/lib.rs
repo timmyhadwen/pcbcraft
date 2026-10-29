@@ -10,8 +10,8 @@ mod datums;
 mod editing;
 pub mod fonts;
 mod footprint_wizard;
-mod icons;
 mod hover_affordance;
+mod icons;
 mod impedance_panel;
 mod layers_tree;
 mod library;
@@ -31,8 +31,8 @@ mod sources;
 mod target_size;
 mod targets;
 pub mod theme;
-pub mod ui_kit;
 mod tool_modifiers;
+pub mod ui_kit;
 mod via_covering;
 mod via_span;
 use crate::a11y::Named;
@@ -2355,6 +2355,7 @@ impl App {
     ///
     /// # Do not
     /// - Set colours or text sizes here; add them to the tokens.
+    ///
     /// Returns true on the pass that installed the fonts: the caller must
     /// discard that pass, because the new families are not bound until the next.
     fn style(&self, ctx: &egui::Context) -> bool {
@@ -2363,9 +2364,6 @@ impl App {
         if fresh {
             fonts::install(ctx);
             ctx.data_mut(|d| d.insert_temp(fonts_key, true));
-            // Fonts bind on the next pass; naming their families before that panics.
-            ctx.request_repaint();
-            return;
         }
         theme::apply(ctx, &theme::Tokens::for_dark(self.preferences.dark));
         let reduced = self.preferences.reduced_motion;
@@ -6620,11 +6618,11 @@ impl App {
                             "tool-select",
                             "select",
                             t!("board.tool_strip.select"),
-                            self.tool_self.tool_tip(tip, tool_modifiers::ToolKind::DrawLayer, hotkey)(
-                        t!("board.tool_strip.select_objects_on_the_drawing"),
-                        tool_modifiers::ToolKind::Select,
-                        Some(tool_modifiers::Hotkey::Select),
-                    ),
+                            self.tool_tip(
+                                t!("board.tool_strip.select_objects_on_the_drawing"),
+                                tool_modifiers::ToolKind::Select,
+                                Some(tool_modifiers::Hotkey::Select),
+                            ),
                             matches!(self.tool, Tool::Select),
                         )
                         .clicked()
@@ -6638,10 +6636,10 @@ impl App {
                             "move",
                             t!("board.tool_strip.move"),
                             self.tool_tip(
-                        t!("board.tool_strip.move_tool_drop_the_selection"),
-                        tool_modifiers::ToolKind::Move,
-                        None,
-                    ),
+                                t!("board.tool_strip.move_tool_drop_the_selection"),
+                                tool_modifiers::ToolKind::Move,
+                                None,
+                            ),
                             matches!(self.tool, Tool::Move),
                         )
                         .clicked()
@@ -6657,10 +6655,10 @@ impl App {
                                 "wire",
                                 t!("board.tool_strip.wire"),
                                 self.tool_tip(
-                            t!("board.tool_strip.wire_tool_click_two_pins"),
-                            tool_modifiers::ToolKind::Wire,
-                            Some(tool_modifiers::Hotkey::Wire),
-                        ),
+                                    t!("board.tool_strip.wire_tool_click_two_pins"),
+                                    tool_modifiers::ToolKind::Wire,
+                                    Some(tool_modifiers::Hotkey::Wire),
+                                ),
                                 matches!(self.tool, Tool::Wire(_)),
                             )
                             .clicked()
@@ -6674,10 +6672,10 @@ impl App {
                                 "no-connect",
                                 t!("board.tool_strip.no_connect"),
                                 self.tool_tip(
-                            t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
-                            tool_modifiers::ToolKind::NoConnect,
-                            None,
-                        ),
+                                    t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
+                                    tool_modifiers::ToolKind::NoConnect,
+                                    None,
+                                ),
                                 matches!(self.tool, Tool::NoConnect),
                             )
                             .clicked()
@@ -6693,10 +6691,10 @@ impl App {
                                 "route",
                                 t!("board.tool_strip.route"),
                                 self.tool_tip(
-                            t!("board.tool_strip.route_tool_click_two_pads"),
-                            tool_modifiers::ToolKind::Route,
-                            Some(tool_modifiers::Hotkey::Route),
-                        ),
+                                    t!("board.tool_strip.route_tool_click_two_pads"),
+                                    tool_modifiers::ToolKind::Route,
+                                    Some(tool_modifiers::Hotkey::Route),
+                                ),
                                 matches!(self.tool, Tool::Route(_)),
                             )
                             .clicked()
@@ -6743,6 +6741,10 @@ impl App {
                         ] {
                             let armed =
                                 matches!(self.tool, Tool::DrawLayer) && self.art_shape == shape;
+                            let hotkey =
+                                (shape == DrawShape::Words).then_some(tool_modifiers::Hotkey::Text);
+                            let tip =
+                                self.tool_tip(tip, tool_modifiers::ToolKind::DrawLayer, hotkey);
                             if self
                                 .tool_strip_button(ui, id, icon, glyph, tip, armed)
                                 .clicked()
@@ -6773,10 +6775,10 @@ impl App {
                             "cutout",
                             &t!("board.tool_strip.cutout"),
                             &self.tool_tip(
-                        command_tip("board.cutout.add"),
-                        tool_modifiers::ToolKind::Cutout,
-                        None,
-                    ),
+                                command_tip("board.cutout.add"),
+                                tool_modifiers::ToolKind::Cutout,
+                                None,
+                            ),
                             matches!(self.tool, Tool::Cutout),
                         )
                         .clicked()
@@ -6788,10 +6790,10 @@ impl App {
                             "mounting-hole",
                             &t!("board.tool_strip.mounting_hole"),
                             &self.tool_tip(
-                        t!("board.tool_strip.mounting_hole.tip"),
-                        tool_modifiers::ToolKind::Hole,
-                        None,
-                    ),
+                                t!("board.tool_strip.mounting_hole.tip"),
+                                tool_modifiers::ToolKind::Hole,
+                                None,
+                            ),
                             matches!(self.tool, Tool::Hole),
                         )
                         .clicked()
@@ -6803,10 +6805,10 @@ impl App {
                             "focus",
                             &t!("board.tool_strip.assembly_mark"),
                             &self.tool_tip(
-                        t!("board.tool_strip.assembly_mark.tip"),
-                        tool_modifiers::ToolKind::Fiducial,
-                        None,
-                    ),
+                                t!("board.tool_strip.assembly_mark.tip"),
+                                tool_modifiers::ToolKind::Fiducial,
+                                None,
+                            ),
                             matches!(self.tool, Tool::Fiducial),
                         )
                         .clicked()

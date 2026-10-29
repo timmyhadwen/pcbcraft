@@ -102,6 +102,7 @@ impl Tool {
             Self::Wire(_) => ToolKind::Wire,
             Self::Route(_) => ToolKind::Route,
             Self::Via => ToolKind::Via,
+            Self::Keepout => ToolKind::Select,
             Self::Move => ToolKind::Move,
             Self::Cutout => ToolKind::Cutout,
             Self::Hole => ToolKind::Hole,

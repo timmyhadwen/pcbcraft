@@ -3,9 +3,9 @@ use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Id, Layer, PinRef, Project};
 use pcbcraft_geom::point_segment;
 mod board_art;
+pub(crate) mod gestures;
 mod layout_art;
 mod sheet;
-pub(crate) mod gestures;
 mod underlay;
 
 fn on_page(p: &Project, page: Id, object: Id) -> bool {
