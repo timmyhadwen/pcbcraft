@@ -9,7 +9,7 @@ fn main() -> eframe::Result {
     };
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--tab schematic|pcb|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png"
+            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png"
         );
         return Ok(());
     }
@@ -73,7 +73,15 @@ fn main() -> eframe::Result {
     )
 }
 fn egui_viewport() -> eframe::egui::ViewportBuilder {
+    let size = std::env::args()
+        .skip_while(|a| a != "--size")
+        .nth(1)
+        .and_then(|s: String| {
+            let (w, h) = s.split_once('x')?;
+            Some([w.parse::<f32>().ok()?, h.parse::<f32>().ok()?])
+        })
+        .unwrap_or([1440.0, 940.0]);
     eframe::egui::ViewportBuilder::default()
-        .with_inner_size([1440.0, 940.0])
+        .with_inner_size(size)
         .with_min_inner_size([1000.0, 680.0])
 }
