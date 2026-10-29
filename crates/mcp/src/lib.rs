@@ -928,6 +928,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
+mod protocol_tests;
+#[cfg(test)]
 mod tests {
     use super::*;
     fn run_session(lines: &[Value]) -> Result<Vec<Value>, String> {
