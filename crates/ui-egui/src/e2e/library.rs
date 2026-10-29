@@ -203,9 +203,8 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
         name: "SIG".into(),
         ..Default::default()
     });
-    let mut part =
-        pcbcraft_doc::component_template("resistor", 2, "J1".into(), Point::default())
-            .ok_or("no template")?;
+    let mut part = pcbcraft_doc::component_template("resistor", 2, "J1".into(), Point::default())
+        .ok_or("no template")?;
     part.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
         library: "test".into(),
         definition,
@@ -259,7 +258,9 @@ fn a_newcomer_places_a_connector_with_locating_pegs() -> Result<(), String> {
         .iter()
         .any(|f| f.objects.contains(&4) && f.objects.contains(&5))
     {
-        return Err(format!("no finding for the track through the peg: {findings:?}"));
+        return Err(format!(
+            "no finding for the track through the peg: {findings:?}"
+        ));
     }
     Ok(())
 }
