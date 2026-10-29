@@ -75,11 +75,12 @@ polygon containing the anchor to custom; other custom primitives, chamfered roun
 rectangles and trapezoids are reported unsupported.
 
 Fabrication writers emit front and back copper Gerbers (pad flashes and tracks),
-a board outline layer, Excellon drill, and separate positive-ink plots for drawn
-machine layers. Named output jobs can rerun gerbers, netlist, bill of materials,
-placement, DXF, panel, drawn-layer plots (`layer_plots`) and fabrication-layer PNG
-rasters (`raster`). Negative soldermask, paste and silkscreen Gerbers derived
-only from pad geometry are not written yet.
+a board outline layer, soldermask and paste layers, split plated and unplated
+Excellon drill files, a drill map with a per-tool legend, a fabrication readme,
+and separate positive-ink plots for drawn machine layers. Named output jobs can
+rerun gerbers, netlist, bill of materials, placement, DXF, panel, drawn-layer
+plots (`layer_plots`) and fabrication-layer PNG rasters (`raster`). Silkscreen
+layers derived only from pad geometry are not generated yet.
 The initial KiCad writer targets a small documented subset and must be checked with
 KiCad CLI; there is no general KiCad importer yet.
 
