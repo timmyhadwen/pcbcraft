@@ -394,3 +394,24 @@ pub(super) fn keep() -> String {
 pub(super) fn keep_tip() -> String {
     t!("assistant.keep.tip")
 }
+pub(super) fn open_settings() -> String {
+    t!("assistant.open_settings")
+}
+pub(super) fn open_settings_tip() -> String {
+    t!("assistant.open_settings.tip")
+}
+pub(super) fn state_stopped() -> String {
+    t!("assistant.state_stopped")
+}
+pub(super) fn retry() -> String {
+    t!("assistant.retry")
+}
+pub(super) fn retry_tip() -> String {
+    t!("assistant.retry.tip")
+}
+pub(super) fn disabled_tip() -> String {
+    t!("assistant.disabled.tip")
+}
+pub(super) fn switched_off_body() -> String {
+    t!("assistant.switched_off_body")
+}

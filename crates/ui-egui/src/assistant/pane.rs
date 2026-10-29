@@ -22,20 +22,7 @@ pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
             }
             ui.add_space(12.0);
             if app.assistant.phase() == Phase::Off {
-                ui.label(egui::RichText::new(text::no_model_title()).strong());
-                ui.add_space(6.0);
-                let body = if app.preferences.assistant_connections.is_empty() {
-                    text::no_model_body()
-                } else if app.assistant.host.http.is_none() {
-                    text::no_http_body()
-                } else {
-                    text::no_model_body()
-                };
-                ui.add(egui::Label::new(body).wrap());
-                if app.assistant.transcript.items.is_empty() {
-                    return;
-                }
-                ui.add_space(12.0);
+                off_state(app, ui);
             }
             let waiting = app.assistant.waiting();
             // Questions waiting for an answer sit below the conversation so they are never
@@ -95,6 +82,32 @@ pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
         });
 }
 
+/// The empty state: why nothing is connected, and where to fix it.
+fn off_state(app: &mut App, ui: &mut egui::Ui) {
+    let blocked = pcbcraft_assistant::can_send(
+        app.preferences.assistant_enabled,
+        !app.preferences.assistant_connections.is_empty(),
+        app.assistant.host.http.is_some(),
+    );
+    ui.label(egui::RichText::new(text::no_model_title()).strong());
+    ui.add_space(6.0);
+    let body = match blocked {
+        Err(pcbcraft_assistant::Blocked::NoHttp) => text::no_http_body(),
+        Err(pcbcraft_assistant::Blocked::Disabled) => text::switched_off_body(),
+        _ => text::no_model_body(),
+    };
+    ui.add(egui::Label::new(body).wrap());
+    if blocked != Err(pcbcraft_assistant::Blocked::NoHttp)
+        && ui
+            .button(text::open_settings())
+            .on_hover_text(text::open_settings_tip())
+            .clicked()
+    {
+        app.change_tab(crate::Tab::Settings);
+    }
+    ui.add_space(12.0);
+}
+
 fn header(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
     let phase = app.assistant.phase();
     let (word, dot) = match phase {
@@ -103,6 +116,7 @@ fn header(app: &mut App, ui: &mut egui::Ui, muted: egui::Color32) {
         Phase::Ready => (text::state_ready(), egui::Color32::from_rgb(70, 180, 110)),
         Phase::Working => (text::state_working(), egui::Color32::from_rgb(230, 170, 60)),
         Phase::Waiting => (text::state_waiting(), egui::Color32::from_rgb(230, 170, 60)),
+        Phase::Stopped => (text::state_stopped(), egui::Color32::GRAY),
     };
     ui.horizontal_wrapped(|ui| {
         ui.label(egui::RichText::new("●").color(dot))
@@ -175,13 +189,19 @@ fn composer(app: &mut App, ui: &mut egui::Ui) {
             .header_response
             .on_hover_text(text::show_sent_tip());
     }
-    let edit = ui.add(
+    let off = app.assistant.phase() == Phase::Off;
+    let edit = ui.add_enabled(
+        !off,
         egui::TextEdit::multiline(&mut app.assistant.input)
             .desired_rows(2)
             .desired_width(f32::INFINITY)
             .hint_text(text::input_hint()),
     );
-    edit.on_hover_text(text::input_tip());
+    edit.on_hover_text(if off {
+        text::disabled_tip()
+    } else {
+        text::input_tip()
+    });
     let send_key = ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
     ui.horizontal(|ui| {
         ui.checkbox(&mut app.assistant.attach, text::attach())
@@ -190,12 +210,24 @@ fn composer(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         let busy = matches!(app.assistant.phase(), Phase::Working | Phase::Waiting);
         if ui
-            .button(text::send())
-            .on_hover_text(text::send_tip())
+            .add_enabled(!off, egui::Button::new(text::send()))
+            .on_hover_text(if off {
+                text::disabled_tip()
+            } else {
+                text::send_tip()
+            })
             .clicked()
             || send_key
         {
             app.assistant_send();
+        }
+        if app.assistant.failed
+            && ui
+                .button(text::retry())
+                .on_hover_text(text::retry_tip())
+                .clicked()
+        {
+            app.assistant_retry();
         }
         if ui
             .add_enabled(busy, egui::Button::new(text::stop()))
