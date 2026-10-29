@@ -6,9 +6,14 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod board_mesh;
 mod generate;
 mod gerber;
 mod library_render;
+pub use board_mesh::{
+    BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
+    ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
+};
 pub use generate::{
     generate, migrate_loaded_project, output_hash, write_generated, GeneratedOutput,
 };
