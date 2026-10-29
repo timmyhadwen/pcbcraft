@@ -419,7 +419,7 @@ board.board3d.top_view.tip = Look straight down at the board.
 board.board3d.drag_to_turn_the_board = Drag to turn the board. Right-drag or Shift-drag to move it. Scroll to zoom.
 board.board3d.the_3d_view_could_not = The 3D view could not be built: {e}
 board.board3d.3d_board_drag_to_turn.tip = 3D board. Drag to turn it, right-drag or Shift-drag to move it, scroll to zoom, click a part to select it.
-board.board3d.part_bodies_are_default_boxes = Part bodies are default boxes sized from the pads. A part with a glTF or VRML model file shows that model instead.
+board.board3d.part_bodies_are_default_boxes = Part bodies are default boxes sized from the pads. A part with a glTF, VRML or STEP model file shows that model instead.
 board.board3d.loading_models_note = Loading models. Parts show default boxes until their files are read.
 
 # lib.rs nets_tab
