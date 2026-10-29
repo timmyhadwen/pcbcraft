@@ -1135,19 +1135,17 @@ impl App {
             .map(|v| v.id)
     }
     fn canvas_menu_target(&self, pos: Point, zoom: f32) -> CanvasMenuKind {
-        if self.tab == Tab::Schematic {
-            if let Some(pin) = self.pick_pin(pos, zoom) {
-                return CanvasMenuKind::Pin(pin);
-            }
+        if self.tab == Tab::Schematic
+            && let Some(pin) = self.pick_pin(pos, zoom)
+        {
+            return CanvasMenuKind::Pin(pin);
         }
         if self.tab == Tab::Pcb {
             if let Some((id, pad)) = self.pick_pad(pos, zoom) {
                 return CanvasMenuKind::Pad(id, pad);
-            }
-            if let Some(id) = self.pick_via(pos, zoom) {
+            } else if let Some(id) = self.pick_via(pos, zoom) {
                 return CanvasMenuKind::Object(id);
-            }
-            if let Some(id) = self.pick_track(pos, zoom) {
+            } else if let Some(id) = self.pick_track(pos, zoom) {
                 return CanvasMenuKind::Track(id);
             }
         }
