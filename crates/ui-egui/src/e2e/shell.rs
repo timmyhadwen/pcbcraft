@@ -256,7 +256,7 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
         assert!(paints_text(&ctx, &mut app, word)?, "the strip says {word}");
     }
     for cryptic in ["Sel", "Mv", "Rt", "Ln", "Bx", "Cr", "Pl", "Tx"] {
-        assert!(!paints_text(&ctx, &mut app, cryptic)?, "no {cryptic}");
+        assert!(text_row(&ctx, &mut app, cryptic).is_none(), "no {cryptic}");
     }
     app.closed_tabs.push(Tab::Rules);
     assert!(text_row(&ctx, &mut app, "Rules").is_none(), "a closed view leaves the row");
