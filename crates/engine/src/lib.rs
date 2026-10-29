@@ -1339,6 +1339,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "track.drag",
+            "Drag one end of an existing track to a new position with clearance: the other end stays put and the track is re-laid as 45-degree copper around pads, cutouts and other nets' tracks. Mode octilinear (default) never moves other copper; mode octilinear_shove pushes other nets' tracks aside within fixed iteration limits. A refusal says why and changes nothing. track.set_end is the unchecked move",
+            schema(
+                json!({"id":id_schema(),"end":{"type":"string","enum":["start","end"],"description":"which end of the segment to drag"},"position":point_schema(),"mode":{"type":"string","enum":["octilinear","octilinear_shove"]}}),
+                &["id", "end", "position"],
+            ),
+        ),
+        (
             "via.set_size",
             "Change the pad and drill diameters of an existing via",
             schema(
@@ -4568,6 +4576,18 @@ struct TrackEndParams {
     id: Id,
     end: TrackEnd,
     position: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrackDragParams {
+    id: Id,
+    end: TrackEnd,
+    position: Point,
+    #[serde(default = "drag_mode")]
+    mode: route::Mode,
+}
+fn drag_mode() -> route::Mode {
+    route::Mode::Octilinear
 }
 #[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -15677,6 +15697,17 @@ fn run_command(
                 "end": a.end,
                 "position": *moved,
             }))
+        }
+        "track.drag" => {
+            let a: TrackDragParams = parse(params)?;
+            route::drag(
+                p,
+                next,
+                a.id,
+                matches!(a.end, TrackEnd::End),
+                a.position,
+                a.mode,
+            )
         }
         "via.set_covering" => {
             let a: ViaCoveringParams = parse(params)?;
