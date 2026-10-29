@@ -29,7 +29,7 @@ The same chapter gives three rules. Each makes the DC matrix singular, so the gr
 - no cut-set made only of current sources and capacitors;
 - every node has a DC path to ground.
 
-A 1e-12 S shunt to ground on every node keeps the matrix solvable. Nodes without a DC path are reported as a plain finding instead of a voltage. The netlist writer runs the same checks.
+If the plain matrix still has a pivot below 1e-18, the solver retries once with a 1e-12 S shunt to ground on every node. It is not added otherwise, so exact answers stay exact. Nodes without a DC path are reported as a plain finding instead of a voltage. The netlist writer runs the same checks.
 
 ## 5. Diodes
 
