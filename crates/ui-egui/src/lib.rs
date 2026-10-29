@@ -1825,12 +1825,13 @@ impl App {
                             })
                             .response
                             .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"));
-                        ui.add(
-                            crate::number_entry::localized_active(egui::DragValue::new(thickness)
+                        ui.add(crate::number_entry::localized_active(
+                            egui::DragValue::new(thickness)
                                 .speed(0.01)
                                 .range(0.0..=100.0)
-                                .suffix(format!(" {}", t!("unit.mm"))), 2),
-                        )
+                                .suffix(format!(" {}", t!("unit.mm"))),
+                            2,
+                        ))
                         .on_hover_text(t!("unit.mm.tip"));
                     });
                     let apply = ui
@@ -1896,12 +1897,13 @@ impl App {
                 })
                 .response
                 .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.stack_thickness)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.stack_thickness)
                     .speed(0.01)
                     .range(0.0..=100.0)
-                    .suffix(format!(" {}", t!("unit.mm"))), 2),
-            )
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                2,
+            ))
             .on_hover_text(t!("unit.mm.tip"));
             if ui
                 .add_enabled(
@@ -1956,12 +1958,13 @@ impl App {
         self.via_covering_default_controls(ui);
         ui.horizontal(|ui| {
             ui.label(t!("board.stackup_section.thickness"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.notes_thick)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.notes_thick)
                     .speed(0.01)
                     .range(0.2..=100.0)
-                    .suffix(format!(" {}", t!("unit.mm"))), 2),
-            )
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                2,
+            ))
             .on_hover_text(t!("unit.mm2.tip"));
             if ui
                 .button(t!("board.stackup_section.set_thickness"))
@@ -1974,11 +1977,12 @@ impl App {
         });
         ui.horizontal(|ui| {
             ui.label(t!("board.stackup_section.substrate"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.notes_er)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.notes_er)
                     .speed(0.05)
-                    .range(1.0..=20.0), 3),
-            )
+                    .range(1.0..=20.0),
+                3,
+            ))
             .on_hover_text(t!(
                 "board.stackup_section.how_the_material_between_layers.tip"
             ));
@@ -2025,12 +2029,13 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label(format!("{} ", t!("board.holes_section.text")));
                 if let Some((_, mut diameter)) = edit {
-                    ui.add(
-                        crate::number_entry::localized_active(egui::DragValue::new(&mut diameter)
+                    ui.add(crate::number_entry::localized_active(
+                        egui::DragValue::new(&mut diameter)
                             .speed(0.05)
                             .range(0.05..=25.0)
-                            .suffix(format!(" {}", t!("unit.mm"))), 3),
-                    )
+                            .suffix(format!(" {}", t!("unit.mm"))),
+                        3,
+                    ))
                     .on_hover_text(t!("unit.mm3.tip"));
                     if ui
                         .button(t!("board.holes_section.apply"))
@@ -2112,12 +2117,13 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label(format!("{} ", t!("board.fiducials_section.text")));
                 if let Some((_, mut diameter, mut front)) = edit {
-                    ui.add(
-                        crate::number_entry::localized_active(egui::DragValue::new(&mut diameter)
+                    ui.add(crate::number_entry::localized_active(
+                        egui::DragValue::new(&mut diameter)
                             .speed(0.05)
                             .range(0.2..=10.0)
-                            .suffix(format!(" {}", t!("unit.mm"))), 3),
-                    )
+                            .suffix(format!(" {}", t!("unit.mm"))),
+                        3,
+                    ))
                     .on_hover_text(t!("unit.mm4.tip"));
                     if ui
                         .selectable_label(front, t!("board.fiducials_section.top"))
@@ -4426,19 +4432,21 @@ impl App {
         field_help(ui, FIELD_HELP_BOARD, self.muted());
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.w"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.width)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.width)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.h"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.height)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.height)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
         });
         if ui
             .button(t!("settings.settings_tab.apply_board_dimensions"))
@@ -4463,26 +4471,29 @@ impl App {
         );
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.x"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.cut_x)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.cut_x)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
             ui.label(t!("settings.settings_tab.y"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.cut_y)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.cut_y)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.radius"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.cut_r)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.cut_r)
                     .speed(0.1)
                     .range(0.1..=50.0)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
         });
         if ui
             .button(t!("settings.settings_tab.add_hole"))
@@ -4511,33 +4522,37 @@ impl App {
         }
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.x"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.pour_x)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.pour_x)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
             ui.label(t!("settings.settings_tab.y"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.pour_y)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.pour_y)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.w"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.pour_w)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.pour_w)
                     .speed(0.5)
                     .range(1.0..=500.0)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
             ui.label(t!("settings.settings_tab.h"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.pour_h)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.pour_h)
                     .speed(0.5)
                     .range(1.0..=500.0)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
         });
         let pour_net = self.pour_net;
         let net_choices: Vec<(Id, String)> = self
@@ -4594,22 +4609,25 @@ impl App {
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.at"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.label_x)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.label_x)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.label_y)
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.label_y)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.label_size)
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.label_size)
                     .range(0.3..=20.0)
                     .speed(0.1)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            )
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ))
             .on_hover_text(t!("unit.mm15.tip"));
         });
         ui.horizontal(|ui| {
@@ -4723,11 +4741,12 @@ impl App {
         }
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.cutout_radius"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.cutout_radius)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.cutout_radius)
                     .speed(0.1)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
         ui.add_space(12.0);
@@ -4916,19 +4935,21 @@ impl App {
             .on_hover_text(t!("settings.settings_tab.down.tip"));
         });
         ui.horizontal(|ui| {
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.panel_gap)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.panel_gap)
                     .range(0.0..=25.0)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("settings.settings_tab.mm_gap"))), 3),
-            )
+                    .suffix(format!(" {}", t!("settings.settings_tab.mm_gap"))),
+                3,
+            ))
             .on_hover_text(t!("settings.settings_tab.mm_gap.tip"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.panel_rail)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.panel_rail)
                     .range(0.0..=25.0)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("settings.settings_tab.mm_rail"))), 3),
-            )
+                    .suffix(format!(" {}", t!("settings.settings_tab.mm_rail"))),
+                3,
+            ))
             .on_hover_text(t!("settings.settings_tab.mm_rail.tip"));
         });
         if ui
@@ -5039,22 +5060,24 @@ impl App {
                     };
                     ui.horizontal(|ui| {
                         ui.label(t!("rules.rules_tab.gap"));
-                        ui.add(
-                            crate::number_entry::localized_active(egui::DragValue::new(clearance)
+                        ui.add(crate::number_entry::localized_active(
+                            egui::DragValue::new(clearance)
                                 .speed(0.01)
                                 .range(0.001..=100.0)
-                                .suffix(format!(" {}", t!("unit.mm"))), 2),
-                        )
+                                .suffix(format!(" {}", t!("unit.mm"))),
+                            2,
+                        ))
                         .on_hover_text(t!("unit.mm10.tip"));
                     });
                     ui.horizontal(|ui| {
                         ui.label(t!("rules.rules_tab.wire_width"));
-                        ui.add(
-                            crate::number_entry::localized_active(egui::DragValue::new(width)
+                        ui.add(crate::number_entry::localized_active(
+                            egui::DragValue::new(width)
                                 .speed(0.01)
                                 .range(0.001..=100.0)
-                                .suffix(format!(" {}", t!("unit.mm"))), 2),
-                        )
+                                .suffix(format!(" {}", t!("unit.mm"))),
+                            2,
+                        ))
                         .on_hover_text(t!("unit.mm11.tip"));
                     });
                     ui.horizontal(|ui| {
@@ -5192,12 +5215,13 @@ impl App {
                 .color(self.muted()),
         );
         ui.horizontal(|ui| {
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.teardrop_depth)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.teardrop_depth)
                     .range(0.05..=5.0)
                     .speed(0.05)
-                    .suffix(format!(" {}", t!("rules.rules_tab.mm_deep"))), 3),
-            )
+                    .suffix(format!(" {}", t!("rules.rules_tab.mm_deep"))),
+                3,
+            ))
             .on_hover_text(t!("rules.rules_tab.mm_deep.tip"));
             if ui
                 .button(t!("rules.rules_tab.harden_junctions"))
@@ -5282,12 +5306,13 @@ impl App {
                 } else {
                     " mm"
                 };
-                ui.add(
-                    crate::number_entry::localized_active(egui::DragValue::new(&mut self.custom_limit)
+                ui.add(crate::number_entry::localized_active(
+                    egui::DragValue::new(&mut self.custom_limit)
                         .range(0.01..=100000.0)
                         .speed(0.05)
-                        .suffix(unit), 3),
-                )
+                        .suffix(unit),
+                    3,
+                ))
                 .on_hover_text(t!("rules.rules_tab.the_limit_millimetres_for_wire.tip"));
                 if ui
                     .selectable_label(self.custom_loud, t!("rules.rules_tab.must_fix"))
@@ -5430,12 +5455,13 @@ impl App {
             });
             ui.horizontal(|ui| {
                 ui.label(t!("rules.rules_tab.keep_apart_by"));
-                ui.add(
-                    crate::number_entry::localized_active(egui::DragValue::new(&mut self.pair_clearance)
+                ui.add(crate::number_entry::localized_active(
+                    egui::DragValue::new(&mut self.pair_clearance)
                         .range(0.05..=25.0)
                         .speed(0.05)
-                        .suffix(format!(" {}", t!("unit.mm"))), 3),
-                )
+                        .suffix(format!(" {}", t!("unit.mm"))),
+                    3,
+                ))
                 .on_hover_text(t!("unit.mm12.tip"));
             });
             if ui
@@ -5534,12 +5560,13 @@ impl App {
             });
             ui.horizontal(|ui| {
                 ui.label(t!("rules.rules_tab.run_together_with_a_gap"));
-                ui.add(
-                    crate::number_entry::localized_active(egui::DragValue::new(&mut self.dp_gap)
+                ui.add(crate::number_entry::localized_active(
+                    egui::DragValue::new(&mut self.dp_gap)
                         .range(0.02..=10.0)
                         .speed(0.02)
-                        .suffix(format!(" {}", t!("unit.mm"))), 3),
-                )
+                        .suffix(format!(" {}", t!("unit.mm"))),
+                    3,
+                ))
                 .on_hover_text(t!("unit.mm13.tip"));
             });
             if ui
@@ -5598,38 +5625,43 @@ impl App {
         );
         ui.horizontal(|ui| {
             ui.label(t!("rules.rules_tab.corner"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.area_x)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.area_x)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.area_y)
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.area_y)
                     .speed(0.5)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
             ui.label(t!("rules.rules_tab.size"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.area_w)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.area_w)
                     .speed(0.5)
                     .range(1.0..=500.0)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.area_h)
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.area_h)
                     .speed(0.5)
                     .range(1.0..=500.0)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            );
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ));
         });
         ui.horizontal(|ui| {
             ui.label(t!("rules.rules_tab.copper_stays_apart_by_at"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.area_gap)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.area_gap)
                     .range(0.05..=25.0)
                     .speed(0.05)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            )
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ))
             .on_hover_text(t!("unit.mm14.tip"));
         });
         ui.horizontal(|ui| {
@@ -5639,12 +5671,13 @@ impl App {
             )
             .on_hover_text(t!("rules.rules_tab.parts_here_stand_no_taller.tip"));
             if self.area_limited {
-                ui.add(
-                    crate::number_entry::localized_active(egui::DragValue::new(&mut self.area_height)
+                ui.add(crate::number_entry::localized_active(
+                    egui::DragValue::new(&mut self.area_height)
                         .range(0.1..=100.0)
                         .speed(0.5)
-                        .suffix(format!(" {}", t!("unit.mm"))), 3),
-                );
+                        .suffix(format!(" {}", t!("unit.mm"))),
+                    3,
+                ));
             }
         });
         if ui
@@ -6185,9 +6218,15 @@ impl App {
                                 field_help(ui, FIELD_HELP_POSITION, self.muted());
                                 ui.horizontal(|ui| {
                                     ui.label(t!("board.inspector.x"));
-                                    ui.add(crate::number_entry::localized_active(egui::DragValue::new(&mut self.x).speed(0.1), 3));
+                                    ui.add(crate::number_entry::localized_active(
+                                        egui::DragValue::new(&mut self.x).speed(0.1),
+                                        3,
+                                    ));
                                     ui.label(t!("board.inspector.y"));
-                                    ui.add(crate::number_entry::localized_active(egui::DragValue::new(&mut self.y).speed(0.1), 3));
+                                    ui.add(crate::number_entry::localized_active(
+                                        egui::DragValue::new(&mut self.y).speed(0.1),
+                                        3,
+                                    ));
                                 });
                                 if ui
                                     .button(t!("board.inspector.apply_position"))
@@ -6380,12 +6419,13 @@ impl App {
                                         mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
                                     ui.add_space(10.0);
                                     ui.label(t!("board.inspector.wire_width"));
-                                    ui.add(
-                                        crate::number_entry::localized_active(egui::DragValue::new(&mut self.track_width)
+                                    ui.add(crate::number_entry::localized_active(
+                                        egui::DragValue::new(&mut self.track_width)
                                             .range(0.05..=10.0)
                                             .speed(0.05)
-                                            .suffix(format!(" {}", t!("unit.mm"))), 3),
-                                    )
+                                            .suffix(format!(" {}", t!("unit.mm"))),
+                                        3,
+                                    ))
                                     .on_hover_text(t!("unit.mm7.tip"));
                                     if ui
                                         .button(t!("board.inspector.set_width"))
@@ -6427,10 +6467,13 @@ impl App {
                                     ui.horizontal(|ui| {
                                         ui.add_enabled(
                                             corner_ready,
-                                            crate::number_entry::localized_active(egui::DragValue::new(&mut self.chamfer_size)
-                                                .range(0.05..=1.5)
-                                                .speed(0.05)
-                                                .suffix(format!(" {}", t!("unit.mm"))), 3),
+                                            crate::number_entry::localized_active(
+                                                egui::DragValue::new(&mut self.chamfer_size)
+                                                    .range(0.05..=1.5)
+                                                    .speed(0.05)
+                                                    .suffix(format!(" {}", t!("unit.mm"))),
+                                                3,
+                                            ),
                                         )
                                         .on_hover_text(t!("unit.mm8.tip"));
                                         if ui
@@ -6484,12 +6527,13 @@ impl App {
                                     }
                                     ui.add_space(10.0);
                                     ui.label(t!("board.inspector.ground_stitching"));
-                                    ui.add(
-                                        crate::number_entry::localized_active(egui::DragValue::new(&mut self.stitch_spacing)
+                                    ui.add(crate::number_entry::localized_active(
+                                        egui::DragValue::new(&mut self.stitch_spacing)
                                             .range(0.5..=50.0)
                                             .speed(0.5)
-                                            .suffix(format!(" {}", t!("unit.mm"))), 3),
-                                    )
+                                            .suffix(format!(" {}", t!("unit.mm"))),
+                                        3,
+                                    ))
                                     .on_hover_text(t!("unit.mm9.tip"));
                                     if ui
                                         .button(t!("board.inspector.fill_with_vias"))
@@ -7248,23 +7292,25 @@ impl App {
         }
         if matches!(self.tool, Tool::Hole) {
             ui.label(t!("board.draw_tool_options.mounting_hole_size"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.hole_diameter)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.hole_diameter)
                     .speed(0.05)
                     .range(0.05..=25.0)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            )
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ))
             .on_hover_text(t!("unit.mm5.tip"));
             ui.separator();
         }
         if matches!(self.tool, Tool::Fiducial) {
             ui.label(t!("board.draw_tool_options.assembly_mark_size"));
-            ui.add(
-                crate::number_entry::localized_active(egui::DragValue::new(&mut self.fiducial_diameter)
+            ui.add(crate::number_entry::localized_active(
+                egui::DragValue::new(&mut self.fiducial_diameter)
                     .speed(0.05)
                     .range(0.2..=10.0)
-                    .suffix(format!(" {}", t!("unit.mm"))), 3),
-            )
+                    .suffix(format!(" {}", t!("unit.mm"))),
+                3,
+            ))
             .on_hover_text(t!("unit.mm6.tip"));
             ui.separator();
         }
