@@ -98,7 +98,15 @@ fn gerber_statements(text: &str) -> Vec<(bool, String)> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut extended = false;
+    // A comment closed by `*%` is a known quirk of some writers; the stray
+    // percent sign must not open an extended command.
+    let mut after_comment = false;
     for ch in text.chars() {
+        if ch == '%' && after_comment {
+            after_comment = false;
+            continue;
+        }
+        after_comment = false;
         match ch {
             '%' => {
                 extended = !extended;
@@ -107,6 +115,7 @@ fn gerber_statements(text: &str) -> Vec<(bool, String)> {
             '*' => {
                 let t = cur.trim();
                 if !t.is_empty() {
+                    after_comment = !extended && t.starts_with("G04");
                     out.push((extended, t.to_owned()));
                 }
                 cur.clear();
@@ -556,22 +565,20 @@ pub fn parse_excellon_drill(text: &str) -> Result<(Vec<PlotDrillTool>, Vec<PlotD
             continue;
         }
         if in_header {
-            if let Some(rest) = line.strip_prefix('T') {
-                if let Some((num, diam)) = rest.split_once('C') {
-                    if let Ok(n) = num.parse::<u32>() {
-                        if let Ok(d) = diam.parse::<f64>() {
-                            tools.insert(n, d * scale);
-                        }
-                    }
-                }
+            if let Some(rest) = line.strip_prefix('T')
+                && let Some((num, diam)) = rest.split_once('C')
+                && let Ok(n) = num.parse::<u32>()
+                && let Ok(d) = diam.parse::<f64>()
+            {
+                tools.insert(n, d * scale);
             }
             continue;
         }
-        if let Some(rest) = line.strip_prefix('T') {
-            if let Ok(n) = rest.parse::<u32>() {
-                current_tool = n;
-                continue;
-            }
+        if let Some(rest) = line.strip_prefix('T')
+            && let Ok(n) = rest.parse::<u32>()
+        {
+            current_tool = n;
+            continue;
         }
         if line.starts_with('X') {
             if hits.len() >= MAX_HITS {
