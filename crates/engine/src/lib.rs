@@ -14039,10 +14039,7 @@ mod tests {
         );
         s.execute("footprint.flip", json!({"id":fp}), None)?;
         assert_eq!(
-            s.project
-                .footprint(fp)
-                .ok_or_else(missing)?
-                .board_side(),
+            s.project.footprint(fp).ok_or_else(missing)?.board_side(),
             pcbcraft_doc::Layer::Back
         );
         assert!(

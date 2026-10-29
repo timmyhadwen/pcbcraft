@@ -761,15 +761,11 @@ pub struct Footprint {
 }
 /// Swap `F.` and `B.` layer name prefixes; other names are unchanged.
 pub fn swap_board_side_layer(name: &str) -> String {
-    if let Some(rest) = name.strip_prefix('F') {
-        if rest.starts_with('.') {
-            return format!("B{rest}");
-        }
+    if let Some(rest) = name.strip_prefix("F.") {
+        return format!("B.{rest}");
     }
-    if let Some(rest) = name.strip_prefix('B') {
-        if rest.starts_with('.') {
-            return format!("F{rest}");
-        }
+    if let Some(rest) = name.strip_prefix("B.") {
+        return format!("F.{rest}");
     }
     name.to_string()
 }
