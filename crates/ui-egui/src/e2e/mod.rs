@@ -20,6 +20,7 @@ mod library;
 mod nets;
 mod pairs;
 mod route_drag;
+mod pours;
 mod rules;
 mod schematic_pages;
 mod settings;

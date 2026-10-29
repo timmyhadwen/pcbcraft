@@ -129,7 +129,7 @@ fn a_newcomer_fills_a_copper_area_with_vias() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Fill with vias")?,
+        scrolled_to(&ctx, &mut app, "Fill with vias")?,
         "a chosen copper area offers to be stitched: {}",
         app.message
     );
