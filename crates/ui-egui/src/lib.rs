@@ -2,6 +2,7 @@
 mod authoring;
 mod canvas;
 mod library;
+mod via_covering;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
@@ -791,6 +792,10 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.push((
+            "Protection".into(),
+            via_covering::covering_name(v.effective_covering(&project.board)).into(),
+        ));
         clearance_rows(v.net, &mut rows);
         rows.push((
             "Position".into(),
@@ -1513,6 +1518,7 @@ impl App {
                     "The coating on exposed copper; it goes on the factory notes and reports.",
                 );
         });
+        self.via_covering_default_controls(ui);
         ui.horizontal(|ui| {
             ui.label("Thickness");
             ui.add(
@@ -5617,6 +5623,7 @@ impl App {
                                 ui.label(value);
                             });
                         }
+                        self.via_covering_controls(ui, id);
                         if let Some(track) =
                             self.project.board.tracks.iter().find(|t| t.id == id)
                         {
