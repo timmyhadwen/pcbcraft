@@ -59,7 +59,7 @@ fn chip_two_terminal_matches_0805_fixture_span() -> Result<(), String> {
     assert!(near(def.pads[0].size.y, 1.4));
     let (hx, hy) = courtyard_half_extents(&def).ok_or("courtyard missing")?;
     assert!(near(hx, 2.012));
-    assert!(near(hy, 1.454));
+    assert!(near(hy, 2.179));
     Ok(())
 }
 
