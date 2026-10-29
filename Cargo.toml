@@ -34,7 +34,7 @@ base64 = "0.22"
 # glTF reader for 3D model files; MIT OR Apache-2.0, pure Rust. No image decoding.
 # STEP reading and tessellation for 3D model files; Apache-2.0, pure Rust.
 truck-stepio = "0.3"
-truck-meshalgo = "0.4"
+truck-meshalgo = { version = "0.4", default-features = false, features = ["tessellation"] }
 gltf = { version = "1", default-features = false, features = ["utils"] }
 tempfile = "3"
 
