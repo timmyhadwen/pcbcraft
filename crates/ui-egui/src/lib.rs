@@ -4519,14 +4519,18 @@ impl App {
                     .suffix(" across")
                     .speed(1.0),
             )
-            .on_hover_text("How many copies of the board sit side by side.");
+            .on_hover_text(
+                "Set how many copies of the board sit side by side on the panel. From 1 to 32.",
+            );
             ui.add(
                 egui::DragValue::new(&mut self.panel_rows)
                     .range(1..=32)
                     .suffix(" down")
                     .speed(1.0),
             )
-            .on_hover_text("How many copies of the board sit top to bottom.");
+            .on_hover_text(
+                "Set how many copies of the board sit top to bottom on the panel. From 1 to 32.",
+            );
         });
         ui.horizontal(|ui| {
             ui.add(
