@@ -346,7 +346,7 @@ fn a_newcomer_narrows_the_window_and_the_canvas_buttons_stay_inside() -> Result<
     for width in [1440.0_f32, 1000.0, 800.0] {
         let ctx = egui::Context::default();
         for _ in 0..4 {
-            let _ = ctx.run_ui(
+            let mut output = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(Rect::from_min_size(
                         egui::Pos2::ZERO,
@@ -356,6 +356,7 @@ fn a_newcomer_narrows_the_window_and_the_canvas_buttons_stay_inside() -> Result<
                 },
                 |ui| app.show(ui),
             );
+            output.textures_delta.clear();
         }
         for id in ["canvas-fit", "handle-rotate"] {
             let rect = app
