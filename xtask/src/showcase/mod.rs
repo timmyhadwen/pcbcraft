@@ -20,8 +20,12 @@
 //! # Do not
 //! - Read a third-party library file; every part is defined in `parts.rs`.
 mod board;
+mod copper;
 mod design;
+mod finish;
+mod layout;
 mod parts;
+mod routes;
 
 use design::{DIRECT, PARTS, PINS, POWER_NETS, SHEETS};
 use parts::{BoxUnit, PinSpec};
@@ -88,7 +92,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
                 ],
                 right: vec![
                     pin("2", "VBUS", "power_out"), pin("7", "VBUS", "power_out"), pin("3", "CC1", io),
-                    pin("6", "CC2", io), pin("5", "D+", io), pin("4", "D-", io),
+                    pin("6", "CC2", io), pin("4", "D+", io), pin("5", "D-", io),
                 ],
                 top: vec![],
                 bottom: vec![],
@@ -110,8 +114,8 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             &[BoxUnit {
                 unit: 1,
                 width: 15.24,
-                left: vec![pin("4", "VDD", pw), pin("5", "PROG", "input"), pin("2", "VSS", pw)],
-                right: vec![pin("1", "STAT", "open_collector"), pin("3", "VBAT", "power_out")],
+                left: vec![pin("1", "VDD", pw), pin("4", "PROG", "input"), pin("2", "VSS", pw)],
+                right: vec![pin("5", "STAT", "open_collector"), pin("3", "VBAT", "power_out")],
                 top: vec![],
                 bottom: vec![],
             }],
@@ -145,16 +149,16 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
                     unit: 1,
                     width: 25.4,
                     left: vec![
-                        pin("7", "USB_DP", io), pin("6", "USB_DM", io), pin("28", "SWDIO", io), pin("29", "SWCLK", "input"),
-                        pin("26", "UART_TX", "output"), pin("27", "UART_RX", "input"), pin("17", "SPI_CS", "output"),
-                        pin("18", "SPI_SCK", "output"), pin("20", "SPI_MOSI", "output"), pin("19", "SPI_MISO", "input"),
-                        pin("5", "PA0", io),
+                        pin("7", "USB_DP", io), pin("6", "USB_DM", io), pin("29", "SWDIO", io), pin("28", "SWCLK", "input"),
+                        pin("27", "UART_TX", "output"), pin("26", "UART_RX", "input"), pin("24", "SPI_CS", "output"),
+                        pin("23", "SPI_SCK", "output"), pin("22", "SPI_MOSI", "output"), pin("21", "SPI_MISO", "input"),
+                        pin("5", "BTN2", "input"),
                     ],
                     right: vec![
                         pin("9", "LED0", "output"), pin("10", "LED1", "output"), pin("11", "LED2", "output"),
                         pin("12", "LED3", "output"), pin("13", "LED4", "output"), pin("14", "LED5", "output"),
-                        pin("21", "I2C_SCL", io), pin("22", "I2C_SDA", io), pin("23", "BTN1", "input"),
-                        pin("24", "BTN2", "input"), pin("25", "SENSOR_EN", "output"),
+                        pin("20", "BTN1", "input"), pin("19", "I2C_SCL", io), pin("18", "I2C_SDA", io),
+                        pin("17", "SENSOR_EN", "output"), pin("4", "PA0", io),
                     ],
                     top: vec![],
                     bottom: vec![],
@@ -162,7 +166,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
                 BoxUnit {
                     unit: 2,
                     width: 20.32,
-                    left: vec![pin("4", "NRST", "input"), pin("2", "XIN", "input"), pin("3", "XOUT", "output")],
+                    left: vec![pin("25", "NRST", "input"), pin("3", "XIN", "input"), pin("2", "XOUT", "output")],
                     right: vec![
                         pin("1", "VDD", pw), pin("8", "VDDUSB", pw), pin("15", "VDD", pw), pin("30", "VDD", pw),
                         pin("32", "VDDA", pw),
@@ -178,10 +182,10 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
                 unit: 1,
                 width: 15.24,
                 left: vec![
-                    pin("1", "CS", "input"), pin("6", "SCK", "input"), pin("5", "DI", "input"), pin("2", "DO", "output"),
-                    pin("3", "WP", "input"), pin("7", "HOLD", "input"),
+                    pin("1", "CS", "input"), pin("2", "SCK", "input"), pin("3", "DI", "input"), pin("4", "DO", "output"),
+                    pin("6", "WP", "input"), pin("7", "HOLD", "input"),
                 ],
-                right: vec![pin("8", "VCC", pw), pin("4", "GND", pw)],
+                right: vec![pin("8", "VCC", pw), pin("5", "GND", pw)],
                 top: vec![],
                 bottom: vec![],
             }],
@@ -202,8 +206,8 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
             &[BoxUnit {
                 unit: 1,
                 width: 15.24,
-                left: vec![pin("3", "SDA", io), pin("4", "SCL", "input"), pin("6", "ADDR", "input")],
-                right: vec![pin("1", "VDD", pw), pin("2", "GND", pw), pin("5", "INT", "output")],
+                left: vec![pin("1", "SCL", "input"), pin("3", "SDA", io), pin("4", "ADDR", "input")],
+                right: vec![pin("6", "VDD", pw), pin("2", "GND", pw), pin("5", "INT", "output")],
                 top: vec![],
                 bottom: vec![],
             }],
@@ -216,7 +220,7 @@ fn symbols() -> Vec<pcbcraft_library::SymbolDefinition> {
                 left: vec![],
                 right: vec![
                     pin("1", "3V3", "power_out"), pin("2", "GND", pw), pin("3", "SWDIO", io), pin("4", "SWCLK", "input"),
-                    pin("5", "NRST", io), pin("6", "TX", "output"), pin("7", "RX", "input"),
+                    pin("5", "TX", "output"), pin("6", "RX", "input"), pin("7", "NRST", io),
                 ],
                 top: vec![],
                 bottom: vec![],
@@ -387,6 +391,24 @@ fn draw_schematic(g: &mut Gen, sheet_ids: &[u64]) -> Res<()> {
     Ok(())
 }
 
+/// The same design with three known findings, for the Checks page: two
+/// missing connections (warnings) and one piece of silkscreen over a pad
+/// (an error).
+pub fn findings_variant(base: &pcbcraft_doc::Project) -> Res<pcbcraft_doc::Project> {
+    let mut g = Gen { s: Session::default(), comp: BTreeMap::new(), nets: BTreeMap::new() };
+    g.s.replace(base.clone()).map_err(|e| e.to_string())?;
+    for net in ["LED0_A", "LED1_A"] {
+        let id = base.nets.iter().find(|n| n.name == net).map(|n| n.id).ok_or("net")?;
+        let tracks: Vec<u64> = base.board.tracks.iter().filter(|t| t.net == id).map(|t| t.id).collect();
+        for t in tracks {
+            g.cmd("object.delete", json!({"id": t}))?;
+        }
+    }
+    g.cmd("text.place", json!({"text": "HOT", "position": {"x": 3.0, "y": 44.4}, "size": 1.4, "layer": "F.Cu"}))?;
+    g.cmd("project.rename", json!({"name": "Showcase sensor node with findings"}))?;
+    Ok(g.s.project.clone())
+}
+
 /// Entry point: `cargo xtask showcase [--out DIR]`.
 pub fn run(root: &Path) -> Res<()> {
     let mut g = Gen { s: Session::default(), comp: BTreeMap::new(), nets: BTreeMap::new() };
@@ -403,13 +425,10 @@ pub fn run(root: &Path) -> Res<()> {
         p.board.vias.len(),
         p.board.zones.len()
     );
-    if let Some(dir) = std::env::var_os("SHOWCASE_DEBUG_DIR") {
-        for view in ["pcb", "schematic"] {
-            if let Ok(svg) = pcbcraft_io::svg(&g.s.project, view) {
-                let _ = std::fs::write(Path::new(&dir).join(format!("{view}.svg")), svg);
-            }
-        }
-    }
+    let variant = findings_variant(&g.s.project)?;
+    let out2 = root.join("examples").join("showcase-with-findings.pcbcraft");
+    pcbcraft_io::save(&variant, &out2)?;
+    println!("wrote {}", out2.display());
     let checks = g.s.checks();
     println!("erc {} drc {} airwires {}", checks["erc"].as_array().map_or(0, Vec::len), checks["drc"].as_array().map_or(0, Vec::len), checks["airwires"].as_array().map_or(0, Vec::len));
     Ok(())
@@ -418,29 +437,117 @@ pub fn run(root: &Path) -> Res<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pcbcraft_doc::Project;
+    use std::sync::OnceLock;
 
-    fn built() -> Result<Gen, String> {
-        let mut g = Gen { s: Session::default(), comp: BTreeMap::new(), nets: BTreeMap::new() };
-        build(&mut g)?;
-        Ok(g)
+    /// The generated project, built once per test process: a full build runs
+    /// the checks many times, so every test shares one.
+    fn shared() -> Result<&'static Project, String> {
+        static CELL: OnceLock<Result<Project, String>> = OnceLock::new();
+        CELL.get_or_init(|| {
+            let mut g = Gen { s: Session::default(), comp: BTreeMap::new(), nets: BTreeMap::new() };
+            build(&mut g)?;
+            Ok(g.s.project.clone())
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+    }
+
+    fn examples() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("examples")
+    }
+
+    fn saved_bytes(project: &Project) -> Result<Vec<u8>, String> {
+        let dir = std::env::temp_dir().join(format!("showcase-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join("out.pcbcraft");
+        pcbcraft_io::save(project, &path)?;
+        std::fs::read(&path).map_err(|e| e.to_string())
+    }
+
+    fn severity_counts(project: &Project) -> (usize, usize, usize) {
+        let mut errors = 0;
+        let mut warnings = 0;
+        let mut other = 0;
+        let all = pcbcraft_rules::erc(project).into_iter().chain(pcbcraft_rules::drc(project));
+        for f in all {
+            match f.severity.as_str() {
+                "error" => errors += 1,
+                "warning" => warnings += 1,
+                _ => other += 1,
+            }
+        }
+        (errors, warnings, other)
     }
 
     #[test]
     fn showcase_is_reproducible() -> Result<(), String> {
-        let a = serde_json::to_string(&built()?.s.project).map_err(|e| e.to_string())?;
-        let b = serde_json::to_string(&built()?.s.project).map_err(|e| e.to_string())?;
-        assert_eq!(a, b, "two runs must give identical projects");
+        let built = saved_bytes(shared()?)?;
+        let again = {
+            let mut g = Gen { s: Session::default(), comp: BTreeMap::new(), nets: BTreeMap::new() };
+            g.s.replace(shared()?.clone()).map_err(|e| e.to_string())?;
+            saved_bytes(&g.s.project)?
+        };
+        assert_eq!(built, again, "saving the same project twice must give identical bytes");
+        let checked_in = std::fs::read(examples().join("showcase.pcbcraft")).map_err(|e| e.to_string())?;
+        assert_eq!(built, checked_in, "examples/showcase.pcbcraft is out of date; run cargo xtask showcase");
+        let variant = std::fs::read(examples().join("showcase-with-findings.pcbcraft")).map_err(|e| e.to_string())?;
+        assert_eq!(saved_bytes(&findings_variant(shared()?)?)?, variant, "examples/showcase-with-findings.pcbcraft is out of date");
         Ok(())
     }
 
     #[test]
     fn showcase_schematic_counts_are_stable() -> Result<(), String> {
-        let g = built()?;
-        let p = &g.s.project;
+        let p = shared()?;
         assert_eq!(p.sheets.len() + 1, 3, "root page plus two named pages");
         assert!((40..=60).contains(&p.components.len()), "40 to 60 parts");
         assert_eq!(p.components.len(), 55);
         assert_eq!(p.nets.len(), 41);
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_ships_clean() -> Result<(), String> {
+        let p = shared()?;
+        assert_eq!(severity_counts(p), (0, 0, 0), "no finding of any severity");
+        assert!(pcbcraft_rules::airwires(p).is_empty(), "every connection is made");
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_findings_variant_has_two_warnings_and_one_error() -> Result<(), String> {
+        let v = findings_variant(shared()?)?;
+        assert_eq!(severity_counts(&v), (1, 2, 0), "one error, two warnings, nothing else");
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_board_counts_are_stable() -> Result<(), String> {
+        let b = &shared()?.board;
+        assert_eq!(b.footprints.len(), 55, "parts on the board");
+        assert_eq!(b.zones.len(), 5, "four pours and the sensor rail");
+        assert_eq!(b.holes.len(), 4, "mounting holes");
+        assert_eq!(b.tracks.len(), COUNT_TRACKS, "tracks");
+        assert_eq!(b.vias.len(), COUNT_VIAS, "vias");
+        assert_eq!(shared()?.copper_layer_count(), 4, "four copper layers");
+        assert_eq!(shared()?.variants.len(), 2, "two builds");
+        assert_eq!(shared()?.output_jobs.len(), 3, "three output jobs");
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_copper_runs_at_multiples_of_45_degrees() -> Result<(), String> {
+        for t in &shared()?.board.tracks {
+            let (dx, dy) = ((t.end.x - t.start.x).abs(), (t.end.y - t.start.y).abs());
+            assert!(dx < 1e-6 || dy < 1e-6 || (dx - dy).abs() < 1e-3, "track {} is not at a multiple of 45 degrees", t.id);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn showcase_labels_do_not_overlap() -> Result<(), String> {
+        let problems = layout::audit(shared()?);
+        assert!(problems.is_empty(), "label problems: {problems:?}");
         Ok(())
     }
 }

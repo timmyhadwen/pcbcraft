@@ -610,20 +610,23 @@ pub fn usb_c(name: &str) -> FootprintDefinition {
     let map = ["1", "2", "3", "4", "5", "6", "7", "8"];
     let mut pads = Vec::new();
     for (i, n) in map.iter().enumerate() {
-        pads.push(smd(n, -2.8 + 0.8 * i as f64, 0.0, 0.5, 1.6));
+        let mut pad = smd(n, -3.5 + 1.0 * i as f64, 0.0, 0.6, 1.6);
+        pad.shape = "rect".into();
+        pad.roundrect_ratio = None;
+        pads.push(pad);
     }
-    for (i, (sx, sy, h)) in [(-4.32, -1.6, 2.0), (4.32, -1.6, 2.0), (-4.32, -5.6, 1.6), (4.32, -5.6, 1.6)]
+    for (i, (sx, sy, h)) in [(-5.0, -1.6, 2.0), (5.0, -1.6, 2.0), (-5.0, -5.6, 1.6), (5.0, -5.6, 1.6)]
         .iter()
         .enumerate()
     {
         pads.push(tht(&(9 + i).to_string(), "oval", *sx, *sy, 1.0, *h, 0.6));
     }
     let g = vec![
-        grect("F.CrtYd", (-5.2, -8.2), (5.2, 1.4), 0.05),
+        grect("F.CrtYd", (-6.0, -8.2), (6.0, 1.4), 0.05),
         grect("F.Fab", (-4.47, -7.35), (4.47, -0.2), 0.1),
-        gline("F.SilkS", (-4.6, -7.4), (4.6, -7.4), 0.12),
-        gline("F.SilkS", (-4.6, -7.4), (-4.6, -0.4), 0.12),
-        gline("F.SilkS", (4.6, -7.4), (4.6, -0.4), 0.12),
+        gline("F.SilkS", (-4.4, -7.4), (4.4, -7.4), 0.12),
+        gline("F.SilkS", (-4.4, -7.4), (-4.4, -0.4), 0.12),
+        gline("F.SilkS", (4.4, -7.4), (4.4, -0.4), 0.12),
     ];
     footprint(name, "Power and USB 2.0 receptacle, simplified contact set", pads, g)
 }
