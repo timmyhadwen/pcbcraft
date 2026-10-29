@@ -1942,6 +1942,21 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "placement_yy1.export",
+            "Write the NeoDen YY1 placement file for one or both sides and the feeder sheet into a folder, using a pick and place machine profile recorded on the design. Reads the design and records nothing",
+            schema(
+                json!({
+                    "machine":{"type":"string","minLength":1,"maxLength":64},
+                    "directory":{"type":"string","minLength":1,"maxLength":4096},
+                    "side":{"type":"string","enum":["top","bottom","both"]},
+                    "layout":{"type":"string","enum":["native","import"]},
+                    "variant":{"type":"string","minLength":1,"maxLength":64},
+                    "include_dnp_as_skip":{"type":"boolean"}
+                }),
+                &["machine", "directory"],
+            ),
+        ),
+        (
             "variant.create",
             "Define a named assembly variant, optionally with a note and an initial set of component ids to leave unpopulated",
             schema(
@@ -3424,6 +3439,26 @@ struct MachinePathParams {
 struct MachineExportParams {
     id: String,
     path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlacementYy1Params {
+    machine: String,
+    directory: String,
+    #[serde(default = "default_yy1_side")]
+    side: String,
+    #[serde(default = "default_yy1_layout")]
+    layout: String,
+    #[serde(default)]
+    variant: Option<String>,
+    #[serde(default)]
+    include_dnp_as_skip: bool,
+}
+fn default_yy1_side() -> String {
+    "top".into()
+}
+fn default_yy1_layout() -> String {
+    "native".into()
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -13811,6 +13846,54 @@ fn run_command(
             pcbcraft_io::atomic_write(std::path::Path::new(&a.path), text.as_bytes())
                 .map_err(Error::Invalid)?;
             Ok(json!({"id": profile.id, "path": a.path, "bytes": text.len()}))
+        }
+        "placement_yy1.export" => {
+            let a: PlacementYy1Params = parse(params)?;
+            if a.machine.is_empty() || a.machine.len() > 64 {
+                return Err(Error::Invalid("machine id must be 1 to 64 bytes".into()));
+            }
+            if a.directory.is_empty() || a.directory.len() > 4096 {
+                return Err(Error::Invalid("output directory is out of range".into()));
+            }
+            let side = match a.side.as_str() {
+                "top" => pcbcraft_io::YySide::Top,
+                "bottom" => pcbcraft_io::YySide::Bottom,
+                "both" => pcbcraft_io::YySide::Both,
+                _ => return Err(Error::Invalid("side must be top, bottom or both".into())),
+            };
+            let layout = match a.layout.as_str() {
+                "native" => pcbcraft_io::YyLayout::Native,
+                "import" => pcbcraft_io::YyLayout::Import,
+                _ => return Err(Error::Invalid("layout must be native or import".into())),
+            };
+            if a.variant.as_ref().is_some_and(|v| v.len() > 64) {
+                return Err(Error::Invalid("variant name is out of range".into()));
+            }
+            let machine = p
+                .machine_profiles
+                .iter()
+                .find(|m| m.id == a.machine)
+                .ok_or_else(|| {
+                    Error::Invalid(format!(
+                        "no machine profile named {} in the design",
+                        a.machine
+                    ))
+                })?;
+            let options = pcbcraft_io::NeodenYy1Options {
+                layout,
+                variant: a.variant.clone(),
+                include_dnp_as_skip: a.include_dnp_as_skip,
+            };
+            let out = pcbcraft_io::placement_neoden_yy1(p, side, machine, &options)
+                .map_err(Error::Invalid)?;
+            let dir = std::path::Path::new(&a.directory);
+            std::fs::create_dir_all(dir).map_err(|e| Error::Invalid(e.to_string()))?;
+            let mut written = Vec::new();
+            for (name, bytes) in &out.files {
+                pcbcraft_io::atomic_write(&dir.join(name), bytes).map_err(Error::Invalid)?;
+                written.push(json!({"file": name, "bytes": bytes.len()}));
+            }
+            Ok(json!({"files": written, "warnings": out.warnings}))
         }
         "output_job.run" => {
             let a: OutputJobRunParams = parse(params)?;
@@ -28282,6 +28365,53 @@ mod tests {
             ));
         }
         let _ = std::fs::remove_file(&out_path);
+        Ok(())
+    }
+
+    #[test]
+    fn placement_yy1_export_refuses_a_missing_or_wrong_machine() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let dir = std::env::temp_dir().join(format!("pcbcraft-yy1-refuse-{}", std::process::id()));
+        let params = |machine: &str| json!({"machine":machine,"directory":dir.to_string_lossy()});
+        assert!(
+            s.execute("placement_yy1.export", params("neoden-yy1"), None)
+                .is_err()
+        );
+        s.execute("machine.add", json!({"preset":"eufymake-e1"}), None)?;
+        assert!(
+            s.execute("placement_yy1.export", params("eufymake-e1"), None)
+                .is_err()
+        );
+        assert!(
+            s.execute(
+                "placement_yy1.export",
+                json!({"machine":"x","directory":"d","layout":"wide"}),
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            !dir.exists(),
+            "nothing is written when the export is refused"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn placement_yy1_export_writes_both_sides_and_the_feeder_sheet() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute("machine.add", json!({"preset":"neoden-yy1"}), None)?;
+        let dir = std::env::temp_dir().join(format!("pcbcraft-yy1-write-{}", std::process::id()));
+        let out = s.execute(
+            "placement_yy1.export",
+            json!({"machine":"neoden-yy1","directory":dir.to_string_lossy(),"side":"both"}),
+            None,
+        )?;
+        for name in ["Top.csv", "Bottom.csv", "FeederSheet.csv"] {
+            assert!(dir.join(name).exists(), "{name} should have been written");
+        }
+        assert!(out.to_string().contains("FeederSheet.csv"));
+        let _ = std::fs::remove_dir_all(&dir);
         Ok(())
     }
 

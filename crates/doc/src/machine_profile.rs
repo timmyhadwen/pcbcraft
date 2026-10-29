@@ -299,6 +299,9 @@ pub struct NozzleRow {
     pub id: String,
     /// Diameter in millimetres.
     pub diameter_mm: f64,
+    /// Package names this nozzle picks, matched as prefixes of the short package name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub packages: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -725,6 +728,44 @@ impl MachineProfile {
     }
 
     fn validate_pick_place(&self) -> Result<(), String> {
+        let pp = &self.pick_place;
+        if let Some(board) = &pp.board
+            && (!board.max_x_mm.is_finite()
+                || !board.max_y_mm.is_finite()
+                || board.max_x_mm <= 0.0
+                || board.max_y_mm <= 0.0
+                || board.max_x_mm > 5000.0
+                || board.max_y_mm > 5000.0)
+        {
+            return Err("pick and place board limits must be positive millimetres".into());
+        }
+        for bank in &pp.feeders {
+            if bank.first == 0 || bank.first > bank.last || bank.last > 999 {
+                return Err("feeder banks must run from 1 upward with first not after last".into());
+            }
+        }
+        for row in &pp.feeder_map {
+            if row.feeder_no == 0 || row.feeder_no > 999 {
+                return Err("a feeder number must be between 1 and 999".into());
+            }
+        }
+        for row in &pp.nozzle {
+            if !bounded(&row.id, MAX_SHORT)
+                || !row.diameter_mm.is_finite()
+                || row.diameter_mm < 0.0
+                || row.packages.len() > 16
+                || row.packages.iter().any(|p| !bounded(p, MAX_SHORT))
+            {
+                return Err("a nozzle needs an id, a diameter and up to 16 package names".into());
+            }
+        }
+        if pp
+            .rotation_offset
+            .iter()
+            .any(|r| !r.offset_deg.is_finite() || r.offset_deg.abs() > 360.0)
+        {
+            return Err("a rotation offset must be within 360 degrees either way".into());
+        }
         if self.pick_place.rotation_offset.len() > MAX_PROFILE_ROWS
             || self.pick_place.footprint_alias.len() > MAX_PROFILE_ROWS
             || self.pick_place.feeder_map.len() > MAX_PROFILE_ROWS
