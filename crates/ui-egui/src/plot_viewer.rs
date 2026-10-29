@@ -1,5 +1,6 @@
 //! Read-only fabrication plot viewer (folder load, layer overlay, measure).
 
+use crate::a11y::Named;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use pcbcraft_geom::Point;
 use pcbcraft_io::{PlotPackage, distance_mm, layer_bounds, load_plot_folder};
@@ -106,7 +107,7 @@ pub fn ui(
                 crate::targets::text_field(&mut state.folder_path)
                     .desired_width(220.0)
                     .hint_text("Path to copper and drill files"),
-            )
+            ).named("Path to copper and drill files")
             .on_hover_text(
                 "Type the folder where copper and drill files were written, then load them here.",
             );

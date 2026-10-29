@@ -1,6 +1,7 @@
 //! Properties section for a selected track: the width that would meet a
 //! target impedance, and the Tune length action with its before and after.
 use super::*;
+use crate::a11y::Named;
 
 /// What the last Tune length run reported, kept for display under the button.
 #[derive(Clone, Debug, Default)]
@@ -58,7 +59,7 @@ impl App {
                     .range(1.0..=1000.0)
                     .speed(0.5)
                     .suffix(" ohm"),
-            )
+            ).named("Target impedance")
             .on_hover_text(
                 "The impedance this connection should have, for example 50 ohm for a radio line. The suggestion below is worked out for it.",
             );
@@ -169,6 +170,7 @@ impl App {
                     .speed(0.1)
                     .suffix(" mm"),
             )
+            .named("Tuning target")
             .on_hover_text(
                 "How long the whole connection should end up, so it matches its partners.",
             );
@@ -181,6 +183,7 @@ impl App {
                     .speed(0.01)
                     .suffix(" mm"),
             )
+            .named("Allowed miss")
             .on_hover_text("Set how far the tuned result may land from the target, so tuning stops sooner. From 0.01 to 10 millimetres.");
         });
         ui.checkbox(&mut self.impedance_ui.tune_rounded, "Rounded bends")
