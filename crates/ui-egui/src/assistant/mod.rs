@@ -63,6 +63,8 @@ pub(crate) struct State {
     pub(crate) seen: (usize, i32),
     /// Waiting for the answer to "Forget this conversation?".
     pub(crate) confirm_forget: bool,
+    /// Open the Assistant part of Settings on the next frame.
+    pub(crate) settings_open: bool,
     pub(crate) host: Host,
     backend: Option<Box<dyn ChatBackend>>,
     ready: bool,
@@ -98,6 +100,7 @@ impl Default for State {
             saved_items: 0,
             seen: (0, 0),
             confirm_forget: false,
+            settings_open: false,
             host: Host::default(),
             backend: None,
             ready: false,

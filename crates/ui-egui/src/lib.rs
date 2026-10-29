@@ -4042,6 +4042,8 @@ impl App {
                 .small()
                 .color(self.muted()),
         );
+        ui.add_space(8.0);
+        assistant::settings::section(self, ui);
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new("ROUTING")
@@ -4606,8 +4608,6 @@ impl App {
                 .small()
                 .color(self.muted()),
         );
-        ui.add_space(16.0);
-        assistant::settings::section(self, ui);
     }
     fn rules_tab(&mut self, ui: &mut egui::Ui) {
         if self

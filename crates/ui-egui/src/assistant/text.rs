@@ -415,3 +415,6 @@ pub(super) fn disabled_tip() -> String {
 pub(super) fn switched_off_body() -> String {
     t!("assistant.switched_off_body")
 }
+pub(super) fn settings_heading_tip() -> String {
+    t!("assistant.settings_heading.tip")
+}

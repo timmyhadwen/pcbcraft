@@ -142,12 +142,29 @@ fn result_line(ui: &mut egui::Ui, t: &TestState, muted: egui::Color32) {
 
 /// The Assistant part of the Settings page.
 pub(crate) fn section(app: &mut App, ui: &mut egui::Ui) {
+    let open = app.assistant.settings_open;
+    let label = text::settings_heading();
+    if ui
+        .add(
+            egui::Button::new(if open {
+                format!("v {label}")
+            } else {
+                format!("> {label}")
+            })
+            .selected(open),
+        )
+        .on_hover_text(text::settings_heading_tip())
+        .clicked()
+    {
+        app.assistant.settings_open = !open;
+    }
+    if app.assistant.settings_open {
+        body(app, ui);
+    }
+}
+
+fn body(app: &mut App, ui: &mut egui::Ui) {
     let muted = app.muted();
-    ui.label(
-        egui::RichText::new(text::settings_heading())
-            .size(10.0)
-            .color(muted),
-    );
     ui.checkbox(&mut app.preferences.assistant_enabled, text::show())
         .on_hover_text(text::show_tip());
     if !app.preferences.assistant_enabled {
