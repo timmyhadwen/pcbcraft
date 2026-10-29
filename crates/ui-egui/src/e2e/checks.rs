@@ -366,7 +366,10 @@ fn a_newcomer_jumps_from_a_finding_to_the_copper_it_names() -> Result<(), String
             &format!("button:{name} has disconnected copper islands"),
         )?;
         assert_eq!(app.tab, Tab::Pcb, "{name}: the finding opens the board");
-        assert!(app.selected.is_some(), "{name}: the finding picks its copper");
+        assert!(
+            app.selected.is_some(),
+            "{name}: the finding picks its copper"
+        );
     }
     Ok(())
 }

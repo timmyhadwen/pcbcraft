@@ -168,7 +168,10 @@ fn a_newcomer_names_a_pair_of_wires_and_picks_both_sides() -> Result<(), String>
 #[test]
 fn a_newcomer_picks_two_connections_to_keep_apart_by_a_set_distance() -> Result<(), String> {
     let (mut app, ctx) = sample_in_rules()?;
-    for list in ["combobox:First net of the pair", "combobox:Second net of the pair"] {
+    for list in [
+        "combobox:First net of the pair",
+        "combobox:Second net of the pair",
+    ] {
         tap_id(&ctx, &mut app, list)?;
         tap_id(&ctx, &mut app, list)?;
     }

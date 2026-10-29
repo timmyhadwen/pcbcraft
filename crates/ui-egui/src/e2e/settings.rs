@@ -132,9 +132,10 @@ fn a_newcomer_pours_copper_and_prints_words_on_both_sides() -> Result<(), String
         .get(pours)
         .ok_or_else(|| format!("one click pours one block of copper: {}", app.message))?;
     assert!(
-        zone.outline
-            .iter()
-            .all(|p| p.x >= 3.0 - 1e-9 && p.x <= 13.0 + 1e-9 && p.y >= 4.0 - 1e-9 && p.y <= 12.0 + 1e-9)
+        zone.outline.iter().all(|p| p.x >= 3.0 - 1e-9
+            && p.x <= 13.0 + 1e-9
+            && p.y >= 4.0 - 1e-9
+            && p.y <= 12.0 + 1e-9)
             && zone.outline.iter().any(|p| (p.x - 13.0).abs() < 1e-9),
         "the copper covers the rectangle that was typed"
     );
@@ -316,7 +317,10 @@ fn a_newcomer_decides_how_much_the_assistant_may_change() -> Result<(), String> 
             "radiobutton:Auto-allow design edits",
             pcbcraft_assistant::Mode::Edits,
         ),
-        ("radiobutton:Allow everything", pcbcraft_assistant::Mode::All),
+        (
+            "radiobutton:Allow everything",
+            pcbcraft_assistant::Mode::All,
+        ),
         ("radiobutton:Ask every time", pcbcraft_assistant::Mode::Ask),
     ] {
         tap_id(&ctx, &mut app, button)?;

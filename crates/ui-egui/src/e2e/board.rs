@@ -1539,7 +1539,10 @@ fn a_newcomer_hides_and_shows_each_kind_of_thing_on_the_board() -> Result<(), St
 fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Pcb);
     tap_id(&ctx, &mut app, "icon:tool-route")?;
-    assert!(matches!(app.tool, Tool::Route(_)), "Route arms the track tool");
+    assert!(
+        matches!(app.tool, Tool::Route(_)),
+        "Route arms the track tool"
+    );
     for (id, shape) in [
         ("icon:tool-box", DrawShape::Rect),
         ("icon:tool-circle", DrawShape::Circle),
@@ -1553,7 +1556,10 @@ fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), S
         );
     }
     tap_id(&ctx, &mut app, "button:Cutout")?;
-    assert!(matches!(app.tool, Tool::Cutout), "Cutout arms the hole tool");
+    assert!(
+        matches!(app.tool, Tool::Cutout),
+        "Cutout arms the hole tool"
+    );
     Ok(())
 }
 
@@ -1563,7 +1569,10 @@ fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), Str
     tap_id(&ctx, &mut app, "icon:tool-wire")?;
     assert!(matches!(app.tool, Tool::Wire(_)), "Wire arms the wire tool");
     for (id, read) in [
-        ("button:Text", (|a: &App| a.edit.filter.text) as fn(&App) -> bool),
+        (
+            "button:Text",
+            (|a: &App| a.edit.filter.text) as fn(&App) -> bool,
+        ),
         ("button:Graphics", |a: &App| a.edit.filter.graphics),
         ("button:Copper", |a: &App| a.edit.filter.copper),
         ("button:Parts", |a: &App| a.edit.filter.parts),
@@ -1584,6 +1593,9 @@ fn a_newcomer_zooms_out_and_fits_the_whole_design() -> Result<(), String> {
     tap_id(&ctx, &mut app, "button:\u{2212}")?;
     assert!(app.schematic.zoom < before, "the minus button zooms out");
     tap_id(&ctx, &mut app, "icon:canvas-fit")?;
-    assert!(app.needs_fit || app.schematic.zoom > 0.0, "Fit frames the design");
+    assert!(
+        app.needs_fit || app.schematic.zoom > 0.0,
+        "Fit frames the design"
+    );
     Ok(())
 }
