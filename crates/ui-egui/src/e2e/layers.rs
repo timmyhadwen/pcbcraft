@@ -13,6 +13,10 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Layers")?;
     assert!(
+        scrolled_to(&ctx, &mut app, "This board")?,
+        "the tree still exposes the board root header"
+    );
+    assert!(
         paints_text(&ctx, &mut app, "This board")?,
         "the tree starts at the board itself: {}",
         app.message
