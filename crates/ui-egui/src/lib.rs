@@ -4793,7 +4793,7 @@ impl App {
                 .hint_text(t!("settings.settings_tab.folder_for_the_files_blank"))
                 .desired_width(220.0),
         )
-        .named("folder for the files (blank means \"outputs\" beside the design)
+        .named(&t!("settings.settings_tab.folder_for_the_files_blank"))
         .on_hover_text(t!("settings.settings_tab.folder_for_the_files_blank.tip"));
         if ui
             .button(t!("settings.settings_tab.copper_drill_files"))
