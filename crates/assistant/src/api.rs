@@ -33,9 +33,11 @@ const TEST_TIMEOUT_S: u64 = 60;
 /// Shown when the model ran out of room for its answer (`length`, `max_tokens`).
 const NOTE_CUT_BY_LENGTH: &str = "The model stopped early because the answer hit its length limit. Ask for a shorter answer or a smaller step.";
 /// Shown when the endpoint filtered the answer (`content_filter`).
-const NOTE_FILTERED: &str = "The endpoint filtered the answer, so it may be missing or partial. Try rewording the request.";
+const NOTE_FILTERED: &str =
+    "The endpoint filtered the answer, so it may be missing or partial. Try rewording the request.";
 /// Shown when the model declined to answer (`refusal`).
-const NOTE_REFUSED: &str = "The model declined to answer this request. Try rewording it or asking for a smaller step.";
+const NOTE_REFUSED: &str =
+    "The model declined to answer this request. Try rewording it or asking for a smaller step.";
 /// Tools the model is not offered. None today.
 const HIDDEN_TOOLS: &[&str] = &[];
 

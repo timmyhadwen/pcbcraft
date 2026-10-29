@@ -609,7 +609,8 @@ fn a_content_filter_or_refusal_stop_shows_a_note() -> Result<(), String> {
         say(&mut b, "go");
         let events = run_until(&mut b, ended)?;
         assert_eq!(notes_of(&events).len(), 1, "{reason}");
-        let ended_with = matches!(events.last(), Some(Event::TurnEnded { reason: r }) if r == reason);
+        let ended_with =
+            matches!(events.last(), Some(Event::TurnEnded { reason: r }) if r == reason);
         assert!(ended_with, "{reason}");
     }
     Ok(())
