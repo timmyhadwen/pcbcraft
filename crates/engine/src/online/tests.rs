@@ -1,8 +1,9 @@
-//! Tests for `library.import_online`.
+//! Tests for `library.import_online` and `library.place_online`.
 use super::*;
 use pcbcraft_library::{read_footprint, read_symbols};
 
 const DEVICE: &str = include_str!("../../../library/tests/fixtures/device.kicad_sym");
+const LM358: &str = include_str!("../../../library/tests/fixtures/lm358.kicad_sym");
 const R0805: &str = include_str!("../../../library/tests/fixtures/R_0805_2012Metric.kicad_mod");
 const NOTICE: &str = "Imported symbol from Open library: Device.kicad_symdir/R.kicad_sym. Licence CC-BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).";
 
@@ -26,10 +27,19 @@ fn import_params() -> Result<Value, Error> {
     }))
 }
 
+fn place_params(target: &str, x: f64, y: f64) -> Result<Value, Error> {
+    let mut v = import_params()?;
+    v["target"] = json!(target);
+    v["position"] = json!({"x": x, "y": y});
+    Ok(v)
+}
+
 #[test]
-fn the_command_is_listed_with_its_schema() {
+fn both_commands_are_listed_with_their_schemas() {
     let all = commands();
-    assert!(all.iter().any(|c| c.id == "library.import_online"));
+    for id in ["library.import_online", "library.place_online"] {
+        assert!(all.iter().any(|c| c.id == id), "{id} is registered");
+    }
 }
 
 #[test]
@@ -167,5 +177,196 @@ fn import_online_with_a_bad_definition_changes_nothing() -> Result<(), Error> {
     assert_eq!(s.revision, revision);
     assert!(s.project.library.symbols.is_empty());
     assert!(s.project.library.notices.is_empty());
+    Ok(())
+}
+
+#[test]
+fn place_online_on_the_schematic_places_one_component() -> Result<(), Error> {
+    let mut s = Session::default();
+    let components = s.project.components.len();
+    let boards = s.project.board.footprints.len();
+    let out = s.execute(
+        "library.place_online",
+        place_params("schematic", 40.0, 30.0)?,
+        None,
+    )?;
+    assert_eq!(s.project.components.len(), components + 1);
+    assert_eq!(
+        s.project.board.footprints.len(),
+        boards,
+        "no board footprint from a schematic drop"
+    );
+    let id = out["result"]["component"].as_u64().ok_or_else(missing)?;
+    let c = s.project.component(id).ok_or_else(missing)?;
+    assert_eq!((c.position.x, c.position.y), (40.0, 30.0));
+    assert!(c.library_footprint.is_some(), "the footprint is assigned");
+    assert!(c.library_symbol.is_some());
+    assert_eq!(out["result"]["footprint"], Value::Null);
+    Ok(())
+}
+
+#[test]
+fn place_online_on_the_layout_adds_the_part_to_the_schematic_too() -> Result<(), Error> {
+    let mut s = Session::default();
+    let components = s.project.components.len();
+    let boards = s.project.board.footprints.len();
+    let out = s.execute(
+        "library.place_online",
+        place_params("layout", 12.0, 14.0)?,
+        None,
+    )?;
+    assert_eq!(
+        s.project.components.len(),
+        components + 1,
+        "also on the schematic"
+    );
+    assert_eq!(s.project.board.footprints.len(), boards + 1);
+    let id = out["result"]["component"].as_u64().ok_or_else(missing)?;
+    let fid = out["result"]["footprint"].as_u64().ok_or_else(missing)?;
+    let f = s
+        .project
+        .board
+        .footprints
+        .iter()
+        .find(|f| f.id == fid)
+        .ok_or_else(missing)?;
+    assert_eq!(f.component, id);
+    assert_eq!((f.position.x, f.position.y), (12.0, 14.0));
+    assert_eq!(f.pads.len(), 2);
+    let c = s.project.component(id).ok_or_else(missing)?;
+    assert_eq!(c.sheet, 0);
+    assert_ne!(
+        (c.position.x, c.position.y),
+        (12.0, 14.0),
+        "the symbol sits on its own free spot"
+    );
+
+    // A second part lands on a different free spot, not on top of the first.
+    let second = s.execute(
+        "library.place_online",
+        {
+            let mut v = place_params("layout", 30.0, 14.0)?;
+            v["on_conflict"] = json!("replace");
+            v
+        },
+        None,
+    )?;
+    let id2 = second["result"]["component"].as_u64().ok_or_else(missing)?;
+    let c2 = s.project.component(id2).ok_or_else(missing)?;
+    let c1 = s.project.component(id).ok_or_else(missing)?;
+    assert!(
+        (c1.position.x - c2.position.x).abs() >= 30.0
+            || (c1.position.y - c2.position.y).abs() >= 22.0,
+        "free spots do not overlap"
+    );
+    Ok(())
+}
+
+#[test]
+fn place_online_is_one_undo_step() -> Result<(), Error> {
+    let mut s = Session::default();
+    let components = s.project.components.clone();
+    let footprints = s.project.board.footprints.clone();
+    let library = s.project.library.clone();
+    s.execute(
+        "library.place_online",
+        place_params("layout", 12.0, 14.0)?,
+        None,
+    )?;
+    s.undo()?;
+    assert_eq!(s.project.components, components);
+    assert_eq!(s.project.board.footprints, footprints);
+    assert_eq!(s.project.library, library, "the import and notice go too");
+    Ok(())
+}
+
+#[test]
+fn place_online_with_mismatched_pads_changes_nothing() -> Result<(), Error> {
+    let mut s = Session::default();
+    let revision = s.revision;
+    let mut params = place_params("layout", 12.0, 14.0)?;
+    params["symbol"] =
+        serde_json::to_value(symbol(LM358, "LM358")?).map_err(|e| Error::Invalid(e.to_string()))?;
+    let err = s
+        .execute("library.place_online", params, None)
+        .err()
+        .ok_or_else(missing)?;
+    assert!(err.to_string().contains("pad numbers must match"), "{err}");
+    assert_eq!(s.revision, revision);
+    assert!(
+        s.project.library.symbols.is_empty(),
+        "the import was rolled back"
+    );
+    assert!(s.project.components.is_empty());
+    Ok(())
+}
+
+#[test]
+fn place_online_without_a_footprint_places_the_symbol_only() -> Result<(), Error> {
+    let mut s = Session::default();
+    let mut params = place_params("schematic", 40.0, 30.0)?;
+    if let Some(map) = params.as_object_mut() {
+        map.remove("footprint");
+    }
+    let out = s.execute("library.place_online", params, None)?;
+    assert_eq!(out["result"]["footprint_missing"], true);
+    let id = out["result"]["component"].as_u64().ok_or_else(missing)?;
+    assert!(
+        s.project
+            .component(id)
+            .ok_or_else(missing)?
+            .library_footprint
+            .is_none()
+    );
+
+    let mut layout = place_params("layout", 5.0, 5.0)?;
+    if let Some(map) = layout.as_object_mut() {
+        map.remove("footprint");
+    }
+    assert!(
+        s.execute("library.place_online", layout, None).is_err(),
+        "the layout needs a footprint"
+    );
+    Ok(())
+}
+
+#[test]
+fn place_online_refuses_a_reference_in_use() -> Result<(), Error> {
+    let mut s = Session::default();
+    let mut first = place_params("schematic", 40.0, 30.0)?;
+    first["reference"] = json!("R7");
+    s.execute("library.place_online", first.clone(), None)?;
+    first["position"] = json!({"x": 80.0, "y": 30.0});
+    let before = s.project.components.len();
+    assert!(s.execute("library.place_online", first, None).is_err());
+    assert_eq!(s.project.components.len(), before);
+    Ok(())
+}
+
+#[test]
+fn place_online_applies_fields_and_rotation() -> Result<(), Error> {
+    let mut s = Session::default();
+    let mut params = place_params("schematic", 40.0, 30.0)?;
+    params["rotation"] = json!(90.0);
+    params["value"] = json!("10k");
+    params["fields"] = json!([{"key": "Datasheet", "value": "https://example.com/r.pdf"}]);
+    let out = s.execute("library.place_online", params, None)?;
+    let id = out["result"]["component"].as_u64().ok_or_else(missing)?;
+    let c = s.project.component(id).ok_or_else(missing)?;
+    assert_eq!(c.rotation, 90.0);
+    assert_eq!(c.value, "10k");
+    assert!(
+        c.fields
+            .iter()
+            .any(|f| f.key == "Datasheet" && f.value == "https://example.com/r.pdf")
+    );
+    Ok(())
+}
+
+#[test]
+fn place_online_refuses_positions_out_of_range() -> Result<(), Error> {
+    let mut s = Session::default();
+    let params = place_params("schematic", 1.0e9, 0.0)?;
+    assert!(s.execute("library.place_online", params, None).is_err());
     Ok(())
 }

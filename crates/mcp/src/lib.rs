@@ -1330,10 +1330,9 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default();
-        assert!(
-            ids.iter().any(|x| x == "library.import_online"),
-            "library.import_online is listed"
-        );
+        for id in ["library.import_online", "library.place_online"] {
+            assert!(ids.iter().any(|x| x == id), "{id} is listed");
+        }
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../library/tests/fixtures/device.kicad_sym");
         let inspected = call_tool(
@@ -1359,6 +1358,16 @@ mod tests {
                 .pointer("/project/library/notices/0")
                 .and_then(Value::as_str),
             Some("Imported symbol from a test source. Licence CC-BY-SA 4.0.")
+        );
+        let refused = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"library.place_online","params":{"target":"layout","position":{"x":1.0,"y":1.0}}}),
+        );
+        assert_eq!(
+            refused.get("isError"),
+            Some(&json!(true)),
+            "a symbol is required"
         );
         Ok(())
     }
