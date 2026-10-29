@@ -21,6 +21,8 @@ use pcbcraft_mcp::SharedSession;
 use pcbcraft_text::t;
 #[cfg(test)]
 use std::collections::BTreeMap;
+/// Window width in points under which side docks give way to the drawing.
+const NARROW_WINDOW: f32 = 640.0;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
@@ -2813,7 +2815,7 @@ impl App {
         }
         let used = shown.len() as f32 * 90.0 + 40.0;
         let mut close = None;
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add_space(((ui.available_width() - used) / 2.0).max(8.0));
             for (tab, label) in shown.iter().copied() {
                 let selected = self.tab == tab;
@@ -3281,6 +3283,12 @@ impl App {
         }
         counts
     }
+    /// True when the window is too narrow to put the library dock beside the
+    /// drawing (WCAG 1.4.10 reflow at 320 points). The dock steps aside and the
+    /// Lib button opens the Libraries page instead.
+    fn narrow_window(ctx: &egui::Context) -> bool {
+        ctx.content_rect().width() < NARROW_WINDOW
+    }
     fn browser(&mut self, ui: &mut egui::Ui) {
         egui::Panel::left("left-rail")
             .exact_size(44.0)
@@ -3297,7 +3305,11 @@ impl App {
                         .on_hover_text("Show or hide the component library.")
                         .clicked()
                     {
-                        self.preferences.library_dock_open = !self.preferences.library_dock_open;
+                        if Self::narrow_window(ui.ctx()) {
+                            self.change_tab(Tab::Libraries);
+                        } else {
+                            self.preferences.library_dock_open = !self.preferences.library_dock_open;
+                        }
                     }
                     ui.add_space(8.0);
                     let counts = Self::finding_counts(&self.checks);
@@ -3318,7 +3330,7 @@ impl App {
                     }
                 });
             });
-        if !self.preferences.library_dock_open {
+        if !self.preferences.library_dock_open || Self::narrow_window(ui.ctx()) {
             return;
         }
         egui::Panel::left("library-dock")
@@ -3943,7 +3955,7 @@ impl App {
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(28, 20))
             .show(ui, |ui| {
-                ui.set_max_width(720.0);
+                ui.set_max_width(ui.available_width().min(720.0));
                 add(ui)
             })
             .inner
@@ -3968,7 +3980,7 @@ impl App {
         });
         ui.checkbox(&mut self.preferences.grid, "Show grid");
         ui.label("Interface size");
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             for (label, scale) in a11y::UI_SCALE_STEPS {
                 let on = (self.preferences.ui_scale - scale).abs() < 0.01;
                 if ui
@@ -4820,7 +4832,7 @@ impl App {
             .small()
             .color(self.muted()),
         );
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add(
                 egui::DragValue::new(&mut self.teardrop_depth)
                     .range(0.05..=5.0)
@@ -5718,6 +5730,17 @@ impl App {
         }
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
+        if Self::narrow_window(ui.ctx()) {
+            egui::Panel::bottom("inspector-narrow")
+                .default_size(260.0)
+                .frame(Self::dock_frame(ui.style()))
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| self.inspector_body(ui, 220.0));
+                });
+            return;
+        }
         egui::Panel::right("inspector")
             .default_size(280.0)
             .min_size(280.0)
@@ -5725,45 +5748,44 @@ impl App {
             .show(ui, |ui| {
                 let split = self.preferences.aside_split.clamp(0.25, 0.75);
                 let top_h = (ui.available_height() * split).min(ui.available_height() - 160.0);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), top_h),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        self.section_heading(ui, "Layers");
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| self.layers_tab(ui));
-                    },
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.preferences.aside_split, 0.25..=0.75)
-                        .show_value(false)
-                        .text("Resize"),
-                )
-                .on_hover_text("Drag to give the Layers tree more or less room.");
-                ui.horizontal(|ui| {
-                    ui.selectable_value(
-                        &mut self.preferences.aside_lower_tab,
-                        0,
-                        "Properties",
-                    )
-                    .on_hover_text("Details for whatever is selected on the drawing.");
-                    ui.selectable_value(
-                        &mut self.preferences.aside_lower_tab,
-                        1,
-                        "Assistant",
-                    )
-                    .on_hover_text("How to connect an external agent through MCP.");
-                });
-                if self.preferences.aside_lower_tab == 1 {
-                    ui.add_space(12.0);
-                    ui.label(
-                        "Connect an agent through the live MCP bridge described in docs/mcp.md. \
-                         The desktop session exposes the same typed commands the UI uses.",
-                    );
-                    return;
-                }
+                self.inspector_body(ui, top_h);
+            });
+    }
+    /// The layers tree over the properties page, in the side dock or, in a
+    /// narrow window, in the strip under the drawing. `top_h` is the height
+    /// the layers tree gets.
+    fn inspector_body(&mut self, ui: &mut egui::Ui, top_h: f32) {
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), top_h),
+            egui::Layout::top_down(egui::Align::LEFT),
+            |ui| {
+                self.section_heading(ui, "Layers");
                 egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.layers_tab(ui));
+            },
+        );
+        ui.add(
+            egui::Slider::new(&mut self.preferences.aside_split, 0.25..=0.75)
+                .show_value(false)
+                .text("Resize"),
+        )
+        .on_hover_text("Drag to give the Layers tree more or less room.");
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.preferences.aside_lower_tab, 0, "Properties")
+                .on_hover_text("Details for whatever is selected on the drawing.");
+            ui.selectable_value(&mut self.preferences.aside_lower_tab, 1, "Assistant")
+                .on_hover_text("How to connect an external agent through MCP.");
+        });
+        if self.preferences.aside_lower_tab == 1 {
+            ui.add_space(12.0);
+            ui.label(
+                "Connect an agent through the live MCP bridge described in docs/mcp.md. \
+                         The desktop session exposes the same typed commands the UI uses.",
+            );
+            return;
+        }
+        egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                 self.draw_tool_options(ui);
@@ -6126,7 +6148,6 @@ impl App {
                     ui.add_space(12.0);
                 }
                     });
-            });
     }
     fn footer(&mut self, ui: &mut egui::Ui) {
         let mut fix = 0usize;
