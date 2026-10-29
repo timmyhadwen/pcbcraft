@@ -6,6 +6,8 @@ language.name = English
 
 app.name = PCBCraft
 app.brand.tip = Back to the start screen, where you open or begin a design.
+app.home = Home
+app.home.tip = Open the start screen.
 app.version = PCBCraft {version}
 app.version.tip = The version of PCBCraft you are running.
 app.report_bug = Report a bug

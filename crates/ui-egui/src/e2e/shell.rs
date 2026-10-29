@@ -230,8 +230,8 @@ fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "Accueil")?,
-        "the Home button reads Accueil"
+        paints_text(&ctx, &mut app, "Aide")?,
+        "the Help menu reads Aide"
     );
     assert_eq!(app.preferences.language, "fr", "the choice is remembered");
     // Closing and reopening the app keeps the saved choice.
