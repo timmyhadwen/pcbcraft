@@ -12528,6 +12528,13 @@ fn run_command(
                         }
                         skipped.extend(plots.skipped);
                     }
+                    "raster" => {
+                        for (name, bytes) in pcbcraft_io::raster_job_pngs(p)? {
+                            pcbcraft_io::atomic_write(&directory.join(&name), &bytes)
+                                .map_err(Error::Invalid)?;
+                            written.push(name);
+                        }
+                    }
                     other => {
                         return Err(Error::Invalid(format!("unknown export kind {other}")));
                     }
@@ -25955,6 +25962,39 @@ mod tests {
             "netlist.csv",
             "plot-report.csv",
             "board-report.txt",
+        ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn raster_job_writes_six_pngs_into_the_folder() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-raster-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"layers","kinds":["raster"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"layers","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        for name in [
+            "layer-copper-top.png",
+            "layer-copper-bottom.png",
+            "layer-mask-top.png",
+            "layer-mask-bottom.png",
+            "layer-legend-top.png",
+            "layer-legend-bottom.png",
         ] {
             assert!(
                 directory.join(name).exists(),

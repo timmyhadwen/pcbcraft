@@ -1024,7 +1024,7 @@ pub struct BoardText {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 26] = [
+pub const OUTPUT_KINDS: [&str; 27] = [
     "gerbers",
     "netlist",
     "bom",
@@ -1051,6 +1051,7 @@ pub const OUTPUT_KINDS: [&str; 26] = [
     "stats",
     "layer_plots",
     "panel",
+    "raster",
 ];
 /// How many export kinds one output job may hold. It is larger than the kind
 /// list so a single job can still ask for every file a board needs.
