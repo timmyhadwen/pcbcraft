@@ -12,6 +12,7 @@ mod board3d;
 mod board_side;
 mod builds;
 mod checks;
+mod context_menus;
 mod editing;
 mod images;
 mod layers;
