@@ -188,6 +188,7 @@ fn a_newcomer_steps_through_the_layers() -> Result<(), String> {
         paints_text(&ctx, &mut app, &status)?,
         "the status bar names the layer"
     );
+    authoring::tests::tap(&ctx, &mut app, &status)?;
     Ok(())
 }
 

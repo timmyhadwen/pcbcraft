@@ -341,6 +341,9 @@ pub(crate) struct Env<'a> {
     pub muted: Color32,
 }
 
+/// Largest side of the rendered picture in pixels; 2048 is the smallest texture limit in use.
+const MAX_PICTURE_SIDE: usize = 2048;
+
 /// Render the mesh for the current camera, reusing the last picture while
 /// nothing it depends on has changed.
 ///
@@ -350,6 +353,7 @@ pub(crate) struct Env<'a> {
 ///
 /// # Rules
 /// - Returns none until a mesh exists or while the viewport is too small.
+/// - Never asks for a texture side above `MAX_PICTURE_SIDE`.
 fn picture(
     view: &mut View3d,
     ctx: &egui::Context,
@@ -359,9 +363,11 @@ fn picture(
 ) -> Option<egui::TextureId> {
     let revision = view.mesh.as_ref().map(|(r, _)| *r)?;
     let ppp = ctx.pixels_per_point().clamp(1.0, 3.0);
+    // The picture is stretched over the viewport, so a tall or wide panel never needs a texture
+    // larger than the smallest side every graphics device accepts.
     let size = [
-        (rect.width() * ppp).round() as usize,
-        (rect.height() * ppp).round() as usize,
+        ((rect.width() * ppp).round() as usize).min(MAX_PICTURE_SIDE),
+        ((rect.height() * ppp).round() as usize).min(MAX_PICTURE_SIDE),
     ];
     if size[0] < 8 || size[1] < 8 {
         return None;
