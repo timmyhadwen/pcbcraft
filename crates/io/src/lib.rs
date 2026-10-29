@@ -5488,17 +5488,21 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
                     (pin.unit == 0 && library.unit == 1 || pin.unit == library.unit)
                         && pin.body_style <= 1
                 }) {
-                    let angle = pin.angle.to_radians();
-                    let end = pin.position.offset(Point::new(
-                        pin.length * angle.cos(),
-                        -pin.length * angle.sin(),
-                    ));
+                    if !pin.visible {
+                        continue;
+                    }
+                    let end = pin.stem_end();
                     line(
                         &mut image,
                         to_pixel(c.position.offset(pin.position.rotate(-c.rotation))),
                         to_pixel(c.position.offset(end.rotate(-c.rotation))),
                         0.7,
                         [219, 231, 242],
+                    );
+                    schematic_pin_decorations_png(
+                        &mut image,
+                        pin,
+                        &|point| to_pixel(c.position.offset(point.rotate(-c.rotation))),
                     );
                 }
                 continue;
@@ -5873,16 +5877,22 @@ pub fn symbol_library_text(symbol: &pcbcraft_library::SymbolDefinition) -> Resul
             .iter()
             .filter(|p| p.unit == unit && p.body_style == body_style)
         {
-            out.push_str(&format!(
-                "      (pin {} line (at {} {} {}) (length {}) (name {}) (number {}))\n",
+            let mut pin_line = format!(
+                "      (pin {} {} (at {} {} {}) (length {}) (name {}) (number {})",
                 lib_token(&pin.electrical_type, "passive"),
+                lib_token(&pin.graphical_style, "line"),
                 pin.position.x,
                 -pin.position.y,
                 pin.angle,
                 pin.length,
                 lib_text(&pin.name),
                 lib_text(&pin.number)
-            ));
+            );
+            if !pin.visible {
+                pin_line.push_str(" (hide yes)");
+            }
+            pin_line.push_str(")\n");
+            out.push_str(&pin_line);
         }
         for graphic in symbol
             .graphics
@@ -6031,6 +6041,94 @@ pub fn footprint_svg(footprint: &pcbcraft_library::FootprintDefinition) -> Resul
     Ok(svg_document(&footprint.name, box_min, box_max, body))
 }
 
+fn symbol_pin_svg(
+    pin: &pcbcraft_library::SymbolPin,
+    body: &mut String,
+    grow: &mut impl FnMut(Point),
+) {
+    grow(pin.position);
+    let end = pin.stem_end();
+    grow(end);
+    if pin.visible {
+        body.push_str(&format!(
+            "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\" stroke-width=\"0.25\"/>\n",
+            svg_num(pin.position.x),
+            svg_num(pin.position.y),
+            svg_num(end.x),
+            svg_num(end.y)
+        ));
+        for (center, radius) in pin.decoration_bubbles() {
+            grow(center);
+            grow(center.offset(Point::new(radius, radius)));
+            grow(center.offset(Point::new(-radius, -radius)));
+            body.push_str(&format!(
+                "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"none\" stroke=\"black\" stroke-width=\"0.12\"/>\n",
+                svg_num(center.x),
+                svg_num(center.y),
+                svg_num(radius)
+            ));
+        }
+        for path in pin.decoration_paths() {
+            for p in &path {
+                grow(*p);
+            }
+            if path.len() >= 3 {
+                let coords = path
+                    .iter()
+                    .map(|p| format!("{},{}", svg_num(p.x), svg_num(p.y)))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                body.push_str(&format!(
+                    "<polygon points=\"{coords}\" fill=\"none\" stroke=\"black\" stroke-width=\"0.12\"/>\n"
+                ));
+            } else if path.len() == 2 {
+                body.push_str(&format!(
+                    "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\" stroke-width=\"0.12\"/>\n",
+                    svg_num(path[0].x),
+                    svg_num(path[0].y),
+                    svg_num(path[1].x),
+                    svg_num(path[1].y)
+                ));
+            }
+        }
+    }
+    body.push_str(&format!(
+        "<text x=\"{}\" y=\"{}\" font-size=\"0.8\" text-anchor=\"middle\" fill=\"black\">{}</text>\n",
+        svg_num(pin.position.x),
+        svg_num(pin.position.y),
+        lib_svg_escape(&pin.number)
+    ));
+}
+
+fn schematic_pin_decorations_png(
+    image: &mut image::RgbImage,
+    pin: &pcbcraft_library::SymbolPin,
+    map: &impl Fn(Point) -> Point,
+) {
+    let ink = [219, 231, 242];
+    for (center, radius) in pin.decoration_bubbles() {
+        let center_px = map(center);
+        let edge_px = map(center.offset(Point::new(radius, 0.0)));
+        disk(image, center_px, center_px.distance(edge_px), ink);
+    }
+    for path in pin.decoration_paths() {
+        if path.len() >= 3 {
+            let points: Vec<Point> = path.iter().map(|p| map(*p)).collect();
+            fill_polygon(image, &points, ink);
+            for pair in points.windows(2) {
+                if let (Some(a), Some(b)) = (pair.first(), pair.get(1)) {
+                    line(image, *a, *b, 0.35, ink);
+                }
+            }
+            if let (Some(first), Some(last)) = (points.first(), points.last()) {
+                line(image, *last, *first, 0.35, ink);
+            }
+        } else if path.len() == 2 {
+            line(image, map(path[0]), map(path[1]), 0.35, ink);
+        }
+    }
+}
+
 /// Render one library symbol as a standalone SVG preview: body and unit
 /// artwork with pin lines and pin numbers, in millimetre coordinates drawn
 /// y-up like the schematic sheet.
@@ -6051,26 +6149,7 @@ pub fn symbol_svg(symbol: &pcbcraft_library::SymbolDefinition) -> Result<String,
         lib_svg_graphic(&g.primitive, &mut body, &mut grow);
     }
     for pin in symbol.pins.iter().filter(|pin| pin.body_style <= 1) {
-        grow(pin.position);
-        let angle = pin.angle.to_radians();
-        let end = pin.position.offset(Point::new(
-            pin.length * angle.cos(),
-            -pin.length * angle.sin(),
-        ));
-        grow(end);
-        body.push_str(&format!(
-            "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\" stroke-width=\"0.25\"/>\n",
-            svg_num(pin.position.x),
-            svg_num(pin.position.y),
-            svg_num(end.x),
-            svg_num(end.y)
-        ));
-        body.push_str(&format!(
-            "<text x=\"{}\" y=\"{}\" font-size=\"0.8\" text-anchor=\"middle\" fill=\"black\">{}</text>\n",
-            svg_num(pin.position.x),
-            svg_num(pin.position.y),
-            lib_svg_escape(&pin.number)
-        ));
+        symbol_pin_svg(pin, &mut body, &mut grow);
     }
     Ok(svg_document(&symbol.name, box_min, box_max, body))
 }
@@ -10315,6 +10394,171 @@ mod tests {
                 assert_eq!(again.graphics, symbol.graphics);
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn symbol_library_text_round_trips_graphical_style_and_hide() -> Result<(), String> {
+        let mut symbol = pcbcraft_library::SymbolDefinition {
+            name: "DECO".into(),
+            reference: "U".into(),
+            value: "DECO".into(),
+            description: String::new(),
+            keywords: String::new(),
+            footprint: String::new(),
+            set: String::new(),
+            pins: vec![pcbcraft_library::SymbolPin {
+                number: "1".into(),
+                name: "CLK".into(),
+                position: Point::new(5.0, 0.0),
+                angle: 180.0,
+                length: 2.54,
+                electrical_type: "input".into(),
+                unit: 1,
+                body_style: 1,
+                graphical_style: "inverted_clock".into(),
+                visible: false,
+            }],
+            graphics: vec![pcbcraft_library::UnitGraphic {
+                unit: 1,
+                body_style: 1,
+                primitive: pcbcraft_library::Graphic::Rectangle {
+                    start: Point::new(-2.0, -2.0),
+                    end: Point::new(2.0, 2.0),
+                    width: 0.12,
+                    fill: "none".into(),
+                    layer: "symbol".into(),
+                },
+            }],
+            extends: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        symbol.validate().map_err(|e| e.to_string())?;
+        let text = symbol_library_text(&symbol)?;
+        assert!(text.contains("inverted_clock"));
+        assert!(text.contains("(hide yes)"));
+        let again = pcbcraft_library::read_symbols(&text).map_err(|e| e.to_string())?;
+        assert_eq!(again.len(), 1);
+        assert_eq!(again[0].pins, symbol.pins);
+        Ok(())
+    }
+
+    #[test]
+    fn symbol_svg_inverted_clock_pin_has_circle_at_connection() -> Result<(), String> {
+        let symbol = pcbcraft_library::SymbolDefinition {
+            name: "DECO".into(),
+            reference: "U".into(),
+            value: "DECO".into(),
+            description: String::new(),
+            keywords: String::new(),
+            footprint: String::new(),
+            set: String::new(),
+            pins: vec![pcbcraft_library::SymbolPin {
+                number: "1".into(),
+                name: "CLK".into(),
+                position: Point::new(0.0, 0.0),
+                angle: 0.0,
+                length: 2.54,
+                electrical_type: "input".into(),
+                unit: 1,
+                body_style: 1,
+                graphical_style: "inverted_clock".into(),
+                visible: true,
+            }],
+            graphics: vec![],
+            extends: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        let svg = symbol_svg(&symbol)?;
+        assert!(
+            svg.contains("<circle"),
+            "inverted clock bubble renders as a circle"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_preview_png_shows_clock_wedge_pixels() -> Result<(), String> {
+        let definition = pcbcraft_library::SymbolPin {
+            number: "1".into(),
+            name: "CLK".into(),
+            position: Point::new(-5.0, 0.0),
+            angle: 0.0,
+            length: 2.54,
+            electrical_type: "input".into(),
+            unit: 1,
+            body_style: 1,
+            graphical_style: "clock".into(),
+            visible: true,
+        };
+        let symbol = pcbcraft_library::SymbolDefinition {
+            name: "CLKPART".into(),
+            reference: "U".into(),
+            value: "CLKPART".into(),
+            description: String::new(),
+            keywords: String::new(),
+            footprint: String::new(),
+            set: String::new(),
+            pins: vec![definition.clone()],
+            graphics: vec![pcbcraft_library::UnitGraphic {
+                unit: 1,
+                body_style: 1,
+                primitive: pcbcraft_library::Graphic::Rectangle {
+                    start: Point::new(-3.0, -3.0),
+                    end: Point::new(0.0, 3.0),
+                    width: 0.12,
+                    fill: "none".into(),
+                    layer: "symbol".into(),
+                },
+            }],
+            extends: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        symbol.validate().map_err(|e| e.to_string())?;
+        let mut project = Project::default();
+        project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
+            id: 1,
+            reference: "U1".into(),
+            value: "CLKPART".into(),
+            kind: "library".into(),
+            position: Point::new(40.0, 30.0),
+            rotation: 0.0,
+            pins: vec![pcbcraft_doc::Pin {
+                number: definition.number.clone(),
+                name: definition.name.clone(),
+                offset: definition.position,
+                net: None,
+                electrical_type: definition.electrical_type.clone(),
+                direction: Some(definition.angle),
+                unit: definition.unit,
+            }],
+            units: vec![],
+            library_symbol: Some(pcbcraft_doc::LibrarySymbol {
+                library: "project".into(),
+                unit: 1,
+                definition: symbol,
+            }),
+            library_footprint: None,
+            fields: vec![],
+        });
+        project.validate()?;
+        let png = preview_png(&project, "schematic")?;
+        let image = image::load_from_memory(&png).map_err(|e| e.to_string())?;
+        let anchor = project.components[0].position.offset(definition.position);
+        let (min, max) = preview_bounds(&project, "schematic");
+        let scale = (880.0 / (max.x - min.x + 8.0).max(1.0)).min(560.0 / (max.y - min.y + 8.0).max(1.0));
+        let px = (60.0 + (anchor.x - (min.x - 4.0)) * scale).round() as u32;
+        let py = (60.0 + (anchor.y - (min.y - 4.0)) * scale).round() as u32;
+        let pixel = image.get_pixel(px.min(999), py.min(679));
+        assert!(
+            pixel.0[0] > 40 || pixel.0[1] > 40,
+            "connection area should carry pin ink, got {:?}",
+            pixel.0
+        );
         Ok(())
     }
 

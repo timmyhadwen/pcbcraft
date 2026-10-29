@@ -26690,6 +26690,50 @@ mod tests {
     }
 
     #[test]
+    fn library_symbol_pin_set_accepts_graphical_style() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "library.import_symbol_file",
+            json!({"path": library_fixture("device.kicad_sym")}),
+            None,
+        )?;
+        let out = s.execute(
+            "library.symbol.pin_set",
+            json!({
+                "name": "R",
+                "pin": {
+                    "number": "1",
+                    "name": "A",
+                    "position": {"x": 0.0, "y": 3.81},
+                    "angle": 270.0,
+                    "length": 1.27,
+                    "electrical_type": "passive",
+                    "unit": 1,
+                    "body_style": 1,
+                    "graphical_style": "clock",
+                    "visible": true
+                }
+            }),
+            None,
+        )?;
+        assert_eq!(out["result"]["name"], json!("R"));
+        let pin = s
+            .project
+            .library
+            .symbols
+            .iter()
+            .find(|sym| sym.name == "R")
+            .ok_or_else(missing)?
+            .pins
+            .iter()
+            .find(|p| p.number == "1")
+            .ok_or_else(missing)?;
+        assert_eq!(pin.graphical_style, "clock");
+        assert!(pin.visible);
+        Ok(())
+    }
+
+    #[test]
     fn library_items_duplicate_under_new_names_without_disturbing_originals() -> Result<(), Error> {
         let mut s = Session::default();
         let directory =

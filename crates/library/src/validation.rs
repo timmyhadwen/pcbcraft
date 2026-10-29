@@ -129,6 +129,10 @@ impl SymbolDefinition {
             text(&p.number)?;
             text(&p.name)?;
             text(&p.electrical_type)?;
+            text(&p.graphical_style)?;
+            if !SymbolPin::graphical_style_supported(&p.graphical_style) {
+                return Err(bad("invalid pin graphical style"));
+            }
             if p.number.is_empty()
                 || p.electrical_type.is_empty()
                 || !p.position.valid()
