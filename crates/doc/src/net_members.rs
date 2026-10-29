@@ -112,16 +112,15 @@ impl Project {
         let mut per: std::collections::BTreeMap<u8, LayerMembers> = Default::default();
         let mut entry = |this: &Project, i: u8| {
             layers.insert(i);
-            per.entry(i)
-                .or_insert_with(|| LayerMembers {
-                    layer: i,
-                    name: crate::Layer::from_index(i)
-                        .map(|l| this.layer_name(l))
-                        .unwrap_or_default(),
-                    tracks: vec![],
-                    zones: vec![],
-                    vias: vec![],
-                });
+            per.entry(i).or_insert_with(|| LayerMembers {
+                layer: i,
+                name: crate::Layer::from_index(i)
+                    .map(|l| this.layer_name(l))
+                    .unwrap_or_default(),
+                tracks: vec![],
+                zones: vec![],
+                vias: vec![],
+            });
         };
         let mut tracks: Vec<(u8, Id)> = vec![];
         let mut zones: Vec<(u8, Id)> = vec![];
@@ -152,8 +151,16 @@ impl Project {
         }
         let mut by_layer: Vec<LayerMembers> = per.into_values().collect();
         for lm in &mut by_layer {
-            lm.tracks = tracks.iter().filter(|t| t.0 == lm.layer).map(|t| t.1).collect();
-            lm.zones = zones.iter().filter(|z| z.0 == lm.layer).map(|z| z.1).collect();
+            lm.tracks = tracks
+                .iter()
+                .filter(|t| t.0 == lm.layer)
+                .map(|t| t.1)
+                .collect();
+            lm.zones = zones
+                .iter()
+                .filter(|z| z.0 == lm.layer)
+                .map(|z| z.1)
+                .collect();
             lm.vias = vias
                 .iter()
                 .filter(|v| v.layers.contains(&lm.layer))
@@ -206,8 +213,18 @@ impl Project {
             vias,
             pads,
             pins,
-            wires: self.wires.iter().filter(|w| w.net == net).map(|w| w.id).collect(),
-            labels: self.labels.iter().filter(|l| l.net == net).map(|l| l.id).collect(),
+            wires: self
+                .wires
+                .iter()
+                .filter(|w| w.net == net)
+                .map(|w| w.id)
+                .collect(),
+            labels: self
+                .labels
+                .iter()
+                .filter(|l| l.net == net)
+                .map(|l| l.id)
+                .collect(),
         })
     }
 }
