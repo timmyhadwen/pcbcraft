@@ -45,8 +45,10 @@ copper; a trace entirely within a circular/oval drilled opening is not copper
 contact. Drill containment is checked against the actual rounded pad shape.
 Initial clearance checks use capsule tracks and actual SMD/PTH pad outlines
 with bounded chord error. Connectivity uses conservative inscribed pad bounds.
-Library queries run off the GUI thread without locking the project. Vias, zone
-fills, hierarchy and comprehensive electrical rules remain future work.
+Library queries run off the GUI thread without locking the project. Plated vias,
+stitch grids and editable copper pours (with cutouts and fill control) are
+implemented on front and back copper. Inner copper layers, hierarchy and
+comprehensive electrical rules remain future work.
 
 ## Pad shapes
 
@@ -62,7 +64,10 @@ polygon containing the anchor to custom; other custom primitives, chamfered roun
 rectangles and trapezoids are reported unsupported. The initial Gerber writer emits
 one copper layer (pad flashes and tracks): circles use C, axis-aligned rect/oval
 use R/O, and every other pad is an aperture macro with one outline primitive.
-Mask, paste, silkscreen, drill and outline Gerbers are future work.
+Drawn silk, mask and machine layers plot to their own Gerber and other machine
+files as positive ink. Negative soldermask, paste and silkscreen Gerbers derived
+from pad geometry, plus a full drill and outline package beyond the initial copper
+writer, remain future work.
 The initial KiCad writer targets a small documented subset and must be checked with
 KiCad CLI; there is no general KiCad importer yet.
 

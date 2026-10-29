@@ -114,6 +114,8 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
 - Real circle/rectangle/roundrect/oval front SMD and plated through-hole pads,
   circular/oval offset drills, plus generic starter pads;
   straight or two-segment orthogonal tracks;
+  differential-pair routing as one call between four pad references with
+  coupled orthogonal geometry and a fixed pair gap;
   airwires from actual same-layer copper connectivity.
 - Copper sizes stay editable after placement: change a track's width or a via's
   pad and drill, reposition a placed footprint pad by its local offset (shaped
@@ -131,7 +133,10 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   dimensioned circular cutouts, exported as Edge.Cuts. Cutouts can be nudged and
   resized afterwards as long as
   they stay inside the outline, and the copper-to-cutout checks follow.
-  Constrained/parametric outline sketches are planned.
+  Unplated mounting holes and routed slots (no net, no copper), rectangular
+  edge notches on one outline segment, and step-and-repeat patterns that copy
+  a hole, slot or cutout across a grid in one call. Constrained/parametric
+  outline sketches are planned.
 - Free text labels on either copper side with a glyph height in millimetres,
   for assembly notes and markings; turn them to any angle about their anchor,
   move, re-edit, and delete them like any other object, and they appear in
@@ -178,6 +183,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   copper gap for copper whose midpoints lie inside it, optionally narrowed to
   one net and one copper layer; the check honours it immediately and one call
   removes the area again.
+- Interface rule profiles: list built-in profiles by id with summaries, apply
+  one profile to the project in one call, and clear it again; the active profile
+  travels with the saved design.
 - Barcodes: draw a Code 39 barcode (up to 48 characters of digits, letters and
   punctuation, case-folded) as real bar graphics on either layer, with
   selectable height and module width; the whole symbol lands and undoes as one
@@ -219,14 +227,20 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   map into any directory. Poured zones, tracks, vias and pads flash with their
   real shapes and drills, and the export never edits the project. Oval holes
   are written as spanned slot hits that follow pad and footprint rotation,
-  measured from a drill origin that can be recorded and reset. A plain-text
-  netlist, one line per net with its component pins, and a
-  bill-of-materials CSV with identical parts collapsed into one row export
-  the same way, alongside an ASCII DXF drawing of copper, pads, zones,
-  graphics and labels on named layers and a pick-and-place centroid file that
-  lists every placed part by reference with position, rotation, side and
-  package. Solder mask, silkscreen and paste
-  layers are not generated yet.
+  measured from a drill origin that can be recorded and reset. Named output
+  jobs rerun a recipe (gerbers, netlist, bill of materials, placement, DXF,
+  panel, drawn-layer plots and other writers) into one folder after edits.
+  Drawn silk, mask and machine layers plot to their own Gerber, DXF, SVG and
+  HP-GL files as positive ink, not negative soldermask derived from pads.
+  Panel fabrication export duplicates gerbers, drill and pick-and-place for
+  every copy when a panel grid is enabled, and adds breakaway and tooling
+  holes plus a panel placement listing. A plain-text netlist, one line per net
+  with its component pins, and a bill-of-materials CSV with identical parts
+  collapsed into one row export the same way, alongside an ASCII DXF drawing
+  of copper, pads, zones, graphics and labels on named layers and a
+  pick-and-place centroid file that lists every placed part by reference with
+  position, rotation, side and package. Negative soldermask, paste and
+  silkscreen layers generated from pad geometry are not written yet.
 - Net chain tracing: start at any pin and follow the series path through
   two-pin parts, reporting each hop's component, reference, pin and net, and
   why the walk stopped - an open end, a branching net, a many-pin part or a
@@ -241,9 +255,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 272 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 297 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 324 MCP tools: every engine command plus library discovery/search/inspection,
+- 350 MCP tools: every engine command plus library discovery/search/inspection,
   source management for adding library folders from anywhere, recent designs,
   design inspection, checks, persistence,
   export, PNG raster previews saved to disk or returned inline, SVG vector
@@ -301,21 +315,25 @@ Multi-unit symbols share one component/reference, physical pin map and footprint
 each unit can move/rotate independently. Select its drawing or choose the unit in
 Properties. All units, including separate power units, are initially placed.
 Placement supports up to 32 units, 64 unique physical pins, and front SMD/plated
-through-hole circle/rect/roundrect/oval pads. Repeated common pin numbers across
-units, unsupported graphical pin styles, NPTH mechanical holes, back SMD placement,
-3D models, footprint copper graphics and general KiCad project import remain planned.
+through-hole circle/rect/roundrect/oval pads. Repeated common pin numbers across units, back SMD placement, 3D model rendering,
+footprint copper graphics and general KiCad project import remain planned.
+Unplated mechanical holes are supported as unplated footprint pads and as board
+holes; project-library symbol pins carry graphical pin styles (line, inverted,
+clock, low-active and related decorations).
 Rounded-pad clearance uses sampled outlines with a small conservative error bound;
 connectivity uses inscribed pad bounds and can conservatively flag corner contacts.
 See [library formats, limits and provenance](docs/kicad-libraries.md).
 
 Choose **Edit a copy**, **New symbol**, or **New footprint** inside Libraries to
 author a definition. Edit pins/pads and drawing primitives with a live preview,
-then save to **Project library**. Save/load a `.pcbcraft-lib` collection to reuse
-it elsewhere. Original nodes and attribution notices are retained for imported
-copies; native libraries reject unknown data fields rather than discarding them.
-Library edits do not silently change placed definitions. Reassign a revised
-footprint or place a revised symbol explicitly. KiCad library writing and advanced
-interactive library drawing remain planned.
+then save to **Project library**. Generate IPC-style land patterns from bounded
+package families with density and thermal options, and run read-only footprint
+quality checks on a library name or inline definition. Save/load a `.pcbcraft-lib`
+collection to reuse it elsewhere. Original nodes and attribution notices are
+retained for imported copies; native libraries reject unknown data fields rather
+than discarding them. Library edits do not silently change placed definitions.
+Reassign a revised footprint or place a revised symbol explicitly. KiCad library
+writing and advanced interactive library drawing remain planned.
 
 The portable `examples/dual-amplifier.pcbcraft` demonstrates three LM358 units,
 one edited DIP8 package with an offset oval drill, and front/back routing.

@@ -2,9 +2,15 @@
 
 Every CI job runs one `cargo xtask` subcommand, so any failure reproduces on a
 workstation with the same command. `cargo xtask ci` runs policy, fmt, clippy,
-tests, wasm and docs in one go and must be green before pushing.
+tests, wasm and docs in one go. On the fork it is optional for agents; the green
+GitHub Actions run on the pushed branch is the proof (see CONTRIBUTING.md).
 
-## Pull request gate (`.github/workflows/ci.yml`)
+## Fork and pull request gate (`.github/workflows/ci.yml`)
+
+On wdunn001/pcbcraft, every branch push runs the same jobs. Workers push a
+feature branch, wait for the green **CI result** check, and post that Actions
+link in the upstream build report. Upstream tangency-labs/pcbcraft still runs
+the gate on pull requests; a new push cancels the older run for the same PR.
 
 | Job | Command | What it enforces |
 | --- | --- | --- |

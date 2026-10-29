@@ -114,3 +114,14 @@ removed; edits do not silently rewrite existing circuits.
 pcbcraft-cli tool library.catalog
 pcbcraft-cli tool library.search --args '{"path":"/usr/share/kicad/symbols/Device.kicad_sym","kind":"symbol","query":"resistor","limit":20}'
 ```
+
+## Fabrication and output jobs
+
+`gerber.export` writes front and back copper, outline and Excellon drill into a
+directory without editing the project. `output.job.define` records a named recipe
+(listing export kinds such as gerbers, netlist, bom, placement, dxf, panel and
+`layer_plots`). `output.job.run` writes every file in that recipe into one folder
+after layout changes. Drawn silk, mask and machine layers in `layer_plots` become
+their own Gerber, DXF, SVG and HP-GL files as positive ink, not negative
+soldermask from pads. `panel.export` duplicates fabrication outputs for every
+copy when a panel grid is enabled.

@@ -6,7 +6,8 @@ full KiCad workflow equivalence or manufacturing readiness for arbitrary boards.
 ## Automated Rust checks
 
 `cargo xtask ci` passes: formatting, dependency layers, clippy with warnings denied,
-17 tests, and WebAssembly compilation of the shared UI / browser entry point.
+the workspace test suite (including headless `a_newcomer_*` stories in
+crates/ui-egui), and WebAssembly compilation of the shared UI / browser entry point.
 
 Tests cover failed-batch rollback, stale revisions, undo branch ID allocation,
 automatic net creation in one undo step, preserved PCB placements, sample wire
@@ -18,7 +19,7 @@ clicks and rotate/undo key events, and display refresh after an MCP edit.
 ## MCP client interoperability
 
 The official Python MCP SDK 2.3.0 initialized the Rust server with protocol
-2025-11-25, discovered all 30 tools and completed the same exercise in both
+2025-11-25, discovered the full tool registry and completed the same exercise in both
 headless mode and via the loopback bridge into the running egui app:
 
 - load the example and inspect stable IDs/revision;
@@ -58,8 +59,8 @@ selected from a real component manufacturer's footprint specification.
   Browser runtime behavior has not been tested yet.
 
 The default routing mode has no obstacle avoidance; the octilinear and octilinear_shove modes avoid pads, tracks and cutouts on one layer and push other nets' tracks within fixed limits (no vias, no spring-back); initial checks are not
-comprehensive ERC/DRC. Full KiCad import, production libraries, arbitrary pad
-shapes, zones, vias, simulation and 3D are tracked in ROADMAP.md.
+comprehensive ERC/DRC. Full KiCad import, production libraries, inner copper
+layers, simulation and real 3D rendering are tracked in ROADMAP.md.
 
 ## Parity suite
 
