@@ -1,6 +1,7 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod authoring;
 mod canvas;
+mod datums;
 mod editing;
 mod impedance_panel;
 mod library;
@@ -643,6 +644,7 @@ pub struct App {
     art_points: Vec<Point>,
     art_text: String,
     hole_edit: Option<(Id, f64)>,
+    datum_ui: datums::DatumUi,
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
     renumber_prefix: Option<String>,
@@ -994,6 +996,7 @@ impl App {
             art_points: Vec::new(),
             art_text: "MY BOARD".into(),
             hole_edit: None,
+            datum_ui: datums::DatumUi::default(),
             fiducial_diameter: 1.0,
             fiducial_edit: None,
             renumber_prefix: None,
@@ -1907,6 +1910,7 @@ impl App {
             .default_open(true)
             .show(ui, |ui| {
             self.holes_section(ui);
+            self.datums_section(ui);
             self.fiducials_section(ui);
             if self.tab == Tab::Pcb {
                 self.via_spans_section(ui);
@@ -5600,7 +5604,9 @@ impl App {
                     .show(ui, |ui| {
                 self.draw_tool_options(ui);
                 self.section_heading(ui, "Details");
-                if let Some(id) = self.selected {
+                if let Some(id) = self.selected.filter(|id| datums::is_datum(&self.project, *id)) {
+                    self.datum_inspector(ui, id);
+                } else if let Some(id) = self.selected {
                     let c = self.project.component(id).cloned().or_else(|| {
                         self.project
                             .footprint(id)
