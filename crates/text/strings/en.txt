@@ -1496,3 +1496,6 @@ assistant.retry.tip = Send the same message again.
 assistant.disabled.tip = Connect a model first. Nothing can be sent until then.
 assistant.switched_off_body = The assistant is switched off in Settings.
 assistant.settings_heading.tip = Show or hide the assistant settings: connections, permissions and limits.
+web.needs_webgpu = PCBCraft in the browser needs WebGPU. Try a recent Chrome or Edge, or download the desktop app.
+web.download_desktop = Download the desktop app
+web.download_desktop.tip = Open the releases page, where the desktop app for your computer is listed.
