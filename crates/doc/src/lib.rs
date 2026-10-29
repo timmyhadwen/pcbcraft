@@ -1971,7 +1971,7 @@ impl Hole {
 /// - `linked_copper` names the copper row a mask, silk or paste row sits on.
 ///
 /// # Dependencies
-/// - `material.rs` for the built-in table.
+/// - `crates/doc/src/material.rs` for the built-in table.
 ///
 /// # Do not
 /// - Store derived values back into the record; derive them at read time.
