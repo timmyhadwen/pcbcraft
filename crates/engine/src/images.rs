@@ -15,7 +15,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         },
         CommandSpec {
             id: "reference_image.add",
-            description: "Show an attached PNG under the schematic or the board for tracing. Position is the lower-left corner in millimetres, scale is millimetres per pixel. Reference pictures are editor-only and never reach any export",
+            description: "Show an attached PNG under the schematic or the board for tracing. Position is the top-left corner in millimetres, scale is millimetres per pixel. Reference pictures are editor-only and never reach any export",
             input_schema: schema(
                 json!({"file":{"type":"string","minLength":1,"maxLength":128},"view":{"type":"string","enum":["schematic","pcb"]},"x":{"type":"number"},"y":{"type":"number"},"scale":{"type":"number","minimum":0.001,"maximum":100},"opacity":{"type":"number","minimum":0,"maximum":1}}),
                 &["file", "view"],
@@ -414,7 +414,7 @@ mod tests {
         assert_eq!(g.layer, "board");
         assert_eq!(g.shape, "polygon");
         assert!(g.points.len() >= 3 && g.points.len() <= 64);
-        assert!(g.points.iter().all(|p| p.x >= 11.0 && p.y >= 5.8));
+        assert!(g.points.iter().all(|p| p.x >= 11.0 && p.y >= 6.0));
         let silk = pcbcraft_io::gerber_silk(&s.project, Layer::Front).map_err(Error::Invalid)?;
         assert!(
             silk.contains("D01"),

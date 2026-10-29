@@ -1686,7 +1686,8 @@ pub struct ReferenceImage {
     pub file: String,
     /// `schematic` or `pcb`.
     pub view: String,
-    /// Lower-left corner of the picture, in millimetres.
+    /// Top-left corner of the picture, in millimetres; the picture extends
+    /// right and down like the canvas does.
     pub x: f64,
     pub y: f64,
     /// Millimetres per image pixel.

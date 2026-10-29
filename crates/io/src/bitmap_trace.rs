@@ -98,8 +98,9 @@ fn is_ink(img: &RgbaImage, x: u32, y: u32, o: &TraceOptions) -> bool {
 
 /// Trace the ink of a picture into closed polygons in millimetres.
 ///
-/// Coordinates are relative to the picture's lower-left corner with y up:
-/// PNG row 0 is the top of the picture, so the pixel row is flipped here.
+/// Coordinates are relative to the picture's top-left corner and grow right
+/// and down, the same way the board canvas does, so a traced outline lands
+/// exactly over the picture that was traced. PNG row 0 is the top.
 /// Polygons are returned open (the last vertex is not repeated), largest
 /// first, at most [`MAX_TRACE_CONTOURS`] of them.
 pub fn bitmap_trace_polygons(
@@ -182,7 +183,7 @@ pub fn bitmap_trace_polygons(
         }
         let poly: Vec<Point> = ring
             .iter()
-            .map(|(x, y)| Point::new(*x * opts.scale, (h as f64 - *y) * opts.scale))
+            .map(|(x, y)| Point::new(*x * opts.scale, *y * opts.scale))
             .collect();
         if pcbcraft_geom::polygon_is_simple(&poly) {
             out.push(poly);
@@ -388,9 +389,9 @@ mod tests {
         let ys = poly.iter().map(|p| p.y);
         assert!((xs.clone().fold(f64::INFINITY, f64::min) - 1.0).abs() < 1e-9);
         assert!((xs.fold(f64::NEG_INFINITY, f64::max) - 4.1).abs() < 1e-9);
-        // PNG row 0 is the top, so ink rows 10..=54 land between y 0.9 and 5.4.
-        assert!((ys.clone().fold(f64::INFINITY, f64::min) - 0.9).abs() < 1e-9);
-        assert!((ys.fold(f64::NEG_INFINITY, f64::max) - 5.4).abs() < 1e-9);
+        // Ink rows 10..=54 span y 1.0 to 5.5 (rows grow downward).
+        assert!((ys.clone().fold(f64::INFINITY, f64::min) - 1.0).abs() < 1e-9);
+        assert!((ys.fold(f64::NEG_INFINITY, f64::max) - 5.5).abs() < 1e-9);
         Ok(())
     }
 
