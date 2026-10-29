@@ -2924,6 +2924,7 @@ dependencies = [
  "pcbcraft-io",
  "pcbcraft-mcp",
  "pcbcraft-ui-egui",
+ "serde_json",
  "ureq",
 ]
 
@@ -3037,6 +3038,10 @@ dependencies = [
  "pcbcraft-library",
  "serde",
 ]
+
+[[package]]
+name = "pcbcraft-sim"
+version = "0.1.0"
 
 [[package]]
 name = "pcbcraft-text"

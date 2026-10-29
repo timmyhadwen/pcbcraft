@@ -3,6 +3,7 @@ use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Id, Layer, PinRef, Project};
 use pcbcraft_geom::point_segment;
 mod board_art;
+mod layout_art;
 mod underlay;
 
 fn on_page(p: &Project, page: Id, object: Id) -> bool {
@@ -54,8 +55,9 @@ fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
         lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
         hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
     }
-    // Symbols and their pins reach well past the centres the bounds use.
-    let pad = if pcb { 2.0 } else { 12.0 };
+    // Symbols and their pins reach well past the centres the bounds use; on the
+    // board view the dimension lines and rulers need room around the board.
+    let pad = if pcb { 6.0 } else { 12.0 };
     (
         Point::new(lo.x - pad, lo.y - pad),
         Point::new(hi.x + pad, hi.y + pad),
@@ -483,8 +485,20 @@ impl App {
         if let Some(focus) = &focus {
             Self::apply_layer_focus(&mut visible, focus);
         }
-        painter.rect_filled(rect, 0.0, self.surface());
-        if self.preferences.grid && self.layer_shown("Grid") {
+        painter.rect_filled(
+            rect,
+            0.0,
+            if self.tab == Tab::Pcb {
+                self.art().bg
+            } else {
+                self.surface()
+            },
+        );
+        if self.tab == Tab::Pcb {
+            if self.preferences.grid && self.layer_shown("Grid") {
+                self.paint_layout_grid(&painter, rect, camera);
+            }
+        } else if self.preferences.grid && self.layer_shown("Grid") {
             let grid = if camera.zoom < 5.0 { 5.0 } else { 1.0 };
             let step = grid * camera.zoom;
             let zero = camera.screen(Point::default(), rect);
@@ -2254,18 +2268,9 @@ impl App {
     }
     fn paint_board(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
         let shown = |name: &str| self.layer_shown(name);
-        let board = Rect::from_two_pos(
-            camera.screen(Point::default(), rect),
-            camera.screen(Point::new(p.board.width, p.board.height), rect),
-        );
-        painter.rect_filled(board, 0.0, self.colours().canvas.board);
+        let art = self.art();
+        self.paint_board_body(painter, rect, camera, p);
         underlay::paint(painter, rect, camera, p, "pcb");
-        painter.rect_stroke(
-            board,
-            0.0,
-            Stroke::new(1.5, self.accent()),
-            egui::StrokeKind::Inside,
-        );
         for fid in &p.board.fiducials {
             let center = camera.screen(fid.position, rect);
             let radius = ((fid.diameter / 2.0) as f32 * camera.zoom).max(1.5);
@@ -2297,35 +2302,20 @@ impl App {
                 painter.circle_stroke(b, radius, ink);
             } else {
                 let center = camera.screen(h.position, rect);
-                painter.circle_filled(center, radius, self.surface());
-                painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
+                painter.circle_filled(center, radius, art.bg);
+                painter.circle_stroke(center, radius, Stroke::new(1.5, art.edge));
+                self.paint_keepout_ring(painter, center, radius);
             }
         }
         self.paint_datums(painter, rect, camera, p);
         for c in p.board.cutouts.iter().filter(|_| shown("Cutouts")) {
             let center = camera.screen(c.center, rect);
-            painter.circle_filled(center, c.radius as f32 * camera.zoom, self.surface());
-            painter.circle_stroke(
-                center,
-                c.radius as f32 * camera.zoom,
-                Stroke::new(1.0, self.accent()),
-            );
+            let radius = c.radius as f32 * camera.zoom;
+            painter.circle_filled(center, radius, art.bg);
+            painter.circle_stroke(center, radius, Stroke::new(1.5, art.edge));
+            self.paint_keepout_ring(painter, center, radius);
         }
-        if let Some(airwires) = self.checks.get("airwires").and_then(Value::as_array) {
-            for wire in airwires {
-                if let (Some(a), Some(b)) = (
-                    wire.get("from")
-                        .and_then(|v| serde_json::from_value::<Point>(v.clone()).ok()),
-                    wire.get("to")
-                        .and_then(|v| serde_json::from_value::<Point>(v.clone()).ok()),
-                ) {
-                    painter.line_segment(
-                        [camera.screen(a, rect), camera.screen(b, rect)],
-                        Stroke::new(1.0, self.colours().canvas.wire),
-                    );
-                }
-            }
-        }
+        self.paint_ratsnest(painter, rect, camera, p);
         let mirrored = camera.mirror;
         for z in board_side::bottom_last(
             p.board.zones.iter().filter(|_| shown("Copper zones")),
@@ -2466,17 +2456,8 @@ impl App {
                 - Vec2::new(0.0, 12.0);
             let value_at = camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
                 + Vec2::new(0.0, 12.0);
-            let color = if self.selected == Some(f.id) {
-                self.accent()
-            } else {
-                self.ink().gamma_multiply(0.7)
-            };
-            let corners = [
-                Point::new(-3.75, -1.5),
-                Point::new(3.75, -1.5),
-                Point::new(3.75, 1.5),
-                Point::new(-3.75, 1.5),
-            ];
+            let color = art.silk;
+            let boxes = Self::footprint_boxes(f, rect, camera);
             if let Some(library) = p
                 .component(f.component)
                 .and_then(|c| c.library_footprint.as_ref())
@@ -2500,16 +2481,18 @@ impl App {
                     };
                     self.paint_graphic(painter, rect, camera, g, (f.position, f.rotation), color);
                 }
-            } else {
+            } else if let Some((silk, _)) = &boxes {
                 painter.add(egui::Shape::closed_line(
-                    corners
-                        .into_iter()
-                        .map(|point| {
-                            camera.screen(f.position.offset(point.rotate(-f.rotation)), rect)
-                        })
-                        .collect(),
-                    Stroke::new(1.0, color),
+                    silk.clone(),
+                    Stroke::new(1.5, color),
                 ));
+            }
+            if let Some((_, courtyard)) = &boxes {
+                layout_art::dashed_closed(
+                    painter,
+                    courtyard,
+                    Stroke::new(1.0, art.courtyard.gamma_multiply(0.6)),
+                );
             }
             for pad in f.pads.iter().filter(|_| shown("Pads")) {
                 {
@@ -2530,7 +2513,7 @@ impl App {
                                 if on_bottom {
                                     self.colours().canvas.back
                                 } else {
-                                    self.colours().canvas.pad
+                                    art.top_copper
                                 },
                             ),
                         ));
@@ -2543,7 +2526,7 @@ impl App {
                                     camera.screen(f.position.offset(p.rotate(-f.rotation)), rect)
                                 })
                                 .collect(),
-                            self.surface(),
+                            art.bg,
                             if mechanical {
                                 Stroke::new(1.0, color)
                             } else {
@@ -2557,36 +2540,61 @@ impl App {
                             _ => pad.number.clone(),
                         };
                         if !label.is_empty() {
-                            painter.text(
-                                center,
-                                Align2::CENTER_CENTER,
-                                label,
-                                FontId::monospace(10.0),
-                                if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
-                                    self.colours().canvas.pad_label_hole
-                                } else {
-                                    self.colours().canvas.pad_label_smd
-                                },
-                            );
+                            if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
+                                // The drill hole fills the middle, so the
+                                // number sits beside the pad.
+                                let reach = pad
+                                    .outline_points()
+                                    .iter()
+                                    .fold(0.0f64, |m, q| m.max(q.x.abs()))
+                                    as f32
+                                    * camera.zoom;
+                                painter.text(
+                                    center + Vec2::new(reach + 4.0, 0.0),
+                                    Align2::LEFT_CENTER,
+                                    label,
+                                    FontId::monospace(10.0),
+                                    art.silk,
+                                );
+                            } else {
+                                painter.text(
+                                    center,
+                                    Align2::CENTER_CENTER,
+                                    label,
+                                    FontId::monospace(11.0),
+                                    art.on_copper,
+                                );
+                            }
                         }
                     }
                 }
             }
             if let Some(c) = p.component(f.component) {
+                let (above, below) = boxes.as_ref().map_or((reference_at, value_at), |(_, y)| {
+                    let top = y.iter().fold(f32::INFINITY, |m, q| m.min(q.y));
+                    let bottom = y.iter().fold(f32::NEG_INFINITY, |m, q| m.max(q.y));
+                    let mid = y.iter().map(|q| q.x).sum::<f32>() / y.len().max(1) as f32;
+                    (Pos2::new(mid, top - 5.0), Pos2::new(mid, bottom + 4.0))
+                });
                 painter.text(
-                    reference_at,
+                    above,
                     Align2::CENTER_BOTTOM,
                     &c.reference,
-                    FontId::proportional(14.0),
-                    color,
+                    FontId::proportional(13.0),
+                    art.text,
                 );
                 painter.text(
-                    value_at,
+                    below,
                     Align2::CENTER_TOP,
                     &c.value,
-                    FontId::proportional(11.0),
-                    color,
+                    FontId::proportional(10.5),
+                    art.muted,
                 );
+            }
+            if self.selected == Some(f.id)
+                && let Some((_, courtyard)) = &boxes
+            {
+                self.paint_selection_box(painter, courtyard);
             }
         }
         for t in &p.board.texts {
@@ -2607,7 +2615,7 @@ impl App {
         self.draw_user_layers(painter, rect, camera, p);
         self.paint_board_graphics(painter, rect, camera, p);
         // Wrap at the canvas edge so a narrow window never cuts the note off.
-        let note_at = board.left_bottom() + Vec2::new(0.0, 18.0);
+        let note_at = rect.left_bottom() + Vec2::new(96.0, -26.0);
         let galley = painter.layout(
             t!(
                 "board.paint_board.width_height_mm_top_bottom",
@@ -2620,6 +2628,10 @@ impl App {
             (rect.right() - note_at.x).max(80.0),
         );
         painter.galley(note_at, galley, self.muted());
+        self.paint_board_dimensions(painter, rect, camera, p);
+        self.paint_axis_glyph(painter, rect);
+        self.paint_hover(painter, rect, camera, p);
+        self.paint_rulers(painter, rect, camera);
     }
 }
 

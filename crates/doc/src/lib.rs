@@ -2406,6 +2406,33 @@ impl GraphicGroup {
         }
     }
 }
+/// A set of objects of any kind (parts, footprints, copper, text, graphics)
+/// that move together, so a block of a design can be repositioned in one step.
+///
+/// # Rules
+/// - Two to 512 distinct members; a member belongs to at most one object group.
+/// - Ids that no longer name an object are dropped by `Project::prune_object_refs`.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs#object.group
+///
+/// # Do not
+/// - Store the same id in two object groups.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ObjectGroup {
+    /// Stable id of the group.
+    pub id: Id,
+    /// Ids of the grouped objects, in the order they were grouped.
+    pub members: Vec<Id>,
+}
+impl ObjectGroup {
+    fn valid(&self) -> bool {
+        self.members.len() >= 2 && self.members.len() <= 512 && {
+            let unique: BTreeSet<Id> = self.members.iter().copied().collect();
+            unique.len() == self.members.len()
+        }
+    }
+}
 /// An assembly variant of the design: a named alternate build in which a
 /// chosen set of components is marked do not populate.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -2675,6 +2702,13 @@ pub struct Project {
     /// Groups of drawn graphics that translate together, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub graphic_groups: Vec<GraphicGroup>,
+    /// Groups of objects of any kind that move together, ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub object_groups: Vec<ObjectGroup>,
+    /// Ids of locked objects other than footprints (a footprint stores its own
+    /// lock in `Footprint::locked`); locked objects refuse moves.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub locked_objects: Vec<Id>,
     /// Named fabrication output recipes, ordered by name, re-runnable after
     /// any edit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2836,6 +2870,8 @@ impl Default for Project {
             files: vec![],
             variants: vec![],
             graphic_groups: vec![],
+            object_groups: vec![],
+            locked_objects: vec![],
             reference_images: vec![],
             meta: Default::default(),
             parameters: Default::default(),
@@ -3102,6 +3138,49 @@ impl Project {
         } else {
             n as u8
         }
+    }
+    /// True when `id` names a part, footprint, copper item, board text,
+    /// cutout, datum or drawn graphic, the kinds groups and locks cover.
+    pub fn is_groupable(&self, id: Id) -> bool {
+        self.components.iter().any(|c| c.id == id)
+            || self.graphics.iter().any(|g| g.id == id)
+            || self.board.footprints.iter().any(|f| f.id == id)
+            || self.board.tracks.iter().any(|t| t.id == id)
+            || self.board.vias.iter().any(|v| v.id == id)
+            || self.board.zones.iter().any(|z| z.id == id)
+            || self.board.cutouts.iter().any(|c| c.id == id)
+            || self.board.datums.iter().any(|d| d.id == id)
+            || self.board.texts.iter().any(|t| t.id == id)
+    }
+    /// True when the object is locked: a footprint by its own flag, any other
+    /// kind by an entry in `locked_objects`.
+    pub fn is_locked(&self, id: Id) -> bool {
+        self.locked_objects.contains(&id)
+            || self
+                .board
+                .footprints
+                .iter()
+                .any(|f| f.id == id && f.locked.unwrap_or(false))
+    }
+    /// Drop group members and lock entries whose object was deleted, and
+    /// dissolve groups left with fewer than two members. Runs after every
+    /// engine command so deletes never leave dangling ids.
+    pub fn prune_object_refs(&mut self) {
+        if self.object_groups.is_empty() && self.locked_objects.is_empty() {
+            return;
+        }
+        let alive = |p: &Project, id: Id| p.is_groupable(id);
+        let groups = std::mem::take(&mut self.object_groups);
+        self.object_groups = groups
+            .into_iter()
+            .map(|mut g| {
+                g.members.retain(|id| alive(self, *id));
+                g
+            })
+            .filter(|g| g.members.len() >= 2)
+            .collect();
+        let locked = std::mem::take(&mut self.locked_objects);
+        self.locked_objects = locked.into_iter().filter(|id| alive(self, *id)).collect();
     }
     /// The copper span of a via as (upper, lower) layers; an unset end is the
     /// outer layer on that side of this board.
@@ -4104,6 +4183,22 @@ impl Project {
                         .into(),
                 );
             }
+        }
+        if self.object_groups.len() > 256 {
+            return Err("a project defines at most 256 object groups".into());
+        }
+        let mut in_object_group = BTreeSet::new();
+        for g in &self.object_groups {
+            if !g.valid() || !g.members.iter().all(|id| in_object_group.insert(*id)) {
+                return Err(
+                    "object groups need two to 512 distinct members, each in at most one group"
+                        .into(),
+                );
+            }
+        }
+        let locked: BTreeSet<Id> = self.locked_objects.iter().copied().collect();
+        if self.locked_objects.len() > 4096 || locked.len() != self.locked_objects.len() {
+            return Err("a project locks at most 4096 distinct objects".into());
         }
         if self.meta.len() > 16 {
             return Err("a project records at most 16 metadata entries".into());
