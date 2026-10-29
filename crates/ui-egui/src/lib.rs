@@ -2,6 +2,7 @@
 mod authoring;
 mod canvas;
 mod library;
+mod library_quality;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
@@ -6358,6 +6359,7 @@ impl App {
             }
             ui.add_space(20.0);
         }
+        self.library_checks_section(ui);
         let silenced: Vec<(String, usize)> = self
             .project
             .rule_exclusions
@@ -8262,6 +8264,112 @@ mod tests {
             "a rule between two named nets should be listed beside the wire ({special}): {}",
             app.message
         );
+        Ok(())
+    }
+
+    /// A footprint whose two pads sit on top of each other, saved into the
+    /// project library the way an import would.
+    fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, Some("footprint-editor"));
+        app.refresh();
+        let Some(authoring::Draft::Footprint(mut def)) = app.library.editor.draft.clone() else {
+            return Err("the footprint editor should start with a draft".to_string());
+        };
+        def.name = "SquashedPair".into();
+        for pad in &mut def.pads {
+            pad.position = Point::new(0.0, 0.0);
+            pad.size = Point::new(2.0, 2.0);
+        }
+        app.run("library.footprint.upsert", json!({"definition": def}));
+        let revision = app.revision;
+        app.refresh_footprint_quality();
+        assert_eq!(
+            app.revision, revision,
+            "checking a footprint must not change the design"
+        );
+        Ok((app, egui::Context::default()))
+    }
+
+    #[test]
+    fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<(), String> {
+        let (mut app, ctx) = app_with_overlapping_pads()?;
+        authoring::tests::tap(&ctx, &mut app, "Checks")?;
+        for needle in [
+            "Lib pad overlap · 1 place",
+            "SquashedPair: Two pads share the same copper area",
+            "Fix: Move or resize the pads so their outlines no longer overlap",
+        ] {
+            let mut shown = paints_text(&ctx, &mut app, needle)?;
+            for _ in 0..10 {
+                if shown {
+                    break;
+                }
+                frame(
+                    &ctx,
+                    &mut app,
+                    vec![
+                        egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
+                        egui::Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Line,
+                            delta: egui::vec2(0.0, -4.0),
+                            phase: egui::TouchPhase::Move,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                    egui::Modifiers::NONE,
+                );
+                shown = paints_text(&ctx, &mut app, needle)?;
+            }
+            assert!(shown, "the Checks tab should show \"{needle}\"");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_sees_a_quality_badge_beside_each_project_footprint() -> Result<(), String> {
+        let (mut app, _ctx) = app_with_overlapping_pads()?;
+        assert!(
+            app.library
+                .quality
+                .findings_for("SquashedPair")
+                .iter()
+                .any(|f| f.error && f.code == "lib_pad_overlap"),
+            "the squashed footprint should be marked as having a mistake to fix"
+        );
+        let ctx = egui::Context::default();
+        app.change_tab(Tab::Libraries);
+        app.library.editor.mode = 0;
+        let mut shown = false;
+        for _ in 0..4 {
+            shown = paints_text(&ctx, &mut app, "to fix")?;
+            if shown {
+                break;
+            }
+        }
+        if !shown {
+            for _ in 0..10 {
+                frame(
+                    &ctx,
+                    &mut app,
+                    vec![
+                        egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
+                        egui::Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Line,
+                            delta: egui::vec2(0.0, -6.0),
+                            phase: egui::TouchPhase::Move,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                    egui::Modifiers::NONE,
+                );
+                if paints_text(&ctx, &mut app, "to fix")? {
+                    shown = true;
+                    break;
+                }
+            }
+        }
+        assert!(shown, "the project footprint list should show a badge reading \"to fix\"");
         Ok(())
     }
 
