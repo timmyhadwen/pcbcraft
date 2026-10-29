@@ -823,17 +823,17 @@ impl App {
                 }
             }
         }
-        if let Some((screen, kind)) = self.canvas_menu.as_ref() {
+        if let Some((screen, kind)) = self.canvas_menu.take() {
             let mut close = false;
             egui::Area::new(egui::Id::new("canvas-context-menu"))
-                .fixed_pos(*screen)
+                .fixed_pos(screen)
                 .order(egui::Order::Foreground)
                 .show(ui.ctx(), |ui| {
                     ui.set_min_width(140.0);
                     close |= self.paint_canvas_menu(ui, &kind);
                 });
-            if close {
-                self.canvas_menu = None;
+            if !close {
+                self.canvas_menu = Some((screen, kind));
             }
         }
     }
@@ -1288,11 +1288,8 @@ impl App {
                     );
                     return true;
                 }
-                if Self::canvas_menu_button(
-                    ui,
-                    "Properties",
-                    "Load this wire into the inspector.",
-                ) {
+                if Self::canvas_menu_button(ui, "Properties", "Load this wire into the inspector.")
+                {
                     self.load_properties();
                     return true;
                 }
@@ -1356,8 +1353,7 @@ impl App {
                         "Cut",
                         "Break this stretch of wire into two equal halves so you can bend, branch or re-route part of it. Undo joins it back into one.",
                     ) {
-                        if let Some(track) =
-                            self.project.board.tracks.iter().find(|t| t.id == *id)
+                        if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == *id)
                         {
                             let at = Point::new(
                                 (track.start.x + track.end.x) / 2.0,
