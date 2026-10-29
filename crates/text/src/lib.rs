@@ -8,6 +8,8 @@
 //! Screens read text through [`t!`], which asks the catalog that the running
 //! frame activated with [`activate`].
 
+pub mod numbers;
+
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -19,6 +21,8 @@ pub const ENGLISH: &str = include_str!("../strings/en.txt");
 pub const CONVERTED_FNS: &str = include_str!("../strings/converted-fns.txt");
 #[cfg(feature = "fixture")]
 const FIXTURE_FR: &str = include_str!("../strings/fixture-fr.txt");
+#[cfg(feature = "fixture")]
+const FIXTURE_DE: &str = include_str!("../strings/fixture-de.txt");
 
 /// Language tag meaning "follow the computer's language".
 pub const SYSTEM: &str = "system";
@@ -111,21 +115,27 @@ pub fn shipped_languages() -> Vec<Language> {
         tag: "en".into(),
         name: language_name(ENGLISH),
     }];
-    list.extend(fixture_language());
+    list.extend(fixture_languages());
     list
 }
 
 #[cfg(feature = "fixture")]
-fn fixture_language() -> Option<Language> {
-    Some(Language {
-        tag: "fr".into(),
-        name: language_name(FIXTURE_FR),
-    })
+fn fixture_languages() -> Vec<Language> {
+    vec![
+        Language {
+            tag: "fr".into(),
+            name: language_name(FIXTURE_FR),
+        },
+        Language {
+            tag: "de".into(),
+            name: language_name(FIXTURE_DE),
+        },
+    ]
 }
 
 #[cfg(not(feature = "fixture"))]
-fn fixture_language() -> Option<Language> {
-    None
+fn fixture_languages() -> Vec<Language> {
+    Vec::new()
 }
 
 fn language_name(text: &str) -> String {
@@ -142,6 +152,8 @@ fn language_text(tag: &str) -> Option<&'static str> {
         "en" => Some(ENGLISH),
         #[cfg(feature = "fixture")]
         "fr" => Some(FIXTURE_FR),
+        #[cfg(feature = "fixture")]
+        "de" => Some(FIXTURE_DE),
         _ => None,
     }
 }
@@ -227,6 +239,12 @@ impl Catalog {
 
     /// The tag of the loaded language.
     pub fn tag(&self) -> &str {
+        &self.tag
+    }
+
+    /// The loaded language tag, for the number and date functions in
+    /// [`numbers`]. `en` when the tag was unknown.
+    pub fn number_tag(&self) -> &str {
         &self.tag
     }
 
@@ -440,7 +458,7 @@ mod tests {
     #[test]
     fn a_bad_tag_or_the_system_tag_gives_a_working_catalog() {
         assert_eq!(Catalog::for_language("zz").tag(), "en");
-        assert_eq!(match_locale("de_DE.UTF-8"), "en");
+        assert_eq!(match_locale("xx_XX.UTF-8"), "en");
         assert_eq!(Catalog::for_language("").get("menu.file"), "File");
     }
 
