@@ -622,3 +622,43 @@ fn preferences_ui_scale_clamps_and_persists() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_with_a_screen_reader_finds_the_fit_move_and_rotate_buttons_by_name(
+) -> Result<(), String> {
+    let (ctx, mut app) = practice_app();
+    app.change_tab(Tab::Pcb);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let nodes = a11y::audit::interactive_nodes(&out);
+    for name in ["Fit", "Move", "Rotate"] {
+        assert!(
+            nodes
+                .iter()
+                .any(|(role, label)| *role == egui::accesskit::Role::Button && label == name),
+            "a screen reader should find a button named {name}: {nodes:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn the_accessibility_tree_is_empty_until_the_screen_reader_is_switched_on() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    let off = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        off.platform_output.accesskit_update.is_none(),
+        "nothing is built for a person who has no screen reader"
+    );
+    ctx.enable_accesskit();
+    let on = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        on.platform_output.accesskit_update.is_some(),
+        "switching a screen reader on starts the tree"
+    );
+    Ok(())
+}
