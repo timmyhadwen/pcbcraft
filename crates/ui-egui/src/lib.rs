@@ -2,6 +2,7 @@
 mod authoring;
 mod canvas;
 mod library;
+mod reference_panel;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
@@ -4043,6 +4044,8 @@ impl App {
             );
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
+        ui.add_space(12.0);
+        self.reference_image_section(ui);
         ui.add_space(12.0);
         ui.label(egui::RichText::new("CHECKS").size(10.0).color(self.muted()));
         let erc = self
