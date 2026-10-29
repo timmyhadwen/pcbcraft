@@ -4316,7 +4316,7 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .ok_or_else(|| Error::Invalid("pad has no net".into()))?;
     Ok((position, net))
 }
-fn diff_pair_for_nets<'a>(p: &'a Project, a: Id, b: Id) -> Option<&'a DiffPair> {
+fn diff_pair_for_nets(p: &Project, a: Id, b: Id) -> Option<&DiffPair> {
     p.board
         .diff_pairs
         .iter()
@@ -4343,8 +4343,7 @@ fn validate_pair_coupling(
 ) -> Result<(), Error> {
     for (a0, a1) in segs_p {
         for (b0, b1) in segs_n {
-            let separation =
-                segment_distance(*a0, *a1, *b0, *b1) - width_p / 2.0 - width_n / 2.0;
+            let separation = segment_distance(*a0, *a1, *b0, *b1) - width_p / 2.0 - width_n / 2.0;
             let mid_a = Point::new((a0.x + a1.x) / 2.0, (a0.y + a1.y) / 2.0);
             let mid_b = Point::new((b0.x + b1.x) / 2.0, (b0.y + b1.y) / 2.0);
             let required =
@@ -12104,13 +12103,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         "those nets are not declared as a differential pair".into(),
                     ));
                 };
-                let width = a.width.unwrap_or_else(|| {
-                    class_width(p, pair.net_p).max(class_width(p, pair.net_n))
-                });
+                let width = a
+                    .width
+                    .unwrap_or_else(|| class_width(p, pair.net_p).max(class_width(p, pair.net_n)));
                 if !positive(width) {
-                    return Err(Error::Invalid(
-                        "route requires a valid width".into(),
-                    ));
+                    return Err(Error::Invalid("route requires a valid width".into()));
                 }
                 for (start, end) in [(start_p, end_p), (start_n, end_n)] {
                     if start.distance(end) < 1e-6 {
@@ -22690,16 +22687,15 @@ mod tests {
         Ok(())
     }
 
-    fn pair_pitch_footprint(name: &str, pitch: f64) -> Result<pcbcraft_library::FootprintDefinition, Error> {
+    fn pair_pitch_footprint(
+        name: &str,
+        pitch: f64,
+    ) -> Result<pcbcraft_library::FootprintDefinition, Error> {
         let template = library::footprint(std::path::Path::new(&library_fixture(
             "R_0805_2012Metric.kicad_mod",
         )))
         .map_err(Error::Invalid)?;
-        let pad = template
-            .pads
-            .first()
-            .ok_or_else(missing)?
-            .clone();
+        let pad = template.pads.first().ok_or_else(missing)?.clone();
         let mut fp = template;
         fp.name = name.into();
         fp.pads = ["1", "2"]
