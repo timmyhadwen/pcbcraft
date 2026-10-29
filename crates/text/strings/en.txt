@@ -347,6 +347,10 @@ board.inspector.apply_position.tip = Move the selected symbol or footprint to th
 board.inspector.rotate_90_r = Rotate 90°  R
 board.inspector.duplicate = Duplicate
 board.inspector.duplicate.tip = Places a copy of this part nearby, with its own new reference number. Undo removes the copy.
+board.inspector.flip_to_bottom = Flip to bottom
+board.inspector.flip_to_bottom.tip = Moves this part to the bottom side of the board and mirrors its pads. Undo puts it back on top.
+board.inspector.flip_to_top = Flip to top
+board.inspector.flip_to_top.tip = Moves this part back to the top side of the board. Undo puts it on the bottom again.
 board.inspector.datasheet = Datasheet
 board.inspector.view_datasheet = View datasheet
 board.inspector.open_this_part_s_datasheet = Open this part's datasheet in your browser.
@@ -396,6 +400,10 @@ board.canvas.text = +
 board.canvas.text.tip = Zoom in on the drawing.
 board.canvas.text2 = −
 board.canvas.text2.tip = Zoom out on the drawing.
+board.canvas.from_below = From below
+board.canvas.from_below.tip = Look at the board from its bottom side. The drawing turns left to right and bottom copper draws on top. Press again to return to the top view.
+board.canvas.from_below.on = Viewing the board from below.
+board.canvas.from_below.off = Viewing the board from the top.
 board.canvas.move_drop_the_selected_object = Move: drop the selected object where you click next.
 
 # canvas.rs paint_board

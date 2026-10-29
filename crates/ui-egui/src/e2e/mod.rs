@@ -9,6 +9,7 @@ mod artifacts;
 mod assistant;
 mod board;
 mod board3d;
+mod board_side;
 mod builds;
 mod checks;
 mod editing;
