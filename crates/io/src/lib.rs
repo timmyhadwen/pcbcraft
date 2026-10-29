@@ -1903,12 +1903,16 @@ fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
     }
 }
 
-/// RS-274X copper/outline layers plus XNC drill files, as filename to text.
-/// Copper layers carry zones, tracks, via and pad copper; the outline layer
-/// carries the board edge and circular cutouts; the drill files carry plated
-/// and unplated holes separately, round holes as single hits and oval holes as
-/// routs along the rotated long axis. Back-copper coordinates are mirrored
-/// about x=0 as fabrication houses expect for bottom-side films.
+/// RS-274X copper, solder mask, paste and silkscreen layers for both sides,
+/// plus an outline layer and XNC drill files, as filename to text.
+/// Copper layers carry zones, tracks, via and pad copper; mask layers open
+/// every pad and via by the footprint mask margin; paste layers open surface
+/// mounted pads by the paste margin; silk layers carry footprint and board
+/// silk strokes away from mask openings; the outline layer carries the board
+/// edge and circular cutouts; the drill files carry plated and unplated holes
+/// separately, round holes as single hits and oval holes as routs along the
+/// rotated long axis. Back-side coordinates are mirrored about x=0 as
+/// fabrication houses expect for bottom-side films.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     const MAX_OPS: usize = 100_000;
@@ -1924,6 +1928,9 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         Rect(u64, u64),
         Obround(u64, u64),
         Round(u64, u64, u64),
+        /// A track stroke, kept apart from a pad or via circle of the same
+        /// diameter so the X2 aperture function names it a conductor.
+        Track(u64),
     }
     #[derive(Clone)]
     struct LayerFile {
@@ -2020,8 +2027,11 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                  %FSLANX*X{mirror}Y{mirror}{mo}*%\n"
             );
             for (ap, code) in &self.apertures {
+                if matches!(ap, Ap::Track(_)) {
+                    out.push_str("%TA.AperFunction,Conductor,Cu*%\n");
+                }
                 match *ap {
-                    Ap::Circle(d) => out.push_str(&format!(
+                    Ap::Circle(d) | Ap::Track(d) => out.push_str(&format!(
                         "%ADD{code}C,{:.6}*%\n",
                         d as f64 / 1000.0 * self.scale
                     )),
@@ -2077,7 +2087,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         let is_back = t.layer == pcbcraft_doc::Layer::Back;
         let file = if is_back { &mut back } else { &mut front };
         let w = (t.width * 1_000.0).round() as u64;
-        let code = file.code(Ap::Circle(w.max(1)))?;
+        let code = file.code(Ap::Track(w.max(1)))?;
         if let Some(arc) = t.curve() {
             file.ops += 1;
             if file.ops > MAX_OPS {
@@ -2278,6 +2288,23 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         "pcb-B.Cu.gbr".into(),
         back.finish(true, "back copper layer", "Copper,L2,Bot"),
     );
+    for (layer, name) in [
+        (pcbcraft_doc::Layer::Front, "F"),
+        (pcbcraft_doc::Layer::Back, "B"),
+    ] {
+        files.insert(
+            format!("pcb-{name}.Mask.gbr"),
+            gerber::gerber_mask(p, layer)?,
+        );
+        files.insert(
+            format!("pcb-{name}.Paste.gbr"),
+            gerber::gerber_paste(p, layer)?,
+        );
+        files.insert(
+            format!("pcb-{name}.SilkS.gbr"),
+            gerber::gerber_silk(p, layer)?,
+        );
+    }
     files.insert(
         "pcb-Edge.gbr".into(),
         outline.finish(false, "board outline", "Profile,NP"),
@@ -7690,9 +7717,15 @@ mod tests {
             files.keys().collect::<Vec<_>>(),
             vec![
                 "pcb-B.Cu.gbr",
+                "pcb-B.Mask.gbr",
+                "pcb-B.Paste.gbr",
+                "pcb-B.SilkS.gbr",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cu.gbr",
+                "pcb-F.Mask.gbr",
+                "pcb-F.Paste.gbr",
+                "pcb-F.SilkS.gbr",
                 "pcb-PTH.drl",
                 "pcb-job.gbrjob"
             ]

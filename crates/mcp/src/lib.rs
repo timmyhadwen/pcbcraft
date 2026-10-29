@@ -1186,7 +1186,17 @@ mod tests {
         let before = session.lock().map_err(|_| "session unavailable")?.inspect();
         let export = call_tool(&session, "gerber.export", &json!({"path":directory.path()}));
         assert_eq!(export.get("isError"), Some(&json!(false)));
-        for name in ["pcb-F.Cu.gbr", "pcb-B.Cu.gbr", "pcb-Edge.gbr"] {
+        for name in [
+            "pcb-F.Cu.gbr",
+            "pcb-B.Cu.gbr",
+            "pcb-F.Mask.gbr",
+            "pcb-B.Mask.gbr",
+            "pcb-F.Paste.gbr",
+            "pcb-B.Paste.gbr",
+            "pcb-F.SilkS.gbr",
+            "pcb-B.SilkS.gbr",
+            "pcb-Edge.gbr",
+        ] {
             let text =
                 std::fs::read_to_string(directory.path().join(name)).map_err(|e| e.to_string())?;
             assert!(!text.is_empty(), "{name} should carry content");
