@@ -2880,7 +2880,8 @@ pub fn drill_chart_csv(p: &Project) -> Result<String, String> {
     let hits = project_drill_hits(p)?;
     let mut tools: BTreeMap<(u64, u64, bool), usize> = BTreeMap::new();
     for hit in hits {
-        *tools.entry((hit.d, hit.span, hit.plated)).or_default() += 1;    }
+        *tools.entry((hit.d, hit.span, hit.plated)).or_default() += 1;
+    }
     if tools.len() > MAX_TOOLS {
         return Err("drill chart needs 64 or fewer distinct drill tools".into());
     }
@@ -11299,7 +11300,6 @@ mod tests {
         Ok(())
     }
 
-
     /// A two layer board fixture for the drawn layer plots: a cut outline with
     /// a hole and a label, and a silk panel mark.
     fn drawn_layer_project() -> Project {
@@ -11374,7 +11374,8 @@ mod tests {
         );
         assert!(
             drawing.contains("8\npanel-silk\n"),
-            "the board DXF carries the drawn silk layer"        );
+            "the board DXF carries the drawn silk layer"
+        );
         Ok(())
     }
 
@@ -11586,7 +11587,8 @@ mod tests {
         let blank = drawn_layer_plots(&blank)?;
         assert!(
             blank.files.contains_key("layer-9.dxf"),
-            "a name with no usable characters falls back to the layer id"        );
+            "a name with no usable characters falls back to the layer id"
+        );
         Ok(())
     }
 
