@@ -16,7 +16,10 @@ pub(crate) fn via_span_rows(project: &Project, via: &pcbcraft_doc::Via) -> Vec<(
                 project.layer_name(lower)
             ),
         ),
-        ("Kind".to_string(), project.via_kind(via).label().to_string()),
+        (
+            "Kind".to_string(),
+            project.via_kind(via).label().to_string(),
+        ),
     ];
     rows
 }
@@ -102,10 +105,14 @@ impl App {
         });
         ui.add_space(4.0);
         if let Some(note) = pcbcraft_rules::via_aspect_warning(&self.project, &via) {
-            ui.label(egui::RichText::new(note).small().color(Color32::from_rgb(220, 160, 40)))
-                .on_hover_text(
-                    "Deep, narrow holes plate unevenly. Use a wider drill or a shorter span.",
-                );
+            ui.label(
+                egui::RichText::new(note)
+                    .small()
+                    .color(Color32::from_rgb(220, 160, 40)),
+            )
+            .on_hover_text(
+                "Deep, narrow holes plate unevenly. Use a wider drill or a shorter span.",
+            );
         }
         ui.add_space(6.0);
         if let Some((a, b)) = pick {
@@ -139,7 +146,9 @@ impl App {
                 if custom
                     && ui
                         .small_button("Remove")
-                        .on_hover_text("Stop allowing vias on this span. Refused while a via uses it.")
+                        .on_hover_text(
+                            "Stop allowing vias on this span. Refused while a via uses it.",
+                        )
                         .clicked()
                 {
                     remove = Some((*a, *b));
