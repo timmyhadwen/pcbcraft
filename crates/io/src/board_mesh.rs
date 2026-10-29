@@ -646,7 +646,7 @@ impl Builder<'_> {
 
 // --------------------------------------------------------------- transforms
 
-fn to_board(fp: &Footprint, local: Point) -> Point {
+pub(crate) fn to_board(fp: &Footprint, local: Point) -> Point {
     fp.position.offset(local.rotate(-fp.rotation))
 }
 pub(crate) fn map_ring(fp: &Footprint, local: &[Point]) -> Vec<Point> {
@@ -1297,7 +1297,7 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
             };
             for fp in &p.board.footprints {
                 for pad in &fp.pads {
-                    let (front, back, copper) = pad_sides(pad);
+                    let (front, back, copper) = pad_sides(fp, pad);
                     if !copper || (top && !front) || (!top && !back) {
                         continue;
                     }
@@ -1370,7 +1370,7 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                     .filter(|m| m.is_finite() && m.abs() <= 1.0)
                     .unwrap_or(MASK_MARGIN);
                 for pad in &fp.pads {
-                    let (front, back, _) = pad_sides(pad);
+                    let (front, back, _) = pad_sides(fp, pad);
                     if (top && !front) || (!top && !back) {
                         continue;
                     }
@@ -1525,7 +1525,13 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
             {
                 b.part.model = Some(ModelPlacement {
                     path: model.path.clone(),
-                    matrix: model_matrix(model, fp.position, fp.rotation, false, thickness),
+                    matrix: model_matrix(
+                        model,
+                        fp.position,
+                        fp.rotation,
+                        fp.board_side() == Layer::Back,
+                        thickness,
+                    ),
                 });
             }
             if let Some(ring) = clean_ring(&map_ring(fp, &body.ring)) {
@@ -1561,23 +1567,27 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
 }
 
 /// Which copper sides a pad touches, and whether it has copper at all.
-pub(crate) fn pad_sides(pad: &Pad) -> (bool, bool, bool) {
+pub(crate) fn pad_sides(fp: &Footprint, pad: &Pad) -> (bool, bool, bool) {
     match &pad.geometry {
         None => (true, false, true),
         Some(g) => {
             if g.pad_type == "np_thru_hole" || g.pad_type == "unplated" {
                 return (false, false, false);
             }
-            let front = g
-                .layers
+            if g.pad_type == "thru_hole" {
+                return (true, true, true);
+            }
+            let layers = fp.pad_geometry_layers(pad);
+            let front = layers
                 .iter()
                 .any(|l| l == "F.Cu" || l == "*.Cu" || l == "F&B.Cu");
-            let back = g
-                .layers
+            let back = layers
                 .iter()
                 .any(|l| l == "B.Cu" || l == "*.Cu" || l == "F&B.Cu");
             if front || back {
                 (front, back, true)
+            } else if fp.board_side() == Layer::Back {
+                (false, true, true)
             } else {
                 (true, false, true)
             }
@@ -1750,6 +1760,9 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.8,
             drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
         let slab = part(&mesh, PartKind::Board)?;
@@ -1828,6 +1841,7 @@ mod tests {
             position: Point::new(20.0, 15.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads,
         }
     }
@@ -2168,6 +2182,7 @@ mod tests {
             cutouts: vec![cut],
             filled: true,
             kind: None,
+            pour: None,
         });
         p.board.zones.push(CopperZone {
             id: 3,
@@ -2177,6 +2192,7 @@ mod tests {
             cutouts: vec![],
             filled: false,
             kind: None,
+            pour: None,
         });
         let mesh = board_mesh(&p, MeshLayers::default())?;
         let top = part(&mesh, PartKind::CopperTop)?;

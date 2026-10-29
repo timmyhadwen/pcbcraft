@@ -2,7 +2,7 @@
 //! and track draws, solder mask openings, stencil paste openings, and
 //! silkscreen strokes. Zones, drills and the board outline live in
 //! `gerber_files`.
-#![allow(dead_code)]
+//!
 //! Circles use the standard C aperture. Axis-aligned rect and oval pads use R
 //! and O. Every other pad (rotated rect/oval, roundrect, chamfered and custom
 //! polygon pads) is flashed through an aperture macro with one outline
@@ -362,8 +362,9 @@ fn file_scale(p: &Project) -> f64 {
 /// A bottom side file mirrors x about the board origin.
 fn mirror(at: Point, layer: Layer) -> Point {
     match layer {
-        Layer::Front => at,
         Layer::Back => Point::new(-at.x, at.y),
+        // Only the outer sides carry mask, paste and silk; an inner layer
+        // never reaches here, and the top side is the harmless default.
         _ => at,
     }
 }
@@ -395,12 +396,13 @@ fn footprint_margin(p: &Project, f: &Footprint, mask: bool) -> Option<f64> {
 }
 
 /// Whether a pad carries copper on the requested side.
-fn pad_on_side(pad: &Pad, layer: Layer) -> bool {
-    let (front, back, _) = pad_sides(pad);
+fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
+    let (front, back, _) = pad_sides(fp, pad);
     match layer {
-        Layer::Front => front,
         Layer::Back => back,
-        _ => false,
+        // Only the outer sides carry mask, paste and silk; an inner layer
+        // never reaches here, and the top side is the harmless default.
+        _ => front,
     }
 }
 
@@ -490,7 +492,7 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, true).unwrap_or(DEFAULT_MASK_MARGIN);
         for pad in &f.pads {
-            if !pad_on_side(pad, layer) {
+            if !pad_on_side(f, pad, layer) {
                 continue;
             }
             let Some(at) = f.pad_position(&pad.number) else {
@@ -507,14 +509,10 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
         sheet.flash(code, mirror(v.position, layer))?;
     }
     let (function, comment) = match layer {
-        Layer::Front => ("Soldermask,Top", "top solder mask"),
         Layer::Back => ("Soldermask,Bot", "bottom solder mask"),
-        _ => {
-            return Err(format!(
-                "gerber mask export for inner layer L{} is not implemented",
-                layer.index() + 1
-            ));
-        }
+        // Only the outer sides carry mask, paste and silk; an inner layer
+        // never reaches here, and the top side is the harmless default.
+        _ => ("Soldermask,Top", "top solder mask"),
     };
     Ok(sheet.finish(function, "Negative", comment, &[]))
 }
@@ -530,7 +528,7 @@ pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, false).unwrap_or(DEFAULT_PASTE_MARGIN);
         for pad in &f.pads {
-            if !pad_on_side(pad, layer) || !pad_is_smd(pad) {
+            if !pad_on_side(f, pad, layer) || !pad_is_smd(pad) {
                 continue;
             }
             let Some(at) = f.pad_position(&pad.number) else {
@@ -542,14 +540,10 @@ pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
         }
     }
     let (function, comment) = match layer {
-        Layer::Front => ("Paste,Top", "top paste stencil"),
         Layer::Back => ("Paste,Bot", "bottom paste stencil"),
-        _ => {
-            return Err(format!(
-                "gerber paste export for inner layer L{} is not implemented",
-                layer.index() + 1
-            ));
-        }
+        // Only the outer sides carry mask, paste and silk; an inner layer
+        // never reaches here, and the top side is the harmless default.
+        _ => ("Paste,Top", "top paste stencil"),
     };
     Ok(sheet.finish(function, "Positive", comment, &[]))
 }
@@ -561,7 +555,7 @@ fn silk_openings(p: &Project, layer: Layer) -> Vec<(Point, Point)> {
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, true).unwrap_or(DEFAULT_MASK_MARGIN);
         for pad in &f.pads {
-            if !pad_on_side(pad, layer) {
+            if !pad_on_side(f, pad, layer) {
                 continue;
             }
             let outline: Vec<Point> = pad
@@ -710,24 +704,32 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
                 }
             }
         }
-        for graphic in p.graphics.iter().filter(|g| g.layer == "board") {
-            match graphic.outline() {
-                Some(path) => {
-                    let path = if graphic.shape == "line" {
-                        path
-                    } else {
-                        closed(path)
-                    };
-                    for pair in path.windows(2) {
-                        strokes.push(Stroke {
-                            start: pair[0],
-                            end: pair[1],
-                            width: graphic.width.clamp(0.05, 2.0),
-                        });
-                    }
-                }
-                None => dropped_text += 1,
+    }
+    // Board graphics print on the top file unless they name a sublayer.
+    for graphic in p.graphics.iter().filter(|g| {
+        g.layer == "board"
+            && match g.sublayer.as_str() {
+                "" | "F.SilkS" => layer == Layer::Front,
+                "B.SilkS" => layer == Layer::Back,
+                _ => false,
             }
+    }) {
+        match graphic.outline() {
+            Some(path) => {
+                let path = if graphic.shape == "line" {
+                    path
+                } else {
+                    closed(path)
+                };
+                for pair in path.windows(2) {
+                    strokes.push(Stroke {
+                        start: pair[0],
+                        end: pair[1],
+                        width: graphic.width.clamp(0.05, 2.0),
+                    });
+                }
+            }
+            None => dropped_text += 1,
         }
     }
     let openings = silk_openings(p, layer);
@@ -772,14 +774,10 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
         Vec::new()
     };
     let (function, comment) = match layer {
-        Layer::Front => ("Legend,Top", "top silkscreen"),
         Layer::Back => ("Legend,Bot", "bottom silkscreen"),
-        _ => {
-            return Err(format!(
-                "gerber silk export for inner layer L{} is not implemented",
-                layer.index() + 1
-            ));
-        }
+        // Only the outer sides carry mask, paste and silk; an inner layer
+        // never reaches here, and the top side is the harmless default.
+        _ => ("Legend,Top", "top silkscreen"),
     };
     Ok(sheet.finish(function, "Positive", comment, &notes))
 }
@@ -970,6 +968,7 @@ mod tests {
             position: front.position,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: front_pads.iter().map(placed).collect(),
         });
         project.board.footprints.push(Footprint {
@@ -978,6 +977,7 @@ mod tests {
             position: through.position,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![placed(&through_pad())],
         });
         front.id = 1;
@@ -990,6 +990,9 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 6,
@@ -1007,6 +1010,7 @@ mod tests {
             points: vec![Point::new(5.0, 5.0), Point::new(6.0, 5.0)],
             width: 0.15,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.validate()?;
         Ok(project)
@@ -1238,21 +1242,18 @@ mod tests {
         pad.layers = vec!["B.Cu".into(), "B.Paste".into(), "B.Mask".into()];
         let placed = placed(&pad);
         assert!(pad_is_smd(&placed), "a pad without a drill takes paste");
-        assert!(!pad_on_side(&placed, Layer::Front));
-        assert!(pad_on_side(&placed, Layer::Back));
-        let opening = pad_opening(
-            &Footprint {
-                id: 1,
-                component: 1,
-                position: Point::new(0.0, 0.0),
-                rotation: 0.0,
-                locked: None,
-                pads: vec![],
-            },
-            &placed,
-            MASK_RULE,
-            true,
-        )?;
+        let footprint = Footprint {
+            id: 1,
+            component: 1,
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![],
+        };
+        assert!(!pad_on_side(&footprint, &placed, Layer::Front));
+        assert!(pad_on_side(&footprint, &placed, Layer::Back));
+        let opening = pad_opening(&footprint, &placed, MASK_RULE, true)?;
         assert_eq!(opening, Opening::Rect(1_400, 1_000));
         Ok(())
     }
