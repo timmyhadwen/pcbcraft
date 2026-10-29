@@ -269,3 +269,4 @@ story | radiobutton:Auto-allow design edits | no story yet, tracked in #520
 tooltip | button:Add hole | below the fold of the longer Settings page, tracked in #520
 tooltip | button:Apply board dimensions | below the fold of the longer Settings page, tracked in #520
 story | button:Add hole | below the fold of the longer Settings page, tracked in #520
+tooltip | checkbox:Chamfer corners | has a tooltip; below the fold of the longer Settings page, tracked in #520
