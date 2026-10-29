@@ -12125,13 +12125,6 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             };
             for pad in &mut footprint.pads {
                 pad.offset = Point::new(-pad.offset.x, pad.offset.y);
-                if let Some(geometry) = &mut pad.geometry {
-                    geometry.position = Point::new(-geometry.position.x, geometry.position.y);
-                    geometry.rotation = -geometry.rotation;
-                    if let Some(drill) = &mut geometry.drill {
-                        drill.offset = Point::new(-drill.offset.x, drill.offset.y);
-                    }
-                }
             }
             Ok(json!({"id": a.id, "side": footprint.board_side().name()}))
         }
