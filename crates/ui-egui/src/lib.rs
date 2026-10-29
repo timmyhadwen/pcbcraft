@@ -6,6 +6,7 @@ mod board3d;
 mod canvas;
 mod contrast;
 mod datums;
+mod draw_target;
 mod editing;
 mod footprint_wizard;
 mod impedance_panel;
@@ -847,6 +848,8 @@ pub struct App {
     highlight_net: Option<Id>,
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
+    /// What the drawing tools draw on; the Layers tree, toolbar and status bar share it.
+    target: draw_target::Target,
     preferences: Preferences,
     /// Text for the language chosen in Settings.
     catalog: std::sync::Arc<pcbcraft_text::Catalog>,
@@ -1337,6 +1340,7 @@ impl App {
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
+            target: draw_target::Target::Copper(pcbcraft_doc::Layer::Front),
             catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
                 &preferences.language,
             )),
@@ -5930,6 +5934,17 @@ impl App {
                                 .color(self.muted()),
                         )
                         .on_hover_text(t!("board.footer.zoom_pct.tip"));
+                        if self.tab == Tab::Pcb {
+                            ui.label(
+                                egui::RichText::new(t!(
+                                    "target.status",
+                                    layer = self.target_label()
+                                ))
+                                .small()
+                                .color(self.muted()),
+                            )
+                            .on_hover_text(t!("target.status.tip"));
+                        }
                         let tool_btn = ui
                             .tap_button(t!("board.footer.tool_tool_words", tool_words = tool_words))
                             .on_hover_text(t!("board.footer.tool_tool_words.tip"));
@@ -6545,6 +6560,7 @@ impl App {
                 .art_layer
                 .and_then(|id| names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone()))
                 .unwrap_or_else(|| t!("board.draw_tool_options.no_layer_yet"));
+            let picked_before = self.art_layer;
             egui::ComboBox::from_id_salt("art-layer-pick")
                 .selected_text(current)
                 .width(150.0)
@@ -6558,6 +6574,11 @@ impl App {
                 })
                 .response
                 .named("Drawing layer");
+            if let Some(id) = self.art_layer
+                && self.art_layer != picked_before
+            {
+                self.set_target(draw_target::Target::User(id));
+            }
             if ui
                 .button(t!("board.draw_tool_options.new_layer"))
                 .on_hover_text(t!("board.draw_tool_options.new_layer.tip"))
@@ -6567,6 +6588,9 @@ impl App {
                 self.run("board.layer_add", json!({"name": name, "kind": "other"}));
                 if self.message.starts_with("board.layer_add") {
                     self.art_layer = self.selected;
+                    if let Some(id) = self.art_layer {
+                        self.set_target(draw_target::Target::User(id));
+                    }
                 }
             }
             ui.horizontal(|ui| {
@@ -6711,6 +6735,8 @@ impl App {
                         }
                     }
                     if self.tab == Tab::Pcb {
+                        self.layer_field(ui);
+                        ui.separator();
                         if self
                             .tool_strip_button(
                                 ui,

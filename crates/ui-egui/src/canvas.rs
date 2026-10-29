@@ -624,7 +624,7 @@ impl App {
                 }
                 Tool::DrawLayer => {
                     let stroke = Stroke::new(1.0, self.accent());
-                    match self.art_shape {
+                    match self.draw_shape() {
                         DrawShape::Words => {
                             if !self.art_text.trim().is_empty() {
                                 painter.text(
@@ -651,7 +651,7 @@ impl App {
                             if let Some(start) = self.art_start {
                                 let a = camera.screen(start, rect);
                                 let b = camera.screen(snapped, rect);
-                                match self.art_shape {
+                                match self.draw_shape() {
                                     DrawShape::Line => {
                                         painter.line_segment([a, b], stroke);
                                     }
@@ -738,12 +738,13 @@ impl App {
         }
         if ui.input(|i| i.key_pressed(egui::Key::Enter))
             && matches!(self.tool, Tool::DrawLayer)
-            && self.art_shape == DrawShape::Poly
-            && self.art_layer.is_some()
-            && self.art_points.len() >= 3
+            && self.draw_can_finish()
         {
-            let layer = self.art_layer.unwrap_or_default();
-            self.commit_poly(layer);
+            match (self.current_target(), self.art_layer) {
+                (crate::draw_target::Target::User(_), Some(layer)) => self.commit_poly(layer),
+                (crate::draw_target::Target::User(_), None) => {}
+                _ => self.draw_finish(),
+            }
         }
         if response.clicked() {
             self.canvas_menu = None;
@@ -1799,6 +1800,9 @@ impl App {
                 "board.cutout.add",
                 json!({"center":snap(pos),"radius":self.cutout_radius}),
             ),
+            Tool::DrawLayer if !matches!(self.current_target(), crate::draw_target::Target::User(_)) => {
+                self.draw_click(pos, zoom);
+            }
             Tool::DrawLayer => {
                 let Some(layer) = self.art_layer else {
                     self.message = t!("board.canvas_click.pick_or_make_a_layer");

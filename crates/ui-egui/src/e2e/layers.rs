@@ -190,7 +190,10 @@ fn a_newcomer_hides_a_layer_from_its_right_click_menu() -> Result<(), String> {
     authoring::tests::tap(&ctx, &mut app, "Hide  Space")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        app.preferences.hidden_layers.iter().any(|h| h == "Top copper"),
+        app.preferences
+            .hidden_layers
+            .iter()
+            .any(|h| h == "Top copper"),
         "the menu hides the layer on the drawing: {}",
         app.message
     );

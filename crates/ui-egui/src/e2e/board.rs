@@ -1353,6 +1353,7 @@ fn board_app_with_via(layers: u32) -> Result<(App, Point), String> {
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: None,
+                material: None,
             });
             if i < layers {
                 records.push(pcbcraft_doc::LayerRecord {
@@ -1360,6 +1361,7 @@ fn board_app_with_via(layers: u32) -> Result<(App, Point), String> {
                     kind: "prepreg".into(),
                     thickness: 0.4,
                     copper_role: None,
+                    material: None,
                 });
             }
         }
