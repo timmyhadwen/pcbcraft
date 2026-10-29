@@ -7,6 +7,7 @@ mod library_quality;
 mod plot_viewer;
 mod sources;
 mod via_covering;
+mod via_span;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
@@ -834,6 +835,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.extend(via_span::via_span_rows(project, v));
         rows.push((
             "Protection".into(),
             via_covering::covering_name(v.effective_covering(&project.board)).into(),
@@ -1903,6 +1905,9 @@ impl App {
             .show(ui, |ui| {
             self.holes_section(ui);
             self.fiducials_section(ui);
+            if self.tab == Tab::Pcb {
+                self.via_spans_section(ui);
+            }
             ui.add_space(16.0);
             let rows: &[&str] = match self.tab {
                 Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
@@ -2015,10 +2020,11 @@ impl App {
                 (
                     v.id,
                     format!(
-                        "Via at {}, {} · {} mm hole · Top to Bottom · {}",
+                        "Via at {}, {} · {} mm hole · {} · {}",
                         v.position.x.round(),
                         v.position.y.round(),
                         v.drill,
+                        via_span::via_tree_span(&self.project, v),
                         self.project.net_name(v.net)
                     ),
                 )
@@ -5762,6 +5768,7 @@ impl App {
                                 ui.label(value);
                             });
                         }
+                        self.via_span_controls(ui, id);
                         self.via_covering_controls(ui, id);
                         if let Some(track) =
                             self.project.board.tracks.iter().find(|t| t.id == id)
