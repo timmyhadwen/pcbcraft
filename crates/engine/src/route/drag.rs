@@ -12,16 +12,15 @@ use serde_json::Value;
 /// Drag one end of track `id` to `position`, keeping the other end fixed.
 ///
 /// The segment is taken out and its net, width and layer are routed from the
-/// fixed end to the new spot as 45-degree copper. In `OctilinearShove` mode
-/// other nets' tracks may be pushed aside. The caller (`Session::batch`) keeps
-/// the old project when this returns an error, so a refusal changes nothing.
+/// fixed end to the new spot as 45-degree copper; shove mode may push other
+/// nets' tracks aside. An error leaves the caller's project as it was.
 ///
 /// # Rules
 /// - `Orthogonal` is not a drag mode: it has no obstacle checks.
 /// - The two ends may not meet and the new end must lie on the board.
 ///
 /// # Dependencies
-/// - `route/mod.rs` `run` for the path search and the shove.
+/// - `crates/engine/src/route/mod.rs` `run`: path search and shove.
 ///
 /// # Do not
 /// - Do not move the fixed end or other segments of the same net.
