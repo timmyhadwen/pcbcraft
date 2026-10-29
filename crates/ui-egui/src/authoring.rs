@@ -1149,7 +1149,7 @@ impl App {
         ui.label(t!("library.project_library.saved_here_live_with_the"));
         ui.horizontal(|ui| {
             ui.label(t!("library.project_library.collection_file"));
-            ui.text_edit_singleline(&mut self.library.editor.path);
+            ui.add(crate::targets::text_field(&mut self.library.editor.path));
             if ui
                 .button(t!("library.project_library.save_library"))
                 .on_hover_text(t!("library.project_library.save_library.tip"))
@@ -1288,7 +1288,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(t!("library.library_editor.set"))
                         .on_hover_text(t!("library.library_editor.set.tip"));
-                    ui.text_edit_singleline(&mut def.set);
+                    ui.add(crate::targets::text_field(&mut def.set));
                 });
                 if let Err(e) = def.validate() {
                     ui.colored_label(Color32::LIGHT_RED, e.to_string());

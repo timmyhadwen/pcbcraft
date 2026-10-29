@@ -765,7 +765,7 @@ impl App {
                         self.needs_fit = true;
                     }
                     if ui
-                        .small_button(t!("board.canvas.text"))
+                        .tap_button(t!("board.canvas.text"))
                         .on_hover_text(t!("board.canvas.text.tip"))
                         .clicked()
                     {
@@ -777,7 +777,7 @@ impl App {
                         *zoom = (*zoom * 1.15).clamp(0.02, 100.0);
                     }
                     if ui
-                        .small_button(t!("board.canvas.text2"))
+                        .tap_button(t!("board.canvas.text2"))
                         .on_hover_text(t!("board.canvas.text2.tip"))
                         .clicked()
                     {

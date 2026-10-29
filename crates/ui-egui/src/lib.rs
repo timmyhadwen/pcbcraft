@@ -1755,7 +1755,7 @@ impl App {
             ];
             for (title, help, layers) in PRESETS {
                 if ui
-                    .small_button(pcbcraft_text::lookup(title, &[]))
+                    .tap_button(pcbcraft_text::lookup(title, &[]))
                     .on_hover_text(t!(
                         "board.stackup_section.help_choosing_it_replaces_whatever.tip",
                         help = pcbcraft_text::lookup(help, &[])
@@ -1795,7 +1795,7 @@ impl App {
                     .on_hover_text(t!("board.stackup_section.v0_thickness_mm.tip"));
                     if !editing
                         && ui
-                            .small_button(t!("board.stackup_section.tune"))
+                            .tap_button(t!("board.stackup_section.tune"))
                             .on_hover_text(t!("board.stackup_section.tune.tip"))
                             .clicked()
                     {
@@ -1842,7 +1842,7 @@ impl App {
                         .on_hover_text(t!("board.stackup_section.apply.tip"))
                         .clicked();
                     let cancel = ui
-                        .small_button(t!("board.stackup_section.cancel"))
+                        .tap_button(t!("board.stackup_section.cancel"))
                         .on_hover_text(t!("board.stackup_section.cancel.tip"))
                         .clicked();
                     if apply {
@@ -2078,7 +2078,7 @@ impl App {
                         ));
                     }
                     if ui
-                        .small_button(t!("board.holes_section.tune"))
+                        .tap_button(t!("board.holes_section.tune"))
                         .on_hover_text(t!("board.holes_section.tune.tip"))
                         .clicked()
                     {
@@ -2086,7 +2086,7 @@ impl App {
                     }
                 }
                 if ui
-                    .small_button(t!("board.holes_section.text2"))
+                    .tap_button(t!("board.holes_section.text2"))
                     .on_hover_text(t!("board.holes_section.text2.tip"))
                     .clicked()
                 {
@@ -2178,7 +2178,7 @@ impl App {
                         y = format!("{:.1}", fid.position.y)
                     ));
                     if ui
-                        .small_button(t!("board.fiducials_section.tune"))
+                        .tap_button(t!("board.fiducials_section.tune"))
                         .on_hover_text(t!("board.fiducials_section.tune.tip"))
                         .clicked()
                     {
@@ -2190,7 +2190,7 @@ impl App {
                     }
                 }
                 if ui
-                    .small_button(t!("board.fiducials_section.text2"))
+                    .tap_button(t!("board.fiducials_section.text2"))
                     .on_hover_text(t!("board.fiducials_section.text2.tip"))
                     .clicked()
                 {
@@ -2216,14 +2216,14 @@ impl App {
         ui.separator();
         ui.horizontal(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.tree_query)
+                crate::targets::text_field(&mut self.tree_query)
                     .hint_text(t!("board.layers_tab.search_the_whole_board"))
                     .desired_width(150.0),
             )
             .on_hover_text(t!("board.layers_tab.search_the_whole_board.tip"));
             if !self.tree_query.is_empty()
                 && ui
-                    .small_button(t!("board.layers_tab.clear"))
+                    .tap_button(t!("board.layers_tab.clear"))
                     .on_hover_text(t!("board.layers_tab.clear.tip"))
                     .clicked()
             {
@@ -2685,7 +2685,7 @@ impl App {
                         };
                         let focused = self.focus_layer.as_deref() == Some(focus_key);
                         if ui
-                            .small_button(if focused {
+                            .tap_button(if focused {
                                 t!("board.board_anatomy_section.stop_fading")
                             } else {
                                 t!("board.board_anatomy_section.fade_others")
@@ -2839,7 +2839,7 @@ impl App {
                         let focus_key = format!("art:{name}");
                         let focused = self.focus_layer.as_deref() == Some(focus_key.as_str());
                         if ui
-                            .small_button(if focused {
+                            .tap_button(if focused {
                                 t!("board.board_anatomy_section.stop_fading")
                             } else {
                                 t!("board.board_anatomy_section.fade_others")
@@ -3341,7 +3341,7 @@ impl App {
                             ui.horizontal(|ui| {
                                 let path_box = ui
                                     .add(
-                                        egui::TextEdit::singleline(&mut self.path)
+                                        crate::targets::text_field(&mut self.path)
                                             .hint_text(t!("dialogs.start_home.design_file_path"))
                                             .desired_width(240.0),
                                     )
@@ -3706,7 +3706,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(t!("library.browser.library")).strong());
                     if ui
-                        .small_button(t!("library.browser.hide"))
+                        .tap_button(t!("library.browser.hide"))
                         .on_hover_text(t!("library.browser.hide.tip"))
                         .clicked()
                     {
@@ -3726,7 +3726,7 @@ impl App {
                     ui.label(egui::RichText::new(t!("library.browser.add_a_part")).strong());
                     let query_box = ui
                         .add(
-                            egui::TextEdit::singleline(&mut self.part_search)
+                            crate::targets::text_field(&mut self.part_search)
                                 .hint_text(t!("library.browser.search_parts_by_name"))
                                 .desired_width(f32::INFINITY),
                         )
@@ -4146,7 +4146,7 @@ impl App {
                         self.highlight_net = if lit { None } else { Some(net.id) };
                     }
                     if ui
-                        .small_button(t!("schematic.nets_tab.rename"))
+                        .tap_button(t!("schematic.nets_tab.rename"))
                         .on_hover_text(t!("schematic.nets_tab.rename.tip"))
                         .clicked()
                     {
@@ -4154,7 +4154,7 @@ impl App {
                     }
                     let open = self.net_editor == Some(net.id);
                     if ui
-                        .small_button(if open {
+                        .tap_button(if open {
                             t!("schematic.nets_tab.hide_pins")
                         } else {
                             t!("schematic.nets_tab.pins")
@@ -4231,7 +4231,7 @@ impl App {
                             ui.horizontal(|ui| {
                                 ui.label(label);
                                 if ui
-                                    .small_button(t!("schematic.nets_tab.text"))
+                                    .tap_button(t!("schematic.nets_tab.text"))
                                     .on_hover_text(t!("schematic.nets_tab.text.tip"))
                                     .clicked()
                                 {
@@ -4406,10 +4406,11 @@ impl App {
         });
         ui.label(t!("settings.settings_tab.accent_color"));
         ui.color_edit_button_srgb(&mut self.preferences.accent);
-        ui.checkbox(&mut self.preferences.reduced_motion, "Reduce motion")
-            .on_hover_text(
-                "Turn off fades and gliding zoom. The wheel zooms in one step. Dragging is unchanged.",
-            );
+        ui.checkbox(
+            &mut self.preferences.reduced_motion,
+            t!("settings.settings_tab.reduce_motion"),
+        )
+        .on_hover_text(t!("settings.settings_tab.reduce_motion.tip"));
         self.language_menu(ui);
         ui.label(
             egui::RichText::new(t!(
@@ -4674,7 +4675,7 @@ impl App {
                         v0 = if front { "Top" } else { "Bottom" }
                     ));
                     if ui
-                        .small_button(t!("settings.settings_tab.erase"))
+                        .tap_button(t!("settings.settings_tab.erase"))
                         .on_hover_text(t!("settings.settings_tab.erase.tip"))
                         .clicked()
                     {
@@ -4709,7 +4710,7 @@ impl App {
         }
         ui.horizontal(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.svg_path)
+                crate::targets::text_field(&mut self.svg_path)
                     .hint_text(t!("settings.settings_tab.drawing_file_path_svg"))
                     .desired_width(150.0),
             )
@@ -4792,7 +4793,7 @@ impl App {
                 .color(self.muted()),
         );
         ui.add(
-            egui::TextEdit::singleline(&mut self.make_dir)
+            crate::targets::text_field(&mut self.make_dir)
                 .hint_text(t!("settings.settings_tab.folder_for_the_files_blank"))
                 .desired_width(220.0),
         )
@@ -5033,14 +5034,14 @@ impl App {
                         .on_hover_text(t!("rules.rules_tab.len_nets.tip"));
                     if !editing {
                         if ui
-                            .small_button(t!("rules.rules_tab.tune"))
+                            .tap_button(t!("rules.rules_tab.tune"))
                             .on_hover_text(t!("rules.rules_tab.tune.tip"))
                             .clicked()
                         {
                             self.rule_draft = Some((class.id, class.clearance, class.width));
                         }
                         if ui
-                            .small_button(t!("rules.rules_tab.remove"))
+                            .tap_button(t!("rules.rules_tab.remove"))
                             .on_hover_text(t!("rules.rules_tab.remove.tip"))
                             .clicked()
                         {
@@ -5086,7 +5087,7 @@ impl App {
                             self.run("netclass.set", json!({"class": id, "width": width}));
                         }
                         if ui
-                            .small_button(t!("rules.rules_tab.cancel"))
+                            .tap_button(t!("rules.rules_tab.cancel"))
                             .on_hover_text(t!("rules.rules_tab.cancel.tip"))
                             .clicked()
                         {
@@ -5177,7 +5178,7 @@ impl App {
                             ui.label(format!("{} ", t!("rules.rules_tab.text")));
                             ui.label(&name);
                             if ui
-                                .small_button(t!("rules.rules_tab.text2"))
+                                .tap_button(t!("rules.rules_tab.text2"))
                                 .on_hover_text(t!("rules.rules_tab.text2.tip"))
                                 .clicked()
                             {
@@ -5222,7 +5223,7 @@ impl App {
                 self.run("teardrop.add", json!({"depth": self.teardrop_depth}));
             }
             if ui
-                .small_button(t!("rules.rules_tab.remove_teardrops"))
+                .tap_button(t!("rules.rules_tab.remove_teardrops"))
                 .on_hover_text(t!("rules.rules_tab.remove_teardrops.tip"))
                 .clicked()
             {
@@ -5257,7 +5258,7 @@ impl App {
                 )
                 .on_hover_text(t!("rules.rules_tab.name_v1_v2.tip"));
                 if ui
-                    .small_button(t!("rules.rules_tab.remove_this_check"))
+                    .tap_button(t!("rules.rules_tab.remove_this_check"))
                     .on_hover_text(t!("rules.rules_tab.remove_this_check.tip"))
                     .clicked()
                 {
@@ -5268,7 +5269,7 @@ impl App {
         if self.project.custom_checks.len() < 32 {
             ui.horizontal(|ui| {
                 let response = ui.add(
-                    egui::TextEdit::singleline(&mut self.custom_name)
+                    crate::targets::text_field(&mut self.custom_name)
                         .hint_text(t!("rules.rules_tab.what_this_check_means_in"))
                         .desired_width(150.0),
                 );
@@ -5381,7 +5382,7 @@ impl App {
                     }
                 }
                 if ui
-                    .small_button(t!("rules.rules_tab.auto"))
+                    .tap_button(t!("rules.rules_tab.auto"))
                     .on_hover_text(t!("rules.rules_tab.auto.tip"))
                     .clicked()
                 {
@@ -5486,7 +5487,7 @@ impl App {
                         clearance = clearance
                     ));
                     if ui
-                        .small_button(t!("rules.rules_tab.clear"))
+                        .tap_button(t!("rules.rules_tab.clear"))
                         .on_hover_text(t!("rules.rules_tab.clear.tip"))
                         .clicked()
                     {
@@ -5520,7 +5521,7 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label(t!("rules.rules_tab.name"));
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.dp_name)
+                    crate::targets::text_field(&mut self.dp_name)
                         .hint_text(t!("rules.rules_tab.usb"))
                         .desired_width(90.0),
                 )
@@ -5591,7 +5592,7 @@ impl App {
                         gap = gap
                     ));
                     if ui
-                        .small_button(t!("rules.rules_tab.remove"))
+                        .tap_button(t!("rules.rules_tab.remove"))
                         .on_hover_text(t!("rules.rules_tab.remove2.tip"))
                         .clicked()
                     {
@@ -5714,7 +5715,7 @@ impl App {
                         v0 = max_height.map_or(String::new(), |h| format!(" · up to {h} mm tall"))
                     ));
                     if ui
-                        .small_button(t!("rules.rules_tab.erase_area"))
+                        .tap_button(t!("rules.rules_tab.erase_area"))
                         .on_hover_text(t!("rules.rules_tab.erase_area.tip"))
                         .clicked()
                     {
@@ -5775,7 +5776,7 @@ impl App {
                     }
                     if !editing {
                         if ui
-                            .small_button(t!("docks.builds_tab.note"))
+                            .tap_button(t!("docks.builds_tab.note"))
                             .on_hover_text(
                                 t!("docks.builds_tab.note.tip"),
                             )
@@ -5785,7 +5786,7 @@ impl App {
                                 Some((variant.name.clone(), variant.note.clone().unwrap_or_default()));
                         }
                         if ui
-                            .small_button(t!("docks.builds_tab.remove"))
+                            .tap_button(t!("docks.builds_tab.remove"))
                             .on_hover_text(
                                 t!("docks.builds_tab.remove.tip"),
                             )
@@ -5819,7 +5820,7 @@ impl App {
                         .on_hover_text(t!("docks.builds_tab.save_note.tip"))
                         .clicked();
                     let cancel = ui
-                        .small_button(t!("docks.builds_tab.cancel"))
+                        .tap_button(t!("docks.builds_tab.cancel"))
                         .on_hover_text(t!("docks.builds_tab.cancel.tip"))
                         .clicked();
                     if save {
@@ -5850,7 +5851,7 @@ impl App {
                             ui.label(format!("{} ", t!("docks.builds_tab.text")));
                             ui.label(&reference);
                             if ui
-                                .small_button(t!("docks.builds_tab.text2"))
+                                .tap_button(t!("docks.builds_tab.text2"))
                                 .on_hover_text(
                                     t!("docks.builds_tab.text2.tip"),
                                 )
@@ -5941,7 +5942,7 @@ impl App {
                             ui.label(format!("{} ", t!("docks.builds_tab.text")));
                             ui.label(t!("docks.builds_tab.reference_fits_footprint", reference = reference, footprint = swap.footprint));
                             if ui
-                                .small_button(t!("docks.builds_tab.text2"))
+                                .tap_button(t!("docks.builds_tab.text2"))
                                 .on_hover_text(t!("docks.builds_tab.text22.tip"))
                                 .clicked()
                             {
@@ -6183,7 +6184,7 @@ impl App {
                                 );
                                 ui.add_space(10.0);
                                 ui.label(t!("board.inspector.value"));
-                                ui.text_edit_singleline(&mut self.value);
+                                ui.add(crate::targets::text_field(&mut self.value));
                                 field_help(ui, FIELD_HELP_VALUE, self.muted());
                                 if ui
                                     .button(t!("board.inspector.apply_value"))
@@ -6633,19 +6634,16 @@ impl App {
                         )
                         .on_hover_text(t!("board.footer.zoom_pct.tip"));
                         let tool_btn = ui
-                            .small_button(t!(
-                                "board.footer.tool_tool_words",
-                                tool_words = tool_words
-                            ))
+                            .tap_button(t!("board.footer.tool_tool_words", tool_words = tool_words))
                             .on_hover_text(t!("board.footer.tool_tool_words.tip"));
                         if tool_btn.clicked() {
                             self.tool = Tool::Select;
                         }
                         let fix_btn = ui
-                            .small_button(t!("board.footer.fix_to_fix", fix = fix))
+                            .tap_button(t!("board.footer.fix_to_fix", fix = fix))
                             .on_hover_text(t!("board.footer.fix_to_fix.tip"));
                         let mind_btn = ui
-                            .small_button(t!("board.footer.mind_to_mind", mind = mind))
+                            .tap_button(t!("board.footer.mind_to_mind", mind = mind))
                             .on_hover_text(t!("board.footer.mind_to_mind.tip"));
                         if fix_btn.clicked() || mind_btn.clicked() {
                             self.change_tab(Tab::Checks);
@@ -6675,7 +6673,7 @@ impl App {
                                 .color(self.accent()),
                         );
                         let search = ui.add(
-                            egui::TextEdit::singleline(&mut self.command_query)
+                            crate::targets::text_field(&mut self.command_query)
                                 .hint_text(t!("board.footer.filter_command_names_and_descriptions"))
                                 .desired_width(300.0),
                         );
@@ -6962,7 +6960,7 @@ impl App {
                             }
                             if !objects.is_empty()
                                 && ui
-                                    .small_button(t!("checks.checks_view.hide_this"))
+                                    .tap_button(t!("checks.checks_view.hide_this"))
                                     .on_hover_text(t!("checks.checks_view.hide_this.tip"))
                                     .clicked()
                             {
@@ -6986,7 +6984,7 @@ impl App {
                                 {
                                     let pad = 2.0;
                                     if ui
-                                        .small_button(t!("checks.checks_view.quiet_this_area"))
+                                        .tap_button(t!("checks.checks_view.quiet_this_area"))
                                         .on_hover_text(t!("checks.checks_view.quiet_this_area.tip"))
                                         .clicked()
                                     {
@@ -7030,7 +7028,7 @@ impl App {
                         count = count
                     ));
                     if ui
-                        .small_button(t!("checks.checks_view.bring_back_code", code = code))
+                        .tap_button(t!("checks.checks_view.bring_back_code", code = code))
                         .on_hover_text(t!("checks.checks_view.bring_back_code.tip"))
                         .clicked()
                     {
@@ -7060,7 +7058,7 @@ impl App {
                         count = count
                     ));
                     if ui
-                        .small_button(t!("checks.checks_view.clear_code_zones", code = code))
+                        .tap_button(t!("checks.checks_view.clear_code_zones", code = code))
                         .on_hover_text(t!("checks.checks_view.clear_code_zones.tip"))
                         .clicked()
                     {
@@ -7253,7 +7251,7 @@ impl App {
             });
             if self.art_shape == DrawShape::Words {
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.art_text)
+                    crate::targets::text_field(&mut self.art_text)
                         .hint_text(t!("board.draw_tool_options.words_to_print"))
                         .desired_width(f32::INFINITY),
                 )

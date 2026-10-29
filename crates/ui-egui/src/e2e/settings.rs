@@ -100,7 +100,7 @@ fn a_newcomer_turns_off_animation_in_settings() -> Result<(), String> {
     let ctx = egui::Context::default();
     app.change_tab(Tab::Settings);
     assert!(
-        paints_text(&ctx, &mut app, "Reduce motion")?,
+        scrolled_to_at(&ctx, &mut app, "Reduce motion", 700.0)?,
         "Settings should offer a Reduce motion choice"
     );
     assert!(!app.preferences.reduced_motion, "off until the person asks");
