@@ -1,6 +1,7 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod authoring;
 mod canvas;
+mod editing;
 mod library;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
@@ -62,6 +63,32 @@ fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
             "command palette",
         ),
         ("?", "Show or hide this shortcut list", "anywhere"),
+        ("Ctrl+C", "Copy the selected objects as text", "canvas"),
+        (
+            "Ctrl+V",
+            "Paste the copied objects, ready to move",
+            "canvas",
+        ),
+        (
+            "Ctrl+A",
+            "Select every object the pick chips allow",
+            "canvas",
+        ),
+        (
+            "Shift+click",
+            "Add an object to the selection or take it out",
+            "canvas",
+        ),
+        (
+            "Drag on empty canvas",
+            "Draw a box and select what it touches",
+            "canvas",
+        ),
+        (
+            "U",
+            "Measure tool: click two points to read the distance",
+            "canvas",
+        ),
         ("A", "Open the symbol palette", "schematic tab"),
         (
             "W",
@@ -89,7 +116,7 @@ fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
             "anywhere",
         ),
         ("Home", "Zoom the view so the whole design fits", "anywhere"),
-        ("Delete", "Delete the selected object", "anywhere"),
+        ("Delete", "Delete every selected object", "anywhere"),
         (
             "Esc",
             "Return to the select tool and close open palettes",
@@ -253,6 +280,9 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Fiducial => format!("LMB: place an assembly mark at the cursor{common}"),
         Tool::DrawLayer => {
             format!("LMB: place the shape on the active layer{common}")
+        }
+        Tool::Measure => {
+            format!("LMB: click two points to read the distance between them{common}")
         }
     }
 }
@@ -540,6 +570,7 @@ enum Tool {
     NoConnect,
     Fiducial,
     DrawLayer,
+    Measure,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -578,6 +609,7 @@ pub struct App {
     tab: Tab,
     tool: Tool,
     selected: Option<Id>,
+    edit: editing::EditState,
     highlight_net: Option<Id>,
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
@@ -917,6 +949,7 @@ impl App {
             },
             tool: Tool::Select,
             selected: None,
+            edit: editing::EditState::default(),
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
@@ -1207,6 +1240,7 @@ impl App {
     }
     fn select(&mut self, id: Option<Id>) {
         self.selected = id;
+        self.edit.extra.clear();
         self.selected_unit = 1;
         self.load_properties();
     }
@@ -2495,6 +2529,7 @@ impl App {
         if ctx.egui_wants_keyboard_input() || ctx.current_pass_index() > 0 {
             return;
         }
+        let mut delete_now = false;
         ctx.input(|i| {
             if i.modifiers.command {
                 if i.key_pressed(egui::Key::F) {
@@ -2546,17 +2581,20 @@ impl App {
                 self.palette = false;
                 self.shortcuts_open = false;
                 self.canvas_menu = None;
+                self.edit.measure = None;
+                self.edit.box_from = None;
+                self.edit.box_to = None;
             }
             if i.key_pressed(egui::Key::Slash) {
                 self.shortcuts_open = !self.shortcuts_open;
             }
-            if i.key_pressed(egui::Key::Delete)
-                && let Some(id) = self.selected
-            {
-                self.run("object.delete", json!({"id":id}));
-                self.select(None);
+            if i.key_pressed(egui::Key::Delete) && self.selected.is_some() {
+                delete_now = true;
             }
         });
+        if delete_now {
+            self.delete_selection();
+        }
     }
     fn style(&self, ctx: &egui::Context) {
         let mut visuals = if self.preferences.dark {
@@ -2965,6 +3003,30 @@ impl App {
                 .clicked()
             {
                 self.tool_call("redo", json!({}));
+            }
+            ui.separator();
+            if ui
+                .button("Copy  Ctrl+C")
+                .on_hover_text("Copy the selected objects as text; paste them here or in another window.")
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.copy_selection(&ctx);
+            }
+            if ui
+                .button("Paste  Ctrl+V")
+                .on_hover_text("Paste the last copy a little to the side, with new reference numbers.")
+                .clicked()
+            {
+                self.paste_last_copy();
+            }
+            if self.tab == Tab::Pcb
+                && ui
+                    .button("Clean up tracks")
+                    .on_hover_text("Remove zero-length and dangling pieces and join straight neighbours. One undo puts it all back.")
+                    .clicked()
+            {
+                self.cleanup_tracks();
             }
             ui.separator();
             if ui
@@ -5600,12 +5662,7 @@ impl App {
                             )
                             .clicked()
                         {
-                            let target =
-                                self.project.footprint(id).map_or(id, |fp| fp.component);
-                            self.run(
-                                "object.duplicate",
-                                json!({"ids": [target], "offset": {"x": 2.0, "y": 2.0}}),
-                            );
+                            self.duplicate_selection();
                         }
                         if self.project.footprint(id).is_some() {
                             ui.label("Dock to board edge");
@@ -5859,8 +5916,7 @@ impl App {
                     }
                     ui.add_space(10.0);
                     if ui.button("Delete  Del").on_hover_text(command_tip("object.delete")).clicked() {
-                        self.run("object.delete", json!({"id":id}));
-                        self.select(None);
+                        self.delete_selection();
                     }
                     ui.separator();
                 } else {
@@ -5910,6 +5966,7 @@ impl App {
             Tool::NoConnect => "No connection".to_owned(),
             Tool::Fiducial => "Fiducial mark".to_owned(),
             Tool::DrawLayer => "Draw on a layer".to_owned(),
+            Tool::Measure => "Measure".to_owned(),
         };
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -5927,6 +5984,10 @@ impl App {
                     .on_hover_text(
                         "Every edit raises this number; undo and redo step it back and forth.",
                     );
+                    if let Some(reading) = self.measure_readout() {
+                        ui.label(egui::RichText::new(reading).small().strong())
+                            .on_hover_text("The last measurement. Press Esc to clear it.");
+                    }
                     if let Some(p) = self.cursor {
                         ui.label(
                             egui::RichText::new(format!("{:.2}, {:.2} mm", p.x, p.y))
@@ -6622,6 +6683,7 @@ impl App {
         }
         ui.horizontal(|ui| {
             ui.add_space(8.0);
+            self.editing_controls(ui);
             let select = |app: &mut App| {
                 app.tool = Tool::Select;
             };
@@ -6768,6 +6830,7 @@ impl App {
         self.refresh();
         self.style(&ctx);
         self.shortcuts(&ctx);
+        self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);
         if self.home_open {
