@@ -2248,6 +2248,9 @@ fn paint_row(
     if chevron_clicked || (resp.double_clicked() && r.expandable) {
         toggle(view, &r.key);
     } else if resp.clicked() {
+        // A click does not focus a plain row by itself; take focus so the
+        // tree keys (arrows, Space, F, L) work right after the click.
+        resp.request_focus();
         view.cursor = Some(r.key.clone());
         activate(view, r, actions);
     }
