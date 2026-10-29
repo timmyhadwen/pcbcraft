@@ -541,9 +541,7 @@ impl App {
     fn dock_empty_state(&self, ui: &mut egui::Ui, text: &str) {
         ui.add_space(14.0);
         ui.vertical_centered(|ui| {
-            ui.add(
-                egui::Label::new(egui::RichText::new(text).size(12.0).color(self.muted())).wrap(),
-            );
+            ui.add(egui::Label::new(crate::fonts::caption(text).color(self.muted())).wrap());
         });
         ui.add_space(8.0);
     }
@@ -666,8 +664,11 @@ impl App {
             {
                 self.dock.favourites_only = !self.dock.favourites_only;
             }
-            let more = ui
-                .menu_button(t!("library.dock.more_filters.label"), |ui| {
+            // A full 24 px target, like the icon buttons beside it.
+            let more_button = egui::Button::new(t!("library.dock.more_filters.label"))
+                .min_size(egui::Vec2::splat(crate::targets::MIN_TARGET));
+            let more = egui::containers::menu::MenuButton::from_button(more_button)
+                .ui(ui, |ui| {
                     if let Some((name, _, tip, _)) = KINDS.get(3) {
                         let on = self.dock.kinds.contains(*name);
                         let label = pcbcraft_text::lookup("library.dock.kind.mechanical", &[]);
@@ -700,7 +701,7 @@ impl App {
                         ui.close();
                     }
                 })
-                .response
+                .0
                 .on_hover_text(t!("library.dock.more_filters.tip"));
             crate::a11y::name_control(&more, &t!("library.dock.more_filters"), None);
         });

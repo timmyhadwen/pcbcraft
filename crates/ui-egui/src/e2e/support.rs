@@ -1,6 +1,66 @@
 //! Helpers shared by every headless UI story and by the unit tests in `lib.rs`.
 
 use super::super::*;
+use pcbcraft_library::open_library::{FetchError, Fetcher};
+use std::collections::BTreeMap;
+
+/// Answers the open library from the recordings kept beside the library
+/// crate's own tests, so a story can search real part names with no network.
+///
+/// Contract: crates/library/src/open_library.rs (Fetcher)
+pub(crate) struct RecordedLibrary {
+    index: BTreeMap<String, String>,
+}
+
+impl RecordedLibrary {
+    fn folder() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../library/tests/fixtures/open_library")
+    }
+
+    /// Load the recorded index of URLs and answer files.
+    pub(crate) fn load() -> Result<Self, String> {
+        let text = std::fs::read_to_string(Self::folder().join("index.json"))
+            .map_err(|e| e.to_string())?;
+        let index = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        Ok(Self { index })
+    }
+}
+
+impl Fetcher for RecordedLibrary {
+    fn get(&self, url: &str) -> Result<Vec<u8>, FetchError> {
+        let file = self
+            .index
+            .get(url)
+            .ok_or_else(|| FetchError::Failed(format!("not recorded: {url}")))?;
+        std::fs::read(Self::folder().join(file)).map_err(|e| FetchError::Failed(e.to_string()))
+    }
+}
+
+/// Switch the open library on over the recordings and keep its files in a
+/// folder of its own, as pressing "Turn on Open library" does with a live
+/// connection.
+pub(crate) fn use_recorded_library(app: &mut App, name: &str) -> Result<(), String> {
+    let dir = std::env::temp_dir().join(format!("pcbcraft-open-{}-{name}", std::process::id()));
+    app.use_open_source(Box::new(RecordedLibrary::load()?), Some(dir));
+    Ok(())
+}
+
+/// Draw frames until `needle` is on screen, giving a worker thread up to
+/// five seconds to answer.
+pub(crate) fn waits_for_text(
+    ctx: &egui::Context,
+    app: &mut App,
+    needle: &str,
+) -> Result<bool, String> {
+    for _ in 0..100 {
+        if paints_text(ctx, app, needle)? {
+            return Ok(true);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Ok(false)
+}
 
 /// True when the named words appear anywhere on screen this frame or the
 /// next two, so tests can assert what a person actually sees.
@@ -25,14 +85,17 @@ pub(crate) fn paints_text(
 /// Default width of the left aside (`browser` panel) beside the canvas.
 pub(crate) const LEFT_ASIDE: f32 = 320.0;
 
-/// Scroll the right-aside layers tree until `needle` appears, then nudge
-/// the wheel so rows just below it are visible too.
+/// Scroll the side docks until `needle` appears: the layers tree on the
+/// left first, then the Properties column on the right.
 pub(crate) fn scrolled_to(
     ctx: &egui::Context,
     app: &mut App,
     needle: &str,
 ) -> Result<bool, String> {
-    scrolled_to_at(ctx, app, needle, 150.0)
+    if scrolled_to_at(ctx, app, needle, 150.0)? {
+        return Ok(true);
+    }
+    scrolled_to_at(ctx, app, needle, 1170.0)
 }
 
 /// Scroll the left aside (Layers tree or Library tab) until `needle` is visible.
@@ -224,6 +287,18 @@ impl Drop for TallScope {
 /// width`) sits right now, found on a screen tall enough for the whole page
 /// so a control below the fold needs no scrolling.
 fn control_center(ctx: &egui::Context, app: &mut App, id: &str) -> Result<egui::Pos2, String> {
+    control_center_within(ctx, app, id, 0.0, f32::INFINITY)
+}
+
+/// Same, but only a control whose middle sits right of `min_x` and above
+/// `max_y` counts.
+fn control_center_within(
+    ctx: &egui::Context,
+    app: &mut App,
+    id: &str,
+    min_x: f32,
+    max_y: f32,
+) -> Result<egui::Pos2, String> {
     // A tooltip left by the last control must not cover this one.
     for _ in 0..3 {
         frame(
@@ -235,7 +310,13 @@ fn control_center(ctx: &egui::Context, app: &mut App, id: &str) -> Result<egui::
     }
     let found: Vec<_> = super::audit::controls(ctx, app)
         .into_iter()
-        .filter(|c| c.enabled && c.rect.height() >= 1.0 && c.id.as_deref() == Some(id))
+        .filter(|c| {
+            c.enabled
+                && c.rect.height() >= 1.0
+                && c.rect.center().x >= min_x
+                && c.rect.center().y < max_y
+                && c.id.as_deref() == Some(id)
+        })
         .collect();
     found
         .into_iter()
@@ -244,36 +325,74 @@ fn control_center(ctx: &egui::Context, app: &mut App, id: &str) -> Result<egui::
         .ok_or_else(|| format!("{id} is not on screen, or is switched off"))
 }
 
-/// Click a tool in the strip under the tabs, scrolling the strip sideways
-/// first when the tool sits past the right edge (the strip keeps no
-/// scrollbar, so a person turns the wheel over it).
+/// Screen row below which nothing belongs to the tool bar.
+const TOOL_BAR_BOTTOM: f32 = 120.0;
+
+/// Click a tool in the tool bar under the tabs. A tool that does not fit the
+/// row lives in the "More" menu, so a person opens More and picks it by name.
 pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
-    for _ in 0..12 {
-        if control_center(ctx, app, id).is_ok() {
-            return tap_id(ctx, app, id);
-        }
-        frame(
-            ctx,
-            app,
-            vec![
-                egui::Event::PointerMoved(egui::pos2(700.0, 83.0)),
-                egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: egui::vec2(-120.0, 0.0),
-                    phase: egui::TouchPhase::Move,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    if let Ok(pos) = control_center_within(ctx, app, id, 0.0, TOOL_BAR_BOTTOM) {
+        return tap_at(ctx, app, pos);
     }
-    tap_id(ctx, app, id)
+    let label = match id.strip_prefix("icon:") {
+        Some(icon) => match icon {
+            "tool-select" => "Select",
+            "tool-move" => "Move",
+            "tool-place-part" => "Place part",
+            "tool-wire" => "Wire",
+            "tool-noconnect" => "No connect",
+            "tool-route" => "Route",
+            "tool-via" => "Via",
+            "tool-keepout" => "Keepout",
+            "tool-line" => "Line",
+            "tool-box" => "Box",
+            "tool-circle" => "Circle",
+            "tool-outline" => "Outline",
+            "tool-words" => "Text",
+            "tool-draw-shape" => "Draw shape",
+            "tool-cutout" => "Cutout",
+            "tool-hole" => "Mounting hole",
+            "tool-fiducial" => "Assembly mark",
+            "tool-measure" => "Measure",
+            other => return Err(format!("{other} has no known name")),
+        }
+        .to_owned(),
+        None => id.split_once(':').map_or(id, |(_, label)| label).to_owned(),
+    };
+    authoring::tests::tap(ctx, app, "More")?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let name = if matches!(label.as_str(), "Parts" | "Copper" | "Graphics" | "Text")
+        && id.starts_with("button:")
+    {
+        format!("Pick: {label}")
+    } else {
+        label
+    };
+    authoring::tests::tap(ctx, app, &name)
 }
+
+/// Click a control in the Properties column on the right of the window,
+/// like `tap_id` but ignoring a control of the same name elsewhere.
+pub(crate) fn tap_properties(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
+    let _tall = TallScope::enter();
+    let pos = control_center_within(ctx, app, id, PROPERTIES_LEFT, f32::INFINITY)?;
+    tap_at(ctx, app, pos)
+}
+
+/// Screen column right of which the Properties dock sits.
+const PROPERTIES_LEFT: f32 = 1000.0;
 
 /// Click the control the gate calls `id`, like a person pressing it.
 pub(crate) fn tap_id(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
     let _tall = TallScope::enter();
     let pos = control_center(ctx, app, id)?;
+    tap_at(ctx, app, pos)
+}
+
+/// Press and release at `pos`, like a hand.
+fn tap_at(ctx: &egui::Context, app: &mut App, pos: egui::Pos2) -> Result<(), String> {
     // Rest the pointer on it first, as a hand does, before pressing.
     frame(
         ctx,

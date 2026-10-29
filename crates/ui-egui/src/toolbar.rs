@@ -116,7 +116,7 @@ impl App {
             if response.hovered() {
                 painter.rect_filled(rect, radius, t.raised);
             }
-            if response.hovered() { t.text } else { t.text }
+            t.text
         };
         let mut x = rect.min.x + PAD;
         if !pick {
@@ -502,7 +502,10 @@ impl App {
                     Self::toolbar_divider(ui, &t);
                 }
                 let r = self.toolbar_button(ui, item);
-                self.record_icon(item.id, r.rect);
+                // Pick chips carry no icon; recording them would rename the last chip "icon:pick".
+                if !matches!(item.act, Act::Pick(_)) {
+                    self.record_icon(item.id, r.rect);
+                }
                 if r.clicked() {
                     action = Some(item.act);
                 }

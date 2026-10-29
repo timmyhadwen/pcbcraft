@@ -2520,8 +2520,8 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(8, 0)),
             )
             .show(ui, |ui| {
-                // `current` is clamped by the bar; keep "no tab" (another page) out of range.
-                let mut index = current.min(items.len().saturating_sub(1));
+                // Another page (Rules, Settings) leaves `current` past the end: no tab is active.
+                let mut index = current;
                 let response = ui_kit::tab_bar::tab_bar(
                     ui,
                     "workbench-tabs",

@@ -156,11 +156,10 @@ pub(crate) fn about_window(ui: &mut egui::Ui, open: &mut bool, muted: egui::Colo
                 ui.add_space(8.0);
                 mark(ui, 128.0);
                 ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new(pcbcraft_text::t!("app.name"))
-                        .size(22.0)
-                        .strong(),
-                );
+                ui.label(crate::fonts::text(
+                    crate::fonts::Role::Display,
+                    pcbcraft_text::t!("app.name"),
+                ));
                 ui.label(
                     egui::RichText::new(pcbcraft_text::t!(
                         "about.version",
@@ -171,16 +170,8 @@ pub(crate) fn about_window(ui: &mut egui::Ui, open: &mut bool, muted: egui::Colo
                 ui.add_space(12.0);
                 ui.label(pcbcraft_text::t!("about.tagline"));
                 ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new(pcbcraft_text::t!("about.licence"))
-                        .small()
-                        .color(muted),
-                );
-                ui.label(
-                    egui::RichText::new(pcbcraft_text::t!("about.font"))
-                        .small()
-                        .color(muted),
-                );
+                ui.label(crate::fonts::caption(pcbcraft_text::t!("about.licence")).color(muted));
+                ui.label(crate::fonts::caption(pcbcraft_text::t!("about.font")).color(muted));
                 ui.add_space(16.0);
                 if ui
                     .button(pcbcraft_text::t!("about.close"))

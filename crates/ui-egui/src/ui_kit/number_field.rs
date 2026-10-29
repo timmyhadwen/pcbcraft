@@ -230,6 +230,9 @@ pub fn number_field(
             .font(Role::Mono.font())
             .frame(egui::Frame::NONE)
             .desired_width(text_rect.width())
+            // The whole field is the target, not just the line of digits.
+            .min_size(Vec2::new(text_rect.width(), text_rect.height()))
+            .vertical_align(egui::Align::Center)
             .text_color(t.text)
             .margin(egui::Margin::ZERO),
     );

@@ -572,12 +572,20 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    for word in [
-        "Select", "Move", "Route", "Line", "Box", "Circle", "Outline",
-    ] {
+    for word in ["Select", "Move", "Route", "Line", "Box", "Circle", "More"] {
         assert!(paints_text(&ctx, &mut app, word)?, "the strip says {word}");
     }
-    // Text sits past the edge until the strip is turned sideways.
+    // What does not fit the row waits in the More menu, under its plain name.
+    authoring::tests::tap(&ctx, &mut app, "More")?;
+    for word in ["Outline", "Text"] {
+        assert!(paints_text(&ctx, &mut app, word)?, "More lists {word}");
+    }
+    frame(
+        &ctx,
+        &mut app,
+        vec![key(egui::Key::Escape)],
+        egui::Modifiers::NONE,
+    );
     tap_strip(&ctx, &mut app, "icon:tool-words")?;
     assert!(
         matches!(app.tool, Tool::DrawLayer) && app.art_shape == DrawShape::Words,

@@ -1591,7 +1591,7 @@ fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), Str
         tap_strip(&ctx, &mut app, id)?;
         assert_ne!(read(&app), before, "{id} flips what a click may pick up");
     }
-    tap_strip(&ctx, &mut app, "button:Measure")?;
+    tap_strip(&ctx, &mut app, "icon:tool-measure")?;
     assert!(matches!(app.tool, Tool::Measure), "Measure arms the ruler");
     Ok(())
 }

@@ -265,7 +265,10 @@ mod tests {
                 if path.is_dir() {
                     stack.push(path);
                 } else if path.extension().is_some_and(|e| e == "rs")
-                    && path.file_name().is_some_and(|n| n != "icons.rs")
+                    // The brand mark is a texture of the app logo, not a glyph of the icon set.
+                    && path
+                        .file_name()
+                        .is_some_and(|n| n != "icons.rs" && n != "brand.rs")
                 {
                     let text = std::fs::read_to_string(&path).unwrap_or_default();
                     for needle in ["egui::Image::", "ImageButton", "include_image!"] {

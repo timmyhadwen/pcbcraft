@@ -34,12 +34,8 @@ fn a_newcomer_flips_a_part_to_the_bottom() -> Result<(), String> {
         !painted_in(&ctx, &mut app, back),
         "on the top no pad is drawn in the bottom colour"
     );
-    assert!(
-        scrolled_to(&ctx, &mut app, "Flip to bottom")?,
-        "a chosen part offers to flip: {}",
-        app.message
-    );
-    authoring::tests::tap(&ctx, &mut app, "Flip to bottom")?;
+    // Side is a Top | Bottom control in the Position section of Properties.
+    tap_properties(&ctx, &mut app, "radiobutton:Bottom")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     let side = app
@@ -47,7 +43,12 @@ fn a_newcomer_flips_a_part_to_the_bottom() -> Result<(), String> {
         .footprint(10)
         .map(|f| f.board_side())
         .ok_or("the practice part should still be on the board")?;
-    assert_eq!(side, pcbcraft_doc::Layer::Back, "the part is on the bottom");
+    assert_eq!(
+        side,
+        pcbcraft_doc::Layer::Back,
+        "the part is on the bottom: {}",
+        app.message
+    );
     assert!(
         painted_in(&ctx, &mut app, back),
         "the flipped part draws its pads in the bottom colour"
@@ -57,9 +58,13 @@ fn a_newcomer_flips_a_part_to_the_bottom() -> Result<(), String> {
         placement.lines().any(|l| l.contains(",B,")),
         "the placement file lists the part as bottom: {placement}"
     );
-    assert!(
-        scrolled_to(&ctx, &mut app, "Flip to top")?,
-        "the same button now offers to flip back"
+    tap_properties(&ctx, &mut app, "radiobutton:Top")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert_eq!(
+        app.project.footprint(10).map(|f| f.board_side()),
+        Some(pcbcraft_doc::Layer::Front),
+        "the Top choice flips the part back"
     );
     Ok(())
 }

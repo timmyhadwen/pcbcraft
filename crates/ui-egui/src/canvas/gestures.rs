@@ -900,11 +900,13 @@ impl App {
     }
 
     /// Route mode for a commit: the corner posture preference, flipped by the
-    /// corner action, and walk-around or shove by the second option.
+    /// corner action, and walk-around or shove by the "Push other tracks aside"
+    /// preference, flipped by the shove action.
     pub(crate) fn route_mode(&self) -> &'static str {
         let flip = self.edit.live.contains(ModAction::RouteCorner);
         let chamfer = self.preferences.chamfer_corners != flip;
-        match (chamfer, self.edit.live.contains(ModAction::ShoveToggle)) {
+        let shove = self.preferences.route_shove != self.edit.live.contains(ModAction::ShoveToggle);
+        match (chamfer, shove) {
             (true, true) => "octilinear_shove",
             (true, false) => "octilinear",
             (false, _) => "orthogonal",

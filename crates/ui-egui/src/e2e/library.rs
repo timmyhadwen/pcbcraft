@@ -19,7 +19,11 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
         paints_text(&ctx, &mut app, "Keyword or part number")?,
         "the part search opens with a box that says what to type"
     );
-    tap_id(&ctx, &mut app, "button:#-pin connector, Built in")?;
+    tap_id(
+        &ctx,
+        &mut app,
+        "button:#-pin connector, Built in \u{b7} GPL-#.#-or-later",
+    )?;
     assert!(
         matches!(&app.tool, Tool::Place(kind) if kind.contains("connector")),
         "a connector can be armed straight from the list, got {:?}",
@@ -33,7 +37,7 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     );
     app.change_tab(Tab::Schematic);
     authoring::tests::tap(&ctx, &mut app, "Place part")?;
-    authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
+    tap_id(&ctx, &mut app, "textinput:Keyword or part number")?;
     for letter in "resistor".chars() {
         frame(
             &ctx,
@@ -328,40 +332,55 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
         "with no source the list says sources are off"
     );
     assert!(
-        !paints_text(&ctx, &mut app, "SAMPLE-R-10K")?,
+        !paints_text(&ctx, &mut app, "R_Small")?,
         "no remote parts appear while sources are off"
     );
-    authoring::tests::tap(&ctx, &mut app, "Try sample source")?;
-    app.part_search = "SAMPLE-R-10K".into();
-    frame(&ctx, &mut app, vec![], none);
+    // The open library answers from its recordings: no network in a story.
+    tap_id(&ctx, &mut app, "button:Turn on Open library")?;
+    use_recorded_library(&mut app, "real-part")?;
+    app.part_search = "resistor".into();
     assert!(
-        paints_text(&ctx, &mut app, "12500 in stock")?,
-        "the card shows stock"
+        waits_for_text(&ctx, &mut app, "R_Small")?,
+        "the open library lists the parts that match the words: {}",
+        app.message
     );
-    assert!(
-        paints_text(&ctx, &mut app, "0.10 USD each")?,
-        "the card shows a price"
-    );
-    assert!(
-        scrolled_to_at(&ctx, &mut app, "Sample data, not a real catalogue", 150.0)?,
-        "the card shows the source's credit"
-    );
-    authoring::tests::tap(&ctx, &mut app, "SAMPLE-R-10K")?;
-    frame(&ctx, &mut app, vec![], none);
-    assert!(matches!(&app.tool, Tool::Place(k) if k == "resistor"));
-    // A click on the sheet runs exactly this command.
-    app.run(
-        "component.add",
-        json!({"kind":"resistor","position":{"x":20.0,"y":20.0}}),
-    );
-    let session = shared.lock().map_err(|_| "session")?;
-    let part = session
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let found = pcbcraft_library::sources::PartSource::search(source.as_ref(), "resistor")
+        .map_err(|e| e.to_string())?;
+    let part = found
+        .iter()
+        .find(|p| p.mpn == "R")
+        .ok_or("the library should know the part R")?;
+    let before = shared
+        .lock()
+        .map_err(|_| "session")?
         .project
         .components
-        .last()
-        .ok_or("no part was placed")?;
-    assert_eq!(part.field("MPN"), Some("SAMPLE-R-10K"));
-    assert_eq!(part.field("Manufacturer"), Some("Example Components"));
+        .len();
+    app.place_online_for_test(&ctx, part, "schematic", Point::new(20.0, 20.0));
+    for _ in 0..100 {
+        frame(&ctx, &mut app, vec![], none);
+        let now = shared
+            .lock()
+            .map_err(|_| "session")?
+            .project
+            .components
+            .len();
+        if now > before {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let session = shared.lock().map_err(|_| "session")?;
+    assert_eq!(
+        session.project.components.len(),
+        before + 1,
+        "picking the found part puts it on the sheet: {}",
+        app.message
+    );
     Ok(())
 }
 
@@ -875,7 +894,11 @@ fn a_newcomer_browses_component_libraries_from_the_library_tab() -> Result<(), S
     app.change_tab(Tab::Schematic);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Place part")?;
-    tap_id(&ctx, &mut app, "button:Browse component libraries \u{2192}")?;
+    authoring::tests::tap(
+        &ctx,
+        &mut app,
+        "Add or manage libraries in Settings \u{2192}",
+    )?;
     assert_eq!(
         app.tab,
         Tab::Settings,
