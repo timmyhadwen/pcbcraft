@@ -1558,7 +1558,9 @@ impl App {
             });
             ui.add_space(12.0);
             ui.vertical(|ui| {
-                ui.set_min_width(480.0);
+                let room = ui.available_width().max(240.0);
+                ui.set_min_width(room);
+                ui.set_max_width(room);
                 self.library_editor_canvas(ui, &mut draft);
             });
         });
@@ -1582,7 +1584,11 @@ impl App {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    fn frame(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) -> egui::FullOutput {
+    pub(crate) fn frame(
+        ctx: &egui::Context,
+        app: &mut App,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
         let mut output = ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(Rect::from_min_size(
@@ -1780,7 +1786,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    fn draft_symbol(app: &App) -> Result<SymbolDefinition, String> {
+    pub(crate) fn draft_symbol(app: &App) -> Result<SymbolDefinition, String> {
         app.library
             .editor
             .draft
@@ -1791,7 +1797,9 @@ pub(crate) mod tests {
             })
             .unwrap_or_else(|| Err("there is no draft".to_string()))
     }
-    fn editor(kind: &str) -> Result<(pcbcraft_mcp::SharedSession, App, egui::Context), String> {
+    pub(crate) fn editor(
+        kind: &str,
+    ) -> Result<(pcbcraft_mcp::SharedSession, App, egui::Context), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared.clone(), Preferences::default(), None, Some(kind));
         app.refresh();
@@ -1943,8 +1951,20 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    fn library_world_click(ctx: &egui::Context, app: &mut App, world: Point) -> Result<(), String> {
+    pub(crate) fn library_world_click(
+        ctx: &egui::Context,
+        app: &mut App,
+        world: Point,
+    ) -> Result<(), String> {
         frame(ctx, app, vec![]);
+        let rect = app
+            .library
+            .editor
+            .canvas_rect
+            .ok_or("library canvas was not laid out")?;
+        let at = app.library.editor.camera.screen(canvas::snap(world), rect);
+        frame(ctx, app, vec![egui::Event::PointerMoved(rect.center())]);
+        frame(ctx, app, vec![egui::Event::PointerMoved(at)]);
         frame(ctx, app, vec![]);
         let rect = app
             .library
@@ -1970,7 +1990,7 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    fn library_world_drag(
+    pub(crate) fn library_world_drag(
         ctx: &egui::Context,
         app: &mut App,
         from: Point,
@@ -2015,121 +2035,10 @@ pub(crate) mod tests {
         Ok(())
     }
 
-    fn clear_symbol_draft(app: &mut App) {
+    pub(crate) fn clear_symbol_draft(app: &mut App) {
         if let Some(Draft::Symbol(def)) = app.library.editor.draft.as_mut() {
             def.pins.clear();
             def.graphics.clear();
         }
-    }
-
-    #[test]
-    fn a_newcomer_draws_a_two_pin_symbol_with_the_mouse() -> Result<(), String> {
-        let (shared, mut app, ctx) = editor("symbol-editor")?;
-        clear_symbol_draft(&mut app);
-        tap(&ctx, &mut app, "Fit")?;
-        tap(&ctx, &mut app, "Pin")?;
-        library_world_click(&ctx, &mut app, Point::new(-2.0, 0.0))?;
-        library_world_click(&ctx, &mut app, Point::new(2.0, 0.0))?;
-        tap(&ctx, &mut app, "Draw rectangle")?;
-        library_world_click(&ctx, &mut app, Point::new(-1.0, -1.0))?;
-        library_world_click(&ctx, &mut app, Point::new(1.0, 1.0))?;
-        let draft = draft_symbol(&app)?;
-        assert_eq!(draft.pins.len(), 2, "two pin clicks place two pins");
-        assert!(
-            draft
-                .pins
-                .iter()
-                .any(|p| p.position == Point::new(-2.0, 0.0)),
-            "pin one sits on the first grid click"
-        );
-        assert!(
-            draft
-                .pins
-                .iter()
-                .any(|p| p.position == Point::new(2.0, 0.0)),
-            "pin two sits on the second grid click"
-        );
-        let rect = draft
-            .graphics
-            .iter()
-            .find_map(|g| match &g.primitive {
-                Graphic::Rectangle { start, end, .. } => Some((*start, *end)),
-                _ => None,
-            })
-            .ok_or("rectangle body missing")?;
-        assert_eq!(rect.0, Point::new(-1.0, -1.0));
-        assert_eq!(rect.1, Point::new(1.0, 1.0));
-        tap(&ctx, &mut app, "Save symbol to project library")?;
-        let session = shared.lock().map_err(|_| "session unavailable")?;
-        assert_eq!(session.project.library.symbols.len(), 1);
-        assert_eq!(session.project.library.symbols[0].pins.len(), 2);
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_drags_a_pad_into_place() -> Result<(), String> {
-        let (shared, mut app, ctx) = editor("footprint-editor")?;
-        tap(&ctx, &mut app, "Fit")?;
-        tap(&ctx, &mut app, "Select")?;
-        tap(&ctx, &mut app, "Save footprint to project library")?;
-        let before = app
-            .library
-            .editor
-            .draft
-            .as_ref()
-            .and_then(|d| match d {
-                Draft::Footprint(f) => f.pads.get(1).map(|p| p.position),
-                _ => None,
-            })
-            .ok_or("pad 2 missing from the default footprint")?;
-        library_world_drag(&ctx, &mut app, before, before.offset(Point::new(1.0, 0.0)))?;
-        let after_drag = app
-            .library
-            .editor
-            .draft
-            .as_ref()
-            .and_then(|d| match d {
-                Draft::Footprint(f) => f.pads.get(1).map(|p| p.position),
-                _ => None,
-            })
-            .ok_or("draft lost after drag")?;
-        assert!(
-            (after_drag.x - before.x - 1.0).abs() < 1e-6,
-            "pad 2 moves one 1.0 mm step on the 0.5 mm grid"
-        );
-        tap(&ctx, &mut app, "Save footprint to project library")?;
-        {
-            let session = shared.lock().map_err(|_| "session unavailable")?;
-            let saved = &session.project.library.footprints[0].pads[1].position;
-            assert!((saved.x - after_drag.x).abs() < 1e-6);
-        }
-        app.tool_call("undo", json!({}));
-        let session = shared.lock().map_err(|_| "session unavailable")?;
-        assert!(
-            (session.project.library.footprints[0].pads[1].position.x - before.x).abs() < 1e-6,
-            "undo puts pad 2 back where it started"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn library_editor_canvas_and_form_show_the_same_pin_position_after_drag() -> Result<(), String>
-    {
-        let (_shared, mut app, ctx) = editor("symbol-editor")?;
-        tap(&ctx, &mut app, "Fit")?;
-        tap(&ctx, &mut app, "Select")?;
-        let start = draft_symbol(&app)?.pins[0].position;
-        let target = canvas::snap(start.offset(Point::new(1.0, 0.5)));
-        library_world_drag(&ctx, &mut app, start, target)?;
-        let draft_pos = draft_symbol(&app)?.pins[0].position;
-        assert_eq!(draft_pos, target, "drag updates the draft pin position");
-        tap(&ctx, &mut app, "Pin 1 · unit 1")?;
-        frame(&ctx, &mut app, vec![]);
-        let shown = draft_symbol(&app)?.pins[0].position;
-        assert_eq!(
-            shown, draft_pos,
-            "the form reads the same coordinates the canvas wrote"
-        );
-        Ok(())
     }
 }
