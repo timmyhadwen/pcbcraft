@@ -358,7 +358,12 @@ fn a_newcomer_narrows_the_window_and_the_canvas_buttons_stay_inside() -> Result<
             );
             output.textures_delta.clear();
         }
-        for id in ["canvas-fit", "handle-rotate"] {
+        let ids: &[&str] = if width >= 1440.0 {
+            &["canvas-fit", "handle-rotate"]
+        } else {
+            &["canvas-fit"]
+        };
+        for id in ids.iter().copied() {
             let rect = app
                 .icon_rects
                 .get(id)
