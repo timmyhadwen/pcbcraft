@@ -23664,7 +23664,7 @@ mod tests {
             json!({"net":other,"start":{"x":mid.x,"y":mid.y},"end":{"x":mid.x,"y":mid.y + 3.0}}),
             None,
         )?)?;
-        let rev = s.project.revision;
+        let rev = s.revision;
         let out = s.execute("board.select_connected", json!({"id":seed}), None)?["result"].clone();
         let ids: BTreeSet<u64> = out["ids"]
             .as_array()
@@ -23677,7 +23677,7 @@ mod tests {
         assert_eq!(out["pads"].as_array().ok_or_else(missing)?.len(), 1);
         assert_eq!(out["pads"][0]["footprint"], fp);
         assert_eq!(out["truncated"], false);
-        assert_eq!(s.project.revision, rev, "selection does not change the project");
+        assert_eq!(s.revision, rev, "selection does not change the project");
         let from_via = s.execute("board.select_connected", json!({"id":via}), None)?["result"].clone();
         assert_eq!(from_via["ids"].as_array().ok_or_else(missing)?.len(), 3);
         Ok(())
