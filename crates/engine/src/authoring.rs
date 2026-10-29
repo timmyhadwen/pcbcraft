@@ -398,15 +398,15 @@ struct DirParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ModelParams {
-    name: String,
-    path: String,
+pub(super) struct ModelParams {
+    pub(super) name: String,
+    pub(super) path: String,
     #[serde(default)]
-    offset: Option<[f64; 3]>,
+    pub(super) offset: Option<[f64; 3]>,
     #[serde(default)]
-    scale: Option<[f64; 3]>,
+    pub(super) scale: Option<[f64; 3]>,
     #[serde(default)]
-    rotate: Option<[f64; 3]>,
+    pub(super) rotate: Option<[f64; 3]>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -441,6 +441,53 @@ struct LibraryFile {
     format: String,
     version: u32,
     library: ProjectLibrary,
+}
+
+/// Validate model transforms and build the model reference that
+/// `library.footprint.set_model` stores; `library.import_online` shares it.
+///
+/// # Rules
+/// - The path is 1 to 1024 bytes; offsets and rotations are finite and at most 100000 in size; scales are positive.
+/// # Do not
+/// - Touch the project; this only builds the value.
+pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, Error> {
+    if a.path.is_empty() || a.path.len() > 1024 {
+        return Err(Error::Invalid("model path must be 1 to 1024 bytes".into()));
+    }
+    let sane = |v: &Option<[f64; 3]>, positive: bool| {
+        v.is_none_or(|t| {
+            t.iter()
+                .all(|x| x.is_finite() && x.abs() <= 100_000.0 && (!positive || *x > 0.0))
+        })
+    };
+    if !sane(&a.offset, false) || !sane(&a.rotate, false) || !sane(&a.scale, true) {
+        return Err(Error::Invalid(
+            "model transforms must be finite, scales positive".into(),
+        ));
+    }
+    let offset = a.offset.unwrap_or([0.0; 3]);
+    let scale = a.scale.unwrap_or([1.0; 3]);
+    let rotate = a.rotate.unwrap_or([0.0; 3]);
+    let raw_source = format!(
+        "(model \"{}\" (offset (xyz {} {} {})) (scale (xyz {} {} {})) (rotate (xyz {} {} {})))",
+        a.path,
+        offset[0],
+        offset[1],
+        offset[2],
+        scale[0],
+        scale[1],
+        scale[2],
+        rotate[0],
+        rotate[1],
+        rotate[2]
+    );
+    Ok(pcbcraft_library::Model3D {
+        path: a.path.clone(),
+        offset,
+        scale,
+        rotate,
+        raw_source,
+    })
 }
 pub(super) fn run(
     p: &mut Project,
@@ -509,49 +556,14 @@ pub(super) fn run(
         }
         "library.footprint.set_model" => {
             let a: ModelParams = parse(params)?;
-            if a.path.is_empty() || a.path.len() > 1024 {
-                return Err(Error::Invalid("model path must be 1 to 1024 bytes".into()));
-            }
-            let sane = |v: &Option<[f64; 3]>, positive: bool| {
-                v.is_none_or(|t| {
-                    t.iter()
-                        .all(|x| x.is_finite() && x.abs() <= 100_000.0 && (!positive || *x > 0.0))
-                })
-            };
-            if !sane(&a.offset, false) || !sane(&a.rotate, false) || !sane(&a.scale, true) {
-                return Err(Error::Invalid(
-                    "model transforms must be finite, scales positive".into(),
-                ));
-            }
+            let model = build_model(&a)?;
             let def = p
                 .library
                 .footprints
                 .iter_mut()
                 .find(|s| s.name == a.name)
                 .ok_or_else(missing)?;
-            let offset = a.offset.unwrap_or([0.0; 3]);
-            let scale = a.scale.unwrap_or([1.0; 3]);
-            let rotate = a.rotate.unwrap_or([0.0; 3]);
-            let raw_source = format!(
-                "(model \"{}\" (offset (xyz {} {} {})) (scale (xyz {} {} {})) (rotate (xyz {} {} {})))",
-                a.path,
-                offset[0],
-                offset[1],
-                offset[2],
-                scale[0],
-                scale[1],
-                scale[2],
-                rotate[0],
-                rotate[1],
-                rotate[2]
-            );
-            def.model = Some(pcbcraft_library::Model3D {
-                path: a.path,
-                offset,
-                scale,
-                rotate,
-                raw_source,
-            });
+            def.model = Some(model);
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name, "path": def.model.as_ref().map(|m| m.path.clone())}))
         }
