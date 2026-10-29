@@ -15,6 +15,7 @@
 //! - crates/ui-egui/src/ui_kit/icons.rs
 //! - crates/ui-egui/src/ui_kit/card.rs
 //! - crates/ui-egui/src/ui_kit/checkbox.rs
+//! - crates/ui-egui/src/ui_kit/dialog.rs
 //! - crates/ui-egui/src/ui_kit/form_row.rs
 //! - crates/ui-egui/src/ui_kit/number_field.rs
 //! - crates/ui-egui/src/ui_kit/rows.rs
@@ -32,6 +33,7 @@ pub mod button;
 pub mod card;
 pub mod checkbox;
 pub mod chip;
+pub mod dialog;
 pub mod empty_state;
 pub mod focus;
 pub mod form_row;

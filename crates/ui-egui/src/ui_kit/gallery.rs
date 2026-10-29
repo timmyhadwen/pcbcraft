@@ -14,6 +14,7 @@
 use super::button::{self, Kind, Look, Size, State};
 use super::card;
 use super::chip::{self, BadgeKind};
+use super::dialog::{self, Dialog, Outcome};
 use super::empty_state;
 use super::form_row::{self, FormWidth};
 use super::icons;
@@ -41,6 +42,8 @@ pub enum Page {
     Tabs,
     /// List, tree and finding rows, form rows, number field, select, checkbox.
     Rows,
+    /// A modal dialog with tabs, form rows and a footer, over a dimmed page.
+    Dialog,
 }
 
 impl Page {
@@ -52,6 +55,7 @@ impl Page {
             "buttons" => Some(Page::Buttons),
             "tabs" => Some(Page::Tabs),
             "rows" => Some(Page::Rows),
+            "dialog" => Some(Page::Dialog),
             _ => None,
         }
     }
@@ -80,6 +84,10 @@ pub struct GalleryState {
     pub row: usize,
     /// Demo track width in mm.
     pub track: f64,
+    /// The demo dialog is open.
+    pub dialog_open: bool,
+    /// Selected tab of the demo dialog.
+    pub dialog_tab: usize,
 }
 
 impl GalleryState {
@@ -96,6 +104,8 @@ impl GalleryState {
             flags: [true, true, false],
             row: 1,
             track: 0.25,
+            dialog_open: true,
+            dialog_tab: 0,
         }
     }
 }
@@ -934,6 +944,161 @@ pub fn rows_page(ui: &mut egui::Ui, state: &mut GalleryState) {
     });
 }
 
+/// Draw the dialog page: a page behind, a dimmed scrim and the Project settings
+/// dialog with tabs, a scrolling body and the footer.
+///
+/// Why: the visual proof for ticket #774; Escape cancels and Enter saves, and a
+/// button reopens the dialog so the keys can be tried by hand.
+pub fn dialog_page(ui: &mut egui::Ui, state: &mut GalleryState) {
+    let t = state.tokens;
+    ui.label(fonts::title("Page behind the dialog"));
+    ui.add_space(8.0);
+    ui.label(
+        fonts::text(fonts::Role::Body, "Project settings opens over this page.").color(t.text),
+    );
+    ui.add_space(8.0);
+    if button::secondary_button(
+        ui,
+        None,
+        "Project settings",
+        "Open the settings dialog",
+        Size::Normal,
+        true,
+    )
+    .clicked()
+    {
+        state.dialog_open = true;
+    }
+    if !state.dialog_open {
+        return;
+    }
+    let tabs = [
+        TabItem::new("Board", "Board size, corners and stackup"),
+        TabItem::new("Rules", "Clearances and widths"),
+        TabItem::new("Machines", "Fabrication machines"),
+    ];
+    let spec = Dialog {
+        id: "gallery-project",
+        title: "Project settings",
+        width: 640.0,
+        tabs: &tabs,
+        note: Some("Changes apply when you press Save"),
+        cancel: Some(("Cancel", "Close without saving")),
+        primary: ("Save", "Save the settings and close"),
+    };
+    let ctx = ui.ctx().clone();
+    let mut tab = state.dialog_tab;
+    let outcome = dialog::show(&ctx, &spec, &mut tab, |ui| {
+        let w = NumberSpec {
+            unit: "mm",
+            min: 0.05,
+            max: 5.0,
+            step: 0.05,
+            width: 112.0,
+            ..NumberSpec::default()
+        };
+        let mut width = 60.0;
+        let mut height = 40.0;
+        let big = NumberSpec {
+            min: 1.0,
+            max: 500.0,
+            step: 1.0,
+            ..w
+        };
+        form_row::form_row(
+            ui,
+            FormWidth::Page,
+            "Board width",
+            Some("Outside edge"),
+            None,
+            |ui| {
+                number_field::number_field(
+                    ui,
+                    "d-w",
+                    &mut width,
+                    &big,
+                    "Board width",
+                    "Width of the board",
+                );
+            },
+        );
+        form_row::form_row(ui, FormWidth::Page, "Board height", None, None, |ui| {
+            number_field::number_field(
+                ui,
+                "d-h",
+                &mut height,
+                &big,
+                "Board height",
+                "Height of the board",
+            );
+        });
+        form_row::form_row(ui, FormWidth::Page, "Corners", None, None, |ui| {
+            let mut corner = 0;
+            segmented::segmented(
+                ui,
+                "d-corner",
+                &mut corner,
+                &[
+                    Segment {
+                        label: "45",
+                        tip: "Cut corners at 45 degrees",
+                    },
+                    Segment {
+                        label: "90",
+                        tip: "Square corners",
+                    },
+                    Segment {
+                        label: "Free",
+                        tip: "Any angle",
+                    },
+                ],
+            );
+        });
+        form_row::form_row(ui, FormWidth::Page, "Copper layers", None, None, |ui| {
+            let mut n = 1;
+            select::select(
+                ui,
+                "d-layers",
+                &mut n,
+                &["1", "2", "4", "6"],
+                "Copper layers",
+                "Number of copper layers",
+                120.0,
+            );
+        });
+        form_row::form_row(
+            ui,
+            FormWidth::Page,
+            "Track width",
+            Some("Default for new tracks"),
+            None,
+            |ui| {
+                let mut v = 0.25;
+                number_field::number_field(
+                    ui,
+                    "d-tw",
+                    &mut v,
+                    &w,
+                    "Track width",
+                    "Default track width",
+                );
+            },
+        );
+        let mut plated = true;
+        form_row::toggle_row(
+            ui,
+            FormWidth::Page,
+            "Plated edge",
+            "Plate the board edge with copper",
+            &mut plated,
+        );
+    });
+    state.dialog_tab = tab;
+    if outcome != Outcome::Open {
+        state.dialog_open = false;
+    }
+}
+
 /// Draw the page named in `state`.
 pub fn show(ui: &mut egui::Ui, state: &mut GalleryState) {
     match state.page {
@@ -942,6 +1107,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut GalleryState) {
         Page::Buttons => buttons(ui, state),
         Page::Tabs => tabs(ui, state),
         Page::Rows => rows_page(ui, state),
+        Page::Dialog => dialog_page(ui, state),
     }
 }
 
@@ -966,6 +1132,7 @@ mod tests {
             Page::Buttons,
             Page::Tabs,
             Page::Rows,
+            Page::Dialog,
         ] {
             state.page = page;
             for pass in 0..2 {
