@@ -8,6 +8,7 @@ mod datums;
 mod editing;
 mod footprint_wizard;
 mod impedance_panel;
+mod number_entry;
 mod library;
 mod library_quality;
 mod plot_viewer;

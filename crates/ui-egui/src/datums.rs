@@ -191,10 +191,10 @@ impl App {
         ui.label("Position · mm");
         ui.horizontal(|ui| {
             ui.label("X");
-            ui.add(egui::DragValue::new(&mut self.datum_ui.x).speed(0.1))
+            ui.add(crate::number_entry::localized_active(egui::DragValue::new(&mut self.datum_ui.x).speed(0.1), 3))
                 .on_hover_text("Set where the datum sits across the board, in millimetres. It must stay on the board.");
             ui.label("Y");
-            ui.add(egui::DragValue::new(&mut self.datum_ui.y).speed(0.1))
+            ui.add(crate::number_entry::localized_active(egui::DragValue::new(&mut self.datum_ui.y).speed(0.1), 3))
                 .on_hover_text("Set where the datum sits up the board, in millimetres. It must stay on the board.");
         });
         if ui
