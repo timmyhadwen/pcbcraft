@@ -1,6 +1,8 @@
 //! Repository automation. Every CI job calls one of these subcommands, so a
 //! failing job can be reproduced locally with the same command.
 //! See docs/ci.md.
+mod tooltips;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::time::{Duration, Instant};
@@ -14,6 +16,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   clippy       clippy on all targets with warnings denied
   test         workspace tests (cargo-nextest when installed) and doctests
   wasm         WebAssembly check of the shared UI and browser entry point
+  tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
   deny         cargo-deny licenses, advisories, bans and sources
   msrv         check the workspace with the declared rust-version toolchain
@@ -426,6 +429,7 @@ fn run() -> Result<(), String> {
         "test" => test()?,
         "wasm" => wasm()?,
         "docs" => docs()?,
+        "tooltips" => tooltips::run(args.get(1..).unwrap_or(&[]))?,
         "deny" => deny()?,
         "msrv" => msrv()?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
