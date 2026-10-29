@@ -12928,4 +12928,45 @@ mod tests {
         );
         Ok(())
     }
+    #[test]
+    fn an_arced_corner_round_trips_through_save_and_open() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.outline = Some(vec![
+            Point::new(0.0, 2.0),
+            Point::new(20.0, 2.0),
+            Point::new(20.0, 22.0),
+            Point::new(0.0, 22.0),
+        ]);
+        project.board.outline_arcs = vec![Some(Point::new(10.0, 0.0)), None, None, None];
+        project.board.width = 20.0;
+        project.board.height = 22.0;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("arced.pcbcraft");
+        save(&project, &path)?;
+        let loaded = load(&path)?;
+        assert_eq!(loaded.board.outline_arcs, project.board.outline_arcs);
+        assert_eq!(loaded, project);
+        assert!(
+            loaded.board.edge_ring(0.01).len() > 4,
+            "the opened outline still flattens into chords"
+        );
+        Ok(())
+    }
+    #[test]
+    fn files_without_outline_arcs_open_with_straight_edges() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.outline = Some(vec![
+            Point::new(0.0, 0.0),
+            Point::new(60.0, 0.0),
+            Point::new(60.0, 40.0),
+        ]);
+        let text = serde_json::to_string(&project).map_err(|e| e.to_string())?;
+        assert!(
+            !text.contains("outline_arcs"),
+            "straight outlines write no arc list"
+        );
+        let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert!(back.board.outline_arcs.is_empty());
+        back.validate()
+    }
 }
