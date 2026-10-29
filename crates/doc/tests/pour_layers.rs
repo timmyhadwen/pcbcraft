@@ -26,7 +26,8 @@ fn copper(name: &str) -> LayerRecord {
     LayerRecord {
         name: name.into(),
         kind: "copper".into(),
-        thickness: 0.035,
+        copper_role: None,
+        ..LayerRecord::default()
         copper_role: None,
     }
 }
