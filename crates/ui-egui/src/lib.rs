@@ -7,14 +7,17 @@ use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
+#[cfg(test)]
 use std::collections::BTreeMap;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
 /// staring at a blank list.
+#[cfg(test)]
 const EMPTY_SYMBOLS: &str =
     "No symbols yet. Press A to open the symbol palette, or run component.add to add one.";
 const EMPTY_NETS: &str = "No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import and board.sync will create the packages.";
+#[cfg(test)]
 const EMPTY_BOARD: &str =
     "No packages on the board yet. Run board.sync to place a package for every symbol.";
 const EMPTY_CHECKS: &str =
@@ -470,7 +473,7 @@ struct Preferences {
     library_dock_open: bool,
 }
 fn default_aside_split() -> f32 {
-    0.32
+    0.45
 }
 fn default_true() -> bool {
     true
@@ -585,7 +588,6 @@ pub struct App {
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
-    left_tab: usize,
     tree_query: String,
     tree_hidden: Vec<String>,
     focus_layer: Option<String>,
@@ -922,7 +924,6 @@ impl App {
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,
             home_path_focus: false,
-            left_tab: 0,
             tree_query: String::new(),
             tree_hidden: Vec::new(),
             focus_layer: None,
@@ -1792,6 +1793,8 @@ impl App {
                 self.tree_query.clear();
             }
         });
+        self.board_anatomy_section(ui);
+        ui.separator();
         ui.label(
             egui::RichText::new("SHOW IN THE TREE")
                 .size(10.0)
@@ -1883,7 +1886,6 @@ impl App {
         board_header.header_response.on_hover_text(
             "The board itself: shape, size, surface finish, holes and what the drawing shows.",
         );
-        self.board_anatomy_section(ui);
     }
     fn board_anatomy_section(&mut self, ui: &mut egui::Ui) {
         ui.add_space(16.0);
@@ -2409,6 +2411,7 @@ impl App {
             let open = self.anat_open.iter().any(|k| k == "connections");
             let header = egui::CollapsingHeader::new("Connections")
                 .id_salt("anat-connections")
+                .default_open(true)
                 .open(Some(open))
                 .show(ui, |ui| {
                     self.nets_tab(ui);
@@ -2593,7 +2596,6 @@ impl App {
         egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(16, 12))
     }
     const APP_BAR_HEIGHT: f32 = 34.0;
-    const WORKBENCH_TAB_HEIGHT: f32 = 36.0;
     fn header(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("app-bar")
             .exact_size(Self::APP_BAR_HEIGHT)
@@ -2999,81 +3001,6 @@ impl App {
         .on_hover_text(
             "Step back and forward, sync the board, and start the wiring over on one connection or the whole board.",
         );
-    }
-    fn settings_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Settings", |ui| {
-            if ui
-                .button("Appearance & settings…")
-                .on_hover_text(
-                    "Open the settings page: theme, accent colour and everything for the project.",
-                )
-                .clicked()
-            {
-                self.change_tab(Tab::Settings);
-            }
-            if ui
-                .button(if self.preferences.dark {
-                    "Switch to the light theme"
-                } else {
-                    "Switch to the dark theme"
-                })
-                .on_hover_text("Change between the dark and light look.")
-                .clicked()
-            {
-                self.preferences.dark = !self.preferences.dark;
-            }
-            if ui
-                .button(if self.preferences.grid {
-                    "Hide the grid"
-                } else {
-                    "Show the grid"
-                })
-                .on_hover_text("Show or hide the placement grid in the work area.")
-                .clicked()
-            {
-                self.preferences.grid = !self.preferences.grid;
-            }
-            ui.menu_button("Route on", |ui| {
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top");
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Back, "Bottom");
-            })
-            .response
-            .on_hover_text("Choose which copper layer new tracks are drawn on.");
-            ui.menu_button("Pad labels", |ui| {
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Number,
-                    PadLabels::Number.name(),
-                )
-                .on_hover_text("Draw each pad's own number on the board.");
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Net,
-                    PadLabels::Net.name(),
-                )
-                .on_hover_text("Draw the net name on each pad, useful when debugging.");
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Off,
-                    PadLabels::Off.name(),
-                )
-                .on_hover_text("Hide the pad labels for a clean picture.");
-            })
-            .response
-            .on_hover_text(
-                "Pick what sits at each pad centre on the board: its number, its net, or nothing.",
-            );
-            ui.separator();
-            if ui
-                .button("Library sources…")
-                .on_hover_text("Manage the folders that feed the component list.")
-                .clicked()
-            {
-                self.change_tab(Tab::Libraries);
-            }
-        })
-        .response
-        .on_hover_text("Theme, grid and library folders.");
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Help", |ui| {
@@ -3780,6 +3707,20 @@ impl App {
                 .on_hover_text("Light canvas and panels, easier on printed previews.");
         });
         ui.checkbox(&mut self.preferences.grid, "Show grid");
+        ui.horizontal(|ui| {
+            ui.label("Route on");
+            ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top")
+                .on_hover_text("New tracks are drawn on the top copper layer.");
+            ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Back, "Bottom")
+                .on_hover_text("New tracks are drawn on the bottom copper layer.");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Pad labels");
+            for labels in [PadLabels::Number, PadLabels::Net, PadLabels::Off] {
+                ui.selectable_value(&mut self.preferences.pad_labels, labels, labels.name())
+                    .on_hover_text("Choose what is drawn at each pad centre on the board.");
+            }
+        });
         ui.label("Accent color");
         ui.color_edit_button_srgb(&mut self.preferences.accent);
         ui.label(
@@ -5453,11 +5394,6 @@ impl App {
             self.message = format!("{label} saved in {directory}");
         }
     }
-    fn board_body(&mut self, ui: &mut egui::Ui) {
-        if self.project.board.footprints.is_empty() {
-            empty_state(ui, EMPTY_BOARD, self.muted());
-        }
-    }
     fn inspector(&mut self, ui: &mut egui::Ui) {
         egui::Panel::right("inspector")
             .default_size(280.0)
@@ -5465,16 +5401,11 @@ impl App {
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
                 let split = self.preferences.aside_split.clamp(0.25, 0.75);
-                let top_h = ui.available_height() * split;
+                let top_h = (ui.available_height() * split).min(ui.available_height() - 160.0);
                 ui.allocate_ui_with_layout(
                     egui::vec2(ui.available_width(), top_h),
                     egui::Layout::top_down(egui::Align::LEFT),
                     |ui| {
-                        ui.label(
-                            egui::RichText::new("Layers")
-                                .strong()
-                                .color(self.ink()),
-                        );
                         ui.label(
                             egui::RichText::new("Layers")
                                 .size(10.0)
@@ -6454,9 +6385,9 @@ impl App {
         }
     }
 
-    fn record_icon(&mut self, id: &str, rect: Rect) {
+    fn record_icon(&mut self, _id: &str, _rect: Rect) {
         #[cfg(test)]
-        self.icon_rects.insert(id.to_owned(), rect);
+        self.icon_rects.insert(_id.to_owned(), _rect);
     }
 
     fn icon_button_style(&self) -> IconButtonStyle {
@@ -7294,6 +7225,10 @@ mod tests {
         );
         let added = app.project.nets.len() - 1;
         let fresh = app.project.nets[added].name.clone();
+        assert!(
+            scrolled_to(&ctx, &mut app, &fresh)?,
+            "the new connection appears in the tree: {fresh}"
+        );
         authoring::tests::tap(&ctx, &mut app, &fresh)?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(
