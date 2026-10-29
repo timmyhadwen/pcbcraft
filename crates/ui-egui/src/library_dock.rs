@@ -1062,6 +1062,7 @@ impl App {
                 zoom: ((picture.width() - 12.0) / extent.x as f32)
                     .min((picture.height() - 12.0) / extent.y as f32)
                     .clamp(0.01, 40.0),
+                mirror: false,
             };
             library::paint_library_paths(&painter, picture, camera, paths, accent);
         } else if want_symbol
@@ -1072,6 +1073,7 @@ impl App {
             let camera = Camera {
                 center: Point::new(0.0, 0.0),
                 zoom: 3.6,
+                mirror: false,
             };
             for view in part.schematic_views() {
                 self.symbol(

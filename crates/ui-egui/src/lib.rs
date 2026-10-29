@@ -1280,6 +1280,8 @@ impl App {
     /// Ignored outside capture mode.
     pub fn with_capture_view(mut self, context_menu: bool) -> Self {
         self.capture_menu = context_menu;
+        self
+    }
     /// Open the left aside on its Library tab (`library`) or its Layers tab
     /// (`layers`), so a `--capture` image can show either.
     pub fn with_left_tab(mut self, tab: Option<String>) -> Self {
