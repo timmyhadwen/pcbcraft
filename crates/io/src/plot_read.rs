@@ -4,7 +4,7 @@ use pcbcraft_geom::Point;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::{read_text, MAX_FILE_BYTES};
+use crate::{MAX_FILE_BYTES, read_text};
 
 /// Total extracted bytes allowed when reading a plot zip (same budget as one file).
 pub const MAX_PLOT_ZIP_BYTES: u64 = MAX_FILE_BYTES;
@@ -157,7 +157,9 @@ fn split_words(stmt: &str, decimals: i32) -> Words {
         let letter = chars[at];
         at += 1;
         let start = at;
-        while at < chars.len() && (chars[at].is_ascii_digit() || matches!(chars[at], '.' | '-' | '+')) {
+        while at < chars.len()
+            && (chars[at].is_ascii_digit() || matches!(chars[at], '.' | '-' | '+'))
+        {
             at += 1;
         }
         let num: String = chars[start..at].iter().collect();
@@ -371,7 +373,12 @@ pub fn count_flashes_and_draws(text: &str) -> Result<(usize, usize), String> {
 
 /// Points along an arc from `from` to `to` about `center`, `to` included.
 /// Equal ends make a full circle.
-fn arc_points(from: (f64, f64), to: (f64, f64), center: (f64, f64), clockwise: bool) -> Vec<(f64, f64)> {
+fn arc_points(
+    from: (f64, f64),
+    to: (f64, f64),
+    center: (f64, f64),
+    clockwise: bool,
+) -> Vec<(f64, f64)> {
     let radius = (from.0 - center.0).hypot(from.1 - center.1);
     if !radius.is_finite() || radius <= 0.0 {
         return vec![to];
@@ -502,7 +509,9 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
                     .then(|| (words.i.unwrap_or(0.0) * unit, words.j.unwrap_or(0.0) * unit));
                 let mut path = vec![at];
                 match arc {
-                    Some((i, j)) => path.extend(arc_points(at, to, (at.0 + i, at.1 + j), clockwise)),
+                    Some((i, j)) => {
+                        path.extend(arc_points(at, to, (at.0 + i, at.1 + j), clockwise))
+                    }
                     None => path.push(to),
                 }
                 if in_region {
@@ -634,7 +643,8 @@ fn safe_zip_name(name: &[u8]) -> Result<String, String> {
     if name.starts_with(b"/") || name.windows(2).any(|w| w == b"..") {
         return Err("archive entry path is not allowed".into());
     }
-    let text = std::str::from_utf8(name).map_err(|_| "archive entry name is not UTF-8".to_string())?;
+    let text =
+        std::str::from_utf8(name).map_err(|_| "archive entry name is not UTF-8".to_string())?;
     if text.contains('\\') || text.contains(':') {
         return Err("archive entry path is not allowed".into());
     }
@@ -827,11 +837,13 @@ pub fn load_plot_zip(bytes: &[u8]) -> Result<PlotPackage, String> {
             if skip_combined_drill(&name, &drill_names) {
                 continue;
             }
-            let text = std::str::from_utf8(&data).map_err(|_| "drill file is not UTF-8".to_string())?;
+            let text =
+                std::str::from_utf8(&data).map_err(|_| "drill file is not UTF-8".to_string())?;
             let (tools, hits) = parse_excellon_drill(text)?;
             merge_drill(&mut drill_tools, &mut drill_hits, tools, hits);
         } else {
-            let text = std::str::from_utf8(&data).map_err(|_| "plot file is not UTF-8".to_string())?;
+            let text =
+                std::str::from_utf8(&data).map_err(|_| "plot file is not UTF-8".to_string())?;
             let layer = parse_gerber_layer(text, &name)?;
             hints.extend(layer.hints.clone());
             layers.push(layer);
@@ -912,7 +924,8 @@ mod tests {
 
     #[test]
     fn shaped_pads_fixture_has_x2_copper_top() -> Result<(), String> {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/shaped_pads_F_Cu.gbr");
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/shaped_pads_F_Cu.gbr");
         let text = read_text(&path)?;
         let layer = parse_gerber_layer(&text, "shaped_pads_F_Cu.gbr")?;
         assert_eq!(layer.kind, PlotLayerKind::FrontCopper);

@@ -34,12 +34,12 @@ pub use package::{
     package_zip,
 };
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
+pub use pcbcraft_doc::Layer;
 pub use plot_read::{
     MAX_PLOT_ZIP_BYTES, PlotAperture, PlotDrillHit, PlotDrillTool, PlotFlash, PlotHint, PlotLayer,
     PlotLayerKind, PlotPackage, PlotStroke, count_flashes_and_draws, distance_mm, layer_bounds,
     load_plot_folder, load_plot_zip, parse_excellon_drill, parse_gerber_layer,
 };
-pub use pcbcraft_doc::Layer;
 pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
     layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg,
@@ -7885,7 +7885,9 @@ mod tests {
 
     /// Read every written plot back and compare against an independent count
     /// of `D03*` flashes in the writer text.
-    fn round_trip_plot_counts(files: &std::collections::BTreeMap<String, String>) -> Result<(), String> {
+    fn round_trip_plot_counts(
+        files: &std::collections::BTreeMap<String, String>,
+    ) -> Result<(), String> {
         let mut flashing = 0;
         for (name, text) in files {
             if name.ends_with(".gbr") {
