@@ -2382,7 +2382,11 @@ impl App {
                 ));
             }
             if let Some((_, courtyard)) = &boxes {
-                layout_art::dashed_closed(painter, courtyard, Stroke::new(1.0, art.courtyard.gamma_multiply(0.6)));
+                layout_art::dashed_closed(
+                    painter,
+                    courtyard,
+                    Stroke::new(1.0, art.courtyard.gamma_multiply(0.6)),
+                );
             }
             for pad in f.pads.iter().filter(|_| shown("Pads")) {
                 {

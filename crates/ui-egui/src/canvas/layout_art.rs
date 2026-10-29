@@ -161,7 +161,11 @@ impl App {
                 painter.circle_filled(
                     Pos2::new(zero.x + gx as f32 * step, zero.y + gy as f32 * step),
                     if major { 1.1 } else { 0.7 },
-                    if major { art.grid_major } else { art.grid_minor },
+                    if major {
+                        art.grid_major
+                    } else {
+                        art.grid_minor
+                    },
                 );
             }
         }
@@ -188,10 +192,7 @@ impl App {
         };
         let screen: Vec<Pos2> = world.iter().map(|q| camera.screen(*q, rect)).collect();
         painter.add(pad_shape(screen.clone(), false, art.substrate));
-        painter.add(egui::Shape::closed_line(
-            screen,
-            Stroke::new(1.5, art.edge),
-        ));
+        painter.add(egui::Shape::closed_line(screen, Stroke::new(1.5, art.edge)));
     }
 
     /// Rulers along the top and left edges in millimetres. They follow pan and
@@ -228,7 +229,10 @@ impl App {
             }
             if half >= rect.left() + RULER {
                 painter.line_segment(
-                    [Pos2::new(half, top.bottom() - 4.0), Pos2::new(half, top.bottom())],
+                    [
+                        Pos2::new(half, top.bottom() - 4.0),
+                        Pos2::new(half, top.bottom()),
+                    ],
                     line,
                 );
             }
@@ -253,7 +257,10 @@ impl App {
             }
             if half >= rect.top() + RULER {
                 painter.line_segment(
-                    [Pos2::new(left.right() - 4.0, half), Pos2::new(left.right(), half)],
+                    [
+                        Pos2::new(left.right() - 4.0, half),
+                        Pos2::new(left.right(), half),
+                    ],
                     line,
                 );
             }
@@ -285,14 +292,8 @@ impl App {
         painter.line_segment([Pos2::new(a.x, y), Pos2::new(b.x, y)], stroke);
         for (x, dir) in [(a.x, 1.0), (b.x, -1.0)] {
             painter.line_segment([Pos2::new(x, y - 6.0), Pos2::new(x, y + 6.0)], stroke);
-            painter.line_segment(
-                [Pos2::new(x, y), Pos2::new(x + 6.0 * dir, y - 3.0)],
-                stroke,
-            );
-            painter.line_segment(
-                [Pos2::new(x, y), Pos2::new(x + 6.0 * dir, y + 3.0)],
-                stroke,
-            );
+            painter.line_segment([Pos2::new(x, y), Pos2::new(x + 6.0 * dir, y - 3.0)], stroke);
+            painter.line_segment([Pos2::new(x, y), Pos2::new(x + 6.0 * dir, y + 3.0)], stroke);
         }
         painter.text(
             Pos2::new((a.x + b.x) / 2.0, y - 5.0),
@@ -363,7 +364,11 @@ impl App {
                 centre + Vec2::new(t.cos(), t.sin()) * r
             })
             .collect();
-        dashed_closed(painter, &pts, Stroke::new(1.0, art.courtyard.gamma_multiply(0.55)));
+        dashed_closed(
+            painter,
+            &pts,
+            Stroke::new(1.0, art.courtyard.gamma_multiply(0.55)),
+        );
     }
 
     /// Ratsnest: thin dashed lines with the net name at the midpoint.
@@ -439,11 +444,7 @@ impl App {
     }
 
     /// Selection box with corner handles and the rotate handle above it.
-    pub(super) fn paint_selection_box(
-        &self,
-        painter: &egui::Painter,
-        courtyard: &[Pos2],
-    ) {
+    pub(super) fn paint_selection_box(&self, painter: &egui::Painter, courtyard: &[Pos2]) {
         let art = self.art();
         let Some(first) = courtyard.first() else {
             return;
@@ -542,7 +543,12 @@ impl HitShape {
                 let dir = if dir.x.is_nan() { Vec2::X } else { dir };
                 let side = Vec2::new(-dir.y, dir.x) * (half.max(HOVER_REACH / 2.0) + 2.0);
                 let ext = dir * 2.0;
-                vec![*a - ext + side, *b + ext + side, *b + ext - side, *a - ext - side]
+                vec![
+                    *a - ext + side,
+                    *b + ext + side,
+                    *b + ext - side,
+                    *a - ext - side,
+                ]
             }
         }
     }

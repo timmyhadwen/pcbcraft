@@ -2608,6 +2608,7 @@ dependencies = [
  "pcbcraft-io",
  "pcbcraft-mcp",
  "pcbcraft-ui-egui",
+ "serde_json",
  "ureq",
 ]
 
