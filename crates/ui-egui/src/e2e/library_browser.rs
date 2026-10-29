@@ -9,7 +9,7 @@ fn library_open() -> Result<(egui::Context, App), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
-    app.preferences.left_tab = 1;
+    app.region().left_tab = "library".to_owned();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     for _ in 0..3 {
@@ -121,6 +121,7 @@ fn a_newcomer_drags_a_part_from_the_library_onto_the_schematic() -> Result<(), S
 fn a_newcomer_drags_a_part_from_the_library_onto_the_board() -> Result<(), String> {
     let (ctx, mut app) = library_open()?;
     app.change_tab(Tab::Pcb);
+    app.region().left_tab = "library".to_owned();
     for _ in 0..3 {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }

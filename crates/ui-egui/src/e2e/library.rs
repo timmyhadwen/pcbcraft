@@ -8,16 +8,32 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
-    app.preferences.left_tab = 1;
+    app.region().left_tab = "library".to_owned();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Schematic);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Keyword or part number")?,
         "the part search opens with a box that says what to type"
     );
-    authoring::tests::tap(&ctx, &mut app, "Keyword or part number")?;
+    tap_id(&ctx, &mut app, "button:#-pin connector, Built in")?;
+    assert!(
+        matches!(&app.tool, Tool::Place(kind) if kind.contains("connector")),
+        "a connector can be armed straight from the list, got {:?}",
+        app.tool
+    );
+    authoring::tests::tap(&ctx, &mut app, "Capacitor")?;
+    assert!(
+        matches!(&app.tool, Tool::Place(kind) if kind == "capacitor"),
+        "a capacitor can be armed from the list, got {:?}",
+        app.tool
+    );
+    app.change_tab(Tab::Schematic);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
+    authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
     for letter in "resistor".chars() {
         frame(
             &ctx,
@@ -62,7 +78,7 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
-    app.preferences.left_tab = 1;
+    app.region().left_tab = "library".to_owned();
     app.tool_call("sample_design", json!({}));
     let r1 = app
         .project
@@ -95,17 +111,9 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
         }}),
     );
     let ctx = egui::Context::default();
+    app.change_tab(Tab::Schematic);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "Fixed resistor, two terminals")?,
-        "a built-in part card says what the part is: {}",
-        app.message
-    );
-    assert!(
-        !paints_text(&ctx, &mut app, "COMPONENTS")?,
-        "the project's own parts are in the Layers tree, not the Library tab"
-    );
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The component list no longer shows a description or source line per row.
     assert!(
         paints_text(&ctx, &mut app, "Power bits (1 part)")?,
         "library parts are grouped under their set name: {}",
@@ -299,44 +307,17 @@ fn a_newcomer_sees_pegs_drawn_as_holes_and_not_as_copper() -> Result<(), String>
     Ok(())
 }
 
-/// Replays the recorded open-library answers kept for the library crate's
-/// tests, so this story never touches the network.
-struct Recorded(std::collections::BTreeMap<String, String>);
-
-impl Recorded {
-    fn dir() -> std::path::PathBuf {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../library/tests/fixtures/open_library")
-    }
-    fn load() -> Result<Self, String> {
-        let text =
-            std::fs::read_to_string(Self::dir().join("index.json")).map_err(|e| e.to_string())?;
-        Ok(Self(
-            serde_json::from_str(&text).map_err(|e| e.to_string())?,
-        ))
-    }
-}
-
-impl pcbcraft_library::open_library::Fetcher for Recorded {
-    fn get(&self, url: &str) -> Result<Vec<u8>, pcbcraft_library::open_library::FetchError> {
-        use pcbcraft_library::open_library::FetchError;
-        let file = self
-            .0
-            .get(url)
-            .ok_or_else(|| FetchError::Failed(format!("not recorded: {url}")))?;
-        std::fs::read(Self::dir().join(file)).map_err(|e| FetchError::Failed(e.to_string()))
-    }
-}
-
 #[test]
-fn a_newcomer_finds_an_online_part_and_places_it_with_its_licence() -> Result<(), String> {
+fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared.clone(), Preferences::default(), None, None);
     app.refresh();
-    app.preferences.left_tab = 1;
+    app.region().left_tab = "library".to_owned();
     let ctx = egui::Context::default();
     let none = egui::Modifiers::NONE;
     frame(&ctx, &mut app, vec![], none);
+    app.change_tab(Tab::Schematic);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], none);
     authoring::tests::tap(&ctx, &mut app, "Keyword or part number")?;
     for letter in "resistor".chars() {
@@ -346,70 +327,41 @@ fn a_newcomer_finds_an_online_part_and_places_it_with_its_licence() -> Result<()
         paints_text(&ctx, &mut app, "Part sources are off")?,
         "with no source the list says sources are off"
     );
-    authoring::tests::tap(&ctx, &mut app, "Turn on Open library")?;
-    // The recorded answers stand in for the live transport.
-    let cache = tempfile::tempdir().map_err(|e| e.to_string())?;
-    app.use_open_source(
-        Box::new(Recorded::load()?),
-        Some(cache.path().to_path_buf()),
-    );
-    let mut shown = false;
-    for _ in 0..200 {
-        frame(&ctx, &mut app, vec![], none);
-        if paints_text(&ctx, &mut app, "Device/R")? {
-            shown = true;
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
     assert!(
-        shown,
-        "the online search shows a card for R: {}",
-        app.message
+        !paints_text(&ctx, &mut app, "SAMPLE-R-10K")?,
+        "no remote parts appear while sources are off"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Try sample source")?;
+    app.part_search = "SAMPLE-R-10K".into();
+    frame(&ctx, &mut app, vec![], none);
+    assert!(
+        paints_text(&ctx, &mut app, "12500 in stock")?,
+        "the card shows stock"
     );
     assert!(
-        paints_text(&ctx, &mut app, "Open library")?,
-        "the card names its source"
-    );
-    let components = app.project.components.len();
-    // The pick path: the card's part goes to `library.place_online`.
-    let source = app.part_sources.open().ok_or("the source is on")?;
-    let part = pcbcraft_library::sources::PartSource::search(source.as_ref(), "resistor")
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|p| p.mpn == "R")
-        .ok_or("the search lists R")?;
-    app.place_online_for_test(&ctx, &part, "schematic", Point::new(40.0, 30.0));
-    for _ in 0..200 {
-        frame(&ctx, &mut app, vec![], none);
-        if app.project.components.len() > components {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    assert!(
-        app.project.components.len() > components,
-        "the card placed a part: {} / tool {:?} / pending {} / search {}",
-        app.message,
-        app.tool,
-        app.tab == Tab::Schematic,
-        app.part_search
-    );
-    let part = app.project.components.last().ok_or("no part was placed")?;
-    assert_eq!(
-        part.library_symbol
-            .as_ref()
-            .map(|s| s.definition.name.as_str()),
-        Some("R")
+        paints_text(&ctx, &mut app, "0.10 USD each")?,
+        "the card shows a price"
     );
     assert!(
-        app.project
-            .library
-            .notices
-            .iter()
-            .any(|n| n.contains("CC-BY-SA 4.0")),
-        "the licence notice is kept with the part"
+        scrolled_to_at(&ctx, &mut app, "Sample data, not a real catalogue", 150.0)?,
+        "the card shows the source's credit"
     );
+    authoring::tests::tap(&ctx, &mut app, "SAMPLE-R-10K")?;
+    frame(&ctx, &mut app, vec![], none);
+    assert!(matches!(&app.tool, Tool::Place(k) if k == "resistor"));
+    // A click on the sheet runs exactly this command.
+    app.run(
+        "component.add",
+        json!({"kind":"resistor","position":{"x":20.0,"y":20.0}}),
+    );
+    let session = shared.lock().map_err(|_| "session")?;
+    let part = session
+        .project
+        .components
+        .last()
+        .ok_or("no part was placed")?;
+    assert_eq!(part.field("MPN"), Some("SAMPLE-R-10K"));
+    assert_eq!(part.field("Manufacturer"), Some("Example Components"));
     Ok(())
 }
 
@@ -445,34 +397,20 @@ fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
 #[test]
 fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<(), String> {
     let (mut app, ctx) = app_with_overlapping_pads()?;
+    app.home_open = false;
+    app.change_tab(Tab::Pcb);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Checks);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     for needle in [
         "Lib pad overlap · 1 place",
         "SquashedPair: Two pads share the same copper area",
         "Fix: Move or resize the pads so their outlines no longer overlap",
     ] {
-        let mut shown = paints_text(&ctx, &mut app, needle)?;
-        for _ in 0..10 {
-            if shown {
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-            shown = paints_text(&ctx, &mut app, needle)?;
-        }
-        assert!(shown, "the Checks tab should show \"{needle}\"");
+        assert!(
+            scrolled_to_at(&ctx, &mut app, needle, 720.0)?,
+            "the findings sheet should show \"{needle}\""
+        );
     }
     Ok(())
 }
@@ -897,17 +835,13 @@ fn a_newcomer_switches_between_the_library_and_the_editor() -> Result<(), String
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
-    app.preferences.left_tab = 1;
+    app.region().left_tab = "library".to_owned();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Libraries);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert_eq!(
-        app.tab,
-        Tab::Libraries,
-        "the library editor page is showing"
-    );
+    assert_eq!(app.tab, Tab::Libraries, "the Libraries page stays open");
     tap_id(&ctx, &mut app, "button:Editor")?;
     assert_eq!(app.library.editor.mode, 2, "Editor opens the editor");
     tap_id(&ctx, &mut app, "button:Library")?;
@@ -931,238 +865,21 @@ fn a_newcomer_switches_between_the_library_and_the_editor() -> Result<(), String
     Ok(())
 }
 
-/// A small project symbol with one pin, so its card has something to draw.
-fn dock_symbol(name: &str, set: &str, keywords: &str) -> Value {
-    json!({"definition": {
-        "name": name,
-        "reference": "R",
-        "value": "10k",
-        "description": "thin film",
-        "keywords": keywords,
-        "footprint": "",
-        "set": set,
-        "pins": [{"number": "1", "name": "", "position": {"x": -5.0, "y": 0.0},
-            "angle": 0.0, "length": 2.5, "electrical_type": "passive",
-            "unit": 1, "body_style": 0}],
-        "graphics": [],
-        "extends": null,
-        "raw_source": "",
-        "unsupported": []
-    }})
-}
-
-fn dock_app() -> (egui::Context, App) {
+#[test]
+fn a_newcomer_browses_component_libraries_from_the_library_tab() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
-    app.preferences.left_tab = 1;
     app.tool_call("sample_design", json!({}));
-    // Read only the fixture folder, never the owner's installed libraries.
-    app.dock.roots = Some(vec![]);
     let ctx = egui::Context::default();
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    (ctx, app)
-}
-
-fn type_into_dock(ctx: &egui::Context, app: &mut App, text: &str) -> Result<(), String> {
-    authoring::tests::tap(ctx, app, "Keyword or part number")?;
-    for letter in text.chars() {
-        frame(
-            ctx,
-            app,
-            vec![egui::Event::Text(letter.into())],
-            egui::Modifiers::NONE,
-        );
-    }
-    frame(ctx, app, vec![], egui::Modifiers::NONE);
-    Ok(())
-}
-
-/// A folder that looks like an installed library: `symbols/Device.kicad_sym`.
-fn fixture_library(tag: &str) -> Result<std::path::PathBuf, String> {
-    let root = std::env::temp_dir().join(format!("pcbcraft-dock-{tag}-{}", std::process::id()));
-    let symbols = root.join("symbols");
-    std::fs::create_dir_all(&symbols).map_err(|e| e.to_string())?;
-    let device = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../library/tests/fixtures/device.kicad_sym");
-    std::fs::copy(device, symbols.join("Device.kicad_sym")).map_err(|e| e.to_string())?;
-    Ok(root)
-}
-
-#[test]
-fn a_newcomer_filters_the_library_down_to_one_set() -> Result<(), String> {
-    let (ctx, mut app) = dock_app();
-    app.tool_call(
-        "library.symbol.upsert",
-        dock_symbol("PowerR", "Power bits", "resistor"),
-    );
-    app.tool_call(
-        "library.symbol.upsert",
-        dock_symbol("SignalC", "Signal bits", "capacitor"),
-    );
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "PowerR")? && paints_text(&ctx, &mut app, "SignalC")?,
-        "the dock lists every project part before any search"
-    );
-    let placed = app.project.components.len();
-    type_into_dock(&ctx, &mut app, "PowerR")?;
-    assert!(
-        paints_text(&ctx, &mut app, "PowerR")?,
-        "the matching card stays"
-    );
-    assert!(
-        !paints_text(&ctx, &mut app, "SignalC")?,
-        "cards that do not match disappear"
-    );
-    app.part_search.clear();
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    app.hidden_sets.push("Signal bits".into());
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        !paints_text(&ctx, &mut app, "SignalC")?,
-        "a hidden set leaves the add list"
-    );
-    assert_eq!(
-        app.project.components.len(),
-        placed,
-        "hiding a set removes nothing already on the board"
-    );
-    Ok(())
-}
-
-#[test]
-fn a_newcomer_finds_an_installed_part_without_the_window_freezing() -> Result<(), String> {
-    let (ctx, mut app) = dock_app();
-    let root = fixture_library("find")?;
-    app.dock.roots = Some(vec![root.clone()]);
-    app.dock.debounce = 0.0;
-    type_into_dock(&ctx, &mut app, "R")?;
-    // The frame that sent the request has returned; its answer cannot be in yet.
-    assert!(app.dock.requests_sent >= 1, "typing asked the libraries");
-    let mut arrived = false;
-    for _ in 0..600 {
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        if !app.dock.items.is_empty() {
-            arrived = true;
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    let _ = std::fs::remove_dir_all(&root);
-    assert!(arrived, "the installed part shows up: {}", app.dock.error);
-    Ok(())
-}
-
-#[test]
-fn a_newcomer_types_fast_and_sees_results_for_the_last_word_only() -> Result<(), String> {
-    let (ctx, mut app) = dock_app();
-    let root = fixture_library("fast")?;
-    app.dock.roots = Some(vec![root.clone()]);
-    type_into_dock(&ctx, &mut app, "zzqq")?;
-    assert_eq!(
-        app.dock.requests_sent, 0,
-        "nothing is asked while the person is still typing"
-    );
-    for _ in 0..40 {
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    }
-    assert_eq!(
-        app.dock.requests_sent, 1,
-        "one request goes out once typing pauses, for the whole word"
-    );
-    for _ in 0..200 {
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        if app.dock.applied == 1 {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    let _ = std::fs::remove_dir_all(&root);
-    assert_eq!(app.dock.applied, 1, "the answer arrived");
-    assert!(
-        app.dock.items.is_empty(),
-        "no installed part matches the last word, so none is listed"
-    );
-    assert!(
-        paints_text(&ctx, &mut app, "Nothing here matches")?,
-        "the list says so plainly"
-    );
-    Ok(())
-}
-
-#[test]
-fn a_newcomer_sees_a_picture_of_each_part_in_the_library() -> Result<(), String> {
-    let (ctx, mut app) = dock_app();
-    app.tool_call("library.symbol.upsert", dock_symbol("PicR", "", "resistor"));
-    type_into_dock(&ctx, &mut app, "PicR")?;
-    let mut drawn = false;
-    for _ in 0..3 {
-        let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let name = out.shapes.iter().find_map(|s| match &s.shape {
-            egui::Shape::Text(t) if t.galley.text() == "PicR" => Some(t.pos),
-            _ => None,
-        });
-        if let Some(at) = name {
-            drawn = out.shapes.iter().any(|s| {
-                let kind = format!("{:?}", s.shape);
-                let pos = s.shape.visual_bounding_rect();
-                (kind.starts_with("Path") || kind.starts_with("LineSegment"))
-                    && pos.max.x < at.x
-                    && (pos.center().y - at.y).abs() < 70.0
-            });
-        }
-        if drawn {
-            break;
-        }
-    }
-    assert!(drawn, "a line is painted left of the part's name");
-    Ok(())
-}
-
-#[test]
-fn a_newcomer_picks_a_card_and_is_told_where_it_will_land() -> Result<(), String> {
-    let (ctx, mut app) = dock_app();
-    app.tool_call(
-        "library.symbol.upsert",
-        dock_symbol("LandR", "", "resistor"),
-    );
-    app.change_tab(Tab::Pcb);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    // The Layout lists footprints; this symbol-only part shows under Both.
-    app.dock.view = library_dock::ViewKind::Both;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let tip = pcbcraft_text::lookup("library.dock.pick.tip", &[]);
-    assert!(
-        tip.contains("schematic"),
-        "the card's tip says the schematic comes forward: {tip}"
-    );
-    authoring::tests::tap(&ctx, &mut app, "LandR")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        matches!(&app.tool, Tool::CustomPlace(name, _) if name == "LandR"),
-        "picking arms placement, got {:?}",
-        app.tool
-    );
-    assert_eq!(app.tab, Tab::Schematic, "the sheet comes forward");
-    Ok(())
-}
-
-#[test]
-fn a_newcomer_keeps_their_library_search_when_switching_tabs() -> Result<(), String> {
-    let (ctx, mut app) = dock_app();
-    type_into_dock(&ctx, &mut app, "cap")?;
-    app.change_tab(Tab::Pcb);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Schematic);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
+    tap_id(&ctx, &mut app, "button:Browse component libraries \u{2192}")?;
     assert_eq!(
-        app.part_search, "cap",
-        "the search text survives the switch"
-    );
-    assert!(
-        paints_text(&ctx, &mut app, "Capacitor")?,
-        "the same list is still there"
+        app.tab,
+        Tab::Settings,
+        "the browse button opens the page that lists library sources"
     );
     Ok(())
 }

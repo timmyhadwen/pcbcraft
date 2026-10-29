@@ -343,13 +343,12 @@ pub(crate) fn type_into(
 /// Select a row of the left aside's Layers tree that is not one object, so
 /// Properties shows it: `root` for the board settings, `nets`
 /// for the connections editor.
-#[allow(dead_code)]
 pub(crate) fn open_tree_row(ctx: &egui::Context, app: &mut App, key: &str) {
     // The board's settings are edited on the layout page.
-    if key.starts_with("sec:board") && app.tab != Tab::Pcb {
+    if key == "root" && app.tab != Tab::Pcb {
         app.change_tab(Tab::Pcb);
     }
-    app.preferences.left_tab = 0;
+    app.region().left_tab = "layers".to_owned();
     app.select(None);
     app.tree.selected_key = Some(key.to_owned());
     frame(ctx, app, vec![], egui::Modifiers::NONE);
@@ -379,4 +378,48 @@ pub(crate) fn press_on(ctx: &egui::Context, app: &mut App, row: &str, k: egui::K
         frame(ctx, app, vec![], egui::Modifiers::NONE);
     }
     key(ctx, app, k);
+}
+
+/// Click the row of the left aside whose words read exactly `label`, ignoring
+/// the same words painted on the drawing (net names and part references
+/// appear in both places).
+pub(crate) fn tap_left(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let at = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(t) if t.galley.text() == label => {
+                let c = t.pos + t.galley.size() / 2.0;
+                (c.x < 320.0 && shape.clip_rect.contains(c)).then_some(c)
+            }
+            _ => None,
+        })
+        .next_back()
+        .ok_or_else(|| format!("{label} is not in the left aside"))?;
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::PointerMoved(at)],
+        egui::Modifiers::NONE,
+    );
+    for pressed in [true, false] {
+        frame(
+            ctx,
+            app,
+            vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
 }

@@ -212,7 +212,7 @@ fn a_newcomer_draws_a_keepout_and_sees_the_track_flagged() -> Result<(), String>
     app.select(None);
     app.change_tab(Tab::Rules);
     settle(&ctx, &mut app);
-    authoring::tests::tap(&ctx, &mut app, "Draw keepout")?;
+    tap_id(&ctx, &mut app, "button:Draw keepout")?;
     assert!(
         matches!(app.tool, Tool::Keepout),
         "the button arms the tool"

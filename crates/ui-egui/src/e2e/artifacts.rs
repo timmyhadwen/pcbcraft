@@ -301,6 +301,10 @@ fn a_newcomer_opens_their_factory_zip_and_hides_a_layer() -> Result<(), String> 
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::open_page(&ctx, &mut app, "Settings")?;
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Copper & drill files", 700.0)?,
+        "the make files section offers the copper and drill files"
+    );
     authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Manufacture")?;

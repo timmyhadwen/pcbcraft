@@ -191,50 +191,38 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         "track.route",
         json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
     );
-    let (id, label) = app
+    let (id, label, net) = app
         .project
         .board
         .tracks
         .iter()
         .rev()
         .find(|t| t.layer == pcbcraft_doc::Layer::Front)
-        .map(|t| {
-            (
-                t.id,
-                format!(
-                    "Wire · {:.2} mm · {} · at {}, {}",
-                    t.width,
-                    app.project.net_name(t.net),
-                    t.start.x.round(),
-                    t.start.y.round()
-                ),
-            )
-        })
+        .map(|t| (t.id, format!("Track {:.2} mm", t.width), t.net))
         .ok_or("routing should leave a wire on the top layer")?;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Pcb);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
-    let shown = scrolled_to(&ctx, &mut app, "BOARD ANATOMY")?;
+    // The Layers tree is the anatomy: the top layer, its copper, the
+    // connection, then the wire itself.
     assert!(
-        shown,
-        "the layers dock should list every piece of the board: {}",
+        paints_text(&ctx, &mut app, "Layer 1 \u{b7} Top")?,
+        "the layers tree should list the top layer: {}",
         app.message
     );
-    let seen = scrolled_to(&ctx, &mut app, "Top copper wires")?;
+    for key in [
+        "side:top/copper".to_owned(),
+        format!("side:top/copper/net:{net}"),
+    ] {
+        app.tree.expanded.insert(key);
+    }
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        seen,
-        "the anatomy list should show the top copper wires layer: {}",
-        app.message
-    );
-    authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
-    let row = scrolled_to(&ctx, &mut app, &label)?;
-    assert!(
-        row,
+        paints_text(&ctx, &mut app, &label)?,
         "the top copper layer should show the drawn wire {label}: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, &label)?;
+    tap_left(&ctx, &mut app, &label)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.selected,
@@ -459,7 +447,7 @@ fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
     app.refresh();
     let ctx = egui::Context::default();
     app.change_tab(Tab::Pcb);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "root");
     assert!(
         scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?,
         "the hole list is the place a slot is read: {}",
@@ -519,7 +507,7 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.change_tab(Tab::Pcb);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "3.20 mm")?,
@@ -541,8 +529,10 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
         "the hole is resized: {}",
         app.message
     );
-    scrolled_to(&ctx, &mut app, "\u{d7}")?;
-    authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
+    // "\u{d7}" also appears in sizes like "60 \u{d7} 40 mm", so press the button by id.
+    // Applying a size selects the object; go back to the board's settings.
+    open_tree_row(&ctx, &mut app, "root");
+    tap_id(&ctx, &mut app, "button:\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.board.holes.len(),
@@ -562,7 +552,7 @@ fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Draw shape")?;
+    tap_strip(&ctx, &mut app, "button:Draw shape")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "New layer")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -1262,7 +1252,7 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
         .map(|h| h.id)
         .ok_or("the mounting hole should exist")?;
     app.change_tab(Tab::Pcb);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "root");
     assert!(
         scrolled_to(&ctx, &mut app, "DATUMS")?,
         "the tree offers a DATUMS group"
@@ -1333,11 +1323,10 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
 fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
     let (ctx, mut app) = fresh_board_app();
     app.change_tab(Tab::Pcb);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "root");
     assert!(scrolled_to(&ctx, &mut app, "DATUMS")?);
     app.datum_ui.add_name = "bad name!".into();
-    scrolled_to(&ctx, &mut app, "Add datum")?;
-    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
+    tap_id(&ctx, &mut app, "button:Add datum")?;
     app.refresh();
     assert!(
         app.project.board.datums.is_empty(),
@@ -1349,9 +1338,11 @@ fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
         app.message
     );
     app.datum_ui.add_name = "A".into();
-    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
+    tap_id(&ctx, &mut app, "button:Add datum")?;
+    // A new datum is selected, so go back to the board's settings.
+    open_tree_row(&ctx, &mut app, "root");
     app.datum_ui.add_name = "a".into();
-    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
+    tap_id(&ctx, &mut app, "button:Add datum")?;
     app.refresh();
     assert_eq!(
         app.project.board.datums.len(),
@@ -1557,7 +1548,7 @@ fn a_newcomer_hides_and_shows_each_kind_of_thing_on_the_board() -> Result<(), St
 #[test]
 fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Pcb);
-    tap_id(&ctx, &mut app, "icon:tool-route")?;
+    tap_strip(&ctx, &mut app, "icon:tool-route")?;
     assert!(
         matches!(app.tool, Tool::Route(_)),
         "Route arms the track tool"
@@ -1568,7 +1559,7 @@ fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), S
         ("icon:tool-outline", DrawShape::Poly),
         ("icon:tool-words", DrawShape::Words),
     ] {
-        tap_id(&ctx, &mut app, id)?;
+        tap_strip(&ctx, &mut app, id)?;
         assert!(
             matches!(app.tool, Tool::DrawLayer) && app.art_shape == shape,
             "{id} arms its shape on the machine layer"
@@ -1585,7 +1576,7 @@ fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), S
 #[test]
 fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Schematic);
-    tap_id(&ctx, &mut app, "icon:tool-wire")?;
+    tap_strip(&ctx, &mut app, "icon:tool-wire")?;
     assert!(matches!(app.tool, Tool::Wire(_)), "Wire arms the wire tool");
     for (id, read) in [
         (
@@ -1597,10 +1588,10 @@ fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), Str
         ("button:Parts", |a: &App| a.edit.filter.parts),
     ] {
         let before = read(&app);
-        tap_id(&ctx, &mut app, id)?;
+        tap_strip(&ctx, &mut app, id)?;
         assert_ne!(read(&app), before, "{id} flips what a click may pick up");
     }
-    tap_id(&ctx, &mut app, "button:Measure")?;
+    tap_strip(&ctx, &mut app, "button:Measure")?;
     assert!(matches!(app.tool, Tool::Measure), "Measure arms the ruler");
     Ok(())
 }
