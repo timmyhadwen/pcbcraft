@@ -6,6 +6,5 @@
 lib.rs header
 lib.rs file_menu
 lib.rs edit_menu
-lib.rs settings_menu
 lib.rs help_menu
 lib.rs language_menu
