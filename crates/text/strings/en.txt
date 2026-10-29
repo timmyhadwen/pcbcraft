@@ -1767,3 +1767,9 @@ tree.sch.power_ports = Power ports
 tree.sch.symbols = Symbols
 tree.sch.title_block = Title block
 tree.sch.wires = Wires
+# canvas/sheet.rs title block of the schematic sheet
+schematic.sheet.title = Title
+schematic.sheet.sheet = Sheet
+schematic.sheet.page = {page} of {pages}
+schematic.sheet.date = Date
+schematic.sheet.size = Size
