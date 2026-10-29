@@ -23,6 +23,8 @@ use std::fmt;
 pub type Id = u64;
 pub const MAX_ITEMS: usize = 2048;
 
+mod material;
+pub use material::{MATERIALS, Material, material};
 pub mod fill;
 pub use fill::{KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, zone_fill, zone_fills};
 
@@ -1961,9 +1963,24 @@ impl Hole {
         }
     }
 }
-/// One named board layer record, kept for fabrication notes: a layer's role
-/// and thickness as stated by the stackup the design was built against.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+/// One physical layer of the board, in stack order: its role, thickness and,
+/// where known, the facts a fab and the impedance estimate need.
+///
+/// Every field after `copper_role` is optional and skipped when empty, so a
+/// project saved before they existed loads and saves byte for byte. The
+/// accessors (`function`, `dk`, `df`) answer with the stated value or a value
+/// derived from `kind` and the material table, so old designs need no rewrite.
+///
+/// # Rules
+/// - A stated `dk` or `df` always wins over the named material's table value.
+/// - `linked_copper` names the copper row a mask, silk or paste row sits on.
+///
+/// # Dependencies
+/// - `crates/doc/src/material.rs` for the built-in table.
+///
+/// # Do not
+/// - Store derived values back into the record; derive them at read time.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct LayerRecord {
     /// Display name, for example "F.Cu", "Core" or "L2".
     pub name: String,
@@ -1974,9 +1991,57 @@ pub struct LayerRecord {
     /// Copper plane style for fabrication output: signal, plane, mixed or hatched.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copper_role: Option<String>,
+    /// Layer function when it differs from the one implied by `kind`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
+    /// Face the layer belongs to: top, bottom, internal, both or none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<String>,
+    /// Polarity of the layer artwork: positive or negative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub polarity: Option<String>,
+    /// Name of a row in the built-in material table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<String>,
+    /// Relative permittivity stated on this row (1 to 20).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dk: Option<f64>,
+    /// Loss tangent stated on this row (0 to 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub df: Option<f64>,
+    /// Thickness tolerance in percent (0 to 50).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thickness_tol_pct: Option<f64>,
+    /// Copper weight in ounces per square foot (0.1 to 10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copper_weight_oz: Option<f64>,
+    /// Copper foil type: rolled or electrodeposited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foil: Option<String>,
+    /// The copper row this mask, silk or paste row sits on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_copper: Option<String>,
 }
+/// Layer functions a record may state.
+pub const LAYER_FUNCTIONS: [&str; 10] = [
+    "signal",
+    "plane",
+    "mixed",
+    "dielectric_core",
+    "dielectric_prepreg",
+    "soldermask",
+    "silkscreen",
+    "paste",
+    "other",
+    "none",
+];
 impl LayerRecord {
     fn valid(&self) -> bool {
+        let in_set =
+            |v: &Option<String>, set: &[&str]| v.as_ref().is_none_or(|x| set.contains(&x.as_str()));
+        let in_range = |v: Option<f64>, lo: f64, hi: f64| {
+            v.is_none_or(|x| x.is_finite() && (lo..=hi).contains(&x))
+        };
         !self.name.trim().is_empty()
             && self.name.len() <= 64
             && matches!(
@@ -1985,10 +2050,66 @@ impl LayerRecord {
             )
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)
+            && in_set(&self.copper_role, &["signal", "plane", "mixed", "hatched"])
+            && in_set(&self.function, &LAYER_FUNCTIONS)
+            && in_set(&self.side, &["top", "bottom", "internal", "both", "none"])
+            && in_set(&self.polarity, &["positive", "negative"])
+            && in_set(&self.foil, &["rolled", "electrodeposited"])
             && self
-                .copper_role
+                .material
                 .as_ref()
-                .is_none_or(|r| matches!(r.as_str(), "signal" | "plane" | "mixed" | "hatched"))
+                .is_none_or(|m| !m.trim().is_empty() && m.len() <= 64)
+            && self
+                .linked_copper
+                .as_ref()
+                .is_none_or(|m| !m.trim().is_empty() && m.len() <= 64)
+            && in_range(self.dk, 1.0, 20.0)
+            && in_range(self.df, 0.0, 1.0)
+            && in_range(self.thickness_tol_pct, 0.0, 50.0)
+            && in_range(self.copper_weight_oz, 0.1, 10.0)
+    }
+    /// Layer function: the stated one, else the one the role implies.
+    pub fn function(&self) -> &str {
+        if let Some(f) = &self.function {
+            return f;
+        }
+        match self.kind.as_str() {
+            "copper" => match self.copper_role.as_deref() {
+                Some("plane") => "plane",
+                Some("mixed") => "mixed",
+                _ => "signal",
+            },
+            "core" => "dielectric_core",
+            "prepreg" => "dielectric_prepreg",
+            "soldermask" => "soldermask",
+            "silkscreen" => "silkscreen",
+            "paste" => "paste",
+            _ => "other",
+        }
+    }
+    /// True for a core or prepreg row.
+    pub fn is_dielectric(&self) -> bool {
+        matches!(self.kind.as_str(), "core" | "prepreg")
+    }
+    /// Polarity: the stated one, else negative for a plane and positive otherwise.
+    pub fn polarity(&self) -> &str {
+        match (&self.polarity, self.function()) {
+            (Some(p), _) => p,
+            (None, "plane") => "negative",
+            _ => "positive",
+        }
+    }
+    /// Relative permittivity: the value stated on the row, else the named
+    /// material's table value.
+    pub fn dk(&self) -> Option<f64> {
+        self.dk
+            .or_else(|| self.material.as_deref().and_then(material).map(|m| m.dk))
+    }
+    /// Loss tangent: the value stated on the row, else the named material's
+    /// table value.
+    pub fn df(&self) -> Option<f64> {
+        self.df
+            .or_else(|| self.material.as_deref().and_then(material).map(|m| m.df))
     }
 }
 /// What a drawn layer tells a machine to do: a cutter follows cut and
@@ -3233,6 +3354,66 @@ impl Project {
             .layer_records
             .iter()
             .filter(|r| r.kind == "copper")
+    }
+    /// Face a stack row belongs to: the stated side, else derived from where
+    /// the row sits relative to the copper rows. `None` when no row has that name.
+    pub fn layer_side(&self, name: &str) -> Option<String> {
+        let rows = &self.board.layer_records;
+        let i = rows.iter().position(|r| r.name == name)?;
+        if let Some(s) = &rows[i].side {
+            return Some(s.clone());
+        }
+        let first = rows.iter().position(|r| r.kind == "copper");
+        let last = rows.iter().rposition(|r| r.kind == "copper");
+        Some(
+            match (first, last) {
+                (Some(f), _) if i < f => "top",
+                (_, Some(l)) if i > l => "bottom",
+                _ => "internal",
+            }
+            .to_string(),
+        )
+    }
+    /// The copper row a mask, silk or paste row sits on: the stated link, else
+    /// the outermost copper row on its side of the stack.
+    pub fn linked_copper(&self, name: &str) -> Option<String> {
+        let rows = &self.board.layer_records;
+        let i = rows.iter().position(|r| r.name == name)?;
+        let rec = &rows[i];
+        if rec.kind == "copper" || rec.kind == "core" || rec.kind == "prepreg" {
+            return None;
+        }
+        if let Some(l) = &rec.linked_copper {
+            return Some(l.clone());
+        }
+        let first = rows.iter().position(|r| r.kind == "copper")?;
+        let last = rows.iter().rposition(|r| r.kind == "copper")?;
+        if i < first {
+            Some(rows[first].name.clone())
+        } else if i > last {
+            Some(rows[last].name.clone())
+        } else {
+            None
+        }
+    }
+    /// Height and relative permittivity of the dielectric next to a copper
+    /// row, for impedance estimates. Looks at the rows directly above and
+    /// below, takes the thinner one that carries a permittivity, and returns
+    /// `None` when neither does so callers fall back to `Board.er`.
+    pub fn dielectric_beside(&self, copper_name: &str) -> Option<(f64, f64)> {
+        let rows = &self.board.layer_records;
+        let i = rows.iter().position(|r| r.name == copper_name)?;
+        let neighbour = |j: Option<usize>| {
+            let r = rows.get(j?)?;
+            (r.is_dielectric() && r.thickness > 0.0).then_some(())?;
+            Some((r.thickness, r.dk()?))
+        };
+        let above = neighbour(i.checked_sub(1));
+        let below = neighbour(i.checked_add(1));
+        match (above, below) {
+            (Some(a), Some(b)) => Some(if a.0 <= b.0 { a } else { b }),
+            (a, b) => a.or(b),
+        }
     }
     /// How many routable copper layers exist. With no copper rows recorded,
     /// a board is treated as two layers (top and bottom).
@@ -4659,6 +4840,13 @@ impl Project {
                 "a board defines at most {MAX_COPPER_LAYERS} copper layers"
             ));
         }
+        for rec in &self.board.layer_records {
+            if let Some(link) = &rec.linked_copper
+                && !copper_rows.iter().any(|c| &c.name == link)
+            {
+                return Err("a linked copper layer must name a copper row".into());
+            }
+        }
         let mut copper_names = BTreeSet::new();
         for rec in &copper_rows {
             if !copper_names.insert(rec.name.as_str()) {
@@ -5668,24 +5856,28 @@ mod drill_tests {
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: Some("signal".into()),
+                ..Default::default()
             },
             LayerRecord {
                 name: "In1.Cu".into(),
                 kind: "copper".into(),
                 thickness: 0.0175,
                 copper_role: Some("plane".into()),
+                ..Default::default()
             },
             LayerRecord {
                 name: "In2.Cu".into(),
                 kind: "copper".into(),
                 thickness: 0.0175,
                 copper_role: None,
+                ..Default::default()
             },
             LayerRecord {
                 name: "B.Cu".into(),
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: Some("signal".into()),
+                ..Default::default()
             },
         ];
         assert_eq!(p.copper_layer_count(), 4);
