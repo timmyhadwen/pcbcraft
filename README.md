@@ -367,7 +367,7 @@ cd apps/pcbcraft-web && trunk serve
 Keep build products outside the mounted Windows tree in WSL for better filesystem
 performance, e.g. `CARGO_TARGET_DIR=$HOME/.cache/pcbcraft-target`.
 
-Architecture: [docs/architecture.md](docs/architecture.md). Agent instructions:
+Architecture: [docs/architecture.md](docs/architecture.md). Code documentation: [docs/doc-standard.md](docs/doc-standard.md). Agent instructions:
 [AGENTS.md](AGENTS.md) ([CLAUDE.md](CLAUDE.md), [Cursor rules](.cursor/rules/), [role briefs](docs/agents/)).
 Provenance: [ATTRIBUTION.md](ATTRIBUTION.md).
 How work flows through the tracker, from issue to merge: [CONTRIBUTING.md](CONTRIBUTING.md).
