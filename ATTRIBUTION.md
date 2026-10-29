@@ -15,6 +15,7 @@
 | KiCad board format | https://dev-docs.kicad.org/en/file-formats/sexpr-pcb/ | Public format documentation | Original limited board writer |
 | KiCad library formats | https://dev-docs.kicad.org/en/file-formats/ | Public format documentation | Original Rust symbol/footprint readers |
 | KiCad library fixtures | https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints | Ubuntu packages 10.0.6~ubuntu24.04.1; CC-BY-SA 4.0 + KiCad design-output exception | Extracted R/LED/LM2904/LM358 symbols and unmodified R_0805 footprint; community contributors; exact provenance/checksums and modifications in docs/kicad-libraries.md; original license in crates/library/tests/fixtures/LICENSE-kicad-libraries.md |
+| Open library recorded answers | https://gitlab.com/kicad/libraries/kicad-symbols, https://gitlab.com/kicad/libraries/kicad-footprints and https://gitlab.com/kicad/libraries/kicad-packages3D | Repository revisions 45efbd93, a337146e and 89757151; CC-BY-SA 4.0 + KiCad design-output exception | Unmodified R and C symbols, R_0603 footprint and STEP model, folder listings reduced to a few entries, revision answers reduced to id and date; used only as test fixtures in crates/library/tests/fixtures/open_library; recording script and licence beside them (LICENSE-kicad-libraries.md) |
 
 KiCad's official PCB_POINT API/source documentation was consulted to distinguish
 non-manufactured reference-point metadata from copper/outline geometry; exact links

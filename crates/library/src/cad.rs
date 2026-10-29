@@ -244,7 +244,7 @@ impl CadFile {
 /// - Put keys or account data in a reference or a provenance record.
 ///
 /// # Implementations
-/// - none yet
+/// - crates/library/src/open_library.rs
 pub trait CadSource: Send + Sync {
     /// Short stable identifier used in cache keys and notices.
     fn id(&self) -> &str;
@@ -262,6 +262,13 @@ pub trait CadSource: Send + Sync {
     fn search(&self, kind: CadKind, query: &str) -> Result<Vec<CadRef>, SourceError>;
     /// Fetch one file.
     fn fetch(&self, cad_ref: &CadRef) -> Result<CadFile, SourceError>;
+
+    /// Where the file for this reference is kept on this computer, when the
+    /// source keeps files on disk and has fetched it. Used to point a
+    /// footprint's 3D model reference at the saved copy.
+    fn cached_path(&self, _cad_ref: &CadRef) -> Option<std::path::PathBuf> {
+        None
+    }
 
     /// Fetch a symbol library file.
     fn fetch_symbol(&self, cad_ref: &CadRef) -> Result<CadFile, SourceError> {
