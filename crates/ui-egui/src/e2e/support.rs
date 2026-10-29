@@ -97,6 +97,11 @@ pub(crate) fn frame(
     modifiers: egui::Modifiers,
 ) -> egui::FullOutput {
     ctx.enable_accesskit();
+    let tall = TALL_SCREEN.with(std::cell::Cell::get);
+    let default_scroll = egui::style::Spacing::default().scroll_bar_width;
+    ctx.all_styles_mut(|style| {
+        style.spacing.scroll_bar_width = if tall { 0.0 } else { default_scroll };
+    });
     super::audit::record_touches(ctx, app, &events);
     events.insert(0, egui::Event::ModifiersChanged(modifiers));
     let mut output = ctx.run_ui(
