@@ -4690,6 +4690,8 @@ fn diff_pair_for_nets(p: &Project, a: Id, b: Id) -> Option<&DiffPair> {
         .iter()
         .find(|pair| pair.net_p == a && pair.net_n == b || pair.net_p == b && pair.net_n == a)
 }
+/// Track segments for the positive and negative side of a pair.
+type PairSegments = (Vec<(Point, Point)>, Vec<(Point, Point)>);
 /// Both sides of a pair with their corners cut at 45 degrees. The positive
 /// side takes the straight-diagonal-straight path; the negative side keeps its
 /// diagonal exactly `spacing` (centre to centre) from it, so the pair stays
@@ -4700,7 +4702,7 @@ fn coupled_chamfer_segments(
     start_n: Point,
     end_n: Point,
     spacing: f64,
-) -> Result<(Vec<(Point, Point)>, Vec<(Point, Point)>), Error> {
+) -> Result<PairSegments, Error> {
     let too_tight =
         || Error::Invalid("there is not enough room to bend the pair at 45 degrees".into());
     let dx = end_p.x - start_p.x;
@@ -4760,7 +4762,7 @@ fn coupled_right_angle_segments(
     start_n: Point,
     end_n: Point,
     spacing: f64,
-) -> (Vec<(Point, Point)>, Vec<(Point, Point)>) {
+) -> PairSegments {
     let chain = |pts: Vec<Point>| {
         let mut out = vec![];
         for pair in pts.windows(2) {
