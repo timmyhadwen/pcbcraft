@@ -2693,6 +2693,7 @@ dependencies = [
  "pcbcraft-geom",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
