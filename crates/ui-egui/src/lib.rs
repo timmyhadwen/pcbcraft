@@ -1,4 +1,5 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
+mod arrange;
 mod authoring;
 mod board3d;
 mod canvas;
@@ -3075,6 +3076,8 @@ impl App {
             {
                 self.cleanup_tracks();
             }
+            ui.separator();
+            self.arrange_menu(ui);
             ui.separator();
             if ui
                 .button("Update board from schematic")
@@ -6203,6 +6206,7 @@ impl App {
                         });
                 });
         }
+        self.array_window(ui.ctx());
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new("Keyboard shortcuts")
