@@ -261,6 +261,7 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     app.closed_tabs.push(Tab::Rules);
     assert!(text_row(&ctx, &mut app, "Rules").is_none(), "a closed view leaves the row");
     authoring::tests::tap(&ctx, &mut app, "+")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Rules")?;
     assert!(matches!(app.tab, Tab::Rules), "the + menu reopens it");
     authoring::tests::tap(&ctx, &mut app, "Files")?;
