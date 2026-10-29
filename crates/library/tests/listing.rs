@@ -1,6 +1,6 @@
 use pcbcraft_library::listing::{
-    Category, Lifecycle, ListingSource, PartListing, Unit, category_from, lifecycle_from,
-    listing_from_result, package_key, parse_tolerance, parse_value,
+    Category, Lifecycle, ListingSource, PartFilter, PartListing, Unit, category_from,
+    lifecycle_from, listing_from_result, package_key, parse_tolerance, parse_value,
 };
 use pcbcraft_library::sources::{FixtureSource, PartResult, PartSource, PriceBreak, SourceError};
 
@@ -208,4 +208,119 @@ fn a_listing_round_trips_through_serde_json() -> Result<(), String> {
     let back: PartListing = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     assert_eq!(back, listing);
     Ok(())
+}
+
+fn filter_listing(mpn: &str, category: Category, source: ListingSource, id: &str) -> PartListing {
+    let mut l = listing_from_result(&result(mpn, "resistor"), &Default::default());
+    l.category = category;
+    l.source = source;
+    l.source_id = id.into();
+    l
+}
+
+fn full(mpn: &str, source: ListingSource) -> PartListing {
+    let mut l = filter_listing(mpn, Category::Resistor, source, "Sample parts");
+    l.package_key = "chip-0603".into();
+    l.package_text = "0603".into();
+    l.value = Some(10_000.0);
+    l.value_unit = Some(Unit::Ohm);
+    l.rated_voltage_v = Some(50.0);
+    l.temp_min_c = Some(-55.0);
+    l.temp_max_c = Some(155.0);
+    l.stock = Some(500);
+    l.lifecycle = Lifecycle::Active;
+    l.rohs = Some(true);
+    l
+}
+
+#[test]
+fn a_filter_on_category_package_value_range_voltage_stock_and_source_returns_only_matching_listings_across_mixed_sources()
+ {
+    let mut cap = full("C1", ListingSource::Installed);
+    cap.category = Category::Capacitor;
+    let mut other_pkg = full("R2", ListingSource::Installed);
+    other_pkg.package_key = "chip-0805".into();
+    let mut big = full("R3", ListingSource::Fixture);
+    big.value = Some(1.0e6);
+    let mut weak = full("R4", ListingSource::Project);
+    weak.rated_voltage_v = Some(10.0);
+    let mut low = full("R5", ListingSource::Distributor);
+    low.stock = Some(3);
+    let mut other_source = full("R6", ListingSource::Distributor);
+    other_source.source = ListingSource::Distributor;
+    let keep_a = full("R7", ListingSource::Fixture);
+    let keep_b = full("R8", ListingSource::Installed);
+    let filter = PartFilter {
+        categories: vec![Category::Resistor],
+        packages: vec!["0603".into()],
+        value_min: Some(1_000.0),
+        value_max: Some(100_000.0),
+        voltage_min: Some(25.0),
+        stock_min: Some(100),
+        sources: vec![ListingSource::Fixture, ListingSource::Installed],
+        temp_range: Some((-40.0, 85.0)),
+        lifecycle: vec![Lifecycle::Active],
+        rohs: Some(true),
+        ..Default::default()
+    };
+    assert_eq!(filter.validate(), Ok(()));
+    let all = [cap, other_pkg, big, weak, low, other_source, keep_a, keep_b];
+    let found: Vec<&str> = all
+        .iter()
+        .filter(|l| filter.matches(l))
+        .map(|l| l.mpn.as_str())
+        .collect();
+    assert_eq!(found, ["R7", "R8"]);
+}
+
+#[test]
+fn missing_fields_never_match_a_numeric_filter() {
+    let blank = filter_listing("X", Category::Resistor, ListingSource::Installed, "Lib");
+    let numeric = [
+        PartFilter {
+            value_min: Some(0.0),
+            ..Default::default()
+        },
+        PartFilter {
+            value_max: Some(1.0e12),
+            ..Default::default()
+        },
+        PartFilter {
+            voltage_min: Some(0.0),
+            ..Default::default()
+        },
+        PartFilter {
+            temp_range: Some((0.0, 1.0)),
+            ..Default::default()
+        },
+        PartFilter {
+            stock_min: Some(0),
+            ..Default::default()
+        },
+    ];
+    for f in &numeric {
+        assert!(!f.matches(&blank), "{f:?} matched an empty listing");
+    }
+    assert!(
+        PartFilter::default().matches(&blank),
+        "an empty filter matches all"
+    );
+    let mut diode = full("D1", ListingSource::Installed);
+    diode.category = Category::Diode;
+    assert!(!numeric[0].matches(&diode), "no value unit, no value match");
+}
+
+#[test]
+fn a_filter_with_more_than_sixteen_categories_is_refused() {
+    let f = PartFilter {
+        categories: vec![Category::Led; 17],
+        ..Default::default()
+    };
+    assert!(f.validate().is_err_and(|e| e.contains("16 categories")));
+    let bad = PartFilter {
+        value_min: Some(2.0),
+        value_max: Some(1.0),
+        ..Default::default()
+    };
+    assert!(bad.validate().is_err());
 }

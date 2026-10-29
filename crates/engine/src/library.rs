@@ -1,4 +1,9 @@
 //! Native library discovery and cached read queries, separate from document mutation.
+//!
+//! `library.list` filters part listings with one `PartFilter` and pages them
+//! grouped by source; it never merges sources by rank and never mutates.
+//! Dependencies: `crates/library/src/listing.rs` for `PartListing` and `PartFilter`.
+use pcbcraft_library::listing::{ListingSource, PartFilter, PartListing};
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 use serde_json::{Value, json};
 use std::io::Read;
@@ -545,6 +550,108 @@ pub fn compare(
         _ => Err("kind must be symbol or footprint".into()),
     }
 }
+/// Most listings one `library.list` call reads or returns in total.
+pub const MAX_LISTINGS: usize = 5000;
+/// Page size when the caller gives no limit.
+const DEFAULT_LIST_LIMIT: usize = 30;
+
+fn source_rank(source: ListingSource) -> u8 {
+    match source {
+        ListingSource::Fixture => 0,
+        ListingSource::Project => 1,
+        ListingSource::Installed => 2,
+        ListingSource::Distributor => 3,
+    }
+}
+
+/// Filter listings and return one page, grouped by source.
+///
+/// # Rules
+/// `limit` is 1 to 100. Groups follow fixture, project, installed, then
+/// distributor, and inside a group the listings keep the order they came in;
+/// nothing is merged by rank. `cursor` maps a source name to how many of its
+/// matches were already returned. The answer is `{items, next_cursor,
+/// total_known}`; `next_cursor` is null when nothing is left.
+/// # Dependencies
+/// `crates/library/src/listing.rs` for `PartFilter::validate` and `matches`.
+/// # Do not
+/// Change any state or reorder listings across sources.
+pub fn list_listings(
+    listings: Vec<PartListing>,
+    filter: &PartFilter,
+    limit: usize,
+    cursor: &std::collections::BTreeMap<String, usize>,
+) -> Result<Value, String> {
+    if limit == 0 || limit > 100 {
+        return Err("limit must be an integer from 1 to 100".into());
+    }
+    if listings.len() > MAX_LISTINGS {
+        return Err(format!(
+            "at most {MAX_LISTINGS} listings may be filtered at once"
+        ));
+    }
+    filter.validate()?;
+    let mut groups: Vec<(u8, String, Vec<PartListing>)> = vec![];
+    for listing in listings.into_iter().filter(|l| filter.matches(l)) {
+        let rank = source_rank(listing.source);
+        match groups
+            .iter_mut()
+            .find(|(r, id, _)| *r == rank && *id == listing.source_id)
+        {
+            Some((_, _, items)) => items.push(listing),
+            None => groups.push((rank, listing.source_id.clone(), vec![listing])),
+        }
+    }
+    groups.sort_by_key(|(rank, _, _)| *rank);
+    let total: usize = groups.iter().map(|(_, _, items)| items.len()).sum();
+    let mut page = vec![];
+    let mut next = std::collections::BTreeMap::new();
+    let mut more = false;
+    for (_, id, items) in groups {
+        let start = cursor.get(&id).copied().unwrap_or(0).min(items.len());
+        let take = (limit - page.len()).min(items.len() - start);
+        page.extend(items[start..start + take].iter().cloned());
+        more |= start + take < items.len();
+        next.insert(id, start + take);
+    }
+    let next_cursor = if more { json!(next) } else { Value::Null };
+    Ok(json!({"items": page, "next_cursor": next_cursor, "total_known": total}))
+}
+
+fn list_tool(args: &Value) -> Result<Value, String> {
+    let filter: PartFilter = match args.get("filter") {
+        None => PartFilter::default(),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| format!("filter: {e}"))?,
+    };
+    let limit = match args.get("limit") {
+        None => DEFAULT_LIST_LIMIT,
+        Some(v) => v
+            .as_u64()
+            .filter(|v| (1..=100).contains(v))
+            .and_then(|v| usize::try_from(v).ok())
+            .ok_or("limit must be an integer from 1 to 100")?,
+    };
+    let cursor: std::collections::BTreeMap<String, usize> = match args.get("cursor") {
+        None | Some(Value::Null) => Default::default(),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| format!("cursor: {e}"))?,
+    };
+    let mut listings: Vec<PartListing> = match args.get("listings") {
+        None => vec![],
+        Some(Value::Array(a)) if a.len() > MAX_LISTINGS => {
+            return Err(format!(
+                "at most {MAX_LISTINGS} listings may be filtered at once"
+            ));
+        }
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| format!("listings: {e}"))?,
+    };
+    listings.extend(local_listings());
+    list_listings(listings, &filter, limit, &cursor)
+}
+
+/// Listings from the sources that need no network. Filled by the adapters.
+fn local_listings() -> Vec<PartListing> {
+    vec![]
+}
 pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     let text = |key: &str| {
         args.get(key)
@@ -554,6 +661,7 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     match name {
         "library.catalog" => catalog(),
         "library.sources" => sources(),
+        "library.list" => list_tool(args),
         "design.recents" => Ok(json!({"designs": crate::recents::load_recent_paths()})),
         "library.add_folder" => {
             let name = match args.get("name") {
@@ -844,5 +952,73 @@ mod tests {
             "a missing path is refused"
         );
         Ok(())
+    }
+
+    fn listed(mpn: &str, source: ListingSource, id: &str) -> PartListing {
+        let mut l = pcbcraft_library::listing::listing_from_result(
+            &pcbcraft_library::sources::PartResult {
+                source: id.into(),
+                mpn: mpn.into(),
+                manufacturer: String::new(),
+                description: String::new(),
+                kind: "resistor".into(),
+                distributor: String::new(),
+                sku: String::new(),
+                stock: 0,
+                price_breaks: vec![],
+                lifecycle: String::new(),
+                datasheet_url: String::new(),
+                product_url: String::new(),
+                retrieved_at: 0,
+            },
+            &Default::default(),
+        );
+        l.source = source;
+        l.source_id = id.into();
+        l
+    }
+
+    #[test]
+    fn results_keep_each_sources_own_order_and_are_grouped_by_source() -> Result<(), String> {
+        let input = vec![
+            listed("D2", ListingSource::Distributor, "Shop"),
+            listed("I2", ListingSource::Installed, "Lib"),
+            listed("D1", ListingSource::Distributor, "Shop"),
+            listed("F1", ListingSource::Fixture, "Sample"),
+            listed("I1", ListingSource::Installed, "Lib"),
+        ];
+        let out = list_listings(
+            input.clone(),
+            &PartFilter::default(),
+            3,
+            &Default::default(),
+        )?;
+        let mpns = |v: &Value| -> Vec<String> {
+            v["items"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|i| i["mpn"].as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        assert_eq!(mpns(&out), ["F1", "I2", "I1"]);
+        assert_eq!(out["total_known"], 5);
+        let cursor: std::collections::BTreeMap<String, usize> =
+            serde_json::from_value(out["next_cursor"].clone()).map_err(|e| e.to_string())?;
+        let next = list_listings(input, &PartFilter::default(), 3, &cursor)?;
+        assert_eq!(mpns(&next), ["D2", "D1"]);
+        assert!(next["next_cursor"].is_null());
+        Ok(())
+    }
+
+    #[test]
+    fn library_list_refuses_a_bad_limit_and_too_many_categories() {
+        for limit in [0, 101] {
+            assert!(read_tool("library.list", &json!({"limit": limit})).is_err());
+        }
+        let many = json!({"categories": vec!["led"; 17]});
+        assert!(read_tool("library.list", &json!({"filter": many})).is_err());
     }
 }
