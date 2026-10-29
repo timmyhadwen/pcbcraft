@@ -2364,6 +2364,11 @@ impl Session {
             )?;
         }
         s.execute(
+            "board.set_outline",
+            json!({"points":[[3.0,0.0],[57.0,0.0],[60.0,3.0],[60.0,37.0],[57.0,40.0],[3.0,40.0],[0.0,37.0],[0.0,3.0]]}),
+            None,
+        )?;
+        s.execute(
             "board.cutout.add",
             json!({"center":{"x":5,"y":5},"radius":1.6}),
             None,
