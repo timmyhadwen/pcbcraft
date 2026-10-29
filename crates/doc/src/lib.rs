@@ -1090,6 +1090,24 @@ pub enum ArtShape {
     },
 }
 impl ArtShape {
+    /// A point that represents the figure for navigation and region tests:
+    /// the start of a line, the centre of a rectangle or circle, the first
+    /// corner of an outline and the anchor of pen text.
+    pub fn anchor(&self) -> Point {
+        match self {
+            Self::Line { start, .. } => *start,
+            Self::Rect {
+                x,
+                y,
+                width,
+                height,
+                ..
+            } => Point::new(x + width / 2.0, y + height / 2.0),
+            Self::Circle { center, .. } => *center,
+            Self::Poly { points } => points.first().copied().unwrap_or_default(),
+            Self::Text { at, .. } => *at,
+        }
+    }
     fn valid(&self) -> bool {
         match self {
             Self::Line { start, end } => start.valid() && end.valid(),
@@ -1762,6 +1780,9 @@ impl Project {
         }
         if let Some(c) = b.cutouts.iter().find(|c| c.id == id) {
             return Some(c.center);
+        }
+        if let Some(l) = b.user_layers.iter().find(|l| l.id == id) {
+            return l.shapes.first().map(ArtShape::anchor);
         }
         if let Some(f) = b.footprints.iter().find(|f| f.id == id) {
             return Some(f.position);
