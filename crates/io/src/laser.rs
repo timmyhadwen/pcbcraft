@@ -101,22 +101,46 @@ pub fn laser_galvo_profile_for_export(
 }
 
 pub fn commarker_b6_mopa_profile() -> LaserGalvoProfile {
-    let mk = |name: &str, mode: &str, speed: f64, power: f64, freq: f64, pulse: f64| {
-        LaserGalvoOperation {
-            name: name.into(),
-            mode: mode.into(),
-            speed_mm_s: speed,
-            power_min: power,
-            power_max: power,
-            passes: 1,
-            frequency_khz: freq,
-            q_pulse_width_ns: pulse,
-            line_interval_mm: if mode == "fill" { Some(0.025) } else { None },
-            hatch_angle_deg: if mode == "fill" { Some(45.0) } else { None },
-            angle_increment_deg: if mode == "fill" { Some(90.0) } else { None },
-            kerf_offset_mm: if mode == "line" { Some(0.01) } else { None },
-            verified: false,
-        }
+    // Starting values from the shop research note for the B6 MOPA (forum
+    // reports and the store sheet). None are verified on the owner's unit.
+    struct Row {
+        name: &'static str,
+        fill: bool,
+        speed: f64,
+        power: f64,
+        freq: f64,
+        pulse: f64,
+        passes: u32,
+        interval: f64,
+        angle: f64,
+        kerf: f64,
+    }
+    let mk = |r: Row| LaserGalvoOperation {
+        name: r.name.into(),
+        mode: if r.fill { "fill" } else { "line" }.into(),
+        speed_mm_s: r.speed,
+        power_min: r.power,
+        power_max: r.power,
+        passes: r.passes,
+        frequency_khz: r.freq,
+        q_pulse_width_ns: r.pulse,
+        line_interval_mm: r.fill.then_some(r.interval),
+        hatch_angle_deg: r.fill.then_some(r.angle),
+        angle_increment_deg: r.fill.then_some(90.0),
+        kerf_offset_mm: (!r.fill).then_some(r.kerf),
+        verified: false,
+    };
+    let row = |name, fill, speed, power, freq, pulse, passes, interval, angle, kerf| Row {
+        name,
+        fill,
+        speed,
+        power,
+        freq,
+        pulse,
+        passes,
+        interval,
+        angle,
+        kerf,
     };
     LaserGalvoProfile {
         id: "commarker-b6-mopa".into(),
@@ -133,17 +157,17 @@ pub fn commarker_b6_mopa_profile() -> LaserGalvoProfile {
                 label: "F-theta 300 mm (unverified)".into(),
             },
         ],
-        frequency_khz_min: 20.0,
+        frequency_khz_min: 1.0,
         frequency_khz_max: 4000.0,
-        pulse_width_ns_min: 1.0,
-        pulse_width_ns_max: 500.0,
+        pulse_width_ns_min: 2.0,
+        pulse_width_ns_max: 350.0,
         operations: vec![
-            mk("fiducials", "line", 500.0, 30.0, 100.0, 200.0),
-            mk("isolation-cut", "line", 300.0, 80.0, 500.0, 120.0),
-            mk("copper-rubout", "fill", 1500.0, 60.0, 800.0, 80.0),
-            mk("mask-open", "fill", 1200.0, 25.0, 200.0, 250.0),
-            mk("legend", "fill", 800.0, 35.0, 300.0, 200.0),
-            mk("stencil-cut", "line", 400.0, 70.0, 400.0, 150.0),
+            mk(row("fiducials", false, 750.0, 100.0, 25.0, 200.0, 2, 0.0, 0.0, 0.0)),
+            mk(row("isolation-cut", false, 750.0, 100.0, 25.0, 200.0, 2, 0.0, 0.0, 0.0)),
+            mk(row("copper-rubout", true, 750.0, 100.0, 25.0, 200.0, 2, 0.025, 45.0, 0.0)),
+            mk(row("mask-open", true, 1500.0, 30.0, 60.0, 50.0, 1, 0.03, 0.0, 0.0)),
+            mk(row("legend", true, 1500.0, 35.0, 60.0, 50.0, 1, 0.03, 0.0, 0.0)),
+            mk(row("stencil-cut", false, 300.0, 100.0, 30.0, 350.0, 10, 0.0, 0.0, 0.02)),
         ],
     }
 }
@@ -266,17 +290,27 @@ pub fn laser_job_lcproj(
                 },
                 frequency_khz: op.frequency_khz,
                 q_pulse_width_ns: op.q_pulse_width_ns,
-                global_passes: op.passes,
-                fill: op.line_interval_mm.map(|line_interval_mm| LcFill {
-                    line_interval_mm,
-                    hatch_angle_deg: op.hatch_angle_deg.unwrap_or(45.0),
-                    angle_increment_deg: op.angle_increment_deg.unwrap_or(90.0),
-                }),
-                line: op
-                    .kerf_offset_mm
-                    .map(|kerf_offset_mm| LcLine { kerf_offset_mm }),
-                tabs: false,
-                wobble: false,
+                global_passes: 1,
+                fill: LcFill::new(
+                    op.line_interval_mm.unwrap_or(0.1),
+                    op.hatch_angle_deg.unwrap_or(45.0),
+                    op.angle_increment_deg.unwrap_or(90.0),
+                ),
+                line: LcLine::new(op.kerf_offset_mm.unwrap_or(0.0)),
+                tabs: LcTabs {
+                    enabled: false,
+                    automatic: true,
+                    size_mm: 0.5,
+                    spacing_mm: 50.0,
+                    tabs_per_shape: 1,
+                    skip_inner_shapes: false,
+                    cut_power_pct: 0.0,
+                },
+                wobble: LcWobble {
+                    enabled: false,
+                    step_mm: 0.05,
+                    size_mm: 0.1,
+                },
                 timing_override: None,
             },
         });
@@ -670,27 +704,23 @@ struct LcCutSetting {
     power_min: f64,
     power_max: f64,
     num_passes: u32,
-    #[serde(default = "air_assist_on")]
     air_assist: bool,
     galvo: LcGalvo,
 }
 
-fn air_assist_on() -> bool {
-    true
-}
-
+/// Galvo block in the shape LaserCraft's `GalvoSettings` loads: every
+/// section is present, so the shop program opens the file without defaults
+/// filling in missing parts.
 #[derive(Serialize)]
 struct LcGalvo {
     mode: String,
     frequency_khz: f64,
     q_pulse_width_ns: f64,
     global_passes: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    fill: Option<LcFill>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    line: Option<LcLine>,
-    tabs: bool,
-    wobble: bool,
+    fill: LcFill,
+    line: LcLine,
+    tabs: LcTabs,
+    wobble: LcWobble,
     timing_override: Option<()>,
 }
 
@@ -699,11 +729,81 @@ struct LcFill {
     line_interval_mm: f64,
     hatch_angle_deg: f64,
     angle_increment_deg: f64,
+    auto_rotate: bool,
+    dot_width_adjust: bool,
+    dot_width_mm: f64,
+    ramp_length_mm: f64,
+    ramp_outer_edge: bool,
+    cross_hatch: bool,
+    overscan_mm: f64,
+    bidirectional: bool,
+    flood_fill: bool,
+    dot_mode: bool,
+    dot_time_ms: f64,
+}
+
+impl LcFill {
+    fn new(line_interval_mm: f64, hatch_angle_deg: f64, angle_increment_deg: f64) -> Self {
+        Self {
+            line_interval_mm,
+            hatch_angle_deg,
+            angle_increment_deg,
+            auto_rotate: false,
+            dot_width_adjust: false,
+            dot_width_mm: 0.08,
+            ramp_length_mm: 0.0,
+            ramp_outer_edge: false,
+            cross_hatch: false,
+            overscan_mm: 0.0,
+            bidirectional: true,
+            flood_fill: false,
+            dot_mode: false,
+            dot_time_ms: 1.0,
+        }
+    }
 }
 
 #[derive(Serialize)]
 struct LcLine {
     kerf_offset_mm: f64,
+    perforation: bool,
+    perforation_cut_mm: f64,
+    perforation_skip_mm: f64,
+    overcut_mm: f64,
+    lead_in_mm: f64,
+    lead_out_mm: f64,
+}
+
+impl LcLine {
+    fn new(kerf_offset_mm: f64) -> Self {
+        Self {
+            kerf_offset_mm,
+            perforation: false,
+            perforation_cut_mm: 0.1,
+            perforation_skip_mm: 0.1,
+            overcut_mm: 0.0,
+            lead_in_mm: 0.0,
+            lead_out_mm: 0.0,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct LcTabs {
+    enabled: bool,
+    automatic: bool,
+    size_mm: f64,
+    spacing_mm: f64,
+    tabs_per_shape: u32,
+    skip_inner_shapes: bool,
+    cut_power_pct: f64,
+}
+
+#[derive(Serialize)]
+struct LcWobble {
+    enabled: bool,
+    step_mm: f64,
+    size_mm: f64,
 }
 
 #[cfg(test)]
@@ -854,12 +954,75 @@ pub mod tests {
                 return Err("every exported path must close with Z".into());
             }
         }
+        check_golden("laser_job_two_pad_one_track.svg", &svg)?;
+        Ok(())
+    }
+
+    /// Compare against a committed fixture. Set `PCBCRAFT_BLESS=1` to rewrite
+    /// it after a deliberate change to the export.
+    fn check_golden(name: &str, actual: &str) -> Result<(), String> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/laser_job_two_pad_one_track.svg");
-        if let Ok(golden) = fs::read_to_string(&path) {
-            if svg != golden {
-                return Err("laser SVG export differs from the golden fixture".into());
+            .join("tests/fixtures")
+            .join(name);
+        if std::env::var("PCBCRAFT_BLESS").is_ok() {
+            fs::write(&path, actual).map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+        let golden = fs::read_to_string(&path)
+            .map_err(|e| format!("golden fixture {name} is missing: {e}"))?;
+        if golden != actual {
+            return Err(format!("laser export differs from the golden fixture {name}"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn laser_job_svg_paths_are_closed_simple_rings() -> Result<(), String> {
+        let project = laser_job_two_pad_one_track_project();
+        let profile = commarker_b6_mopa_profile();
+        let svg = laser_job_svg(&project, Layer::Front, &profile, &default_options())?;
+        let mut rings = 0;
+        for chunk in svg.split(" d=\"").skip(1) {
+            let data = chunk.split('"').next().unwrap_or_default();
+            let nums: Vec<f64> = data
+                .split_whitespace()
+                .filter_map(|t| t.parse().ok())
+                .collect();
+            let ring: Vec<Point> = nums.chunks_exact(2).map(|c| Point::new(c[0], c[1])).collect();
+            if ring.len() < 3 || !data.trim_end().ends_with('Z') {
+                return Err("path is not a closed ring".into());
             }
+            if !pcbcraft_geom::polygon_is_simple(&ring) {
+                return Err("exported ring is not simple".into());
+            }
+            rings += 1;
+        }
+        if rings == 0 {
+            return Err("no rings exported".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn laser_job_lcproj_matches_golden_and_has_full_galvo_blocks() -> Result<(), String> {
+        let project = laser_job_two_pad_one_track_project();
+        let profile = commarker_b6_mopa_profile();
+        let text = laser_job_lcproj(&project, Layer::Front, &profile, &default_options())?;
+        check_golden("laser_job_two_pad_one_track.lcproj", &text)?;
+        let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        for setting in value["cut_settings"].as_array().into_iter().flatten() {
+            let galvo = &setting["galvo"];
+            for key in ["fill", "line", "tabs", "wobble"] {
+                if !galvo[key].is_object() {
+                    return Err(format!("galvo block lacks {key}"));
+                }
+            }
+            if !galvo["timing_override"].is_null() {
+                return Err("timing override must be null".into());
+            }
+        }
+        if value["shapes"][0]["geometry"]["Polyline"]["closed"] != true {
+            return Err("shapes must carry closed polylines".into());
         }
         Ok(())
     }
