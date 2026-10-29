@@ -4442,7 +4442,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Board width")
-.on_hover_text("How wide the board is, in millimetres; it must be larger than zero. Press Apply board dimensions to resize it.");
+.on_hover_text(t!("settings.settings_tab.how_wide_the_board_is.tip"));
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.h"));
@@ -4452,7 +4452,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Board height")
-.on_hover_text("How tall the board is, in millimetres; it must be larger than zero. Press Apply board dimensions to resize it.");
+.on_hover_text(t!("settings.settings_tab.how_tall_the_board_is.tip"));
         });
         if ui
             .button(t!("settings.settings_tab.apply_board_dimensions"))
@@ -4491,7 +4491,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Cutout Y")
-.on_hover_text("Where the centre of the round hole sits up the board, in millimetres. It must stay within the board edge.");
+.on_hover_text(t!("settings.settings_tab.where_the_centre_of_the.tip"));
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.radius"));
@@ -4502,7 +4502,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Cutout radius")
-.on_hover_text("How big the round hole is, from its centre to its edge, in millimetres. It accepts 0.1 to 50 mm.");
+.on_hover_text(t!("settings.settings_tab.how_big_the_round_hole.tip"));
         });
         if ui
             .button(t!("settings.settings_tab.add_hole"))
@@ -4545,7 +4545,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Pour Y")
-.on_hover_text("Where the bottom side of the copper rectangle sits up the board, in millimetres. Keep it within the board.");
+.on_hover_text(t!("settings.settings_tab.where_the_bottom_side_of.tip"));
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.w"));
@@ -4565,9 +4565,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Pour height")
-            .on_hover_text(
-                "How tall the copper rectangle is, in millimetres. It accepts 1 to 500 mm.",
-            );
+            .on_hover_text(t!("settings.settings_tab.how_tall_the_copper_rectangle.tip"));
         });
         let pour_net = self.pour_net;
         let net_choices: Vec<(Id, String)> = self
@@ -4589,7 +4587,7 @@ impl App {
             })
             .response
             .named("Pour connection")
-.on_hover_text("Choose which connection the poured copper joins. Every pad and wire of that connection inside the rectangle is tied to it.");
+.on_hover_text(t!("settings.settings_tab.choose_which_connection_the_poured.tip"));
         if ui
             .button(t!("settings.settings_tab.pour_copper"))
             .on_hover_text(t!("settings.settings_tab.pour_copper.tip"))
@@ -4634,14 +4632,14 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Text X")
-.on_hover_text("Where the words start across the board, in millimetres. Keep them within the board to print.");
+.on_hover_text(t!("settings.settings_tab.where_the_words_start_across.tip"));
             ui.add(
                 egui::DragValue::new(&mut self.label_y)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Text Y")
-.on_hover_text("Where the words sit up the board, in millimetres. Keep them within the board to print.");
+.on_hover_text(t!("settings.settings_tab.where_the_words_sit_up.tip"));
             ui.add(
                 egui::DragValue::new(&mut self.label_size)
                     .range(0.3..=20.0)
@@ -4769,7 +4767,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Cutout tool radius")
-.on_hover_text("The radius of the circle the cutout tool places, in millimetres. The whole circle must stay inside the board.");
+.on_hover_text(t!("settings.settings_tab.the_radius_of_the_circle.tip"));
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
         ui.add_space(12.0);
@@ -5487,7 +5485,7 @@ impl App {
                     })
                     .response
                     .named("Second net of the pair")
-.on_hover_text("Choose the second connection of the pair. It must differ from the first one.");
+.on_hover_text(t!("rules.rules_tab.choose_the_second_connection_of.tip"));
             });
             ui.horizontal(|ui| {
                 ui.label(t!("rules.rules_tab.keep_apart_by"));
@@ -5599,7 +5597,7 @@ impl App {
                     })
                     .response
                     .named("Negative net")
-.on_hover_text("Choose the connection that carries the negative side of the pair, such as D-.");
+.on_hover_text(t!("rules.rules_tab.choose_the_connection_that_carries.tip"));
             });
             ui.horizontal(|ui| {
                 ui.label(t!("rules.rules_tab.run_together_with_a_gap"));
@@ -5674,9 +5672,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Area corner X")
-            .on_hover_text(
-                "Where the left edge of the stricter area sits across the board, in millimetres.",
-            );
+            .on_hover_text(t!("rules.rules_tab.where_the_left_edge_of.tip"));
             ui.add(
                 egui::DragValue::new(&mut self.area_y)
                     .speed(0.5)
@@ -5692,9 +5688,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Area width")
-            .on_hover_text(
-                "How wide the stricter area is, in millimetres. It accepts 1 to 500 mm.",
-            );
+            .on_hover_text(t!("rules.rules_tab.how_wide_the_stricter_area.tip"));
             ui.add(
                 egui::DragValue::new(&mut self.area_h)
                     .speed(0.5)
@@ -5702,9 +5696,7 @@ impl App {
                     .suffix(format!(" {}", t!("unit.mm"))),
             )
             .named("Area height")
-            .on_hover_text(
-                "How tall the stricter area is, in millimetres. It accepts 1 to 500 mm.",
-            );
+            .on_hover_text(t!("rules.rules_tab.how_tall_the_stricter_area.tip"));
         });
         ui.horizontal(|ui| {
             ui.label(t!("rules.rules_tab.copper_stays_apart_by_at"));
@@ -6919,7 +6911,7 @@ impl App {
             }
         })
 .header_response
-.on_hover_text("Show or hide the starter symbols that ship with the app. Each one can be placed straight into the schematic.");
+.on_hover_text(t!("library.browser.show_or_hide_the_starter.tip"));
     }
     fn checks_view(&mut self, ui: &mut egui::Ui) {
         ui.add_space(24.0);

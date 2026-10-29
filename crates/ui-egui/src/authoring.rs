@@ -240,32 +240,6 @@ fn text(ui: &mut egui::Ui, label: &str, value: &mut String) {
 }
 /// What a text box in the symbol and package editors is for, keyed by its
 /// label, so each box says what to type and what it changes.
-fn text_field_tip(label: &str) -> &'static str {
-    match label {
-        "Name" => {
-            "The name this definition goes by in the library. Type something short you will recognise."
-        }
-        "Reference prefix" => {
-            "The letters placed before the part number on the board, such as R for resistors or C for capacitors."
-        }
-        "Default value" => {
-            "The value a new part starts with, such as 10k. You can change it on each part afterwards."
-        }
-        "Description" => "A one-line note on what this is, shown when you search the library.",
-        "Suggested footprint" => {
-            "The package name offered when this symbol is placed, such as 0603. Leave it blank to choose later."
-        }
-        "Number" => {
-            "The pin or pad number that wires refer to. Each one in the same definition needs its own."
-        }
-        "Layer" => "The layer this shape is drawn on, such as F.Cu or F.SilkS.",
-        "Fill" => "How the shape is filled. Leave it as none for a plain outline.",
-        "Text" => "The words this label shows on the drawing.",
-        _ => "Type a value for this field. It updates the draft in the editor straight away.",
-    }
-}
-/// What a text box in the symbol and package editors is for, keyed by its
-/// label, so each box says what to type and what it changes.
 fn text_field_tip(label: &str) -> String {
     if label == t!("library.library_editor.name") {
         t!("library.library_editor.name.tip")
@@ -1496,7 +1470,7 @@ impl App {
                             }
                         })
 .header_response
-.on_hover_text("Show or hide the settings of this pin: its number, name, position and direction. Delete it from inside.");
+.on_hover_text(t!("library.library_editor.show_or_hide_the_settings.tip"));
                     });
                 }
                 if let Some(i) = remove {
@@ -1530,7 +1504,7 @@ impl App {
                             }
                         })
 .header_response
-.on_hover_text("Show or hide the settings of this drawn shape. Change its place or size, or delete it from inside.");
+.on_hover_text(t!("library.library_editor.show_or_hide_the_settings2.tip"));
                     });
                 }
                 if let Some(i) = remove {
@@ -1656,7 +1630,7 @@ impl App {
                             }
                         })
 .header_response
-.on_hover_text("Show or hide the settings of this pad: its number, position, copper size and drill. Delete it from inside.");
+.on_hover_text(t!("library.library_editor.show_or_hide_the_settings3.tip"));
                     });
                 }
                 if let Some(i) = remove {
@@ -1681,7 +1655,7 @@ impl App {
                             }
                         })
 .header_response
-.on_hover_text("Show or hide the settings of this drawn shape. Change its place or size, or delete it from inside.");
+.on_hover_text(t!("library.library_editor.show_or_hide_the_settings2.tip"));
                     });
                 }
                 if let Some(i) = remove {

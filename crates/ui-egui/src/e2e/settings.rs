@@ -373,6 +373,7 @@ fn a_newcomer_jumps_from_settings_to_the_list_of_findings() -> Result<(), String
 fn a_newcomer_decides_how_much_the_assistant_may_change() -> Result<(), String> {
     let (mut app, ctx) = sample_in_settings()?;
     app.preferences.assistant_enabled = false;
+    app.assistant.settings_open = true;
     tap_id(&ctx, &mut app, "checkbox:Show assistant")?;
     assert!(
         app.preferences.assistant_enabled,
