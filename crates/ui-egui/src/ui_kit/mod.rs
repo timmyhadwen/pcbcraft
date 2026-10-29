@@ -14,6 +14,11 @@
 //! - crates/ui-egui/src/ui_kit/focus.rs
 //! - crates/ui-egui/src/ui_kit/icons.rs
 //! - crates/ui-egui/src/ui_kit/card.rs
+//! - crates/ui-egui/src/ui_kit/checkbox.rs
+//! - crates/ui-egui/src/ui_kit/form_row.rs
+//! - crates/ui-egui/src/ui_kit/number_field.rs
+//! - crates/ui-egui/src/ui_kit/rows.rs
+//! - crates/ui-egui/src/ui_kit/select.rs
 //! - crates/ui-egui/src/ui_kit/empty_state.rs
 //! - crates/ui-egui/src/ui_kit/panel_header.rs
 //! - crates/ui-egui/src/ui_kit/segmented.rs
@@ -25,13 +30,18 @@
 
 pub mod button;
 pub mod card;
+pub mod checkbox;
 pub mod chip;
 pub mod empty_state;
 pub mod focus;
+pub mod form_row;
 pub mod gallery;
 pub mod icons;
+pub mod number_field;
 pub mod panel_header;
+pub mod rows;
 pub mod segmented;
+pub mod select;
 pub mod status_item;
 pub mod tab_bar;
 #[cfg(test)]

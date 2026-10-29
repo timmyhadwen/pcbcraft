@@ -121,6 +121,57 @@ pub const FIT: Icon = Icon(|p, r, c| {
     line(p, r, c, &[(6.0, 13.5), (2.5, 13.5), (2.5, 10.0)]);
 });
 
+/// An eye crossed out, for hidden items.
+pub const EYE_OFF: Icon = Icon(|p, r, c| {
+    line(
+        p,
+        r,
+        c,
+        &[
+            (1.5, 8.0),
+            (4.5, 4.5),
+            (8.0, 3.5),
+            (11.5, 4.5),
+            (14.5, 8.0),
+            (11.5, 11.5),
+            (8.0, 12.5),
+            (4.5, 11.5),
+            (1.5, 8.0),
+        ],
+    );
+    line(p, r, c, &[(3.0, 13.0), (13.0, 3.0)]);
+});
+
+/// A closed padlock.
+pub const LOCK: Icon = Icon(|p, r, c| {
+    p.rect_stroke(
+        Rect::from_min_max(pt(r, 3.5, 7.0), pt(r, 12.5, 14.0)),
+        egui::CornerRadius::same(2),
+        Stroke::new(ICON_STROKE, c),
+        egui::StrokeKind::Inside,
+    );
+    line(
+        p,
+        r,
+        c,
+        &[(5.5, 7.0), (5.5, 5.0), (8.0, 2.5), (10.5, 5.0), (10.5, 7.0)],
+    );
+});
+
+/// An open padlock.
+pub const LOCK_OPEN: Icon = Icon(|p, r, c| {
+    p.rect_stroke(
+        Rect::from_min_max(pt(r, 3.5, 7.0), pt(r, 12.5, 14.0)),
+        egui::CornerRadius::same(2),
+        Stroke::new(ICON_STROKE, c),
+        egui::StrokeKind::Inside,
+    );
+    line(p, r, c, &[(5.5, 7.0), (5.5, 5.0), (8.0, 2.5), (10.5, 5.0)]);
+});
+
+/// A tick, for checked boxes.
+pub const CHECK: Icon = Icon(|p, r, c| line(p, r, c, &[(3.5, 8.5), (6.8, 11.5), (12.5, 4.8)]));
+
 /// A triangle with a bar, for warnings.
 pub const WARNING: Icon = Icon(|p, r, c| {
     line(

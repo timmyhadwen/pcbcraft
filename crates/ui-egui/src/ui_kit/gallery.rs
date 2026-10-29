@@ -15,9 +15,13 @@ use super::button::{self, Kind, Look, Size, State};
 use super::card;
 use super::chip::{self, BadgeKind};
 use super::empty_state;
+use super::form_row::{self, FormWidth};
 use super::icons;
+use super::number_field::{self, NumberSpec};
 use super::panel_header;
+use super::rows::{self, Finding, Severity, TreeRow};
 use super::segmented::{self, Segment};
+use super::select;
 use super::status_item;
 use super::tab_bar::{self, TabItem, TabSize};
 use crate::fonts;
@@ -35,6 +39,8 @@ pub enum Page {
     Buttons,
     /// Segmented control, tab bars, panel header, card, empty state, status items.
     Tabs,
+    /// List, tree and finding rows, form rows, number field, select, checkbox.
+    Rows,
 }
 
 impl Page {
@@ -45,6 +51,7 @@ impl Page {
             "type" => Some(Page::Type),
             "buttons" => Some(Page::Buttons),
             "tabs" => Some(Page::Tabs),
+            "rows" => Some(Page::Rows),
             _ => None,
         }
     }
@@ -63,6 +70,16 @@ pub struct GalleryState {
     pub seg: [usize; 3],
     /// Frames shown, used to put keyboard focus on one demo control once.
     pub frames: u32,
+    /// Demo values of the Properties form: x, y, rotation.
+    pub xyz: [f64; 3],
+    /// Demo footprint choice.
+    pub footprint: usize,
+    /// Demo checkboxes: parts list, placement file, lock.
+    pub flags: [bool; 3],
+    /// Demo selected list row.
+    pub row: usize,
+    /// Demo track width in mm.
+    pub track: f64,
 }
 
 impl GalleryState {
@@ -74,6 +91,11 @@ impl GalleryState {
             tab: [1, 0, 0],
             seg: [0, 0, 1],
             frames: 0,
+            xyz: [44.0, 20.0, 0.0],
+            footprint: 1,
+            flags: [true, true, false],
+            row: 1,
+            track: 0.25,
         }
     }
 }
@@ -396,6 +418,18 @@ pub fn buttons(ui: &mut egui::Ui, state: &GalleryState) {
     });
 }
 
+/// Run `f` in a top-down column of fixed width, whatever layout `ui` has.
+fn column(ui: &mut egui::Ui, width: f32, f: impl FnOnce(&mut egui::Ui)) {
+    ui.allocate_ui_with_layout(
+        Vec2::new(width, 0.0),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_width(width);
+            f(ui);
+        },
+    );
+}
+
 /// Draw the tabs page: segmented controls, the three tab bars, a panel header,
 /// a card with form content, an empty state and status items.
 ///
@@ -512,7 +546,7 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
     }
     ui.add_space(16.0);
     ui.horizontal_top(|ui| {
-        ui.allocate_ui(Vec2::new(360.0, 0.0), |ui| {
+        column(ui, 360.0, |ui| {
             ui.label(fonts::caption("Panel header (36)").color(t.muted));
             panel_header::panel_header(ui, "Layers", |ui| {
                 button::icon_button(
@@ -558,7 +592,7 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
             });
         });
         ui.add_space(24.0);
-        ui.allocate_ui(Vec2::new(520.0, 0.0), |ui| {
+        column(ui, 520.0, |ui| {
             card::card(
                 ui,
                 "Board outline",
@@ -605,6 +639,301 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
     });
 }
 
+/// Draw the rows page: a Properties panel built from form rows, the Layers tree
+/// rows, finding rows and list rows.
+///
+/// Why: the visual proof for ticket #763, laid out like the mockup's right aside
+/// and left aside so the parts can be compared with the approved design.
+pub fn rows_page(ui: &mut egui::Ui, state: &mut GalleryState) {
+    let t = state.tokens;
+    state.frames += 1;
+    ui.label(fonts::title(format!("Rows and fields, {:?}", t.theme)));
+    ui.add_space(8.0);
+    ui.horizontal_top(|ui| {
+        column(ui, 340.0, |ui| {
+            ui.label(
+                fonts::caption("Properties panel: form rows (aside, 104 label)").color(t.muted),
+            );
+            egui::Frame::new()
+                .fill(t.panel)
+                .inner_margin(12)
+                .show(ui, |ui| {
+                    let xy = NumberSpec {
+                        unit: "mm",
+                        step: 0.5,
+                        width: 112.0,
+                        ..NumberSpec::default()
+                    };
+                    let deg = NumberSpec {
+                        unit: "deg",
+                        step: 15.0,
+                        places: 0,
+                        min: -360.0,
+                        max: 360.0,
+                        width: 112.0,
+                    };
+                    form_row::form_row(ui, FormWidth::Aside, "X", None, None, |ui| {
+                        number_field::number_field(
+                            ui,
+                            "g-x",
+                            &mut state.xyz[0],
+                            &xy,
+                            "X position",
+                            "Move the part along X",
+                        );
+                    });
+                    form_row::form_row(ui, FormWidth::Aside, "Y", None, None, |ui| {
+                        number_field::number_field(
+                            ui,
+                            "g-y",
+                            &mut state.xyz[1],
+                            &xy,
+                            "Y position",
+                            "Move the part along Y",
+                        );
+                    });
+                    form_row::form_row(ui, FormWidth::Aside, "Rotation", None, None, |ui| {
+                        number_field::number_field(
+                            ui,
+                            "g-r",
+                            &mut state.xyz[2],
+                            &deg,
+                            "Rotation",
+                            "Turn the part",
+                        );
+                    });
+                    form_row::form_row(ui, FormWidth::Aside, "Footprint", None, None, |ui| {
+                        select::select(
+                            ui,
+                            "g-fp",
+                            &mut state.footprint,
+                            &["Resistor 0805", "Resistor 1206", "Resistor 0603"],
+                            "Footprint",
+                            "Package of the part",
+                            168.0,
+                        );
+                    });
+                    form_row::toggle_row(
+                        ui,
+                        FormWidth::Aside,
+                        "Include in parts list",
+                        "List this part in the bill of materials",
+                        &mut state.flags[0],
+                    );
+                    form_row::toggle_row(
+                        ui,
+                        FormWidth::Aside,
+                        "Include in placement file",
+                        "List this part for the pick and place machine",
+                        &mut state.flags[1],
+                    );
+                    form_row::toggle_row(
+                        ui,
+                        FormWidth::Aside,
+                        "Lock position",
+                        "Stop the part from being moved",
+                        &mut state.flags[2],
+                    );
+                });
+            ui.add_space(16.0);
+            ui.label(
+                fonts::caption("Page form row (200 label), with hint and error").color(t.muted),
+            );
+            egui::Frame::new()
+                .fill(t.panel)
+                .inner_margin(12)
+                .show(ui, |ui| {
+                    let w = NumberSpec {
+                        unit: "mm",
+                        min: 0.05,
+                        max: 5.0,
+                        step: 0.05,
+                        width: 112.0,
+                        ..NumberSpec::default()
+                    };
+                    let mut bad = 9.0;
+                    form_row::form_row(
+                        ui,
+                        FormWidth::Page,
+                        "Track width",
+                        Some("Default for new tracks"),
+                        None,
+                        |ui| {
+                            number_field::number_field(
+                                ui,
+                                "g-w",
+                                &mut state.track,
+                                &w,
+                                "Track width",
+                                "Default track width",
+                            );
+                        },
+                    );
+                    form_row::form_row(
+                        ui,
+                        FormWidth::Page,
+                        "Clearance",
+                        None,
+                        Some("Enter a value from 0.05 to 5.00"),
+                        |ui| {
+                            number_field::number_field(
+                                ui,
+                                "g-bad",
+                                &mut bad,
+                                &NumberSpec { max: 20.0, ..w },
+                                "Clearance",
+                                "Smallest gap between copper",
+                            );
+                        },
+                    );
+                });
+        });
+        ui.add_space(24.0);
+        column(ui, 340.0, |ui| {
+            ui.label(fonts::caption("Layers tree rows (28)").color(t.muted));
+            egui::Frame::new().fill(t.panel).show(ui, |ui| {
+                let c = CanvasColors::for_dark(t.is_dark());
+                let sample = [
+                    TreeRow {
+                        depth: 0,
+                        expanded: Some(true),
+                        swatch: Some(c.top_copper),
+                        icon: None,
+                        name: "Top copper",
+                        count: Some("6".into()),
+                        locked: Some(false),
+                        visible: Some(true),
+                        selected: false,
+                        dimmed: false,
+                    },
+                    TreeRow {
+                        depth: 1,
+                        expanded: Some(false),
+                        swatch: None,
+                        icon: Some(icons::PLUS),
+                        name: "Pads",
+                        count: Some("6".into()),
+                        locked: None,
+                        visible: Some(true),
+                        selected: true,
+                        dimmed: false,
+                    },
+                    TreeRow {
+                        depth: 1,
+                        expanded: Some(false),
+                        swatch: None,
+                        icon: Some(icons::MINUS),
+                        name: "Tracks",
+                        count: Some("0".into()),
+                        locked: None,
+                        visible: Some(true),
+                        selected: false,
+                        dimmed: true,
+                    },
+                    TreeRow {
+                        depth: 0,
+                        expanded: Some(false),
+                        swatch: Some(c.bottom_copper),
+                        icon: None,
+                        name: "Bottom copper",
+                        count: Some("0".into()),
+                        locked: Some(false),
+                        visible: Some(true),
+                        selected: false,
+                        dimmed: false,
+                    },
+                    TreeRow {
+                        depth: 0,
+                        expanded: Some(false),
+                        swatch: Some(c.silkscreen),
+                        icon: None,
+                        name: "Bottom silkscreen",
+                        count: Some("0".into()),
+                        locked: Some(true),
+                        visible: Some(false),
+                        selected: false,
+                        dimmed: true,
+                    },
+                ];
+                for (i, row) in sample.iter().enumerate() {
+                    rows::tree_row(ui, ("g-tree", i), row);
+                }
+            });
+            ui.add_space(16.0);
+            ui.label(fonts::caption("List rows (36)").color(t.muted));
+            egui::Frame::new().fill(t.panel).show(ui, |ui| {
+                for (i, (name, meta)) in [
+                    ("J1", "5V input"),
+                    ("R1", "330 \u{3a9}"),
+                    ("D1", "Green LED"),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let r = rows::list_row(ui, state.row == i, name, "Select this part", |ui| {
+                        ui.label(fonts::strong(name).color(t.text));
+                        ui.label(fonts::mono(meta).color(t.muted));
+                    });
+                    if r.clicked() {
+                        state.row = i;
+                    }
+                }
+            });
+        });
+        ui.add_space(24.0);
+        column(ui, 560.0, |ui| {
+            ui.label(fonts::caption("Finding rows (48, selected, compact 36)").color(t.muted));
+            egui::Frame::new().fill(t.panel).show(ui, |ui| {
+                let base = Finding {
+                    severity: Severity::Warning,
+                    title: "VCC is not fully routed",
+                    detail: "Copper does not join J1 pin 1 and R1 pin 1. Top copper.",
+                    chip: Some("VCC"),
+                    selected: false,
+                    compact: false,
+                };
+                rows::finding_row(ui, &base);
+                rows::finding_row(
+                    ui,
+                    &Finding {
+                        title: "LED is not fully routed",
+                        chip: Some("LED"),
+                        selected: true,
+                        ..base
+                    },
+                );
+                rows::finding_row(
+                    ui,
+                    &Finding {
+                        severity: Severity::Error,
+                        title: "Track too close",
+                        detail: "0.12 mm gap, rule needs 0.15 mm.",
+                        chip: Some("GND"),
+                        ..base
+                    },
+                );
+                rows::finding_row(
+                    ui,
+                    &Finding {
+                        severity: Severity::Ok,
+                        title: "No problems",
+                        detail: "All checks passed.",
+                        chip: None,
+                        ..base
+                    },
+                );
+                rows::finding_row(
+                    ui,
+                    &Finding {
+                        compact: true,
+                        ..base
+                    },
+                );
+            });
+        });
+    });
+}
+
 /// Draw the page named in `state`.
 pub fn show(ui: &mut egui::Ui, state: &mut GalleryState) {
     match state.page {
@@ -612,6 +941,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut GalleryState) {
         Page::Type => type_scale(ui, state),
         Page::Buttons => buttons(ui, state),
         Page::Tabs => tabs(ui, state),
+        Page::Rows => rows_page(ui, state),
     }
 }
 
@@ -630,7 +960,13 @@ mod tests {
         theme::apply(&ctx, &state.tokens);
         crate::fonts::install(&ctx);
         let mut nodes = Vec::new();
-        for page in [Page::Swatches, Page::Type, Page::Buttons, Page::Tabs] {
+        for page in [
+            Page::Swatches,
+            Page::Type,
+            Page::Buttons,
+            Page::Tabs,
+            Page::Rows,
+        ] {
             state.page = page;
             for pass in 0..2 {
                 let mut out = ctx.run_ui(
