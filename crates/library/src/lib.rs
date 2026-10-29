@@ -124,10 +124,9 @@ impl SymbolPin {
     fn active_low_tick(&self) -> Vec<Point> {
         let perp = self.perpendicular();
         let half = Self::DECO_RADIUS * 0.9;
-        let at = self.position.offset(Self::mul(
-            self.inward(),
-            Self::DECO_RADIUS * 1.6,
-        ));
+        let at = self
+            .position
+            .offset(Self::mul(self.inward(), Self::DECO_RADIUS * 1.6));
         vec![
             at.offset(Self::mul(perp, -half)),
             at.offset(Self::mul(perp, half)),
