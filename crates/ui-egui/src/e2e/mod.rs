@@ -30,6 +30,7 @@ mod settings;
 mod shell;
 mod toolbar;
 mod tree_rows;
+mod showcase;
 mod via_covering;
 mod vias;
 mod workbench;

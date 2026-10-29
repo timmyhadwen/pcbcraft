@@ -5598,6 +5598,12 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "pcbcraft-doc",
+ "pcbcraft-engine",
+ "pcbcraft-geom",
+ "pcbcraft-io",
+ "pcbcraft-library",
+ "pcbcraft-rules",
  "pcbcraft-text",
  "serde_json",
 ]

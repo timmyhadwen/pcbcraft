@@ -3488,7 +3488,7 @@ mod tests {
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: None,
-                material: None,
+                ..Default::default()
             });
             if i < 6 {
                 p.board.layer_records.push(pcbcraft_doc::LayerRecord {
@@ -3496,7 +3496,7 @@ mod tests {
                     kind: "prepreg".into(),
                     thickness: 0.2,
                     copper_role: None,
-                    material: None,
+                    ..Default::default()
                 });
             }
         }
