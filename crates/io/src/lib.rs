@@ -7,8 +7,23 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 mod gerber;
+mod layers;
 mod library_render;
+mod raster;
+mod uv_print;
 pub use gerber::gerber_copper;
+pub use layers::{
+    FabLayer, LayerShapes, Shape, ShapePolarity, copper_shape_counts, fabrication_point,
+    gerber_copper_counts, layer_shapes, legend_shapes,
+};
+pub use raster::{
+    RegMarkShape, RegistrationMarks, Raster, RasterDepth, RasterOptions, RasterPixels,
+    layer_raster, raster_bmp, raster_png, raster_svg, rasterize_shapes,
+};
+pub use uv_print::{
+    UvPrintArtwork, UvPrintExperiment, UvPrintOptions, UvPrintSide, UvPrintWhiteLayer,
+    eufymake_e1_profile, uv_print_artwork, write_uv_print_job_files,
+};
 use library_render::*;
 pub use pcbcraft_doc::Layer;
 
