@@ -1189,6 +1189,12 @@ mod tests {
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
+            "pcb-F.Mask.gbr",
+            "pcb-B.Mask.gbr",
+            "pcb-F.Paste.gbr",
+            "pcb-B.Paste.gbr",
+            "pcb-F.SilkS.gbr",
+            "pcb-B.SilkS.gbr",
             "pcb-Edge.gbr",
             "pcb-Drill.drl",
         ] {
