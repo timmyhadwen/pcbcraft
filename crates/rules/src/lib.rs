@@ -279,7 +279,10 @@ fn track_capsule_outline(start: Point, end: Point, half_width: f64) -> Vec<Point
 fn copper_item_ring(item: &Copper) -> Option<Vec<Point>> {
     if let Some(outline) = &item.outline {
         let mut ring = outline.clone();
-        if ring.first().is_some_and(|p| ring.last().is_some_and(|q| p.distance(*q) > 1e-9)) {
+        if ring
+            .first()
+            .is_some_and(|p| ring.last().is_some_and(|q| p.distance(*q) > 1e-9))
+        {
             if let Some(first) = ring.first().copied() {
                 ring.push(first);
             }
@@ -293,13 +296,20 @@ fn copper_item_ring(item: &Copper) -> Option<Vec<Point>> {
 }
 
 /// Copper outlines on one layer, grouped by net, using the same geometry as DRC.
-pub fn laser_copper_outlines(project: &Project, layer: Layer) -> Result<Vec<LaserCopperOutline>, String> {
+pub fn laser_copper_outlines(
+    project: &Project,
+    layer: Layer,
+) -> Result<Vec<LaserCopperOutline>, String> {
     let mut out = Vec::new();
-    for item in copper(project).into_iter().filter(|c| c.layer == layer && c.net != 0) {
+    for item in copper(project)
+        .into_iter()
+        .filter(|c| c.layer == layer && c.net != 0)
+    {
         if out.len() >= LASER_OBJECT_CAP {
             return Err("laser copper outline limit reached (4096)".into());
         }
-        let ring = copper_item_ring(&item).ok_or_else(|| "copper outline could not be built".to_string())?;
+        let ring = copper_item_ring(&item)
+            .ok_or_else(|| "copper outline could not be built".to_string())?;
         if !polygon_is_simple(&ring) {
             return Err("a copper outline is not a simple closed ring".into());
         }

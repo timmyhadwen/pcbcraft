@@ -17,8 +17,8 @@ pub use board_mesh::{
 pub use gerber::gerber_copper;
 pub use laser::{
     LaserGalvoProfile, LaserJobExportOptions, MirrorAxis, commarker_b6_mopa_profile,
-    laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj,
-    laser_job_svg, laser_job_validate_work_area, laser_job_work_area_mm,
+    laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg,
+    laser_job_validate_work_area, laser_job_work_area_mm,
 };
 use library_render::*;
 pub use pcbcraft_doc::Layer;

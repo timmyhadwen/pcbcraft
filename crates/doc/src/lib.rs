@@ -964,7 +964,14 @@ impl LaserJobSettings {
                 .operations
                 .iter()
                 .all(|id| Self::OPERATION_IDS.contains(&id.as_str()));
-        side_ok && format_ok && mirror_ok && margin_ok && iso_ok && stencil_ok && profile_ok && ops_ok
+        side_ok
+            && format_ok
+            && mirror_ok
+            && margin_ok
+            && iso_ok
+            && stencil_ok
+            && profile_ok
+            && ops_ok
     }
 }
 

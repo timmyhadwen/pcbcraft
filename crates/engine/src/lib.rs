@@ -10963,10 +10963,14 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let side = match a.side.as_str() {
                 "front" => pcbcraft_doc::Layer::Front,
                 "back" => pcbcraft_doc::Layer::Back,
-                _ => return Err(Error::Invalid("laser job side must be front or back".into())),
+                _ => {
+                    return Err(Error::Invalid(
+                        "laser job side must be front or back".into(),
+                    ));
+                }
             };
-            let profile =
-                pcbcraft_io::laser_galvo_profile_for_export(p, &a.profile_id).map_err(Error::Invalid)?;
+            let profile = pcbcraft_io::laser_galvo_profile_for_export(p, &a.profile_id)
+                .map_err(Error::Invalid)?;
             let mirror = pcbcraft_io::MirrorAxis::parse(&a.mirror_axis).map_err(Error::Invalid)?;
             let options = pcbcraft_io::LaserJobExportOptions {
                 side,
@@ -10983,7 +10987,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 _ => {
                     return Err(Error::Invalid(
                         "laser job format must be svg or lcproj".into(),
-                    ))
+                    ));
                 }
             }
             .map_err(Error::Invalid)?;
@@ -11264,8 +11268,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                             &profile,
                             &options,
                         )?;
-                        pcbcraft_io::atomic_write(&directory.join("laser-job.svg"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
+                        pcbcraft_io::atomic_write(
+                            &directory.join("laser-job.svg"),
+                            text.as_bytes(),
+                        )
+                        .map_err(Error::Invalid)?;
                         written.push("laser-job.svg".into());
                     }
                     other => {

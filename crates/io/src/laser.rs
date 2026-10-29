@@ -111,26 +111,10 @@ pub fn commarker_b6_mopa_profile() -> LaserGalvoProfile {
             passes: 1,
             frequency_khz: freq,
             q_pulse_width_ns: pulse,
-            line_interval_mm: if mode == "fill" {
-                Some(0.025)
-            } else {
-                None
-            },
-            hatch_angle_deg: if mode == "fill" {
-                Some(45.0)
-            } else {
-                None
-            },
-            angle_increment_deg: if mode == "fill" {
-                Some(90.0)
-            } else {
-                None
-            },
-            kerf_offset_mm: if mode == "line" {
-                Some(0.01)
-            } else {
-                None
-            },
+            line_interval_mm: if mode == "fill" { Some(0.025) } else { None },
+            hatch_angle_deg: if mode == "fill" { Some(45.0) } else { None },
+            angle_increment_deg: if mode == "fill" { Some(90.0) } else { None },
+            kerf_offset_mm: if mode == "line" { Some(0.01) } else { None },
             verified: false,
         }
     };
@@ -182,9 +166,10 @@ pub fn laser_job_validate_work_area(
     width_mm: f64,
     height_mm: f64,
 ) -> Result<(), String> {
-    let fits = profile.fields.iter().any(|field| {
-        width_mm <= field.width_mm + 1e-9 && height_mm <= field.height_mm + 1e-9
-    });
+    let fits = profile
+        .fields
+        .iter()
+        .any(|field| width_mm <= field.width_mm + 1e-9 && height_mm <= field.height_mm + 1e-9);
     if fits {
         Ok(())
     } else {
@@ -287,7 +272,9 @@ pub fn laser_job_lcproj(
                     hatch_angle_deg: op.hatch_angle_deg.unwrap_or(45.0),
                     angle_increment_deg: op.angle_increment_deg.unwrap_or(90.0),
                 }),
-                line: op.kerf_offset_mm.map(|kerf_offset_mm| LcLine { kerf_offset_mm }),
+                line: op
+                    .kerf_offset_mm
+                    .map(|kerf_offset_mm| LcLine { kerf_offset_mm }),
                 tabs: false,
                 wobble: false,
                 timing_override: None,
@@ -382,7 +369,7 @@ fn collect_groups(
 ) -> Result<Vec<OperationGroup>, String> {
     let mut groups = Vec::new();
     for id in LASER_OPERATION_IDS {
-        if !options.operations.contains(id) {
+        if !options.operations.contains(*id) {
             continue;
         }
         let rings = match *id {
@@ -414,7 +401,7 @@ fn collect_groups(
             }
         }
         groups.push(OperationGroup {
-            id: id.into(),
+            id: (*id).to_string(),
             rings,
         });
     }
@@ -481,12 +468,7 @@ fn legend_rings(p: &Project, side: Layer) -> Result<Vec<Vec<Point>>, String> {
     for text in p.board.texts.iter().filter(|t| t.layer == side) {
         let w = text.text.len() as f64 * text.size * 0.55;
         let h = text.size;
-        let ring = rect_ring(
-            text.position,
-            w,
-            h,
-            text.rotation,
-        );
+        let ring = rect_ring(text.position, w, h, text.rotation);
         if polygon_is_simple(&ring) {
             rings.push(ring);
         }
@@ -504,11 +486,7 @@ fn legend_rings(p: &Project, side: Layer) -> Result<Vec<Vec<Point>>, String> {
     Ok(rings)
 }
 
-fn stencil_rings(
-    p: &Project,
-    side: Layer,
-    reduction_pct: f64,
-) -> Result<Vec<Vec<Point>>, String> {
+fn stencil_rings(p: &Project, side: Layer, reduction_pct: f64) -> Result<Vec<Vec<Point>>, String> {
     if !reduction_pct.is_finite() || !(0.0..=50.0).contains(&reduction_pct) {
         return Err("stencil reduction must be 0 to 50 percent".into());
     }
@@ -527,10 +505,7 @@ fn stencil_rings(
                 .into_iter()
                 .map(|pt| Point::new(pt.x * scale, pt.y * scale))
                 .collect();
-            let mut ring: Vec<Point> = local
-                .iter()
-                .map(|pt| position.offset(*pt))
-                .collect();
+            let mut ring: Vec<Point> = local.iter().map(|pt| position.offset(*pt)).collect();
             if ring.len() >= 3 {
                 if let Some(first) = ring.first().copied() {
                     ring.push(first);
@@ -731,13 +706,29 @@ struct LcLine {
     kerf_offset_mm: f64,
 }
 
-
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use pcbcraft_doc::{Board, Component, Net, Pad, Track};
+    use pcbcraft_doc::{Component, Footprint, Id, Net, Pad, Track};
     use pcbcraft_library::FootprintPad;
     use std::fs;
+
+    fn sample_component(id: Id, reference: &str) -> Component {
+        Component {
+            id,
+            reference: reference.into(),
+            value: reference.into(),
+            kind: "passive".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            pins: vec![],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+            sheet: 0,
+        }
+    }
 
     pub fn laser_job_two_pad_one_track_project() -> Project {
         let pad_geom = FootprintPad {
@@ -754,74 +745,59 @@ pub mod tests {
             polygon: vec![],
             raw_source: String::new(),
         };
-        Project {
-            name: "laser-fixture".into(),
-            board: Board {
-                width: 20.0,
-                height: 15.0,
-                footprints: vec![Footprint {
-                    id: 1,
-                    component: 1,
-                    position: Point::new(5.0, 7.5),
-                    rotation: 0.0,
-                    locked: None,
-                    pads: vec![Pad {
-                        number: "1".into(),
-                        offset: Point::default(),
-                        diameter: 1.6,
-                        net: Some(2),
-                        castellated: None,
-                        geometry: Some(pad_geom.clone()),
-                    }],
-                }, Footprint {
-                    id: 2,
-                    component: 2,
-                    position: Point::new(15.0, 7.5),
-                    rotation: 0.0,
-                    locked: None,
-                    pads: vec![Pad {
-                        number: "1".into(),
-                        offset: Point::default(),
-                        diameter: 1.6,
-                        net: Some(2),
-                        castellated: None,
-                        geometry: Some(pad_geom),
-                    }],
+        let mut project = Project::default();
+        project.name = "laser-fixture".into();
+        project.board.width = 20.0;
+        project.board.height = 15.0;
+        project.board.footprints = vec![
+            Footprint {
+                id: 1,
+                component: 1,
+                position: Point::new(5.0, 7.5),
+                rotation: 0.0,
+                locked: None,
+                pads: vec![Pad {
+                    number: "1".into(),
+                    offset: Point::default(),
+                    diameter: 1.6,
+                    net: Some(2),
+                    castellated: None,
+                    geometry: Some(pad_geom.clone()),
                 }],
-                tracks: vec![Track {
-                    id: 3,
-                    net: 2,
-                    start: Point::new(5.0, 7.5),
-                    end: Point::new(15.0, 7.5),
-                    width: 0.2,
-                    layer: Layer::Front,
-                    arc: None,
-                }],
-                ..Default::default()
             },
-            components: vec![
-                Component {
-                    id: 1,
-                    reference: "P1".into(),
-                    value: "1".into(),
-                    kind: "passive".into(),
-                    ..Default::default()
-                },
-                Component {
-                    id: 2,
-                    reference: "P2".into(),
-                    value: "2".into(),
-                    kind: "passive".into(),
-                    ..Default::default()
-                },
-            ],
-            nets: vec![Net {
+            Footprint {
                 id: 2,
-                name: "SIG".into(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        }
+                component: 2,
+                position: Point::new(15.0, 7.5),
+                rotation: 0.0,
+                locked: None,
+                pads: vec![Pad {
+                    number: "1".into(),
+                    offset: Point::default(),
+                    diameter: 1.6,
+                    net: Some(2),
+                    castellated: None,
+                    geometry: Some(pad_geom),
+                }],
+            },
+        ];
+        project.board.tracks = vec![Track {
+            id: 3,
+            net: 2,
+            start: Point::new(5.0, 7.5),
+            end: Point::new(15.0, 7.5),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        }];
+        project.components = vec![sample_component(1, "P1"), sample_component(2, "P2")];
+        project.nets = vec![Net {
+            id: 2,
+            name: "SIG".into(),
+            target_length: None,
+            length_tolerance: None,
+        }];
+        project
     }
 
     fn default_options() -> LaserJobExportOptions {
@@ -904,7 +880,8 @@ pub mod tests {
         for shape in shapes {
             let index = shape["cut_index"]
                 .as_u64()
-                .ok_or_else(|| "shape cut_index missing".to_string())? as usize;
+                .ok_or_else(|| "shape cut_index missing".to_string())?
+                as usize;
             if index >= settings.len() {
                 return Err("shape cut_index out of range".into());
             }
@@ -958,10 +935,9 @@ pub mod tests {
             operations: front_ops.clone(),
             ..default_options()
         };
-        let mut back_ops = front_ops;
         let back_opts = LaserJobExportOptions {
             side: Layer::Back,
-            operations: back_ops,
+            operations: front_ops,
             ..default_options()
         };
         let front = laser_job_svg(&project, Layer::Front, &profile, &front_opts)?;
