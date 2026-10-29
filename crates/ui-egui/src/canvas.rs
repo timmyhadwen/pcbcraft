@@ -3,6 +3,7 @@ use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Layer, PinRef};
 use pcbcraft_geom::point_segment;
 mod board_art;
+pub(crate) mod gestures;
 mod underlay;
 
 pub(super) enum CanvasMenuKind {
@@ -87,6 +88,10 @@ fn spotlight(lit: Option<Id>, net: Option<Id>, base: Color32, hot: Color32) -> C
 }
 
 pub(crate) fn snap(p: Point) -> Point {
+    // Held keys that suspend snap (see tool_modifiers) leave the point as it is.
+    if crate::tool_modifiers::snap_suspended() {
+        return p;
+    }
     Point::new((p.x * 2.0).round() / 2.0, (p.y * 2.0).round() / 2.0)
 }
 fn fill_polygon(painter: &egui::Painter, points: &[Pos2], color: Color32, clip: Rect) {
@@ -391,13 +396,19 @@ impl App {
             camera = fit_camera(lo, hi, (rect.width(), rect.height()));
             self.needs_fit = false;
         }
+        let held = crate::tool_modifiers::held_now(ui.ctx());
         if response.hovered() {
-            let scroll = motion::wheel_zoom_delta(ui, self.preferences.reduced_motion);
+            let (scroll, sideways, scale) = self.wheel_plan(ui, held);
+            if sideways.abs() > 0.01 {
+                camera.center = camera
+                    .center
+                    .offset(Point::new(-sideways as f64 / camera.zoom as f64, 0.0));
+            }
             if scroll.abs() > 0.01
                 && let Some(mouse) = ui.input(|i| i.pointer.hover_pos())
             {
                 let before = camera.world(mouse, rect);
-                camera.zoom = (camera.zoom * (scroll * 0.003).exp()).clamp(0.02, 100.0);
+                camera.zoom = (camera.zoom * (scroll * scale * 0.003).exp()).clamp(0.02, 100.0);
                 let after = camera.world(mouse, rect);
                 camera.center = camera
                     .center
@@ -418,6 +429,7 @@ impl App {
         }
         let cursor = response.hover_pos().map(|p| camera.world(p, rect));
         self.cursor = cursor;
+        self.gesture_frame(ui, held, response.hovered(), cursor, camera.zoom);
         if let Some(released) = response.dnd_release_payload::<Value>() {
             let world = response
                 .hover_pos()
@@ -441,6 +453,7 @@ impl App {
                 f.position = pos;
             }
         }
+        self.press_preview(&mut visible);
         let focus = if self.tab == Tab::Pcb {
             self.focus_layer.clone()
         } else {
@@ -473,6 +486,7 @@ impl App {
             self.paint_board(&painter, rect, camera, &visible);
         }
         self.paint_edit_overlay(&painter, rect, camera);
+        self.paint_affordance(&painter, rect, camera);
         let text = match &self.tool {
             Tool::Select => t!("board.canvas.select"),
             Tool::Place(_) => t!("board.canvas.place_symbol_click_to_commit"),
@@ -490,6 +504,7 @@ impl App {
             Tool::Fiducial => t!("board.canvas.assembly_mark_click_a_clear"),
             Tool::DrawLayer => t!("board.canvas.draw_shape_pick_the_layer"),
             Tool::Measure => t!("board.canvas.measure_click_two_points"),
+            Tool::Via => t!("board.canvas.via"),
         };
         painter.text(
             rect.left_top() + Vec2::new(20.0, 20.0),
@@ -526,7 +541,7 @@ impl App {
             );
         }
         if let Some(pos) = cursor {
-            let snapped = snap(pos);
+            let snapped = self.constrained(snap(pos));
             match &self.tool {
                 Tool::Place(kind) => {
                     if let Some(c) =
@@ -572,14 +587,12 @@ impl App {
                 }
                 Tool::Wire(Some(r)) => {
                     if let Some(start) = self.project.pin_position(r) {
-                        self.path(
-                            &painter,
-                            rect,
-                            camera,
-                            start,
-                            snapped,
-                            Stroke::new(1.5, self.accent()),
-                        );
+                        let line: Vec<Pos2> = self
+                            .wire_preview_points(start, snapped)
+                            .into_iter()
+                            .map(|q| camera.screen(q, rect))
+                            .collect();
+                        painter.add(egui::Shape::line(line, Stroke::new(1.5, self.accent())));
                     }
                 }
                 Tool::Route(Some((id, pad))) => {
@@ -653,64 +666,22 @@ impl App {
         }
         if response.drag_started_by(egui::PointerButton::Primary)
             && matches!(self.tool, Tool::Select)
-            && let Some(pos) = cursor
+            && let Some(pos) = ui
+                .input(|i| i.pointer.press_origin())
+                .map(|p| camera.world(p, rect))
+                .or(cursor)
         {
-            let shift = ui.input(|i| i.modifiers.shift);
-            match self.pick_filtered(pos, camera.zoom) {
-                Some(hit) if self.promote_member(hit) => {}
-                Some(_) => self.select_at(pos, camera.zoom),
-                None => self.begin_box(pos, shift),
-            }
-            let id = self.selected;
-            if self.edit.box_from.is_none()
-                && let Some(id) = id
-                && (self.project.component(id).is_some() || self.project.footprint(id).is_some())
-            {
-                let original = self
-                    .project
-                    .component(id)
-                    .and_then(|c| c.unit_placement(self.selected_unit).map(|p| p.0))
-                    .or_else(|| self.project.footprint(id).map(|f| f.position))
-                    .unwrap_or(pos);
-                self.drag_offset = Point::new(original.x - pos.x, original.y - pos.y);
-                self.drag = Some((id, original));
-            }
+            // The drag starts a few points after the press: decide by what the
+            // pointer went down on, not by where it is now.
+            self.press_start(pos, camera.zoom, held);
         }
         if response.dragged_by(egui::PointerButton::Primary)
-            && self.edit.box_from.is_some()
             && let Some(pos) = cursor
         {
-            self.edit.box_to = Some(pos);
+            self.press_move(pos, held);
         }
-        if response.drag_stopped_by(egui::PointerButton::Primary) && self.edit.box_from.is_some() {
-            self.finish_box();
-        }
-        if response.dragged_by(egui::PointerButton::Primary)
-            && let (Some((id, _)), Some(pos)) = (self.drag, cursor)
-        {
-            self.drag = Some((id, snap(pos.offset(self.drag_offset))));
-        }
-        if response.drag_stopped_by(egui::PointerButton::Primary)
-            && let Some((id, pos)) = self.drag.take()
-        {
-            if self.selection().len() > 1
-                && let Some(origin) = self.drag_origin(id)
-            {
-                self.move_selection(pos.x - origin.x, pos.y - origin.y);
-            } else {
-                let mut params = json!({"id":id,"position":pos});
-                if self.project.component(id).is_some() {
-                    params["unit"] = json!(self.selected_unit);
-                }
-                self.run(
-                    if self.project.footprint(id).is_some() {
-                        "footprint.move"
-                    } else {
-                        "component.move"
-                    },
-                    params,
-                );
-            }
+        if response.drag_stopped_by(egui::PointerButton::Primary) {
+            self.press_end(cursor, camera.zoom, held);
         }
         if ui.input(|i| i.key_pressed(egui::Key::Enter))
             && matches!(self.tool, Tool::DrawLayer)
@@ -724,18 +695,33 @@ impl App {
         if response.clicked() {
             self.canvas_menu = None;
             if let Some(pos) = cursor {
-                if matches!(self.tool, Tool::Select) && ui.input(|i| i.modifiers.shift) {
-                    self.shift_click(pos, camera.zoom);
-                } else {
-                    self.canvas_click(pos, camera.zoom);
-                }
+                self.click_dispatch(pos, camera.zoom, held);
             }
         }
+        if response.double_clicked()
+            && let Some(pos) = cursor
+        {
+            self.double_click(pos, camera.zoom, held);
+        }
+        self.rename_prompt(ui.ctx());
         if response.secondary_clicked()
             && let Some(pos) = cursor
             && let Some(screen) = response.interact_pointer_pos()
         {
-            if matches!(self.tool, Tool::Select) && ui.input(|i| i.modifiers.shift) {
+            if matches!(self.tool, Tool::Select)
+                && matches!(
+                    crate::tool_modifiers::resolve(
+                        &self.preferences.modifiers,
+                        crate::tool_modifiers::ToolKind::Select,
+                        crate::tool_modifiers::Workspace::Board,
+                        held,
+                        crate::tool_modifiers::Target::Part,
+                        crate::tool_modifiers::Gesture::Click,
+                    ),
+                    crate::tool_modifiers::ClickAction::Add
+                        | crate::tool_modifiers::ClickAction::Toggle
+                )
+            {
                 self.shift_click(pos, camera.zoom);
             } else {
                 self.open_canvas_menu(screen, pos, camera.zoom);
@@ -1347,7 +1333,25 @@ impl App {
         .on_hover_text("Choose which copper layer this wire lives on.");
         done
     }
+    /// The menu items, then a muted hint of what the modifier keys do for the
+    /// active tool (the same words as the toolbar tooltip and status bar).
     fn paint_canvas_menu(&mut self, ui: &mut egui::Ui, kind: &CanvasMenuKind) -> bool {
+        let done = self.paint_canvas_menu_items(ui, kind);
+        if !done {
+            let hint = crate::modifier_ui::menu_hint(
+                &self.preferences.modifiers,
+                self.tool.kind(),
+                crate::tool_modifiers::Platform::of(ui.ctx()),
+            );
+            if !hint.is_empty() {
+                ui.separator();
+                ui.label(egui::RichText::new(hint).small().color(self.muted()))
+                    .on_hover_text(t!("modifier.menu.tip"));
+            }
+        }
+        done
+    }
+    fn paint_canvas_menu_items(&mut self, ui: &mut egui::Ui, kind: &CanvasMenuKind) -> bool {
         match kind {
             CanvasMenuKind::Empty => {
                 if Self::canvas_menu_button(
@@ -1685,11 +1689,7 @@ impl App {
             Tool::Route(start) => {
                 if let Some((id, pad)) = self.pick_pad(pos, zoom) {
                     if let Some((from, from_pad)) = start {
-                        let mode = if self.preferences.chamfer_corners {
-                            "octilinear"
-                        } else {
-                            "orthogonal"
-                        };
+                        let mode = self.route_mode();
                         if let Some((mate_from, mate_to)) =
                             self.pair_mates(from, &from_pad, id, &pad)
                         {
@@ -1715,6 +1715,7 @@ impl App {
                     self.message = t!("board.canvas_click.pick_a_pad_to_start");
                 }
             }
+            Tool::Via => self.place_via_click(pos, zoom),
             Tool::Fiducial => self.run(
                 "board.fiducial_place",
                 json!({"position":snap(pos),"diameter":self.fiducial_diameter}),
