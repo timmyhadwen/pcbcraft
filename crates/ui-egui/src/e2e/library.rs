@@ -18,6 +18,20 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
         paints_text(&ctx, &mut app, "Search parts by name")?,
         "the part search opens with a box that says what to type"
     );
+    tap_id(&ctx, &mut app, "button:#-pin connector")?;
+    assert!(
+        matches!(&app.tool, Tool::Place(kind) if kind.contains("connector")),
+        "a connector can be armed straight from the list, got {:?}",
+        app.tool
+    );
+    authoring::tests::tap(&ctx, &mut app, "Capacitor")?;
+    assert!(
+        matches!(&app.tool, Tool::Place(kind) if kind == "capacitor"),
+        "a capacitor can be armed from the list, got {:?}",
+        app.tool
+    );
+    app.change_tab(Tab::Schematic);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
     for letter in "resistor".chars() {
         frame(
@@ -844,6 +858,25 @@ fn a_newcomer_switches_between_the_library_and_the_editor() -> Result<(), String
     assert!(
         paints_text(&ctx, &mut app, "Place in schematic >")?,
         "the starter symbols open with a button to place each one"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_browses_component_libraries_from_the_library_tab() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
+    tap_id(&ctx, &mut app, "button:Browse component libraries \u{2192}")?;
+    assert_eq!(
+        app.tab,
+        Tab::Settings,
+        "the browse button opens the page that lists library sources"
     );
     Ok(())
 }

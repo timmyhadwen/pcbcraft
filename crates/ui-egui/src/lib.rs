@@ -3587,7 +3587,9 @@ impl App {
                 self.reset_layout();
                 ui.close();
             }
-        });
+        })
+        .response
+        .on_hover_text(t!("menu.view.tip"));
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.help"), |ui| {

@@ -44,19 +44,6 @@ fn centre_of(output: &egui::FullOutput, label: &str, left_of: f32) -> Option<egu
     })
 }
 
-fn click(ctx: &egui::Context, app: &mut App, at: egui::Pos2) {
-    let press = |pressed| egui::Event::PointerButton {
-        pos: at,
-        button: egui::PointerButton::Primary,
-        pressed,
-        modifiers: egui::Modifiers::NONE,
-    };
-    frame_plain(ctx, app, vec![egui::Event::PointerMoved(at)]);
-    frame_plain(ctx, app, vec![press(true)]);
-    frame_plain(ctx, app, vec![press(false)]);
-    frame_plain(ctx, app, vec![]);
-}
-
 fn fresh() -> App {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
@@ -119,7 +106,7 @@ fn a_newcomer_switches_the_left_aside_between_layers_and_library() -> Result<(),
 }
 
 #[test]
-fn view_reset_layout_puts_every_region_back() -> Result<(), String> {
+fn a_newcomer_resets_the_layout_from_the_view_menu() -> Result<(), String> {
     let mut app = fresh();
     app.change_tab(Tab::Schematic);
     app.region().left_tab = "library".to_owned();
@@ -138,7 +125,7 @@ fn view_reset_layout_puts_every_region_back() -> Result<(), String> {
 }
 
 #[test]
-fn the_layout_workspace_switches_between_2d_and_3d_and_remembers_it() -> Result<(), String> {
+fn a_newcomer_switches_the_layout_between_2d_and_3d_and_it_is_remembered() -> Result<(), String> {
     let mut app = fresh();
     app.tool_call("sample_design", json!({}));
     app.refresh();
@@ -405,6 +392,59 @@ fn tabbing_through_the_docks_never_leaves_focus_under_a_floating_window() -> Res
         found.is_empty(),
         "walked {walked:?}; focus hidden under a floating window:\n{}",
         found.join("\n")
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_the_bottom_sheet_and_reads_its_tabs() -> Result<(), String> {
+    let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Schematic);
+    settled(&ctx, &mut app);
+    assert!(!app.region().bottom_open, "the sheet starts collapsed");
+    super::support::tap_id(&ctx, &mut app, "button:^")?;
+    assert!(app.region().bottom_open, "the chevron opens the sheet");
+    super::support::tap_id(&ctx, &mut app, "button:Console")?;
+    assert_eq!(app.region().bottom_tab, "console", "Console is a tab");
+    super::support::tap_id(&ctx, &mut app, "button:Output")?;
+    assert_eq!(app.region().bottom_tab, "output", "Output is a tab");
+    assert!(
+        paints_text(&ctx, &mut app, "Last run:")?,
+        "Output says what the last run found"
+    );
+    super::support::tap_id(&ctx, &mut app, "button:Findings (#)")?;
+    assert_eq!(app.region().bottom_tab, "findings", "Findings is a tab");
+    super::support::tap_id(&ctx, &mut app, "button:v")?;
+    assert!(!app.region().bottom_open, "the chevron collapses it again");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_turns_the_3d_view_from_the_layout_toolbar() -> Result<(), String> {
+    let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Board3d);
+    settled(&ctx, &mut app);
+    let before = app.view3d.yaw;
+    super::support::tap_id(&ctx, &mut app, "button:Turn")?;
+    assert!(
+        (app.view3d.yaw - before).abs() > 1e-9,
+        "Turn rotates the view"
+    );
+    super::support::tap_id(&ctx, &mut app, "button:Front")?;
+    assert!(
+        app.view3d.pitch.abs() < 1e-9,
+        "Front looks level at the board"
+    );
+    super::support::tap_id(&ctx, &mut app, "button:Side")?;
+    assert!(
+        app.view3d.yaw.abs() < 1e-9,
+        "Side looks along the long edge"
     );
     Ok(())
 }
