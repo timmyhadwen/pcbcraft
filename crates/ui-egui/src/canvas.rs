@@ -5,6 +5,10 @@ use pcbcraft_geom::point_segment;
 mod board_art;
 pub(crate) mod gestures;
 mod layout_art;
+
+/// Side of the ruler strips at the canvas top and left, shared with the floating
+/// view controls so they sit inside the margin the rulers leave.
+pub(crate) const RULER_SIZE: f32 = 22.0;
 mod sheet;
 mod underlay;
 

@@ -86,7 +86,7 @@ impl BoardArt {
 }
 
 /// Side of the ruler strips in points.
-const RULER: f32 = 22.0;
+const RULER: f32 = super::RULER_SIZE;
 
 /// The smallest "nice" step (1, 2, 5 times a power of ten) that is at least
 /// `min_px` wide at this zoom.

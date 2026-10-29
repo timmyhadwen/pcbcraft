@@ -1020,6 +1020,8 @@ pub struct App {
     capture_select: Option<String>,
     /// Open the canvas right-click menu on the selected part in a capture.
     capture_menu: bool,
+    /// Capture option: open the bottom sheet on its Findings tab.
+    capture_sheet: bool,
     frames: u32,
     library: library::Browser,
     dock: library_dock::Dock,
@@ -1292,6 +1294,11 @@ impl App {
         self.capture_menu = context_menu;
         self
     }
+    /// Capture option: start with the bottom sheet open. Ignored outside capture mode.
+    pub fn with_capture_sheet(mut self, open: bool) -> Self {
+        self.capture_sheet = open;
+        self
+    }
     /// Open the left aside on its Library tab (`library`) or its Layers tab
     /// (`layers`), so a `--capture` image can show either.
     pub fn with_left_tab(mut self, tab: Option<String>) -> Self {
@@ -1519,6 +1526,7 @@ impl App {
             capture,
             capture_select: None,
             capture_menu: false,
+            capture_sheet: false,
             frames: 0,
             library,
             #[cfg(test)]
@@ -6349,6 +6357,9 @@ impl App {
     }
     fn capture(&mut self, ctx: &egui::Context) {
         self.frames = self.frames.saturating_add(1);
+        if self.frames == 3 && self.capture_sheet {
+            self.open_sheet(bottom_sheet::SheetTab::Findings);
+        }
         if self.frames == 3
             && let Some(reference) = self.capture_select.take()
             && let Some(component) = self

@@ -294,37 +294,89 @@ impl App {
         self.message = t!("workspace.layout_reset");
     }
 
-    /// The 2D | 3D and Top | Bottom toggles at the Layout canvas top-left.
+    /// The 2D | 3D and Top | Bottom toggles, a floating kit card just inside the
+    /// canvas, below the top ruler and right of the left ruler.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/ui_kit/segmented.rs
+    /// - crates/ui-egui/src/canvas.rs (`RULER_SIZE`)
+    ///
+    /// # Do not
+    /// - Place it at the canvas corner; the rulers draw labels there.
     fn layout_view_toggles(&mut self, ctx: &egui::Context, rect: Rect) {
-        let (mut view_3d, mut bottom) = {
+        use crate::ui_kit::segmented::{Segment, segmented};
+        let (view_3d, bottom) = {
             let r = self.region();
             (r.view_3d, r.bottom_side)
         };
-        let (was_3d, was_bottom) = (view_3d, bottom);
+        let (mut view_idx, mut side_idx) = (usize::from(view_3d), usize::from(bottom));
+        let (was_view, was_side) = (view_idx, side_idx);
+        let (view_2d_label, view_3d_label) = (t!("workspace.view_2d"), t!("workspace.view_3d"));
+        let (view_2d_tip, view_3d_tip) = (t!("workspace.view_2d.tip"), t!("workspace.view_3d.tip"));
+        let (top_label, bottom_label) = (t!("workspace.side_top"), t!("workspace.side_bottom"));
+        let (top_tip, bottom_tip) = (
+            t!("workspace.side_top.tip"),
+            t!("workspace.side_bottom.tip"),
+        );
+        let tokens = crate::theme::tokens(ctx);
+        let inset = crate::canvas::RULER_SIZE + crate::theme::SPACE[2];
         egui::Area::new(egui::Id::new("layout-view-toggles"))
-            .fixed_pos(rect.left_top() + egui::vec2(12.0, 12.0))
+            .fixed_pos(rect.left_top() + egui::vec2(inset, inset))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut view_3d, false, t!("workspace.view_2d"))
-                        .on_hover_text(t!("workspace.view_2d.tip"));
-                    ui.selectable_value(&mut view_3d, true, t!("workspace.view_3d"))
-                        .on_hover_text(t!("workspace.view_3d.tip"));
-                    if !view_3d {
-                        ui.add_space(8.0);
-                        ui.selectable_value(&mut bottom, false, t!("workspace.side_top"))
-                            .on_hover_text(t!("workspace.side_top.tip"));
-                        ui.selectable_value(&mut bottom, true, t!("workspace.side_bottom"))
-                            .on_hover_text(t!("workspace.side_bottom.tip"));
-                    }
-                });
+                egui::Frame::NONE
+                    .fill(tokens.panel)
+                    .stroke(Stroke::new(crate::theme::BORDER, tokens.edge))
+                    .corner_radius(egui::CornerRadius::same(crate::theme::RADIUS_CARD))
+                    .inner_margin(egui::Margin::same(4))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = crate::theme::SPACE[1];
+                            segmented(
+                                ui,
+                                "layout-view-2d3d",
+                                &mut view_idx,
+                                &[
+                                    Segment {
+                                        label: &view_2d_label,
+                                        tip: &view_2d_tip,
+                                    },
+                                    Segment {
+                                        label: &view_3d_label,
+                                        tip: &view_3d_tip,
+                                    },
+                                ],
+                            );
+                            if view_idx == 0 {
+                                segmented(
+                                    ui,
+                                    "layout-view-side",
+                                    &mut side_idx,
+                                    &[
+                                        Segment {
+                                            label: &top_label,
+                                            tip: &top_tip,
+                                        },
+                                        Segment {
+                                            label: &bottom_label,
+                                            tip: &bottom_tip,
+                                        },
+                                    ],
+                                );
+                            }
+                        });
+                    });
             });
-        if view_3d != was_3d || bottom != was_bottom {
+        if view_idx != was_view || side_idx != was_side {
             let r = self.region();
-            r.view_3d = view_3d;
-            r.bottom_side = bottom;
-            if view_3d != was_3d {
-                self.change_tab(if view_3d { Tab::Board3d } else { Tab::Pcb });
+            r.view_3d = view_idx == 1;
+            r.bottom_side = side_idx == 1;
+            if view_idx != was_view {
+                self.change_tab(if view_idx == 1 {
+                    Tab::Board3d
+                } else {
+                    Tab::Pcb
+                });
             }
         }
     }
