@@ -5796,42 +5796,11 @@ impl App {
     /// narrow window, in the strip under the drawing. `top_h` is the height
     /// the layers tree gets.
     fn inspector_body(&mut self, ui: &mut egui::Ui, top_h: f32) {
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), top_h),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        self.section_heading(ui, "Layers");
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| self.layers_tab(ui));
-                    },
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.preferences.aside_split, 0.25..=0.75)
-                        .show_value(false)
-                        .text("Resize"),
-                )
-                .on_hover_text("Drag to give the Layers tree more or less room.");
-                ui.horizontal(|ui| {
-                    ui.selectable_value(
-                        &mut self.preferences.aside_lower_tab,
-                        0,
-                        "Properties",
-                    )
-                    .on_hover_text("Details for whatever is selected on the drawing.");
-                    if assistant::shown(self) {
-                        ui.selectable_value(
-                            &mut self.preferences.aside_lower_tab,
-                            1,
-                            assistant::tab_label(self.assistant.waiting()),
-                        )
-                        .on_hover_text(assistant::TAB_TIP);
-                    }
-                });
-                if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
-                    assistant::pane::show(self, ui);
-                    return;
-                }
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), top_h),
+            egui::Layout::top_down(egui::Align::LEFT),
+            |ui| {
+                self.section_heading(ui, "Layers");
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| self.layers_tab(ui));
@@ -5846,15 +5815,17 @@ impl App {
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.preferences.aside_lower_tab, 0, "Properties")
                 .on_hover_text("Details for whatever is selected on the drawing.");
-            ui.selectable_value(&mut self.preferences.aside_lower_tab, 1, "Assistant")
-                .on_hover_text("How to connect an external agent through MCP.");
+            if assistant::shown(self) {
+                ui.selectable_value(
+                    &mut self.preferences.aside_lower_tab,
+                    1,
+                    assistant::tab_label(self.assistant.waiting()),
+                )
+                .on_hover_text(assistant::TAB_TIP);
+            }
         });
-        if self.preferences.aside_lower_tab == 1 {
-            ui.add_space(12.0);
-            ui.label(
-                "Connect an agent through the live MCP bridge described in docs/mcp.md. \
-                         The desktop session exposes the same typed commands the UI uses.",
-            );
+        if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
+            assistant::pane::show(self, ui);
             return;
         }
         egui::ScrollArea::vertical()
@@ -6219,6 +6190,7 @@ impl App {
                     );
                     ui.add_space(12.0);
                 }
+                    });
     }
     fn footer(&mut self, ui: &mut egui::Ui) {
         let mut fix = 0usize;
