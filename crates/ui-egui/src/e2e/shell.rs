@@ -197,6 +197,33 @@ fn no_user_visible_literal_outside_the_catalog() -> Result<(), String> {
 }
 
 #[test]
+fn board_layout_strings_are_all_catalog_keys() -> Result<(), String> {
+    let listed = pcbcraft_text::scan::converted_fns();
+    for (file, function) in [
+        ("lib.rs", "layers_tab"),
+        ("lib.rs", "board_anatomy_section"),
+        ("lib.rs", "stackup_section"),
+        ("lib.rs", "holes_section"),
+        ("lib.rs", "fiducials_section"),
+        ("lib.rs", "footer"),
+        ("lib.rs", "tool_strip"),
+        ("lib.rs", "draw_tool_options"),
+        ("lib.rs", "tool_hint"),
+        ("lib.rs", "inspector"),
+        ("canvas.rs", "canvas"),
+        ("canvas.rs", "paint_board"),
+        ("canvas.rs", "canvas_click"),
+        ("board3d.rs", "show"),
+    ] {
+        assert!(
+            listed.contains(&(file.to_string(), function.to_string())),
+            "{file} {function} is listed in converted-fns.txt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(
