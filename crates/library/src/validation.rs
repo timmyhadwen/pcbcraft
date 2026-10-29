@@ -218,6 +218,7 @@ impl FootprintDefinition {
             }
             match (p.shape.as_str(), &p.chamfer) {
                 ("chamfered", Some(c)) => {
+                    #[allow(clippy::collapsible_match)]
                     if !c.ratio.is_finite()
                         || c.ratio <= 0.0
                         || c.ratio > 0.5
