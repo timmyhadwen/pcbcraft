@@ -361,15 +361,14 @@ fn footprint_bounds(p: &Project, f: &Footprint) -> (Point, Point) {
 }
 
 fn push_reference_marker(
-    shapes: &mut Vec<Shape>,
-    origin: Point,
-    rotation: f64,
-    label_y: f64,
-    label_x: f64,
-    p: &Project,
+    _shapes: &mut Vec<Shape>,
+    _origin: Point,
+    _rotation: f64,
+    _label_y: f64,
+    _label_x: f64,
+    _p: &Project,
     skipped: &mut Vec<String>,
 ) {
-    let _ = (label_x, label_y, origin, rotation, p);
     skipped.push("reference labels need the stroke font".into());
 }
 

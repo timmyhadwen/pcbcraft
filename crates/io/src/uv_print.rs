@@ -291,24 +291,23 @@ fn erode_matte(img: &mut GrayImage, choke_mm: f64, dpi: u32) {
 }
 
 fn encode_rgba_png(img: &RgbaImage, dpi: u32) -> Result<Vec<u8>, String> {
-    use image::codecs::png::{CompressionType, FilterType, PngEncoder, PngMetadata};
-    use image::{DimensionUnit, ExtendedColorType, PixelDimensions};
     let (w, h) = (img.width(), img.height());
     let xppu = (f64::from(dpi) / 0.0254).round() as u32;
     let mut out = Vec::new();
-    let encoder =
-        PngEncoder::new_with_quality(&mut out, CompressionType::Default, FilterType::NoFilter);
-    let meta = PngMetadata {
-        pixel_dimensions: Some(PixelDimensions {
-            x_pixel_per_unit: xppu,
-            y_pixel_per_unit: xppu,
-            unit: DimensionUnit::Meter,
-        }),
-        ..PngMetadata::default()
-    };
-    encoder
-        .encode_with_metadata(img.as_raw(), w, h, ExtendedColorType::Rgba8, meta)
-        .map_err(|e| e.to_string())?;
+    let mut enc = png::Encoder::new(&mut out, w, h);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.set_pixel_dims(Some(png::PixelDimensions {
+        xppu,
+        yppu: xppu,
+        unit: png::Unit::Meter,
+    }));
+    let mut writer = enc.write_header().map_err(|e| e.to_string())?;
+    for y in 0..h {
+        let row: Vec<u8> = (0..w).flat_map(|x| img.get_pixel(x, y).0).collect();
+        writer.write_image_data(&row).map_err(|e| e.to_string())?;
+    }
+    writer.finish().map_err(|e| e.to_string())?;
     Ok(out)
 }
 
@@ -468,6 +467,15 @@ fn phys_from_png(bytes: &[u8]) -> Result<(u32, u32), String> {
 }
 
 #[cfg(test)]
+fn decode_rgba_png(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
+    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
+    let mut rgba = vec![0u8; reader.output_buffer_size()];
+    reader.next_frame(&mut rgba).map_err(|e| e.to_string())?;
+    Ok((reader.info().width, reader.info().height, rgba))
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use pcbcraft_doc::{Footprint, Project};
@@ -551,11 +559,10 @@ mod tests {
             &profile,
             &base_options(UvPrintSide::Top),
         )?;
-        let img = image::load_from_memory(&art.colour_png).map_err(|e| e.to_string())?;
-        let rgba = img.to_rgba8();
+        let (_, _, rgba) = decode_rgba_png(&art.colour_png)?;
         let mut transparent = 0u32;
-        for px in rgba.pixels() {
-            if px.0[3] == 0 {
+        for chunk in rgba.chunks(4) {
+            if chunk.get(3) == Some(&0) {
                 transparent += 1;
             }
         }
@@ -573,20 +580,26 @@ mod tests {
             &profile,
             &base_options(UvPrintSide::Top),
         )?;
-        let colour = image::load_from_memory(&art.colour_png)
-            .map_err(|e| e.to_string())?
-            .to_rgba8();
+        let (w_px, h_px, colour) = decode_rgba_png(&art.colour_png)?;
         let white_bytes = art.white_png.ok_or("missing white png")?;
         let white = image::load_from_memory(&white_bytes)
             .map_err(|e| e.to_string())?
             .to_luma8();
-        assert_eq!(colour.dimensions(), white.dimensions());
-        for (x, y, c) in colour.enumerate_pixels() {
-            let w = white.get_pixel(x, y).0[0];
-            if c.0[3] > 0 {
-                assert_eq!(w, 255, "opaque colour needs white ink at ({x},{y})");
-            } else {
-                assert_eq!(w, 0, "transparent colour must not print white at ({x},{y})");
+        assert_eq!(white.width(), w_px);
+        assert_eq!(white.height(), h_px);
+        for y in 0..h_px {
+            for x in 0..w_px {
+                let i = (y * w_px + x) as usize * 4;
+                let alpha = colour.get(i + 3).copied().unwrap_or(0);
+                let mask = white.get_pixel(x, y).0[0];
+                if alpha > 0 {
+                    assert_eq!(mask, 255, "opaque colour needs white ink at ({x},{y})");
+                } else {
+                    assert_eq!(
+                        mask, 0,
+                        "transparent colour must not print white at ({x},{y})"
+                    );
+                }
             }
         }
         Ok(())
@@ -724,13 +737,12 @@ mod tests {
             &profile,
             &base_options(UvPrintSide::Top),
         )?;
-        let colour = image::load_from_memory(&art.colour_png)
-            .map_err(|e| e.to_string())?
-            .to_rgba8();
-        let cx = colour.width() / 2;
-        let cy = colour.height() / 2;
+        let (w_px, h_px, colour) = decode_rgba_png(&art.colour_png)?;
+        let cx = w_px / 2;
+        let cy = h_px / 2;
+        let i = (cy * w_px + cx) as usize * 4;
         assert_eq!(
-            colour.get_pixel(cx, cy).0[3],
+            colour.get(i + 3).copied().unwrap_or(0),
             0,
             "legend stroke over the pad should be cleared"
         );
@@ -835,14 +847,15 @@ mod tests {
         opts.include_outline = false;
         opts.include_fiducials = false;
         let art = uv_print_artwork(&p, UvPrintSide::Bottom, &profile, &opts)?;
-        let img = image::load_from_memory(&art.colour_png)
-            .map_err(|e| e.to_string())?
-            .to_rgba8();
+        let (w_px, h_px, colour) = decode_rgba_png(&art.colour_png)?;
         let mut ink_x = 0u32;
-        for (x, _, px) in img.enumerate_pixels() {
-            if px.0[3] > 0 {
-                ink_x = x;
-                break;
+        'scan: for y in 0..h_px {
+            for x in 0..w_px {
+                let i = (y * w_px + x) as usize * 4;
+                if colour.get(i + 3).copied().unwrap_or(0) > 0 {
+                    ink_x = x;
+                    break 'scan;
+                }
             }
         }
         assert!(ink_x > 0, "bottom legend should land without mirroring");
