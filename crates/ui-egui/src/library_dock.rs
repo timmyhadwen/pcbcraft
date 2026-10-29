@@ -1035,12 +1035,22 @@ impl App {
                         }
                     })
                     .filter(|t| !t.is_empty());
-                let mut meta = if p.distributor.is_empty() && p.price_breaks.is_empty() {
+                let alone = p
+                    .sku
+                    .strip_prefix(pcbcraft_library::open_library::FOOTPRINT_SKU_PREFIX);
+                let mut meta = if let Some(rest) = alone {
+                    rest.split('/').next().unwrap_or_default().to_owned()
+                } else if p.distributor.is_empty() && p.price_breaks.is_empty() {
                     p.sku.clone()
                 } else {
                     sources::stock_line(p)
                 };
-                if let Some((d, _)) = def {
+                if let (Some(_), Some((_, Some(fp)))) = (alone, def) {
+                    meta = format!(
+                        "{meta} \u{b7} {}",
+                        t!("library.dock.pads", count = fp.pads.len())
+                    );
+                } else if let Some((d, _)) = def {
                     let extra = if d.footprint.trim().is_empty() {
                         t!("library.dock.pins", count = d.pins.len())
                     } else {
