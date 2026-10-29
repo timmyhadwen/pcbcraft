@@ -56,11 +56,12 @@ fn copper(project: &Project) -> Vec<Copper> {
             .and_then(|l| l.definition.rules.as_ref())
             .and_then(|r| r.clearance);
         for pad in &f.pads {
-            let Some(geometry) = pad.geometry.as_ref() else {
-                continue;
-            };
-            if geometry.pad_type == "unplated" {
-                let Some(drill) = geometry.drill.as_ref() else {
+            if pad
+                .geometry
+                .as_ref()
+                .is_some_and(|g| g.pad_type == "unplated")
+            {
+                let Some(drill) = pad.geometry.as_ref().and_then(|g| g.drill.as_ref()) else {
                     continue;
                 };
                 let position = f.pad_world_position(pad);
