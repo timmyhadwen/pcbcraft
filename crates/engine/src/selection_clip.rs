@@ -273,7 +273,8 @@ fn referenced_net_ids(p: &Project, id: Id, kind: &ObjectSlot) -> BTreeSet<Id> {
 
 pub fn copy_text(p: &Project, ids: &[Id], context: Option<&str>) -> Result<String, Error> {
     if let Some(ctx) = context
-        && ctx != "board" && ctx != "schematic"
+        && ctx != "board"
+        && ctx != "schematic"
     {
         return Err(Error::Invalid(
             "selection context must be board or schematic".into(),
