@@ -647,6 +647,8 @@ pub struct App {
     drag: Option<(Id, Point)>,
     drag_offset: Point,
     cursor: Option<Point>,
+    canvas_rect: Rect,
+    canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
     value: String,
     x: f64,
@@ -988,6 +990,8 @@ impl App {
             drag: None,
             drag_offset: Point::default(),
             cursor: None,
+            canvas_rect: Rect::NOTHING,
+            canvas_menu: None,
             message: "Ready · A add · W wire · X route · M move · R rotate · E properties".into(),
             value: String::new(),
             x: 0.0,
@@ -2501,6 +2505,7 @@ impl App {
                 self.drag = None;
                 self.palette = false;
                 self.shortcuts_open = false;
+                self.canvas_menu = None;
             }
             if i.key_pressed(egui::Key::Slash) {
                 self.shortcuts_open = !self.shortcuts_open;
@@ -6333,6 +6338,11 @@ fn pcbcraft_io_limit() -> usize {
 }
 
 #[cfg(test)]
+fn pcb_screen(app: &App, world: Point) -> egui::Pos2 {
+    app.pcb.screen(world, app.canvas_rect)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -9111,6 +9121,66 @@ mod tests {
                 .iter()
                 .any(|t| on_mid(t.start) || on_mid(t.end)),
             "the two halves meet exactly at the middle of the original wire"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_right_clicks_a_wire_and_cuts_it() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "track.route",
+            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+        );
+        let (before, middle) = app
+            .project
+            .board
+            .tracks
+            .first()
+            .map(|t| {
+                (
+                    app.project.board.tracks.len(),
+                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
+                )
+            })
+            .ok_or("routing should leave a wire to cut")?;
+        app.change_tab(Tab::Pcb);
+        app.needs_fit = true;
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let screen = pcb_screen(&app, middle);
+        for pressed in [true, false] {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(screen),
+                    egui::Event::PointerButton {
+                        pos: screen,
+                        button: egui::PointerButton::Secondary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        assert!(
+            paints_text(&ctx, &mut app, "Cut")?,
+            "right-clicking a wire opens a menu with Cut: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Cut")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            app.project.board.tracks.len(),
+            before + 1,
+            "Cut splits the wire in two: {}",
+            app.message
         );
         Ok(())
     }
