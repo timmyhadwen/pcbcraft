@@ -833,6 +833,19 @@ impl App {
     }
 }
 
+/// Turn a library pad into an unplated mechanical hole: no number, no copper
+/// layers, zero copper size, and a drill that alone defines the hole.
+pub(crate) fn apply_unplated_defaults(pad: &mut pcbcraft_library::FootprintPad) {
+    pad.number.clear();
+    pad.layers.clear();
+    let size = pad.drill.as_ref().map_or(Point::new(1.0, 1.0), |d| d.size);
+    pad.size = Point::default();
+    pad.drill = Some(Drill {
+        size,
+        offset: Point::default(),
+    });
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1196,17 +1209,4 @@ pub(crate) mod tests {
         let _ = std::fs::remove_file(&file);
         Ok(())
     }
-}
-
-/// Turn a library pad into an unplated mechanical hole: no number, no copper
-/// layers, zero copper size, and a drill that alone defines the hole.
-pub(crate) fn apply_unplated_defaults(pad: &mut pcbcraft_library::FootprintPad) {
-    pad.number.clear();
-    pad.layers.clear();
-    let size = pad.drill.as_ref().map_or(Point::new(1.0, 1.0), |d| d.size);
-    pad.size = Point::default();
-    pad.drill = Some(Drill {
-        size,
-        offset: Point::default(),
-    });
 }
