@@ -2530,6 +2530,7 @@ pub(super) fn run(
                     position: a.position,
                     rotation: 0.0,
                     locked: None,
+                    side: None,
                     pads,
                 });
                 out["footprint"] = json!(footprint_id);

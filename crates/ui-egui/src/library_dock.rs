@@ -1245,28 +1245,30 @@ impl App {
             }
         }
         response.context_menu(|ui| {
-            if ui
-                .button(t!("library.dock.place_schematic"))
-                .on_hover_text(t!("library.dock.place_schematic.tip"))
-                .clicked()
-            {
+            if App::canvas_menu_button(
+                ui,
+                &t!("library.dock.place_schematic"),
+                &t!("library.dock.place_schematic.tip"),
+            ) {
                 action = Some(CardAction::Place("schematic"));
                 ui.close();
             }
             if self.tab == Tab::Pcb
-                && ui
-                    .button(t!("library.dock.place_board"))
-                    .on_hover_text(t!("library.dock.place_board.tip"))
-                    .clicked()
+                && App::canvas_menu_button(
+                    ui,
+                    &t!("library.dock.place_board"),
+                    &t!("library.dock.place_board.tip"),
+                )
             {
                 action = Some(CardAction::Place("board"));
                 ui.close();
             }
             if matches!(card, Card::Installed(_))
-                && ui
-                    .button(t!("library.dock.add_to_project"))
-                    .on_hover_text(t!("library.dock.add_to_project.tip"))
-                    .clicked()
+                && App::canvas_menu_button(
+                    ui,
+                    &t!("library.dock.add_to_project"),
+                    &t!("library.dock.add_to_project.tip"),
+                )
             {
                 action = Some(CardAction::Import);
                 ui.close();
@@ -1276,25 +1278,26 @@ impl App {
             } else {
                 (t!("library.dock.star"), t!("library.dock.star.tip"))
             };
-            if ui.button(star).on_hover_text(tip).clicked() {
+            if App::canvas_menu_button(ui, &star, &tip) {
                 action = Some(CardAction::Favourite);
                 ui.close();
             }
             if let Card::Online(p, _) = card
                 && !p.datasheet_url.is_empty()
-                && ui
-                    .button(t!("library.dock.datasheet"))
-                    .on_hover_text(t!("library.dock.datasheet.tip"))
-                    .clicked()
+                && App::canvas_menu_button(
+                    ui,
+                    &t!("library.dock.datasheet"),
+                    &t!("library.dock.datasheet.tip"),
+                )
             {
                 action = Some(CardAction::Datasheet(p.datasheet_url.clone()));
                 ui.close();
             }
-            if ui
-                .button(t!("library.dock.show_source"))
-                .on_hover_text(t!("library.dock.show_source.tip"))
-                .clicked()
-            {
+            if App::canvas_menu_button(
+                ui,
+                &t!("library.dock.show_source"),
+                &t!("library.dock.show_source.tip"),
+            ) {
                 action = Some(CardAction::Source);
                 ui.close();
             }

@@ -1384,7 +1384,7 @@ impl App {
         }
         false
     }
-    fn canvas_menu_button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
+    pub(crate) fn canvas_menu_button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
         ui.button(label).on_hover_text(tip).clicked()
     }
     /// "Assign layer": a small submenu listing the copper faces a track can
