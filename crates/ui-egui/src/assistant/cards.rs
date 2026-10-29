@@ -126,6 +126,12 @@ fn approval(
     detail: &str,
     answer: Option<bool>,
 ) -> Option<Pressed> {
+    if let Some(allowed) = answer {
+        // An answered question shrinks to one line.
+        let word = if allowed { "Allowed" } else { "Denied" };
+        ui.add(egui::Label::new(format!("{word}: {title}")).wrap());
+        return None;
+    }
     let mut pressed = None;
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.set_width(ui.available_width());
@@ -133,39 +139,29 @@ fn approval(
         if !detail.is_empty() {
             ui.add(egui::Label::new(detail).wrap());
         }
-        match answer {
-            Some(true) => {
-                ui.label("Allowed");
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .button(text::ALLOW)
+                .on_hover_text(text::ALLOW_TIP)
+                .clicked()
+            {
+                pressed = Some(Pressed::Allow(id));
             }
-            Some(false) => {
-                ui.label("Denied");
+            if ui
+                .button(text::ALWAYS_ALLOW)
+                .on_hover_text(text::ALWAYS_ALLOW_TIP)
+                .clicked()
+            {
+                pressed = Some(Pressed::AlwaysAllow(id));
             }
-            None => {
-                ui.horizontal_wrapped(|ui| {
-                    if ui
-                        .button(text::ALLOW)
-                        .on_hover_text(text::ALLOW_TIP)
-                        .clicked()
-                    {
-                        pressed = Some(Pressed::Allow(id));
-                    }
-                    if ui
-                        .button(text::ALWAYS_ALLOW)
-                        .on_hover_text(text::ALWAYS_ALLOW_TIP)
-                        .clicked()
-                    {
-                        pressed = Some(Pressed::AlwaysAllow(id));
-                    }
-                    if ui
-                        .button(text::DENY)
-                        .on_hover_text(text::DENY_TIP)
-                        .clicked()
-                    {
-                        pressed = Some(Pressed::Deny(id));
-                    }
-                });
+            if ui
+                .button(text::DENY)
+                .on_hover_text(text::DENY_TIP)
+                .clicked()
+            {
+                pressed = Some(Pressed::Deny(id));
             }
-        }
+        });
     });
     pressed
 }

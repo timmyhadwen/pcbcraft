@@ -24,7 +24,11 @@ pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.add(egui::Label::new(text::NO_MODEL_BODY).wrap());
                 return;
             }
-            let height = (ui.available_height() - 110.0).max(80.0);
+            let waiting = app.assistant.waiting();
+            // Questions waiting for an answer sit below the conversation so they are never
+            // scrolled out of sight.
+            let waiting_height = (waiting as f32 * 140.0).min(280.0);
+            let height = (ui.available_height() - 110.0 - waiting_height).max(40.0);
             let mut pressed = None;
             let history = app.session.lock().map_or(0, |s| s.history_len());
             let live = app.assistant.live_undo(history);
@@ -34,12 +38,33 @@ pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     for (n, it) in app.assistant.transcript.items.iter().enumerate() {
+                        if matches!(it, Item::Approval { answer: None, .. }) {
+                            continue;
+                        }
                         if let Some(p) = cards::item(ui, it, muted, live == Some(n)) {
                             pressed = Some(p);
                         }
-                        ui.add_space(12.0);
+                        let quiet = matches!(
+                            it,
+                            Item::Note { .. } | Item::ToolCall { .. } | Item::Plan(_)
+                        );
+                        ui.add_space(if quiet { 2.0 } else { 8.0 });
                     }
                 });
+            if waiting > 0 {
+                egui::ScrollArea::vertical()
+                    .id_salt("assistant-waiting")
+                    .max_height(waiting_height)
+                    .show(ui, |ui| {
+                        for it in &app.assistant.transcript.items {
+                            if matches!(it, Item::Approval { answer: None, .. })
+                                && let Some(p) = cards::item(ui, it, muted, false)
+                            {
+                                pressed = Some(p);
+                            }
+                        }
+                    });
+            }
             match pressed {
                 Some(Pressed::Allow(id)) => app.assistant_answer(id, true, false),
                 Some(Pressed::AlwaysAllow(id)) => app.assistant_answer(id, true, true),

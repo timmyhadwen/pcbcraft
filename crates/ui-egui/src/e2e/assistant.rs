@@ -29,16 +29,13 @@ impl FakeModel {
 impl ChatBackend for FakeModel {
     fn poll(&mut self) -> Vec<Event> {
         let mut out = std::mem::take(&mut self.events);
-        let mut waiting = Vec::new();
-        for answer in self.answers.drain(..) {
-            match answer.try_recv() {
-                Ok(_) => out.push(Event::TurnEnded {
-                    reason: String::new(),
-                }),
-                Err(_) => waiting.push(answer),
-            }
+        let before = self.answers.len();
+        self.answers.retain(|answer| answer.try_recv().is_err());
+        if before > 0 && self.answers.is_empty() {
+            out.push(Event::TurnEnded {
+                reason: String::new(),
+            });
         }
-        self.answers = waiting;
         out
     }
     fn prompt(&mut self, _: &[PromptPart]) {
@@ -83,6 +80,7 @@ fn with_calls(calls: Vec<(String, Value)>) -> App {
             .start_context(std::path::PathBuf::new())
             .tools
             .unwrap_or_else(|| channel().0),
+        calls,
     );
     app.assistant_use(Box::new(model));
     app
@@ -169,7 +167,10 @@ fn a_newcomer_allows_two_changes_and_takes_them_back_with_one_undo() -> Result<(
     authoring::tests::tap(&ctx, &mut app, "Send")?;
     settle(&ctx, &mut app);
     assert!(paints_text(&ctx, &mut app, "Add resistor R1 (10k)")?);
-    assert!(paints_text(&ctx, &mut app, "Add resistor R2 (4k7)")?);
+    assert!(
+        paints_text(&ctx, &mut app, "Assistant (2)")?,
+        "the tab counts the two questions waiting"
+    );
     assert!(
         paints_text(&ctx, &mut app, "adds R1")?,
         "the card previews the change"
@@ -180,6 +181,19 @@ fn a_newcomer_allows_two_changes_and_takes_them_back_with_one_undo() -> Result<(
     }
     assert!(has_r1(&app));
     assert_eq!(app.project.components.len(), 2);
+    assert!(
+        app.assistant
+            .transcript
+            .items
+            .iter()
+            .any(|i| matches!(i, pcbcraft_assistant::Item::UndoStep { .. })),
+        "the conversation ends with an undo row: {:?}",
+        app.assistant.transcript.items
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Undo")?,
+        "the Undo button is on screen"
+    );
     authoring::tests::tap(&ctx, &mut app, "Undo")?;
     settle(&ctx, &mut app);
     assert!(
