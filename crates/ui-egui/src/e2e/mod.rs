@@ -18,6 +18,7 @@ mod layout;
 mod library;
 mod nets;
 mod pairs;
+mod route_drag;
 mod rules;
 mod settings;
 mod shell;

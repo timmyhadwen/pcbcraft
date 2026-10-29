@@ -19,6 +19,7 @@ mod number_entry;
 mod palette;
 mod plot_viewer;
 mod reference_panel;
+mod route_drag;
 mod sources;
 #[cfg(test)]
 mod target_size;
@@ -354,7 +355,7 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Wire(Some(_)) => {
             t!("board.tool_hint.lmb_pick_the_second_pin", common = common)
         }
-        Tool::Route(None) => t!("board.tool_hint.lmb_pick_the_first_pad", common = common),
+        Tool::Route(None) => t!("board.tool_hint.route_drag", common = common),
         Tool::Route(Some(_)) => {
             t!("board.tool_hint.lmb_pick_the_second_pad", common = common)
         }
@@ -646,6 +647,9 @@ struct Preferences {
     /// Cut routed corners at 45 degrees; off allows right-angle corners.
     #[serde(default = "default_true")]
     chamfer_corners: bool,
+    /// Let a new route push other nets' tracks aside; needs chamfered corners.
+    #[serde(default)]
+    route_shove: bool,
     /// Show the Assistant tab and its shortcut; off starts nothing.
     #[serde(default = "default_true")]
     assistant_enabled: bool,
@@ -699,6 +703,7 @@ impl Default for Preferences {
             reduced_motion: motion::os_prefers_reduced_motion(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
+            route_shove: false,
             assistant_enabled: true,
             assistant_connections: Vec::new(),
             assistant_default: String::new(),
@@ -946,6 +951,7 @@ pub struct App {
     pcb: Camera,
     plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
+    route_drag: route_drag::State,
     drag_offset: Point,
     cursor: Option<Point>,
     canvas_rect: Rect,
@@ -1409,6 +1415,7 @@ impl App {
                 zoom: 15.0,
             },
             drag: None,
+            route_drag: route_drag::State::default(),
             drag_offset: Point::default(),
             cursor: None,
             canvas_rect: Rect::NOTHING,
@@ -3462,6 +3469,7 @@ impl App {
             t!("settings.settings_tab.chamfer_corners"),
         )
         .on_hover_text(t!("settings.settings_tab.chamfer_corners.tip"));
+        route_drag::shove_checkbox(self, ui);
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new(t!("settings.settings_tab.board_geometry"))
