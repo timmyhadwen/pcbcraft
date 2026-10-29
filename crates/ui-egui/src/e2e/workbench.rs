@@ -1,10 +1,11 @@
 //! Stories for the left rail, the library dock, the datasheet action and the
 //! breathing room around every dock and tab body.
 use super::super::*;
+use super::support::{frame, scrolled_to};
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 
-fn frame(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) -> egui::FullOutput {
+fn frame_plain(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) -> egui::FullOutput {
     let mut output = ctx.run_ui(
         egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
@@ -23,7 +24,7 @@ fn texts(output: &egui::FullOutput) -> Vec<(String, f32, f32, f32)> {
         .shapes
         .iter()
         .filter_map(|shape| match &shape.shape {
-            egui::Shape::Text(t) if shape.clip_rect.is_positive() => Some((
+            egui::Shape::Text(t) if shape.clip_rect.contains(t.pos) => Some((
                 t.galley.text().to_owned(),
                 t.pos.x,
                 t.pos.x + t.galley.size().x,
@@ -50,10 +51,10 @@ fn click(ctx: &egui::Context, app: &mut App, at: egui::Pos2) {
         pressed,
         modifiers: egui::Modifiers::NONE,
     };
-    frame(ctx, app, vec![egui::Event::PointerMoved(at)]);
-    frame(ctx, app, vec![press(true)]);
-    frame(ctx, app, vec![press(false)]);
-    frame(ctx, app, vec![]);
+    frame_plain(ctx, app, vec![egui::Event::PointerMoved(at)]);
+    frame_plain(ctx, app, vec![press(true)]);
+    frame_plain(ctx, app, vec![press(false)]);
+    frame_plain(ctx, app, vec![]);
 }
 
 fn fresh() -> App {
@@ -65,9 +66,9 @@ fn fresh() -> App {
 
 fn settled(ctx: &egui::Context, app: &mut App) -> egui::FullOutput {
     for _ in 0..4 {
-        frame(ctx, app, vec![]);
+        frame_plain(ctx, app, vec![]);
     }
-    frame(ctx, app, vec![])
+    frame_plain(ctx, app, vec![])
 }
 
 #[test]
@@ -172,45 +173,53 @@ fn a_newcomer_opens_a_part_datasheet_from_properties() -> Result<(), String> {
         .ok_or("the practice design carries a resistor")?;
     app.select(Some(resistor));
     let ctx = egui::Context::default();
-    let out = settled(&ctx, &mut app);
-    let button =
-        centre_of(&out, "View datasheet", f32::MAX).ok_or("a chosen part offers its datasheet")?;
-    click(&ctx, &mut app, button);
-    let opened = |out: &egui::FullOutput| {
-        out.platform_output
-            .commands
-            .iter()
-            .any(|c| matches!(c, egui::OutputCommand::OpenUrl(_)))
+    settled(&ctx, &mut app);
+    assert!(
+        scrolled_to(&ctx, &mut app, "View datasheet")?,
+        "a chosen part offers its datasheet: {}",
+        app.message
+    );
+    let opens = |app: &mut App, ctx: &egui::Context| -> Result<bool, String> {
+        let out = frame(ctx, app, vec![], egui::Modifiers::NONE);
+        let at = centre_of(&out, "View datasheet", f32::MAX)
+            .ok_or("the datasheet action stays visible")?;
+        let mut any = false;
+        for pressed in [None, Some(true), Some(false)] {
+            let event = match pressed {
+                None => egui::Event::PointerMoved(at),
+                Some(pressed) => egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            };
+            let out = frame(ctx, app, vec![event], egui::Modifiers::NONE);
+            any |= out
+                .platform_output
+                .commands
+                .iter()
+                .any(|c| matches!(c, egui::OutputCommand::OpenUrl(_)));
+        }
+        Ok(any)
     };
-    let mut any = false;
+    assert!(
+        !opens(&mut app, &ctx)?,
+        "without a web link in the Datasheet field the action is disabled"
+    );
     app.tool_call(
         "component.field",
         json!({"id": resistor, "key": "Datasheet", "value": "https://example.com/r.pdf"}),
     );
     app.select(None);
     app.select(Some(resistor));
-    let out = settled(&ctx, &mut app);
-    let button =
-        centre_of(&out, "View datasheet", f32::MAX).ok_or("the datasheet action stays visible")?;
-    for step in [
-        vec![egui::Event::PointerMoved(button)],
-        vec![egui::Event::PointerButton {
-            pos: button,
-            button: egui::PointerButton::Primary,
-            pressed: true,
-            modifiers: egui::Modifiers::NONE,
-        }],
-        vec![egui::Event::PointerButton {
-            pos: button,
-            button: egui::PointerButton::Primary,
-            pressed: false,
-            modifiers: egui::Modifiers::NONE,
-        }],
-    ] {
-        any |= opened(&frame(&ctx, &mut app, step));
-    }
+    settled(&ctx, &mut app);
     assert!(
-        any,
+        scrolled_to(&ctx, &mut app, "View datasheet")?,
+        "the datasheet action stays visible"
+    );
+    assert!(
+        opens(&mut app, &ctx)?,
         "with a web link in the Datasheet field the button opens it"
     );
     Ok(())
@@ -224,6 +233,17 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
     let (rail, dock) = (44.0, 44.0 + 260.0);
+    // The aside may grow past its 280 px minimum, so find its edge from
+    // the panel's own heading, which sits one 16 px margin inside it.
+    let aside = texts(&out)
+        .into_iter()
+        .find(|(w, l, _, _)| w == "Details" && *l > SCREEN.x / 2.0)
+        .map(|(_, l, _, _)| l - 16.0)
+        .ok_or("the right aside should show its Details heading")?;
+    assert!(
+        aside <= SCREEN.x - 280.0 && aside > SCREEN.x - 420.0,
+        "the right aside is at least 280 px wide: starts at {aside}"
+    );
     for (words, left, right, top) in texts(&out) {
         if words.trim().is_empty() || top < 80.0 || top > 900.0 {
             continue;
@@ -234,11 +254,10 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
                 "left dock text hugs the edge: {words} at {left}"
             );
         }
-        let aside = SCREEN.x - 280.0;
         if left > aside {
             assert!(
                 left >= aside + 12.0,
-                "right aside text hugs the edge: {words}"
+                "right aside text hugs the edge: {words} at {left},{top}"
             );
             assert!(
                 right <= SCREEN.x - 12.0,
