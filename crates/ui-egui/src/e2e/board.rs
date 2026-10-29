@@ -714,6 +714,10 @@ fn right_click(ctx: &egui::Context, app: &mut App, screen: egui::Pos2) {
             egui::Modifiers::NONE,
         );
     }
+    // A new popup is laid out hidden for a frame or two before it paints.
+    for _ in 0..3 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
 }
 
 fn sample_board_app() -> App {
@@ -801,7 +805,9 @@ fn a_newcomer_right_clicks_a_part_to_rotate_lock_or_delete_it() -> Result<(), St
         .first()
         .map(|f| (f.id, f.position, f.rotation))
         .ok_or("the sample board has parts")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    for _ in 0..6 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     let screen = pcb_screen(&app, at);
     right_click(&ctx, &mut app, screen);
     authoring::tests::tap(&ctx, &mut app, "Rotate")?;
@@ -1149,8 +1155,10 @@ fn sample_schematic_pin(ctx: &egui::Context) -> Result<(App, Id, String, egui::P
     app.tool_call("sample_design", json!({}));
     app.change_tab(Tab::Schematic);
     app.needs_fit = true;
-    frame(ctx, &mut app, vec![], egui::Modifiers::NONE);
-    frame(ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // Let the side panels settle so the canvas stops moving before we aim.
+    for _ in 0..6 {
+        frame(ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     let inside = app.canvas_rect.shrink(30.0);
     let found = app.project.components.iter().find_map(|c| {
         c.pins.iter().find_map(|p| {
