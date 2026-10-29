@@ -1480,7 +1480,11 @@ impl App {
                     let end = pin.stem_end();
                     painter.line_segment([at(pin.position), at(end)], stroke);
                     for (center, radius) in pin.decoration_bubbles() {
-                        painter.circle_stroke(at(center), (radius * camera.zoom) as f32, stroke);
+                        painter.circle_stroke(
+                            at(center),
+                            (radius * f64::from(camera.zoom)) as f32,
+                            stroke,
+                        );
                     }
                     for path in pin.decoration_paths() {
                         if path.len() >= 3 {
