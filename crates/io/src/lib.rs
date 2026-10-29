@@ -23,6 +23,7 @@ mod panel_export;
 mod plot_read;
 mod raster;
 mod uv_print;
+mod vrml_read;
 pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
