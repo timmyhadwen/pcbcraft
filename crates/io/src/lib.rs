@@ -15,6 +15,7 @@ mod layers;
 mod library_render;
 mod package;
 mod panel_export;
+mod plot_read;
 mod raster;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
@@ -33,6 +34,11 @@ pub use package::{
     package_zip,
 };
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
+pub use plot_read::{
+    MAX_PLOT_ZIP_BYTES, PlotAperture, PlotDrillHit, PlotDrillTool, PlotFlash, PlotHint, PlotLayer,
+    PlotLayerKind, PlotPackage, PlotStroke, count_flashes_and_draws, distance_mm, layer_bounds,
+    load_plot_folder, load_plot_zip, parse_excellon_drill, parse_gerber_layer,
+};
 pub use pcbcraft_doc::Layer;
 pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
@@ -7877,6 +7883,32 @@ mod tests {
         Ok(())
     }
 
+    /// Read every written plot back and compare against an independent count
+    /// of `D03*` flashes in the writer text.
+    fn round_trip_plot_counts(files: &std::collections::BTreeMap<String, String>) -> Result<(), String> {
+        let mut flashing = 0;
+        for (name, text) in files {
+            if name.ends_with(".gbr") {
+                let layer = parse_gerber_layer(text, name)?;
+                let (flashes, draws) = count_flashes_and_draws(text)?;
+                let raw_flashes = text
+                    .lines()
+                    .filter(|l| l.trim_end().ends_with("D03*"))
+                    .count();
+                assert_eq!(layer.flash_count, raw_flashes, "raw flash count for {name}");
+                assert_eq!(layer.flash_count, flashes, "flash count for {name}");
+                assert_eq!(layer.draw_count, draws, "draw count for {name}");
+                flashing += layer.flash_count;
+            } else if name == "pcb-Drill.drl" {
+                let (tools, hits) = parse_excellon_drill(text)?;
+                assert!(!tools.is_empty(), "drill tools in {name}");
+                assert!(!hits.is_empty(), "drill hits in {name}");
+            }
+        }
+        assert!(flashing > 0, "the rich board flashes pads and vias");
+        Ok(())
+    }
+
     #[test]
     fn gerber_files_export_copper_outline_and_drills() -> Result<(), String> {
         let mut project = Project::default();
@@ -8031,6 +8063,7 @@ mod tests {
                 "pcb-job.gbrjob",
             ]
         );
+        round_trip_plot_counts(&files)?;
         for key in files.keys() {
             let text = &files[key];
             if key.ends_with(".gbr") {
