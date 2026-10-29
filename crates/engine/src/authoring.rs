@@ -1,6 +1,7 @@
 use super::*;
 use pcbcraft_library::{
-    FootprintDefinition, FootprintPad, Graphic, SymbolDefinition, SymbolPin, UnitGraphic,
+    FootprintDefinition, FootprintPad, Graphic, LandPatternDensity, LandPatternParams,
+    SymbolDefinition, SymbolPin, UnitGraphic, generate_footprint,
 };
 
 pub(super) fn commands() -> Vec<CommandSpec> {
@@ -100,6 +101,68 @@ struct CourtyardParams {
 struct FootprintCheckParams {
     name: Option<String>,
     definition: Option<FootprintDefinition>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GenerateFootprintCommandParams {
+    family: String,
+    #[serde(default = "default_density")]
+    density: String,
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    keywords: String,
+    #[serde(default)]
+    pitch: f64,
+    #[serde(default)]
+    pin_count: u32,
+    #[serde(default)]
+    body_x: f64,
+    #[serde(default)]
+    body_y: f64,
+    #[serde(default)]
+    body_z: f64,
+    #[serde(default)]
+    rows: u32,
+    #[serde(default)]
+    cols: u32,
+    #[serde(default)]
+    row_spacing: f64,
+    #[serde(default)]
+    terminal_width: f64,
+    #[serde(default)]
+    thermal: bool,
+}
+
+fn default_density() -> String {
+    "B".into()
+}
+
+fn land_pattern_params_from_command(a: &GenerateFootprintCommandParams) -> LandPatternParams {
+    let mut params = LandPatternParams {
+        name: a.name.clone(),
+        description: a.description.clone(),
+        keywords: a.keywords.clone(),
+        pitch: a.pitch,
+        pin_count: a.pin_count,
+        body_length: a.body_x,
+        body_width: a.body_y,
+        row_spacing: a.row_spacing,
+        lead_width: a.terminal_width,
+        lead_diameter: 0.0,
+        grid_rows: a.rows,
+        grid_cols: a.cols,
+        thermal_size: if a.thermal {
+            a.body_x.min(a.body_y) * 0.4
+        } else {
+            0.0
+        },
+    };
+    if params.body_length <= 0.0 && a.body_z > 0.0 {
+        params.body_length = a.body_z;
+    }
+    params
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -525,8 +588,12 @@ pub(super) fn run(
             Ok(json!({"name": a.name}))
         }
         "library.footprint.generate" => {
-            let a: pcbcraft_library::GenerateFootprintParams = parse(params)?;
-            let definition = pcbcraft_library::generate_footprint(&a).map_err(Error::Invalid)?;
+            let a: GenerateFootprintCommandParams = parse(params)?;
+            let density = LandPatternDensity::parse(&a.density).ok_or_else(|| {
+                Error::Invalid("density must be A, B or C (most, nominal or least)".into())
+            })?;
+            let lp = land_pattern_params_from_command(&a);
+            let definition = generate_footprint(&a.family, density, &lp).map_err(Error::Invalid)?;
             let name = definition.name.clone();
             if let Some(def) = p.library.footprints.iter_mut().find(|s| s.name == name) {
                 *def = definition;
