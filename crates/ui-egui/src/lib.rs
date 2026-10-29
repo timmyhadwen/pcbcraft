@@ -472,7 +472,7 @@ struct Preferences {
     library_dock_open: bool,
 }
 fn default_aside_split() -> f32 {
-    0.32
+    0.45
 }
 fn default_true() -> bool {
     true
@@ -1797,6 +1797,8 @@ impl App {
                 self.tree_query.clear();
             }
         });
+        self.board_anatomy_section(ui);
+        ui.separator();
         ui.label(
             egui::RichText::new("SHOW IN THE TREE")
                 .size(10.0)
@@ -1888,7 +1890,6 @@ impl App {
         board_header.header_response.on_hover_text(
             "The board itself: shape, size, surface finish, holes and what the drawing shows.",
         );
-        self.board_anatomy_section(ui);
     }
     fn board_anatomy_section(&mut self, ui: &mut egui::Ui) {
         ui.add_space(16.0);
@@ -2414,6 +2415,7 @@ impl App {
             let open = self.anat_open.iter().any(|k| k == "connections");
             let header = egui::CollapsingHeader::new("Connections")
                 .id_salt("anat-connections")
+                .default_open(true)
                 .open(Some(open))
                 .show(ui, |ui| {
                     self.nets_tab(ui);
@@ -5471,16 +5473,11 @@ impl App {
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
                 let split = self.preferences.aside_split.clamp(0.25, 0.75);
-                let top_h = ui.available_height() * split;
+                let top_h = (ui.available_height() * split).min(ui.available_height() - 160.0);
                 ui.allocate_ui_with_layout(
                     egui::vec2(ui.available_width(), top_h),
                     egui::Layout::top_down(egui::Align::LEFT),
                     |ui| {
-                        ui.label(
-                            egui::RichText::new("Layers")
-                                .strong()
-                                .color(self.ink()),
-                        );
                         ui.label(
                             egui::RichText::new("Layers")
                                 .size(10.0)
@@ -7318,6 +7315,10 @@ mod tests {
         );
         let added = app.project.nets.len() - 1;
         let fresh = app.project.nets[added].name.clone();
+        assert!(
+            scrolled_to(&ctx, &mut app, &fresh)?,
+            "the new connection appears in the tree: {fresh}"
+        );
         authoring::tests::tap(&ctx, &mut app, &fresh)?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(
