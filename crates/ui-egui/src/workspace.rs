@@ -329,10 +329,8 @@ impl App {
     /// - Place it at the canvas corner; the rulers draw labels there.
     fn layout_view_toggles(&mut self, ctx: &egui::Context, rect: Rect) {
         use crate::ui_kit::segmented::{Segment, segmented};
-        let (view_3d, bottom) = {
-            let r = self.region();
-            (r.view_3d, r.bottom_side)
-        };
+        let view_3d = self.tab == Tab::Board3d;
+        let bottom = self.region().bottom_side;
         let (mut view_idx, mut side_idx) = (usize::from(view_3d), usize::from(bottom));
         let (was_view, was_side) = (view_idx, side_idx);
         let (view_2d_label, view_3d_label) = (t!("workspace.view_2d"), t!("workspace.view_3d"));
@@ -416,10 +414,17 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.add_space(Self::PAGE_GUTTER);
                     let v = &mut self.view3d;
-                    if ui
-                        .button(t!("workspace.turn"))
-                        .on_hover_text(t!("workspace.turn.tip"))
-                        .clicked()
+                    use crate::ui_kit::button::{Size, secondary_button};
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    if secondary_button(
+                        ui,
+                        None,
+                        &t!("workspace.turn"),
+                        &t!("workspace.turn.tip"),
+                        Size::Normal,
+                        true,
+                    )
+                    .clicked()
                     {
                         v.yaw += FRAC_PI_2;
                     }
@@ -438,15 +443,20 @@ impl App {
                         ),
                         (t!("workspace.side"), t!("workspace.side.tip"), 0.0, 0.0),
                     ] {
-                        if ui.button(label).on_hover_text(tip).clicked() {
+                        if secondary_button(ui, None, &label, &tip, Size::Normal, true).clicked() {
                             v.yaw = yaw;
                             v.pitch = pitch;
                         }
                     }
-                    if ui
-                        .button(t!("board.board3d.reset_view"))
-                        .on_hover_text(t!("board.board3d.reset_view.tip"))
-                        .clicked()
+                    if secondary_button(
+                        ui,
+                        None,
+                        &t!("board.board3d.reset_view"),
+                        &t!("board.board3d.reset_view.tip"),
+                        Size::Normal,
+                        true,
+                    )
+                    .clicked()
                     {
                         v.fit();
                     }
