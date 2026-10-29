@@ -5844,8 +5844,7 @@ fn run_track_cleanup(
         }
         let anchored_start =
             track_endpoint_anchored(p, track.start, track.net, track.layer, track.id);
-        let anchored_end =
-            track_endpoint_anchored(p, track.end, track.net, track.layer, track.id);
+        let anchored_end = track_endpoint_anchored(p, track.end, track.net, track.layer, track.id);
         if anchored_start && anchored_end {
             idx += 1;
         } else {
