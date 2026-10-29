@@ -415,7 +415,10 @@ mod tests {
     fn step_solid_loads_in_millimetres() -> Check {
         let m = load_model("box.step", include_bytes!("../tests/fixtures/box.step"))
             .map_err(|e| e.to_string())?;
-        assert!(m.indices.len() / 3 >= 12, "six faces make at least 12 triangles");
+        assert!(
+            m.indices.len() / 3 >= 12,
+            "six faces make at least 12 triangles"
+        );
         let (lo, hi) = m.bounds().ok_or("bounds")?;
         let near = |a: [f64; 3], b: [f64; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
         assert!(near(lo, [0.0, 0.0, 0.0]), "low corner {lo:?}");
