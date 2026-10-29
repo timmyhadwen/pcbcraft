@@ -6483,6 +6483,10 @@ impl App {
         }
     }
 
+    /// The tool bar row; the items and the overflow menu live in `toolbar.rs`.
+    fn tool_strip(&mut self, ui: &mut egui::Ui) {
+        self.toolbar_row(ui);
+    }
     fn files_tab(&mut self, ui: &mut egui::Ui) {
         Self::margined(ui, |ui| {
             ui.heading(t!("library.files_tab.project_files"));

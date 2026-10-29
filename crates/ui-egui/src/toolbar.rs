@@ -453,7 +453,7 @@ impl App {
     ///
     /// # Do not
     /// - Draw a tool outside `toolbar_items`.
-    pub(crate) fn tool_strip(&mut self, ui: &mut egui::Ui) {
+    pub(crate) fn toolbar_row(&mut self, ui: &mut egui::Ui) {
         if !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
             return;
         }

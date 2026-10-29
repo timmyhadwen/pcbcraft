@@ -84,3 +84,5 @@ library_dock.rs library_dock_body
 library_dock.rs dock_chips
 library_dock.rs dock_sets
 library_dock.rs dock_card
+toolbar.rs toolbar_row
+toolbar.rs toolbar_options
