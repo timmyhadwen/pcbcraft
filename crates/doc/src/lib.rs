@@ -3332,7 +3332,7 @@ impl Project {
     /// True when the point lies inside the board outline or rectangle.
     pub fn board_contains(&self, point: Point) -> bool {
         match &self.board.outline {
-            Some(ring) => pcbcraft_geom::point_in_polygon(
+            Some(_) => pcbcraft_geom::point_in_polygon(
                 point,
                 &self.board.edge_ring(VALIDATION_CHORD_ERROR),
             ),
