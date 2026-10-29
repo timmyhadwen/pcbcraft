@@ -1308,10 +1308,85 @@ pub struct BoardText {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<Id>,
 }
+/// Settings for a galvo laser job handed to the shop laser program.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct LaserJobSettings {
+    /// Copper side to process: `front` or `back`.
+    pub side: String,
+    /// Subset of operation group ids (at most six).
+    #[serde(default)]
+    pub operations: Vec<String>,
+    /// Output container: `svg` or `lcproj`.
+    pub format: String,
+    /// Mirror axis when exporting the bottom side: `x` or `y` (default `y`).
+    #[serde(default = "laser_job_mirror_default")]
+    pub mirror_axis: String,
+    /// Frame margin around the board bounding box, in millimetres.
+    #[serde(default)]
+    pub margin_mm: f64,
+    /// Clearance offset for isolation rings, in millimetres.
+    #[serde(default = "laser_job_isolation_default")]
+    pub isolation_width_mm: f64,
+    /// When true, emit copper rubout fill groups for kept copper regions.
+    #[serde(default)]
+    pub rubout: bool,
+    /// Percent shrink applied to paste stencil apertures (0 to 50).
+    #[serde(default)]
+    pub stencil_reduction_pct: f64,
+    /// Id of a `MachineProfile` with kind `laser_galvo` (see issue #389).
+    pub profile_id: String,
+}
+
+fn laser_job_mirror_default() -> String {
+    "y".into()
+}
+
+fn laser_job_isolation_default() -> f64 {
+    0.05
+}
+
+impl LaserJobSettings {
+    pub const OPERATION_IDS: [&'static str; 6] = [
+        "fiducials",
+        "isolation-cut",
+        "copper-rubout",
+        "mask-open",
+        "legend",
+        "stencil-cut",
+    ];
+
+    pub fn valid(&self) -> bool {
+        let side_ok = matches!(self.side.as_str(), "front" | "back");
+        let format_ok = matches!(self.format.as_str(), "svg" | "lcproj");
+        let mirror_ok = matches!(self.mirror_axis.as_str(), "x" | "y");
+        let margin_ok = self.margin_mm.is_finite() && (0.0..=50.0).contains(&self.margin_mm);
+        let iso_ok =
+            self.isolation_width_mm.is_finite() && (0.01..=2.0).contains(&self.isolation_width_mm);
+        let stencil_ok = self.stencil_reduction_pct.is_finite()
+            && (0.0..=50.0).contains(&self.stencil_reduction_pct);
+        let profile_ok = !self.profile_id.trim().is_empty() && self.profile_id.len() <= 64;
+        let ops_ok = !self.operations.is_empty()
+            && self.operations.len() <= 6
+            && self
+                .operations
+                .iter()
+                .all(|id| Self::OPERATION_IDS.contains(&id.as_str()));
+        side_ok
+            && format_ok
+            && mirror_ok
+            && margin_ok
+            && iso_ok
+            && stencil_ok
+            && profile_ok
+            && ops_ok
+    }
+}
+
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 27] = [
+pub const OUTPUT_KINDS: [&str; 28] = [
     "gerbers",
     "netlist",
     "bom",
@@ -1339,6 +1414,7 @@ pub const OUTPUT_KINDS: [&str; 27] = [
     "layer_plots",
     "panel",
     "raster",
+    "laser_job",
 ];
 /// How many export kinds one output job may hold. It is larger than the kind
 /// list so a single job can still ask for every file a board needs.

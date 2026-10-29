@@ -1832,6 +1832,25 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "laser_job.export",
+            "Export a galvo laser job as millimetre SVG or LaserCraft JSON using a laser_galvo profile",
+            schema(
+                json!({
+                    "side":{"type":"string","enum":["front","back"]},
+                    "profile_id":{"type":"string","minLength":1,"maxLength":64},
+                    "format":{"type":"string","enum":["svg","lcproj"]},
+                    "operations":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":6},
+                    "mirror_axis":{"type":"string","enum":["x","y"]},
+                    "margin_mm":{"type":"number"},
+                    "isolation_width_mm":{"type":"number"},
+                    "rubout":{"type":"boolean"},
+                    "stencil_reduction_pct":{"type":"number"},
+                    "path":{"type":"string","minLength":1,"maxLength":4096}
+                }),
+                &["side", "profile_id", "format", "operations"],
+            ),
+        ),
+        (
             "output_job.package",
             "Write a whole fabrication bundle as one zip file: gerbers and drill files for every layer, the bill of materials and the pick-and-place file, plus a manifest that names every file with its size, checksum, export kind and the job that produced it. Name a recorded output job to package its recipe, or a list of kinds, or nothing for the fabrication bundle",
             schema(
@@ -2066,6 +2085,14 @@ impl Session {
         }
         self.redo.clear();
         self.revision = self.revision.saturating_add(1);
+    }
+    /// True when an edit can be stepped back.
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+    /// True when an undone edit can be stepped forward again.
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
     }
     pub fn undo(&mut self) -> Result<Value, Error> {
         let p = self
@@ -2307,6 +2334,25 @@ fn render_kind(
             "board-stats.csv".into(),
             pcbcraft_io::stats_text(p)?.into_bytes(),
         )),
+        "laser_job" => {
+            let profile = pcbcraft_io::commarker_b6_mopa_profile();
+            let mut operations = std::collections::BTreeSet::new();
+            for id in pcbcraft_doc::LaserJobSettings::OPERATION_IDS {
+                operations.insert(id.to_string());
+            }
+            let options = pcbcraft_io::LaserJobExportOptions {
+                side: pcbcraft_doc::Layer::Front,
+                operations,
+                mirror_axis: pcbcraft_io::MirrorAxis::Y,
+                margin_mm: 1.0,
+                isolation_width_mm: 0.05,
+                rubout: true,
+                stencil_reduction_pct: 10.0,
+            };
+            let text =
+                pcbcraft_io::laser_job_svg(p, pcbcraft_doc::Layer::Front, &profile, &options)?;
+            out.push(("laser-job.svg".into(), text.into_bytes()));
+        }
         "panel" => {
             for (name, text) in pcbcraft_io::panel_fabrication_files(p)? {
                 out.push((name, text.into_bytes()));
@@ -2884,6 +2930,32 @@ struct ProjectSetUnitParams {
 #[serde(deny_unknown_fields)]
 struct ArchivePathParams {
     path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LaserJobExportParams {
+    side: String,
+    profile_id: String,
+    format: String,
+    operations: Vec<String>,
+    #[serde(default = "laser_job_mirror_default")]
+    mirror_axis: String,
+    #[serde(default)]
+    margin_mm: f64,
+    #[serde(default = "laser_job_isolation_default")]
+    isolation_width_mm: f64,
+    #[serde(default)]
+    rubout: bool,
+    #[serde(default)]
+    stencil_reduction_pct: f64,
+    #[serde(default)]
+    path: Option<String>,
+}
+fn laser_job_mirror_default() -> String {
+    "y".into()
+}
+fn laser_job_isolation_default() -> f64 {
+    0.05
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -12976,6 +13048,65 @@ fn run_command(
             };
             files.remove(index);
             Ok(json!({"name": name, "count": files.len()}))
+        }
+        "laser_job.export" => {
+            let a: LaserJobExportParams = parse(params)?;
+            let settings = pcbcraft_doc::LaserJobSettings {
+                side: a.side.clone(),
+                operations: a.operations.clone(),
+                format: a.format.clone(),
+                mirror_axis: a.mirror_axis.clone(),
+                margin_mm: a.margin_mm,
+                isolation_width_mm: a.isolation_width_mm,
+                rubout: a.rubout,
+                stencil_reduction_pct: a.stencil_reduction_pct,
+                profile_id: a.profile_id.clone(),
+            };
+            if !settings.valid() {
+                return Err(Error::Invalid(
+                    "laser job settings are out of range or list unknown operations".into(),
+                ));
+            }
+            let side = match a.side.as_str() {
+                "front" => pcbcraft_doc::Layer::Front,
+                "back" => pcbcraft_doc::Layer::Back,
+                _ => {
+                    return Err(Error::Invalid(
+                        "laser job side must be front or back".into(),
+                    ));
+                }
+            };
+            let profile = pcbcraft_io::laser_galvo_profile_for_export(p, &a.profile_id)
+                .map_err(Error::Invalid)?;
+            let mirror = pcbcraft_io::MirrorAxis::parse(&a.mirror_axis).map_err(Error::Invalid)?;
+            let options = pcbcraft_io::LaserJobExportOptions {
+                side,
+                operations: a.operations.iter().cloned().collect(),
+                mirror_axis: mirror,
+                margin_mm: a.margin_mm,
+                isolation_width_mm: a.isolation_width_mm,
+                rubout: a.rubout,
+                stencil_reduction_pct: a.stencil_reduction_pct,
+            };
+            let text = match a.format.as_str() {
+                "svg" => pcbcraft_io::laser_job_svg(p, side, &profile, &options),
+                "lcproj" => pcbcraft_io::laser_job_lcproj(p, side, &profile, &options),
+                _ => {
+                    return Err(Error::Invalid(
+                        "laser job format must be svg or lcproj".into(),
+                    ));
+                }
+            }
+            .map_err(Error::Invalid)?;
+            if let Some(path) = a.path {
+                if path.is_empty() || path.len() > 4096 {
+                    return Err(Error::Invalid("laser job path is out of range".into()));
+                }
+                pcbcraft_io::atomic_write(std::path::Path::new(&path), text.as_bytes())
+                    .map_err(Error::Invalid)?;
+                return Ok(json!({"format": a.format, "path": path, "bytes": text.len()}));
+            }
+            Ok(json!({"format": a.format, "text": text}))
         }
         "output_job.add" => {
             let a: OutputJobAddParams = parse(params)?;
@@ -26852,7 +26983,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&directory);
         s.execute(
             "output_job.add",
-            json!({"name":"mech","kinds":["cmp","idf","vrml","step","pdf","svg","ipc2581","ps","odb","hpgl","stackup","drill_chart","stats"]}),
+            json!({"name":"mech","kinds":["cmp","idf","vrml","step","pdf","svg","ipc2581","ps","odb","hpgl","stackup","drill_chart","stats","laser_job"]}),
             None,
         )?;
         s.execute(
@@ -31256,6 +31387,59 @@ mod tests {
         s.project.validate()?;
         Ok(())
     }
+
+    #[test]
+    fn laser_job_refuses_board_larger_than_field_without_lens_option() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.project.board.width = 160.0;
+        s.project.board.height = 160.0;
+        let mut profile = pcbcraft_io::commarker_b6_mopa_profile();
+        profile.fields.retain(|field| field.width_mm <= 150.0);
+        let (width, height) =
+            pcbcraft_io::laser_job_work_area_mm(&s.project, 1.0).map_err(Error::Invalid)?;
+        assert!(
+            pcbcraft_io::laser_job_validate_work_area(&profile, width, height).is_err(),
+            "160 mm board must not fit a 150 mm field"
+        );
+        let err = s.execute(
+            "laser_job.export",
+            json!({
+                "side":"front",
+                "profile_id":"commarker-b6-mopa-150",
+                "format":"svg",
+                "operations":["isolation-cut"],
+                "margin_mm":1.0
+            }),
+            None,
+        );
+        assert!(err.is_err(), "export must refuse an oversize board");
+        Ok(())
+    }
+
+    #[test]
+    fn laser_job_accepts_board_when_profile_lists_300mm_lens() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.project.board.width = 160.0;
+        s.project.board.height = 160.0;
+        let profile = pcbcraft_io::commarker_b6_mopa_profile();
+        let (width, height) =
+            pcbcraft_io::laser_job_work_area_mm(&s.project, 1.0).map_err(Error::Invalid)?;
+        pcbcraft_io::laser_job_validate_work_area(&profile, width, height)
+            .map_err(Error::Invalid)?;
+        s.execute(
+            "laser_job.export",
+            json!({
+                "side":"front",
+                "profile_id":"commarker-b6-mopa",
+                "format":"svg",
+                "operations":["isolation-cut"],
+                "margin_mm":1.0
+            }),
+            None,
+        )?;
+        Ok(())
+    }
+
     #[test]
     fn output_job_with_drawn_layers_round_trips_through_save_and_open() -> Result<(), Error> {
         let mut s = Session::default();

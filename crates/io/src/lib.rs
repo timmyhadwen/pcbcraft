@@ -11,6 +11,7 @@ mod drawn;
 mod fab_export;
 mod gerber;
 mod gerber_job;
+mod laser;
 mod layers;
 mod library_render;
 mod package;
@@ -24,6 +25,11 @@ pub use board_mesh::{
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use gerber::gerber_copper;
 pub use gerber_job::{gerber_job, gerber_zip};
+pub use laser::{
+    LaserGalvoProfile, LaserJobExportOptions, MirrorAxis, commarker_b6_mopa_profile,
+    laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg,
+    laser_job_validate_work_area, laser_job_work_area_mm,
+};
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
     fabrication_point, gerber_copper_counts, layer_shapes,
