@@ -2,6 +2,7 @@
 mod authoring;
 mod canvas;
 mod library;
+mod via_covering;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use std::collections::BTreeMap;
@@ -789,6 +790,10 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.push((
+            "Protection".into(),
+            via_covering::covering_name(v.effective_covering(&project.board)).into(),
+        ));
         clearance_rows(v.net, &mut rows);
         rows.push((
             "Position".into(),
@@ -1512,6 +1517,7 @@ impl App {
                     "The coating on exposed copper; it goes on the factory notes and reports.",
                 );
         });
+        self.via_covering_default_controls(ui);
         ui.horizontal(|ui| {
             ui.label("Thickness");
             ui.add(
@@ -5686,6 +5692,7 @@ impl App {
                                 ui.label(value);
                             });
                         }
+                        self.via_covering_controls(ui, id);
                         if let Some(track) =
                             self.project.board.tracks.iter().find(|t| t.id == id)
                         {
@@ -8228,6 +8235,90 @@ mod tests {
             app.project.variants.is_empty(),
             "the build is gone: {}",
             app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_tents_one_via_and_the_fabrication_notes_say_so() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let net = app
+            .project
+            .nets
+            .first()
+            .map(|n| n.id)
+            .ok_or("the practice design should have a net")?;
+        app.tool_call(
+            "via.place",
+            json!({"net": net, "position": {"x": 12.0, "y": 12.0}, "diameter": 0.7, "drill": 0.3}),
+        );
+        let via = app
+            .project
+            .board
+            .vias
+            .last()
+            .map(|v| v.id)
+            .ok_or("the via should be on the board")?;
+        app.select(Some(via));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Via protection")?,
+            "a chosen via offers to say how it is protected: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Follow board")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Tented")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.refresh();
+        assert_eq!(
+            app.project.board.vias.iter().find(|v| v.id == via).and_then(|v| v.covering),
+            Some(pcbcraft_doc::ViaCovering::Tented),
+            "picking Tented records it on that via: {}",
+            app.message
+        );
+        let files = pcbcraft_io::gerber_files(&app.project)?;
+        let readme = files.get("README-fabrication.txt").ok_or("no readme")?;
+        assert!(
+            readme.contains("Via protection override: 1 tented"),
+            "the factory notes name the tented via: {readme}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_tents_every_via_from_the_board_notes() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            scrolled_to(&ctx, &mut app, "Left open")?,
+            "the board notes show that vias are left open to begin with"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Left open")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Tented")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.board.via_covering_default,
+            pcbcraft_doc::ViaCovering::Tented,
+            "the board default is recorded: {}",
+            app.message
+        );
+        let files = pcbcraft_io::gerber_files(&app.project)?;
+        let readme = files.get("README-fabrication.txt").ok_or("no readme")?;
+        assert!(
+            readme.contains("Via protection: tented"),
+            "the factory notes name the board policy: {readme}"
         );
         Ok(())
     }

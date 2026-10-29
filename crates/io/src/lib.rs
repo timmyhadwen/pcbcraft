@@ -6646,6 +6646,7 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -6764,6 +6765,7 @@ mod tests {
             position: Point::new(30.0, 40.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.validate()?;
         let text = stats_text(&project)?;
@@ -6804,6 +6806,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -6811,6 +6814,7 @@ mod tests {
             position: Point::new(20.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 503,
@@ -6983,6 +6987,7 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.validate()?;
         let pcb = hpgl_plot(&project, "pcb")?;
@@ -7027,6 +7032,7 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.validate()?;
         let package = odb_package(&project)?;
@@ -7088,6 +7094,7 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -7844,6 +7851,7 @@ mod tests {
             position: Point::new(50.8, 25.4),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.unit = "inch".into();
         project.validate()?;
@@ -7900,6 +7908,7 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 5,
@@ -8716,6 +8725,7 @@ mod tests {
             position: Point::new(15.0, 11.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 40,
@@ -9041,6 +9051,7 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
             id: 8,
@@ -9209,6 +9220,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
+            covering: None,
         });
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
@@ -9335,6 +9347,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
+            covering: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 12,
@@ -10239,6 +10252,7 @@ mod tests {
             position: Point::new(4.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 41,
@@ -10392,6 +10406,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 1.4,
             drill: 0.8,
+            covering: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -11604,6 +11619,7 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -11634,6 +11650,7 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -12132,6 +12149,101 @@ mod tests {
         assert!(readme.contains("L1"));
         assert!(readme.contains("fab@example.test"));
         assert!(readme.contains("Via protection: open"));
+        Ok(())
+    }
+
+    fn covering_fixture(
+        default: pcbcraft_doc::ViaCovering,
+        own: Option<pcbcraft_doc::ViaCovering>,
+    ) -> Result<Project, String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.board.via_covering_default = default;
+        for (id, x, covering) in [(10, 10.0, own), (11, 20.0, None)] {
+            project.board.vias.push(pcbcraft_doc::Via {
+                id,
+                net: 1,
+                position: Point::new(x, 10.0),
+                diameter: 0.6,
+                drill: 0.3,
+                covering,
+            });
+        }
+        project.validate()?;
+        Ok(project)
+    }
+
+    #[test]
+    fn tented_via_has_no_mask_opening_and_open_via_keeps_it() -> Result<(), String> {
+        use pcbcraft_doc::ViaCovering;
+        let openings = |files: &BTreeMap<String, String>| {
+            files["pcb-F.Mask.gbr"].matches("G36*").count()
+        };
+        let open = gerber_files(&covering_fixture(ViaCovering::Open, None)?)?;
+        assert_eq!(openings(&open), 2, "both open vias keep their opening");
+        let one_tented =
+            gerber_files(&covering_fixture(ViaCovering::Open, Some(ViaCovering::Tented))?)?;
+        assert_eq!(
+            openings(&one_tented),
+            1,
+            "the tented via loses its opening, the open one keeps it"
+        );
+        let tented = gerber_files(&covering_fixture(ViaCovering::Tented, None)?)?;
+        assert_eq!(openings(&tented), 0, "a tented board default closes every via");
+        assert_eq!(
+            tented["pcb-B.Mask.gbr"].matches("G36*").count(),
+            0,
+            "the back mask closes too"
+        );
+        let own_open =
+            gerber_files(&covering_fixture(ViaCovering::Tented, Some(ViaCovering::Open))?)?;
+        assert_eq!(openings(&own_open), 1, "a via's own open beats the default");
+        Ok(())
+    }
+
+    #[test]
+    fn readme_names_the_via_protection_policy() -> Result<(), String> {
+        use pcbcraft_doc::ViaCovering;
+        let files = gerber_files(&covering_fixture(ViaCovering::Tented, None)?)?;
+        let readme = &files["README-fabrication.txt"];
+        assert!(readme.contains("Via protection: tented\n"), "{readme}");
+        assert!(!readme.contains("override"), "no overrides, none listed");
+        let files = gerber_files(&covering_fixture(
+            ViaCovering::Tented,
+            Some(ViaCovering::FilledCapped),
+        )?)?;
+        let readme = &files["README-fabrication.txt"];
+        assert!(
+            readme.contains("Via protection override: 1 filled and capped"),
+            "{readme}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn drill_file_marks_via_tools_with_the_via_attribute_and_covering() -> Result<(), String> {
+        use pcbcraft_doc::ViaCovering;
+        let files = gerber_files(&covering_fixture(
+            ViaCovering::Tented,
+            Some(ViaCovering::Plugged),
+        )?)?;
+        let drill = &files["pcb-Plated.drl"];
+        assert!(drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill\n"), "{drill}");
+        assert!(drill.contains("; via protection: tented\n"), "{drill}");
+        assert!(drill.contains("; via protection: plugged\n"), "{drill}");
+        assert_eq!(
+            drill.matches("; #@! TD\n").count(),
+            2,
+            "each via tool clears its attribute so later tools do not inherit it"
+        );
+        assert!(
+            drill.matches("\nT1C0.300\n").count() + drill.matches("\nT2C0.300\n").count() == 2,
+            "one tool per covering: {drill}"
+        );
         Ok(())
     }
 }
