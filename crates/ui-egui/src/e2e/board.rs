@@ -9,7 +9,7 @@ fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), Stri
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "sec:board/root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "HASL")?,
@@ -61,7 +61,7 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "sec:board/root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "Nothing recorded yet")?,
@@ -132,7 +132,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "sec:board/root");
     let mut shown = false;
     for _ in 0..8 {
         if paints_text(&ctx, &mut app, "START FROM A SHAPE")? {
@@ -213,7 +213,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         .ok_or("routing should leave a wire on the top layer")?;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "sec:board/root");
     let shown = scrolled_to(&ctx, &mut app, "BOARD ANATOMY")?;
     assert!(
         shown,
@@ -457,7 +457,7 @@ fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
     app.change_tab(Tab::Pcb);
     app.refresh();
     let ctx = egui::Context::default();
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "sec:board/root");
     assert!(
         scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?,
         "the hole list is the place a slot is read: {}",
@@ -516,7 +516,7 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     app.tool = Tool::Select;
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "sec:board/root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "3.20 mm")?,
@@ -1249,7 +1249,7 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
         .first()
         .map(|h| h.id)
         .ok_or("the mounting hole should exist")?;
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "sec:board/root");
     assert!(
         scrolled_to(&ctx, &mut app, "DATUMS")?,
         "the tree offers a DATUMS group"
@@ -1319,7 +1319,7 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
 #[test]
 fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
     let (ctx, mut app) = fresh_board_app();
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "sec:board/root");
     assert!(scrolled_to(&ctx, &mut app, "DATUMS")?);
     app.datum_ui.add_name = "bad name!".into();
     authoring::tests::tap(&ctx, &mut app, "Add datum")?;

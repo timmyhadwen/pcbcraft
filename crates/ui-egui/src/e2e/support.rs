@@ -283,3 +283,13 @@ pub(crate) fn type_into(
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     Ok(())
 }
+
+/// Select a row of the left aside's Layers tree that is not one object, so
+/// Properties shows it: `sec:board/root` for the board settings, `sec:nets`
+/// for the connections editor.
+pub(crate) fn open_tree_row(ctx: &egui::Context, app: &mut App, key: &str) {
+    app.preferences.left_tab = 0;
+    app.select(None);
+    app.tree.selected_key = Some(key.to_owned());
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+}

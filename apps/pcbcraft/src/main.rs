@@ -9,7 +9,7 @@ fn main() -> eframe::Result {
     };
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--tab schematic|pcb|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png"
+            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--tab schematic|pcb|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--size WIDTHxHEIGHT | --select REFERENCE"
         );
         return Ok(());
     }
@@ -56,8 +56,9 @@ fn main() -> eframe::Result {
     let tab = option("--tab");
     let light = args.iter().any(|a| a == "--light");
     let project_path = option("--project");
+    let select = option("--select");
     let options = eframe::NativeOptions {
-        viewport: egui_viewport(),
+        viewport: egui_viewport(option("--size").as_deref()),
         ..Default::default()
     };
     eframe::run_native(
@@ -67,13 +68,19 @@ fn main() -> eframe::Result {
             Ok(Box::new(
                 pcbcraft_ui_egui::App::new(cc, shared, capture, tab.as_deref(), light)
                     .with_project_path(project_path)
+                    .with_capture_select(select)
                     .with_host(host::host()),
             ))
         }),
     )
 }
-fn egui_viewport() -> eframe::egui::ViewportBuilder {
+fn egui_viewport(size: Option<&str>) -> eframe::egui::ViewportBuilder {
+    let size = size
+        .and_then(|s| s.split_once('x'))
+        .and_then(|(w, h)| Some([w.parse::<f32>().ok()?, h.parse::<f32>().ok()?]))
+        .filter(|[w, h]| (400.0..=4000.0).contains(w) && (300.0..=3000.0).contains(h))
+        .unwrap_or([1440.0, 940.0]);
     eframe::egui::ViewportBuilder::default()
-        .with_inner_size([1440.0, 940.0])
+        .with_inner_size(size)
         .with_min_inner_size([1000.0, 680.0])
 }

@@ -223,13 +223,6 @@ type StackShape = (
     &'static [(&'static str, &'static str, f64)],
 );
 type CheckGroup = (String, Vec<(String, Vec<Id>)>);
-type AnatGroup = (
-    &'static str,
-    String,
-    String,
-    Vec<(Option<Id>, String)>,
-    String,
-);
 /// One line, in plain words, describing a figure drawn on a machine layer.
 fn art_shape_text(shape: &pcbcraft_doc::ArtShape) -> String {
     match shape {
@@ -339,26 +332,6 @@ fn role_token(label: &str) -> Option<&'static str> {
         .iter()
         .find(|(_, l)| *l == label)
         .map(|(token, _)| *token)
-}
-
-/// The words shown beside a layer checkbox. The English name is the stored
-/// id in the preferences, so only the label is translated.
-fn layer_row_label(name: &str) -> String {
-    match name {
-        "Grid" => t!("board.layers_tab.grid"),
-        "Symbols" => t!("board.layers_tab.symbols"),
-        "Wires" => t!("board.layers_tab.wires"),
-        "Net labels" => t!("board.layers_tab.net_labels"),
-        "Graphics" => t!("board.layers_tab.graphics"),
-        "Top copper" => t!("board.layers_tab.top_copper"),
-        "Bottom copper" => t!("board.layers_tab.bottom_copper"),
-        "Pads" => t!("board.layers_tab.pads"),
-        "Vias" => t!("board.layers_tab.vias"),
-        "Copper zones" => t!("board.layers_tab.copper_zones"),
-        "Cutouts" => t!("board.layers_tab.cutouts"),
-        "Package artwork" => t!("board.layers_tab.package_artwork"),
-        other => other.to_owned(),
-    }
 }
 
 /// What the mouse and keys will do next for the active tool. The strip is
@@ -880,10 +853,8 @@ pub struct App {
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
-    tree_query: String,
     /// The unified Layers tree view state (left aside).
     tree: layers_tree::TreeView,
-    tree_hidden: Vec<String>,
     focus_layer: Option<String>,
     make_dir: String,
     rule_draft: Option<(pcbcraft_doc::Id, f64, f64)>,
@@ -950,7 +921,6 @@ pub struct App {
     stack_kind: String,
     stack_thickness: f64,
     stack_edit: Option<(String, String, f64)>,
-    anat_open: Vec<String>,
     /// Optional workspace tabs the user closed; the + menu reopens them.
     closed_tabs: Vec<Tab>,
     notes_thick: f64,
@@ -994,6 +964,8 @@ pub struct App {
     command_index: usize,
     command_scroll: bool,
     capture: Option<String>,
+    /// Reference of the part to select for a capture image.
+    capture_select: Option<String>,
     frames: u32,
     library: library::Browser,
     #[cfg(test)]
@@ -1284,6 +1256,12 @@ impl App {
         }
         self
     }
+    /// Select the part with this reference once the first frames have run, so a
+    /// `--capture` image shows a selection. Ignored outside capture mode.
+    pub fn with_capture_select(mut self, reference: Option<String>) -> Self {
+        self.capture_select = reference;
+        self
+    }
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         session: SharedSession,
@@ -1361,9 +1339,7 @@ impl App {
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,
             home_path_focus: false,
-            tree_query: String::new(),
             tree: layers_tree::TreeView::default(),
-            tree_hidden: Vec::new(),
             focus_layer: None,
             make_dir: String::new(),
             rule_draft: None,
@@ -1429,7 +1405,6 @@ impl App {
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
             stack_edit: None,
-            anat_open: vec!["connections".to_owned()],
             closed_tabs: Vec::new(),
             notes_thick: 1.6,
             notes_er: 4.4,
@@ -1477,6 +1452,7 @@ impl App {
             command_index: 0,
             command_scroll: false,
             capture,
+            capture_select: None,
             frames: 0,
             library,
             #[cfg(test)]
@@ -6380,6 +6356,26 @@ impl App {
     }
     fn capture(&mut self, ctx: &egui::Context) {
         self.frames = self.frames.saturating_add(1);
+        if self.frames == 3
+            && let Some(reference) = self.capture_select.take()
+            && let Some(component) = self
+                .project
+                .components
+                .iter()
+                .find(|c| c.reference == reference)
+        {
+            let id = if self.tab == Tab::Pcb {
+                self.project
+                    .board
+                    .footprints
+                    .iter()
+                    .find(|f| f.component == component.id)
+                    .map_or(component.id, |f| f.id)
+            } else {
+                component.id
+            };
+            self.select(Some(id));
+        }
         let library_ready = self.tab != Tab::Libraries
             || self.library.editor.mode != 0
             || (self.library.catalog.is_some()

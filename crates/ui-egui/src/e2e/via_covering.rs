@@ -70,7 +70,7 @@ fn a_newcomer_tents_every_via_from_the_board_notes() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_tree_row(&ctx, &mut app, "sec:board/root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "Left open")?,

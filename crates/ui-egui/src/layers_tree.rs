@@ -427,7 +427,7 @@ fn schematic_layers(env: &Env, path: &str, sheet: Id) -> Vec<Row> {
     let labels = project.labels.iter().filter(|l| l.kind != "power").count();
     let pins: usize = project.components.iter().map(|c| c.pins.len()).sum();
     let drawing = project.graphics.iter().filter(|g| g.layer == "schematic").count();
-    let mut l = |key: &str, label: String, swatch: Color32, vis: Visibility, n: usize, open: bool| {
+    let l = |key: &str, label: String, swatch: Color32, vis: Visibility, n: usize, open: bool| {
         layer_row(path, key, label, swatch, vis, false, n, open)
     };
     vec![
@@ -671,7 +671,7 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
                 out.push(track_row(key, t));
             }
             for v in board.vias.iter().filter(|v| v.net == id) {
-                out.push(via_row(key, v));
+                out.push(via_row(key, project, v));
             }
         }
         (TreeTab::Schematic, ["sec:nets", net]) => {
@@ -782,7 +782,7 @@ fn children(env: &Env, key: &str) -> Vec<Row> {
         }
         (TreeTab::Layout, [.., layer, "vias"]) if layer.starts_with("layer:") => {
             for v in &board.vias {
-                out.push(via_row(key, v));
+                out.push(via_row(key, project, v));
             }
         }
         (TreeTab::Layout, [.., layer, "text"]) if layer.starts_with("layer:") => {
@@ -890,13 +890,14 @@ fn track_row(path: &str, t: &pcbcraft_doc::Track) -> Row {
     r
 }
 
-fn via_row(path: &str, v: &pcbcraft_doc::Via) -> Row {
+fn via_row(path: &str, project: &Project, v: &pcbcraft_doc::Via) -> Row {
     let mut r = row(
         path,
         &format!("via:{}", v.id),
         RowKind::Via,
         t!("tree.via", drill = format!("{:.2}", v.drill)),
     );
+    r.sub = crate::via_span::via_tree_span(project, v);
     r.select = Some(v.id);
     r.net = Some(v.net);
     r
@@ -1088,7 +1089,6 @@ pub(crate) enum Glyph {
     Lock,
     Unlock,
     Focus,
-    Board,
     Layer,
     Part,
     Pad,
@@ -1099,32 +1099,12 @@ pub(crate) enum Glyph {
     Text,
     Graphic,
     Hole,
-    Sheet,
     Label,
     Plus,
     Search,
     Cross,
     Wire,
     Outline,
-}
-
-fn glyph_for(kind: RowKind) -> Glyph {
-    match kind {
-        RowKind::Root => Glyph::Board,
-        RowKind::Layer | RowKind::Group => Glyph::Layer,
-        RowKind::Part => Glyph::Part,
-        RowKind::Pad => Glyph::Pad,
-        RowKind::Net | RowKind::Wire => Glyph::Net,
-        RowKind::Track => Glyph::Track,
-        RowKind::Via => Glyph::Via,
-        RowKind::Zone => Glyph::Zone,
-        RowKind::Text => Glyph::Text,
-        RowKind::Graphic | RowKind::Shape => Glyph::Graphic,
-        RowKind::Hole => Glyph::Hole,
-        RowKind::Sheet => Glyph::Sheet,
-        RowKind::Label => Glyph::Label,
-        RowKind::Add => Glyph::Plus,
-    }
 }
 
 /// Draw one glyph inside `rect` (about 14 points square).
@@ -1210,16 +1190,6 @@ pub(crate) fn glyph(painter: &egui::Painter, rect: Rect, g: Glyph, col: Color32)
             line(p(-7.0, 0.0), p(-5.0, 0.0));
             line(p(5.0, 0.0), p(7.0, 0.0));
         }
-        Glyph::Board => {
-            painter.rect_stroke(
-                Rect::from_min_max(p(-6.0, -4.5), p(6.0, 4.5)),
-                1.5,
-                stroke,
-                egui::StrokeKind::Inside,
-            );
-            painter.circle_filled(p(-3.5, -2.0), 0.9 * s, col);
-            painter.circle_filled(p(3.5, 2.0), 0.9 * s, col);
-        }
         Glyph::Layer => {
             poly(vec![p(0.0, -5.5), p(6.0, -2.5), p(0.0, 0.5), p(-6.0, -2.5)], true);
             poly(vec![p(-6.0, 0.5), p(0.0, 3.5), p(6.0, 0.5)], false);
@@ -1283,14 +1253,6 @@ pub(crate) fn glyph(painter: &egui::Painter, rect: Rect, g: Glyph, col: Color32)
         }
         Glyph::Hole => {
             painter.circle_stroke(p(0.0, 0.0), 4.5 * s, stroke);
-        }
-        Glyph::Sheet => {
-            poly(
-                vec![p(-4.5, -6.0), p(2.0, -6.0), p(4.5, -3.5), p(4.5, 6.0), p(-4.5, 6.0)],
-                true,
-            );
-            line(p(-2.0, 0.0), p(2.0, 0.0));
-            line(p(-2.0, 3.0), p(2.0, 3.0));
         }
         Glyph::Label => {
             poly(
@@ -1472,7 +1434,7 @@ fn ghost_button(ui: &mut Ui, colours: &ThemeColours, g: Glyph, label: &str, tip:
 /// # Rules
 /// - Rows are virtualized: only rows in view are laid out.
 /// - Arrows move, Right expands, Left collapses, Space toggles visibility,
-///   F focuses, Enter selects; keys work while a tree row has keyboard focus.
+///   F focuses, L locks, Enter selects; keys work while a tree row has keyboard focus.
 /// - A canvas selection that changed since last frame opens its ancestors and
 ///   scrolls its row into view.
 ///
@@ -1935,6 +1897,13 @@ fn keyboard(ui: &mut Ui, env: &Env, view: &mut TreeView, all: &[Row], actions: &
                 Visibility::Art(layer) => actions.push(Action::SetArtShown { layer, on: hidden }),
                 Visibility::None => {}
             }
+        }
+    } else if press(ui, egui::Key::L)
+        && let Some(ctl) = layer_of(all, current)
+        && !ctl.key.is_empty()
+    {
+        if !view.locked.remove(&ctl.key) {
+            view.locked.insert(ctl.key);
         }
     } else if press(ui, egui::Key::F)
         && let Some(ctl) = layer_of(all, current)
