@@ -131,9 +131,13 @@ pub(crate) fn controls(ctx: &egui::Context, app: &App) -> Vec<Control> {
                 let disabled = node.is_some_and(|(_, _, off)| *off);
                 let (id, kind) = if let Some(icon) = icon {
                     (Some(format!("icon:{icon}")), "icon".to_owned())
-                } else if let (Some((_, label, _)), Some(kind)) = (node, kind) {
+                } else if let (Some((_, label, _)), Some(kind)) = (node, kind.clone()) {
                     let label = label.clone().filter(|l| !l.trim().is_empty());
                     (label.map(|l| format!("{kind}:{}", fold_label(&l))), kind)
+                } else if node.is_some() && kind.is_none() {
+                    // Text, groups and panes that only sense a click because egui
+                    // lets people select words. A screen reader reads their text.
+                    continue;
                 } else if w.sense.senses_click() && w.rect.size().max_elem() <= 48.0 {
                     (None, "small".to_owned())
                 } else {
@@ -298,9 +302,12 @@ fn walk(path: &Path) {
         if let Some(tab) = tab {
             app.tab = tab;
         }
+        TALL_SCREEN.with(|tall| tall.set(true));
         settle(&ctx, &mut app);
+        let listed = controls(&ctx, &app);
+        TALL_SCREEN.with(|tall| tall.set(false));
         let mut checked = BTreeSet::new();
-        for control in controls(&ctx, &app) {
+        for control in listed {
             if !control.enabled {
                 continue;
             }

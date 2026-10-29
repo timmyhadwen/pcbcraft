@@ -4063,7 +4063,11 @@ impl App {
             }
         });
         ui.label("Accent color");
-        ui.color_edit_button_srgb(&mut self.preferences.accent);
+        ui.color_edit_button_srgb(&mut self.preferences.accent)
+            .named("Accent color")
+            .on_hover_text(
+                "Pick the colour used to highlight selected items. It is saved automatically.",
+            );
         self.language_menu(ui);
         ui.label(
             egui::RichText::new("Appearance is saved automatically.")
