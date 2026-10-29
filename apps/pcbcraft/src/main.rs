@@ -111,7 +111,12 @@ fn egui_viewport(size: Option<&str>) -> eframe::egui::ViewportBuilder {
         .and_then(|(w, h)| Some([w.parse::<f32>().ok()?, h.parse::<f32>().ok()?]))
         .filter(|[w, h]| (400.0..=4000.0).contains(w) && (300.0..=3000.0).contains(h))
         .unwrap_or([1440.0, 940.0]);
-    eframe::egui::ViewportBuilder::default()
+    let builder = eframe::egui::ViewportBuilder::default()
         .with_inner_size(size)
         .with_min_inner_size([1000.0, 680.0])
+        .with_app_id("io.github.tangency-labs.pcbcraft");
+    match pcbcraft_ui_egui::brand::window_icon() {
+        Some(icon) => builder.with_icon(std::sync::Arc::new(icon)),
+        None => builder,
+    }
 }

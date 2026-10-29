@@ -5,6 +5,7 @@ mod authoring;
 mod board3d;
 mod board_side;
 mod bottom_sheet;
+pub mod brand;
 mod canvas;
 mod contrast;
 mod datums;
@@ -1016,6 +1017,7 @@ pub struct App {
     command_open: bool,
     command_query: String,
     shortcuts_open: bool,
+    about_open: bool,
     command_focus: bool,
     command_index: usize,
     command_scroll: bool,
@@ -1533,6 +1535,7 @@ impl App {
             command_open: false,
             command_query: String::new(),
             shortcuts_open: false,
+            about_open: false,
             command_focus: false,
             command_index: 0,
             command_scroll: false,
@@ -2440,40 +2443,21 @@ impl App {
     const SECTION: f32 = 18.0;
     const BODY: f32 = 14.0;
     const CAPTION: f32 = 12.0;
-    /// The slim top bar: the brand and the menus, nothing else. Save, Undo
-    /// and Redo, settings, bug reports and the version live in the menus.
-    /// The logo mark at the left of the menu bar.
-    ///
-    /// # Rules
-    /// A small placeholder square until `assets/brand/` (feat-brand-logo-687)
-    /// is merged; then paint the real mark here.
-    ///
-    /// # Do not
-    /// Make it larger than the 14 px name beside it.
-    fn brand_mark(&self, ui: &mut egui::Ui) {
-        let (rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::hover());
-        let painter = ui.painter();
-        painter.rect_filled(rect, 4.0, self.accent());
-        painter.rect_filled(rect.shrink(6.0), 1.0, self.surface());
-    }
     fn header(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("app-bar")
             .exact_size(Self::APP_BAR_HEIGHT)
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
-                // One centred row so the mark, the name and the menus share a baseline.
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    self.brand_mark(ui);
-                    let brand = ui.add(
-                        egui::Button::new(
-                            egui::RichText::new(t!("app.name"))
-                                .size(14.0)
-                                .strong()
-                                .color(self.ink()),
-                        )
-                        .frame(false)
-                        .min_size(Vec2::splat(Self::MIN_TARGET)),
-                    );
+                ui.horizontal_centered(|ui| {
+                    let label = egui::RichText::new(t!("app.name"))
+                        .size(15.0)
+                        .strong()
+                        .color(self.ink());
+                    let button = match brand::image(ui.ctx(), 20.0) {
+                        Some(mark) => egui::Button::image_and_text(mark, label),
+                        None => egui::Button::new(label),
+                    };
+                    let brand = ui.add(button.frame(false).min_size(Vec2::splat(Self::MIN_TARGET)));
                     a11y::name_control(&brand, "PCBCraft start screen", None);
                     if brand.on_hover_text(t!("app.brand.tip")).clicked() {
                         self.home_open = true;
@@ -2566,6 +2550,8 @@ impl App {
                     .show(ui, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add_space(36.0);
+                            brand::mark(ui, 96.0);
+                            ui.add_space(12.0);
                             ui.label(
                                 egui::RichText::new(t!("dialogs.start_home.welcome_to_pcbcraft"))
                                     .size(30.0)
@@ -2949,6 +2935,13 @@ impl App {
                 self.command_index = 0;
             }
             ui.separator();
+            if ui
+                .button(t!("app.about"))
+                .on_hover_text(t!("app.about.tip"))
+                .clicked()
+            {
+                self.about_open = !self.about_open;
+            }
             if ui
                 .button(t!("app.report_bug"))
                 .on_hover_text(t!("app.report_bug.tip"))
@@ -5939,6 +5932,8 @@ impl App {
                         });
                 });
         }
+        let about_muted = self.muted();
+        brand::about_window(ui, &mut self.about_open, about_muted);
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))

@@ -1107,3 +1107,93 @@ fn a_newcomer_never_meets_a_control_too_small_to_hit() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Bounds of every painted image: a rectangle filled from a texture other
+/// than the font atlas (the first managed texture).
+fn image_rects(output: &egui::FullOutput) -> Vec<egui::Rect> {
+    output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if !matches!(rect.fill_texture_id(), egui::TextureId::Managed(0)) =>
+            {
+                Some(rect.visual_bounding_rect())
+            }
+            egui::Shape::Mesh(mesh) if !matches!(mesh.texture_id, egui::TextureId::Managed(0)) => {
+                Some(mesh.calc_bounds())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_newcomer_sees_the_brand_mark_in_the_app_bar() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        image_rects(&output).iter().any(|r| r.min.y < 40.0),
+        "the app bar should show the mark beside the name"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "PCBCraft")?,
+        "the app bar still says the name: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reads_about_pcbcraft_from_the_help_menu() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Help")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "About")?;
+    assert!(app.about_open, "About should open from the Help menu");
+    assert!(
+        paints_text(&ctx, &mut app, "About PCBCraft")?,
+        "the window has a plain title: {}",
+        app.message
+    );
+    let version = format!("Version {}", env!("CARGO_PKG_VERSION"));
+    assert!(
+        paints_text(&ctx, &mut app, &version)?,
+        "the window says which version this is"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Close")?;
+    assert!(!app.about_open, "Close puts the window away");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_the_mark_on_the_start_page() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.home_open = true;
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let large = image_rects(&output)
+        .iter()
+        .filter(|r| r.width() > 80.0)
+        .count();
+    assert!(large >= 1, "the start page should show the large mark");
+    assert!(
+        paints_text(&ctx, &mut app, "Welcome to PCBCraft")?,
+        "the welcome line is still there: {}",
+        app.message
+    );
+    Ok(())
+}
