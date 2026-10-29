@@ -1,4 +1,5 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
+mod a11y;
 mod authoring;
 mod canvas;
 mod library;
@@ -468,6 +469,12 @@ struct Preferences {
     aside_lower_tab: u8,
     #[serde(default = "default_true")]
     library_dock_open: bool,
+    /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
+    #[serde(default = "default_ui_scale")]
+    ui_scale: f32,
+}
+fn default_ui_scale() -> f32 {
+    a11y::DEFAULT_UI_SCALE
 }
 fn default_aside_split() -> f32 {
     0.45
@@ -486,6 +493,7 @@ impl Default for Preferences {
             aside_split: default_aside_split(),
             aside_lower_tab: 0,
             library_dock_open: true,
+            ui_scale: a11y::DEFAULT_UI_SCALE,
         }
     }
 }
@@ -2612,6 +2620,7 @@ impl App {
                             )
                             .sense(egui::Sense::click()),
                         );
+                        a11y::name_control(&brand, "PCBCraft start screen", None);
                         if brand
                             .on_hover_text("Back to the start screen, where you open or begin a design.")
                             .clicked()
@@ -2660,11 +2669,11 @@ impl App {
                                 .color(self.ink()),
                         )
                         .on_hover_text("This document tab names the open design.");
-                        if ui
+                        let new_tab = ui
                             .button("+")
-                            .on_hover_text("Start another design from the New section on the start screen.")
-                            .clicked()
-                        {
+                            .on_hover_text("Start another design from the New section on the start screen.");
+                        a11y::name_control(&new_tab, "New design", None);
+                        if new_tab.clicked() {
                             self.home_open = true;
                         }
                     });
@@ -3782,6 +3791,21 @@ impl App {
                 .on_hover_text("Light canvas and panels, easier on printed previews.");
         });
         ui.checkbox(&mut self.preferences.grid, "Show grid");
+        ui.label("Interface size");
+        ui.horizontal(|ui| {
+            for (label, scale) in a11y::UI_SCALE_STEPS {
+                let on = (self.preferences.ui_scale - scale).abs() < 0.01;
+                if ui
+                    .selectable_label(on, label)
+                    .on_hover_text(format!(
+                        "Make text and controls {label} of normal size. Ctrl and plus or minus also work."
+                    ))
+                    .clicked()
+                {
+                    self.preferences.ui_scale = scale;
+                }
+            }
+        });
         ui.label("Accent color");
         ui.color_edit_button_srgb(&mut self.preferences.accent);
         ui.label(
@@ -6499,7 +6523,7 @@ impl App {
         selected: bool,
     ) -> egui::Response {
         let style = self.icon_button_style();
-        let response = IconButton::new(id, Vec2::splat(28.0), &style)
+        let response = IconButton::new(a11y::tool_name(id), Vec2::splat(28.0), &style)
             .selected(selected)
             .show(ui, |ui, rect, tint| {
                 ui.painter().text(
@@ -6761,6 +6785,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
+        a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
         self.style(&ctx);
         self.shortcuts(&ctx);
         self.header(ui);
@@ -6808,6 +6833,7 @@ impl App {
                     }
                 });
         }
+        a11y::paint_focus_ring(&ctx, self.accent());
         self.capture(&ctx);
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
     }
