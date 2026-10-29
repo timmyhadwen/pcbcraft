@@ -15,6 +15,14 @@
 
 use super::*;
 
+/// What a row of a page tab's right-click menu does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PageAct {
+    Rename,
+    Add,
+    Remove,
+}
+
 /// Egui memory key for the page tab being renamed in place: `(page id, text so far)`.
 fn rename_key() -> egui::Id {
     egui::Id::new("schematic-page-tab-rename")
@@ -76,6 +84,49 @@ pub(crate) fn inline_name_edit(
 }
 
 impl App {
+    /// The right-click menu of a page tab: rename, add, then remove last.
+    ///
+    /// # Rules
+    /// - Page 0 is the Main page: Rename and Remove are disabled and say why.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/ui_kit/menu.rs (`Menu`, `Item`).
+    ///
+    /// # Do not
+    /// - Run a command here; `page_switcher` runs the returned [`PageAct`].
+    fn page_menu(page: Id) -> Vec<crate::ui_kit::menu::Entry<PageAct>> {
+        use crate::ui_kit::menu::{Item, Menu};
+        use crate::ui_kit::{icons as kit, menu_icons as glyph};
+        let named = page != 0;
+        let why = t!("schematic.pages.main.tip");
+        Menu::new()
+            .group([Item::new(
+                PageAct::Rename,
+                t!("schematic.pages.rename"),
+                t!("schematic.pages.rename.tip"),
+            )
+            .icon(glyph::RENAME)
+            .enabled_if(named, why.clone())
+            .into()])
+            .group([Item::new(
+                PageAct::Add,
+                t!("schematic.pages.add"),
+                t!("schematic.pages.add.tip"),
+            )
+            .icon(kit::PLUS)
+            .into()])
+            .destructive(
+                Item::new(
+                    PageAct::Remove,
+                    t!("schematic.pages.remove"),
+                    t!("schematic.pages.remove.tip"),
+                )
+                .icon(glyph::TRASH)
+                .enabled_if(named, why),
+            )
+            .entries()
+    }
+
     /// The page the schematic canvas shows: the chosen page while it still
     /// exists, otherwise the Main page.
     ///
@@ -176,7 +227,7 @@ impl App {
     /// `../../engine/src/lib.rs` (`schematic.remove_sheet`).
     pub(crate) fn remove_page(&mut self, id: Id) {
         if id == 0 {
-            self.message = t!("schematic.pages.main_fixed");
+            self.message = t!("schematic.pages.main.tip");
             return;
         }
         if self.tool_call("schematic.remove_sheet", json!({"id": id, "move_to": 0}))
@@ -348,6 +399,7 @@ impl App {
         pages.extend(self.project.sheets.iter().map(|s| (s.id, s.name.clone())));
         let mut rename: Option<(Id, String)> = ui.data(|d| d.get_temp(rename_key()));
         let mut go = None;
+        let mut tab_act: Option<(Id, PageAct)> = None;
         let mut add = false;
         let mut remove = None;
         let mut start_rename = None;
@@ -387,43 +439,11 @@ impl App {
                 if response.clicked() {
                     go = Some(*id);
                 }
-                response.context_menu(|ui| {
-                    let item = |ui: &mut egui::Ui, label: String, tip: String, on: bool| {
-                        let clicked = ui
-                            .add_enabled(on, egui::Button::new(label))
-                            .on_hover_text(tip.clone())
-                            .on_disabled_hover_text(t!("schematic.pages.main_fixed"))
-                            .clicked();
-                        if clicked {
-                            ui.close();
-                        }
-                        clicked
-                    };
-                    if item(
-                        ui,
-                        t!("schematic.pages.add"),
-                        t!("schematic.pages.add.tip"),
-                        true,
-                    ) {
-                        add = true;
-                    }
-                    if item(
-                        ui,
-                        t!("schematic.pages.rename"),
-                        t!("schematic.pages.rename.tip"),
-                        *id != 0,
-                    ) {
-                        start_rename = Some(*id);
-                    }
-                    if item(
-                        ui,
-                        t!("schematic.pages.remove"),
-                        t!("schematic.pages.remove.tip"),
-                        *id != 0,
-                    ) {
-                        remove = Some(*id);
-                    }
-                });
+                if let Some(act) =
+                    crate::ui_kit::menu::context(&response, "page-tab", || Self::page_menu(*id))
+                {
+                    tab_act = Some((*id, act));
+                }
             }
             let plus = ui
                 .add(
@@ -445,6 +465,12 @@ impl App {
         {
             start_rename = Some(current);
         }
+        match tab_act {
+            Some((_, PageAct::Add)) => add = true,
+            Some((id, PageAct::Rename)) => start_rename = Some(id),
+            Some((id, PageAct::Remove)) => remove = Some(id),
+            None => {}
+        }
         if let Some(id) = go {
             ui.data_mut(|d| d.remove::<(Id, String)>(rename_key()));
             self.show_page(id);
@@ -452,7 +478,7 @@ impl App {
         }
         if let Some(id) = start_rename {
             if id == 0 {
-                self.message = t!("schematic.pages.main_fixed");
+                self.message = t!("schematic.pages.main.tip");
             } else {
                 let edit = (id, self.page_name(id));
                 ui.data_mut(|d| d.insert_temp(rename_key(), edit.clone()));
