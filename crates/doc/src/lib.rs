@@ -1188,11 +1188,24 @@ impl ArtShape {
         }
     }
 
-    /// The straight-line paths this figure draws, in board millimetres, using
-    /// the same conventions as the canvas: a rectangle turns its corners by
-    /// its own rotation about its centre, a polygon is always closed, and a
-    /// circle is sampled into a ring. Text returns no path because drawing
-    /// glyphs needs a stroke font; callers report text as skipped instead.
+    /// A point that represents the figure for navigation and region tests.
+    pub fn anchor(&self) -> Point {
+        match self {
+            Self::Line { start, .. } => *start,
+            Self::Rect {
+                x,
+                y,
+                width,
+                height,
+                ..
+            } => Point::new(x + width / 2.0, y + height / 2.0),
+            Self::Circle { center, .. } => *center,
+            Self::Poly { points } => points.first().copied().unwrap_or_default(),
+            Self::Text { at, .. } => *at,
+        }
+    }
+
+    /// The straight-line paths this figure draws, in board millimetres.
     pub fn paths(&self) -> Vec<ArtPath> {
         match self {
             Self::Line { start, end } => vec![ArtPath {
@@ -2268,6 +2281,9 @@ impl Project {
         }
         if let Some(c) = b.cutouts.iter().find(|c| c.id == id) {
             return Some(c.center);
+        }
+        if let Some(l) = b.user_layers.iter().find(|l| l.id == id) {
+            return l.shapes.first().map(ArtShape::anchor);
         }
         if let Some(f) = b.footprints.iter().find(|f| f.id == id) {
             return Some(f.position);
