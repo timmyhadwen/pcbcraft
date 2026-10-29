@@ -164,6 +164,9 @@ fn a_newcomer_flips_the_board_and_sees_the_bottom_parts_on_top() -> Result<(), S
 fn a_newcomer_steps_through_the_layers() -> Result<(), String> {
     let (mut app, ctx) = open_layout();
     assert_eq!(app.current_target(), Target::Copper(Layer::Front));
+    let opening = app.layer_status();
+    assert!(opening.contains("Top copper"), "{opening}");
+    authoring::tests::tap(&ctx, &mut app, &opening)?;
     key(&ctx, &mut app, egui::Key::PageUp);
     assert_eq!(
         app.current_target(),
