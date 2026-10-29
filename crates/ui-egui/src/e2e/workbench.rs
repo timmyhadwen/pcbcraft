@@ -1,7 +1,7 @@
-//! Stories for the left rail, the library dock, the datasheet action and the
+//! Stories for the left aside, the library browser, the datasheet action and the
 //! breathing room around every dock and tab body.
 use super::super::*;
-use super::support::{frame, scrolled_to};
+use super::support::{frame, scrolled_to, LEFT_ASIDE};
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 
@@ -86,20 +86,30 @@ fn a_newcomer_toggles_the_library_dock_from_the_left_rail() -> Result<(), String
     let mut app = fresh();
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let at = centre_of(&out, "Lib", 44.0).ok_or("the rail should offer the library toggle")?;
-    assert!(
-        app.preferences.library_dock_open,
-        "the library dock starts open"
+    assert_eq!(
+        app.preferences.left_tab, 0,
+        "the Layers tab starts selected in the left aside"
     );
-    click(&ctx, &mut app, at);
-    assert!(
-        !app.preferences.library_dock_open,
-        "the rail toggle hides the dock"
+    let library = centre_of(&out, "Library", LEFT_ASIDE + 8.0)
+        .ok_or("the left aside should offer the Library tab")?;
+    click(&ctx, &mut app, library);
+    assert_eq!(
+        app.preferences.left_tab, 1,
+        "the Library tab shows the parts browser"
     );
-    click(&ctx, &mut app, at);
+    let out = settled(&ctx, &mut app);
     assert!(
-        app.preferences.library_dock_open,
-        "the rail toggle shows it again"
+        texts(&out)
+            .iter()
+            .any(|(words, left, _, _)| words.contains("Add a part") && *left < LEFT_ASIDE),
+        "the library browser body sits in the left aside"
+    );
+    let layers = centre_of(&out, "Layers", LEFT_ASIDE + 8.0)
+        .ok_or("the left aside should offer the Layers tab")?;
+    click(&ctx, &mut app, layers);
+    assert_eq!(
+        app.preferences.left_tab, 0,
+        "the Layers tab brings the tree back"
     );
     Ok(())
 }
@@ -113,9 +123,10 @@ fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), S
     });
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let errors = centre_of(&out, "2", 44.0).ok_or("an errors badge reads 2")?;
-    centre_of(&out, "1", 44.0).ok_or("a warnings badge reads 1")?;
-    centre_of(&out, "4", 44.0).ok_or("a notes badge reads 4")?;
+    let errors =
+        centre_of(&out, "2 errors", f32::MAX).ok_or("the status strip should count errors")?;
+    centre_of(&out, "5 warnings", f32::MAX)
+        .ok_or("the status strip should count warnings and notes together")?;
     click(&ctx, &mut app, errors);
     assert_eq!(app.tab, Tab::Checks, "a badge opens the Checks tab");
     Ok(())
@@ -129,7 +140,7 @@ fn a_newcomer_finds_no_board_statistics_in_the_library_dock() -> Result<(), Stri
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
     for (words, left, _, _) in texts(&out) {
-        if left > 44.0 && left < 304.0 {
+        if left > 8.0 && left < LEFT_ASIDE {
             let lower = words.to_lowercase();
             for banned in ["board size", "dimensions", "layer count", "parts placed"] {
                 assert!(
@@ -232,7 +243,7 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
     app.refresh();
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let (rail, dock) = (44.0, 44.0 + 260.0);
+    let dock_right = LEFT_ASIDE;
     // The aside may grow past its 280 px minimum, so find its edge from
     // the panel's own heading, which sits one 16 px margin inside it.
     let aside = texts(&out)
@@ -248,10 +259,10 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
         if words.trim().is_empty() || top < 80.0 || top > 900.0 {
             continue;
         }
-        if left > rail && left < dock {
+        if left > 8.0 && left < dock_right {
             assert!(
-                left >= rail + 12.0,
-                "left dock text hugs the edge: {words} at {left}"
+                left >= 20.0,
+                "left aside text hugs the edge: {words} at {left}"
             );
         }
         if left > aside {
@@ -272,10 +283,10 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
             if words.trim().is_empty() || top < 110.0 || top > 900.0 {
                 continue;
             }
-            if left > dock && left < SCREEN.x - 280.0 - 40.0 {
+            if left > dock_right && left < SCREEN.x - 280.0 - 40.0 {
                 assert!(
-                    left >= dock + 12.0,
-                    "{tab:?} body text hugs the dock edge: {words} at {left},{top}"
+                    left >= dock_right + 12.0,
+                    "{tab:?} body text hugs the left aside edge: {words} at {left},{top}"
                 );
             }
         }

@@ -7312,7 +7312,7 @@ mod tests {
         assert!(before > 0, "the worked example is wired up");
         authoring::tests::tap(&ctx, &mut app, "Layers")?;
         assert!(
-            scrolled_to(&ctx, &mut app, "Wires")?,
+            scrolled_to_left(&ctx, &mut app, "Wires")?,
             "the layers page lists wires as its own row"
         );
         authoring::tests::tap(&ctx, &mut app, "Wires")?;
@@ -7359,8 +7359,10 @@ mod tests {
             .copied()
             .ok_or("a floating Fit icon sits in the work area")?;
         assert!(
-            fit.max.x <= 1440.0 - 280.0 && fit.min.y > 60.0,
-            "the Fit icon stays inside the canvas, left of the right aside: {fit:?}"
+            fit.max.x <= 1440.0 - 280.0
+                && fit.min.x >= LEFT_ASIDE
+                && fit.min.y > 60.0,
+            "the Fit icon stays inside the canvas between the asides: {fit:?}"
         );
         let first = app.project.components[0].id;
         let before = app.project.components[0].rotation;
@@ -7373,7 +7375,7 @@ mod tests {
             .copied()
             .ok_or("a selected part grows a Rotate handle beside it")?;
         assert!(
-            handle.max.x <= 1440.0 - 280.0,
+            handle.max.x <= 1440.0 - 280.0 && handle.min.x >= LEFT_ASIDE,
             "the handle stays inside the canvas: {handle:?}"
         );
         authoring::tests::tap_icon(&ctx, &mut app, "handle-rotate")?;

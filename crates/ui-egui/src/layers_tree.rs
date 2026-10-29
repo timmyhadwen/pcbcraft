@@ -2557,43 +2557,71 @@ mod tests {
     #[test]
     fn only_expanded_branches_are_built() {
         let project = sample();
-        let mut view = TreeView::default();
-        let closed = rows(&env(&project, &[]), &mut view).len();
-        view.expanded.insert("sec:parts".to_owned());
-        let open = rows(&env(&project, &[]), &mut view).len();
+        let mut closed_view = TreeView {
+            expanded: {
+                let mut set = TreeView::default().expanded;
+                set.remove("sec:parts");
+                set
+            },
+            ..Default::default()
+        };
+        let closed = rows(&env(&project, &[]), &mut closed_view).len();
+        let mut open_view = TreeView {
+            expanded: {
+                let mut set = TreeView::default().expanded;
+                set.insert("sec:parts".to_owned());
+                set
+            },
+            ..Default::default()
+        };
+        let open = rows(&env(&project, &[]), &mut open_view).len();
         assert_eq!(open, closed + project.board.footprints.len());
     }
 
     #[test]
-    fn a_search_keeps_matches_and_their_ancestors() {
+    fn a_search_keeps_matches_and_their_ancestors() -> Result<(), String> {
         let project = sample();
         let net = project.nets[0].name.clone();
-        let mut view = TreeView::default();
-        view.query = net.clone();
+        let mut view = TreeView {
+            query: net.clone(),
+            ..Default::default()
+        };
         let list = rows(&env(&project, &[]), &mut view);
         assert!(
             list.iter()
                 .any(|r| r.kind == RowKind::Net && r.label == net)
         );
         assert!(list.iter().any(|r| r.key == "sec:nets"));
-        view.query = "zzzz-no-such-thing".to_owned();
-        assert!(rows(&env(&project, &[]), &mut view).is_empty());
+        let mut miss = TreeView {
+            query: "zzzz-no-such-thing".to_owned(),
+            ..Default::default()
+        };
+        assert!(rows(&env(&project, &[]), &mut miss).is_empty());
+        Ok(())
     }
 
     #[test]
-    fn a_part_selected_on_the_canvas_opens_its_row() {
+    fn a_part_selected_on_the_canvas_opens_its_row() -> Result<(), String> {
         let project = sample();
         let id = project.board.footprints[0].id;
-        let (opens, target) = reveal_path(&env(&project, &[]), id).expect("row");
+        let (opens, target) = reveal_path(&env(&project, &[]), id)
+            .ok_or_else(|| "the tree should know how to reveal a footprint row".to_string())?;
         assert_eq!(target, format!("sec:parts/fp:{id}"));
         assert!(opens.contains(&"sec:parts".to_owned()));
-        let mut view = TreeView::default();
-        view.expanded.extend(opens);
+        let mut view = TreeView {
+            expanded: {
+                let mut set = TreeView::default().expanded;
+                set.extend(opens);
+                set
+            },
+            ..Default::default()
+        };
         assert!(
             rows(&env(&project, &[]), &mut view)
                 .iter()
                 .any(|r| r.key == target)
         );
+        Ok(())
     }
 
     #[test]
@@ -2617,18 +2645,19 @@ mod tests {
     }
 
     #[test]
-    fn the_board_outline_row_opens_board_settings() {
+    fn the_board_outline_row_opens_board_settings() -> Result<(), String> {
         let project = sample();
         let mut view = TreeView::default();
         let list = rows(&env(&project, &[]), &mut view);
         let outline = list
             .iter()
             .find(|r| r.key == "sec:board/root")
-            .expect("outline");
+            .ok_or("the board outline row should sit under Board")?;
         let mut actions = Vec::new();
         activate(&mut view, outline, &mut actions);
         assert_eq!(view.selected_key.as_deref(), Some("sec:board/root"));
         assert!(actions.contains(&Action::SelectKey("sec:board/root".to_owned())));
+        Ok(())
     }
 
     #[test]
@@ -2642,8 +2671,14 @@ mod tests {
             f.component = component.id;
             project.board.footprints.push(f);
         }
-        let mut view = TreeView::default();
-        view.expanded.insert("sec:parts".to_owned());
+        let mut view = TreeView {
+            expanded: {
+                let mut set = TreeView::default().expanded;
+                set.insert("sec:parts".to_owned());
+                set
+            },
+            ..Default::default()
+        };
         let e = env(&project, &[]);
         let start = std::time::Instant::now();
         let list = rows(&e, &mut view);
