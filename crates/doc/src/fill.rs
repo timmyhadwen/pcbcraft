@@ -394,6 +394,23 @@ impl Keepout {
     }
 }
 
+/// Ids of the pads' footprints, vias, holes, tracks and zones the pour has to
+/// consider on one copper layer, in board order.
+///
+/// # Rules
+/// - Same list `zone_fill` and `keepout_hits` walk, so a test of this list is a
+///   test of both.
+///
+/// # Dependencies
+/// - `items` in this file builds the list; `Project::via_span_layers` in
+///   `lib.rs` decides which vias reach the layer.
+///
+/// # Do not
+/// - Use this to edit the board; it reports, it never changes the document.
+pub fn layer_obstacles(project: &Project, layer: Layer) -> Result<Vec<Id>, String> {
+    Ok(items(project, layer)?.iter().map(|item| item.id).collect())
+}
+
 /// Copper shapes on one layer, each with the net and rotation the pour needs.
 fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
     let mut items = Vec::new();

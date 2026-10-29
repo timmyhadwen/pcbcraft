@@ -19,7 +19,9 @@ pub type Id = u64;
 pub const MAX_ITEMS: usize = 2048;
 
 pub mod fill;
-pub use fill::{KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, zone_fill, zone_fills};
+pub use fill::{
+    KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Pin {
