@@ -227,6 +227,15 @@ fn settle(ctx: &egui::Context, app: &mut App) {
 /// Hover the control for two frames and say whether a tooltip appeared.
 fn shows_tooltip(ctx: &egui::Context, app: &mut App, control: &Control) -> bool {
     let pos = control.rect.center();
+    // Clear the previous control's tooltip first: it can sit over this control.
+    for _ in 0..2 {
+        frame(
+            ctx,
+            app,
+            vec![egui::Event::PointerGone],
+            egui::Modifiers::NONE,
+        );
+    }
     for _ in 0..2 {
         frame(
             ctx,

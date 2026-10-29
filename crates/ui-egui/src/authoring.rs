@@ -1609,7 +1609,11 @@ pub(crate) fn apply_unplated_defaults(pad: &mut pcbcraft_library::FootprintPad) 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    pub(crate) fn frame(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) -> egui::FullOutput {
+    pub(crate) fn frame(
+        ctx: &egui::Context,
+        app: &mut App,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
         crate::e2e::support::frame(ctx, app, events, egui::Modifiers::NONE)
     }
     #[test]
