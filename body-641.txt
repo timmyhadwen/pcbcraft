@@ -1,0 +1,47 @@
+**Tags:** `track:ai-handoff` `kind:feature` `area:mcp` `crate:mcp` `crate:apps` `conflict:parallel-safe` `size:m` `status:needs-owner-test` `ready` `research:done` `enrich:done`
+## What
+`pcbcraft-cli mcp --http 127.0.0.1:PORT` serves MCP over the Streamable HTTP transport (revision 2025-11-25): one endpoint `/mcp`, POST only, JSON responses, loopback only, a per-run random bearer token, Origin check. Child 1 of #614.
+
+## Why
+Many MCP clients now expect HTTP. The server must stay a loopback-only listener (no public ports rule), so the security checks are part of the feature, not a follow-up.
+
+## How
+Base: fork/main at a0b7682. Hand-rolled HTTP/1.1 on `std::net`; no HTTP server crate (the bridge in `start_bridge` already uses `TcpListener`). Depends on nothing. The transport is stateless, so the lifecycle gate from #637 is not applied here; say so in `docs/mcp.md`.
+- New `crates/mcp/src/http.rs`, `#[cfg(not(target_arch = "wasm32"))]`: `pub fn serve_http(hub: DocumentHub, address: &str, token: &str) -> Result<(), String>`. Reuse the existing private `loopback()` check as the only way to accept an address (refuses `0.0.0.0` and names such as `localhost`). Reuse `handle_rpc(&hub, request, None)` unchanged so stdio, bridge and HTTP share one dispatcher.
+- Request handling, in order, each failure a plain status line with a short JSON body:
+  1. Read the request line and headers (cap 16 KiB of headers, 1 MiB body, read timeout 3 s as `start_bridge` does). Body over the cap: 413.
+  2. Path other than `/mcp`: 404. Method GET or DELETE on `/mcp`: 405 with `Allow: POST`. Other methods: 405.
+  3. `Origin` header present and not `http://127.0.0.1:<port>` or `http://localhost:<port>` (any port): 403. Absent Origin is allowed.
+  4. `Authorization: Bearer <token>` missing or wrong (constant-time compare): 401 with `WWW-Authenticate: Bearer`.
+  5. `Accept` must list `application/json` (the spec asks for both json and event-stream; accept a list that has both or `*/*`): else 406.
+  6. `MCP-Protocol-Version` header, when present, must be one of the three versions `handle_rpc` accepts: else 400. Absent is allowed (the spec says assume 2025-03-26 for old clients; the server treats it as latest).
+  7. Body is one JSON-RPC message. Parse error: 400 with the JSON-RPC parse error body. A notification or a response: 202, empty body. A request: 200, `Content-Type: application/json`, the `handle_rpc` result. A JSON array: 400 (batching is not supported).
+- No session id header is issued (stateless, allowed by the spec). No SSE.
+- Token: `crates/mcp` gains `getrandom` as a direct dependency (already in `Cargo.lock` as 0.3.4; check the licence with `cargo xtask deny`) to make 32 random bytes, hex encoded. `apps/pcbcraft-cli/src/main.rs`, the `"mcp"` arm: `--http ADDR` starts `serve_http`, prints `MCP endpoint: http://ADDR/mcp` and `Bearer token: <token>` to stderr (stdout stays untouched), and runs until killed; `--token-file PATH` writes the token to a file with mode 0600 instead of printing it. Update the usage string at the end of `main.rs` and `docs/mcp.md`.
+- Requests are handled one at a time on the accept loop thread (one design session). Document that.
+
+## Acceptance
+Tests in `crates/mcp/src/http_tests.rs` using a `std::net::TcpStream` client against `127.0.0.1:0`:
+1. `a_test_client_initializes_lists_tools_and_calls_inspect_design_over_http`.
+2. `a_request_without_the_token_gets_401`.
+3. `a_foreign_origin_gets_403_and_an_absent_origin_is_allowed`.
+4. `an_unsupported_protocol_version_header_gets_400`.
+5. `get_and_delete_get_405`.
+6. `a_notification_gets_202_with_no_body`.
+7. `a_body_over_one_mebibyte_gets_413`.
+8. `a_non_loopback_address_is_refused_before_binding`.
+9. `the_token_is_never_written_to_stdout`: run the CLI arm's token printing through a function that takes a writer; assert stdout writer is untouched.
+Out of scope: SSE, session ids, OAuth, remote listeners, replacing the `--connect` bridge, resources, prompts.
+
+### Rules for whoever picks this up
+- Work on a branch of your fork off current fork main; one PR per feature.
+- New code and PR text may not name other EDA tools.
+- Typed engine commands with bounded validation; no unwrap/expect/panic anywhere, tests included.
+- `cargo xtask ci` must be green before pushing.
+- Every new control gets a tooltip; panels keep real margins and padding.
+- End-to-end tests in crates/ui-egui are named like `a_newcomer_*` and must read like a story for someone who has never seen the app.
+
+### Claiming
+Comment `CLAIM <agent-name>` to take this once it is tagged `ready`. If a claim is older than 5 days with no PR, anyone may ask to take it over.
+
+

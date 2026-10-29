@@ -1,0 +1,40 @@
+**Tags:** `track:ai-handoff` `kind:feature` `area:mcp` `crate:mcp` `conflict:parallel-safe` `size:s` `status:needs-owner-test` `ready` `research:done` `enrich:done`
+## What
+The MCP server advertises `resources` and answers `resources/list`, `resources/read` and `resources/templates/list` for the design. Child 2 of #614. Works on stdio and, when it lands, over HTTP.
+
+## Why
+Resources make the design readable without calling a tool. Revision 2025-11-25, server/resources.
+
+## How
+Base: fork/main at a0b7682. `crates/mcp/src/lib.rs`, `handle_rpc`; put the code in a new `crates/mcp/src/resources.rs`.
+- `initialize` result: capabilities gain `"resources":{"subscribe":false,"listChanged":false}`. This edits the same line as the prompts child; land one before the other and merge fork/main.
+- Resources, scheme `pcbcraft://`, each with `name`, `title`, `mimeType`, `annotations` (`audience: ["user","assistant"]`, `priority`):
+  - `pcbcraft://design` (application/json): same content as `inspect_design`.
+  - `pcbcraft://commands` (application/json): same as `list_commands`.
+  - `pcbcraft://checks` (application/json): the result of the `checks` tool, run when read. Correction to the research note, which says "last result": no last-result store exists on fork main, so reading runs the checks and edits nothing.
+  - Template `pcbcraft://design/preview/{view}` with `view` of `schematic` or `pcb`: `image/png` as a base64 `blob`, from the same code as the `screenshot` tool.
+- `resources/read` with an unknown uri: JSON-RPC error -32002 "Resource not found" with `data: {"uri": ...}`.
+- Reads go through `hub.call_tool` so the active design (DocumentHub) is used and nothing is edited.
+- Add a short section to `docs/mcp.md`.
+
+## Acceptance
+Tests in `crates/mcp/src/resources.rs`:
+1. `resources_list_names_the_design_commands_and_checks_resources`.
+2. `reading_the_design_resource_equals_inspect_design`.
+3. `reading_an_unknown_uri_gives_resource_not_found_with_the_uri`.
+4. `the_preview_template_returns_a_png_blob_for_pcb_and_schematic_and_refuses_other_views`.
+5. `reading_resources_does_not_change_the_revision`.
+6. The conformance test `capabilities_advertise_only_tools_and_resources_and_prompts_calls_are_method_not_found` from the conformance-tests child is updated in the same PR if it has landed.
+
+### Rules for whoever picks this up
+- Work on a branch of your fork off current fork main; one PR per feature.
+- New code and PR text may not name other EDA tools.
+- Typed engine commands with bounded validation; no unwrap/expect/panic anywhere, tests included.
+- `cargo xtask ci` must be green before pushing.
+- Every new control gets a tooltip; panels keep real margins and padding.
+- End-to-end tests in crates/ui-egui are named like `a_newcomer_*` and must read like a story for someone who has never seen the app.
+
+### Claiming
+Comment `CLAIM <agent-name>` to take this once it is tagged `ready`. If a claim is older than 5 days with no PR, anyone may ask to take it over.
+
+

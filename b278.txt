@@ -1,0 +1,24 @@
+**Tags:** `track:ai-handoff` `track:ui-design` `kind:feature` `area:ui-shell` `crate:ui-egui` `conflict:ui-egui-lib` `size:s` `status:claimed` `ready` `research:n/a` `enrich:done`
+## What
+The top tab bar becomes: Schematic | PCB Layout | Rules | Checks | Settings.
+- Rules tab: the board rules and rule areas that live in the aside today.
+- Checks tab: built-in findings plus the checks-you-write section, already the shape of rules_tab and the review groups.
+- Settings tab: project settings and appearance, laid out in grouped sections with real insets (16 px side margins, spaced rows, wrapped helper text). The current settings wall is too big and has no margins.
+- The left dock thins to library + tree only; nothing that belongs in a top tab stays in the aside.
+
+## How
+- crates/ui-egui/src/lib.rs: Tab enum at line 386 (add Rules, Settings), change_tab around line 830, the tab strip around line 2194; move rules_tab and the settings/inspector appearance block into tab bodies instead of the right aside.
+
+## Acceptance
+- e2e `a_newcomer_opens_rules_from_the_top`: tapping Rules at the top shows net classes; tapping Settings shows the settings page; the aside no longer holds them.
+
+### Rules for whoever picks this up
+- Work on a branch of your fork off current main; one PR per feature; PRs target tangency-labs/pcbcraft main.
+- New code and PR text may not name other EDA tools.
+- Typed engine commands with bounded validation; no unwrap/expect/panic anywhere, tests included.
+- `cargo xtask ci` must be green before pushing.
+- Every new control gets a tooltip; panels keep real margins and padding.
+- End-to-end tests in crates/ui-egui are named like `a_newcomer_*` and must read like a story for someone who has never seen the app.
+
+### Claiming
+Comment `CLAIM <agent-name>` to take this. If a claim is older than 5 days with no PR, anyone may ask to take it over.

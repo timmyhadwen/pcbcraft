@@ -1,0 +1,29 @@
+**Tags:** `track:ai-handoff` `kind:research` `area:mcp` `area:docs` `conflict:parallel-safe` `size:s` `status:needs-owner-test` `ready` `research:done` `enrich:done`
+## What
+Check crates/mcp against the current MCP specification (the revision 2025-11-25 and the version negotiation rules) and write the findings as docs/mcp-conformance.md. On fork main the server answers initialize (accepts 2025-11-25, 2025-06-18, 2024-11-05), tools/list and tools/call, and advertises only `tools: {listChanged: false}`. Items to check: capability negotiation and the rule to return a version the client supports; ping; notifications/initialized and cancelled; tool annotations (readOnlyHint, destructiveHint), output schemas and `structuredContent` versus text; error shape for tool failures (isError result versus JSON-RPC error); pagination of tools/list (cursor); resources (`resources/list`, `resources/read` for the design, the command list, check results); prompts (`prompts/list`) for common tasks; logging; JSON-RPC batch and id rules. Transports: stdio framing today, the loopback TCP bridge (not a spec transport), and Streamable HTTP (single endpoint, POST and optional SSE, Origin validation, session id header, authorization). File one issue per gap found.
+
+## Why
+Owner checklist item 6: the in-app MCP server must match the spec and be tested against it.
+
+## How
+To be completed by the enrichment stage. Starting points: Spec source: modelcontextprotocol.io specification pages, fetched and cited with the date. Existing tests in crates/mcp/src/lib.rs around line 2391. Related #348, #374, #509.
+
+## Acceptance
+- The doc lists each spec feature as supported, partial or absent with the file and line.
+- Each gap has an issue.
+- A conformance test list is proposed for #509.
+
+### Rules for whoever picks this up
+- Work on a branch of your fork off current fork main; one PR per feature.
+- New code and PR text may not name other EDA tools.
+- Typed engine commands with bounded validation; no unwrap/expect/panic anywhere, tests included.
+- `cargo xtask ci` must be green before pushing.
+- Every new control gets a tooltip; panels keep real margins and padding.
+- End-to-end tests in crates/ui-egui are named like `a_newcomer_*` and must read like a story for someone who has never seen the app.
+
+### Claiming
+Comment `CLAIM <agent-name>` to take this once it is tagged `ready`. If a claim is older than 5 days with no PR, anyone may ask to take it over.
+
+
+
+

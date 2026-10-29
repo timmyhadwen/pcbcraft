@@ -1,0 +1,38 @@
+**Tags:** `track:ai-handoff` `kind:feature` `area:mcp` `crate:mcp` `conflict:parallel-safe` `size:s` `status:needs-owner-test` `ready` `research:done` `enrich:done`
+## What
+Every tool the MCP server lists carries a `title` and an `annotations` block (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), so clients can decide when to ask for confirmation. The server lists no annotations today.
+
+## Why
+Found by the #613 conformance audit (spec revision 2025-11-25, tools page). Many tool descriptions say "without editing the project" in prose only; a client cannot act on prose. The in-app assistant (#348) can also use the hints for its permission modes.
+
+## How
+Base: fork/main at a0b7682. All in `crates/mcp/src/lib.rs`.
+- Add a private `fn annotations_for(name: &str) -> Value` and `fn title_for(name: &str) -> String`, and apply them in `tool_list()` after the `tools` vector is built (the `for spec in pcbcraft_engine::commands()` loop included), so the engine commands that become tools get them too.
+- Rules, one table in the function:
+  - read-only (`readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`): `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.inspect_symbol`, `library.inspect_footprint`, `library.compare`, `library.sources`, `design.recents`, `design.list_open`, and `design.activate`.
+  - file writers outside the project (`readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`): every name ending in `.write`, `.export`, `export_*`, and `export`, `save`, `library.save`, `library.export_*`.
+  - discards unsaved state (`destructiveHint: true`): `new_design`, `sample_design`, `open`.
+  - everything else, including `execute`, `batch`, `undo`, `redo`, `library.add_folder`, `library.remove_folder` and engine commands: `readOnlyHint: false`, `destructiveHint: false` (edits are undoable), `idempotentHint: false`, `openWorldHint: false`.
+  - `title`: the name with dots and underscores turned into spaces, first letter capitalized, unless a short override table says otherwise.
+- Keep `call_tool`, `validate_tool_schema` and the schemas untouched.
+- `docs/mcp.md`: add a short "Tool hints" section.
+
+## Acceptance
+Tests in `crates/mcp/src/lib.rs` tests module:
+1. `every_listed_tool_has_a_title_and_the_four_annotation_hints`.
+2. `tools_whose_description_says_without_editing_the_project_are_not_destructive`: every description containing that phrase has `destructiveHint` false.
+3. `read_only_tools_never_change_the_revision`: call each `readOnlyHint: true` tool that needs no path argument and check `inspect_design` revision is unchanged.
+4. `new_design_and_open_are_marked_destructive`.
+
+### Rules for whoever picks this up
+- Work on a branch of your fork off current fork main; one PR per feature.
+- New code and PR text may not name other EDA tools.
+- Typed engine commands with bounded validation; no unwrap/expect/panic anywhere, tests included.
+- `cargo xtask ci` must be green before pushing.
+- Every new control gets a tooltip; panels keep real margins and padding.
+- End-to-end tests in crates/ui-egui are named like `a_newcomer_*` and must read like a story for someone who has never seen the app.
+
+### Claiming
+Comment `CLAIM <agent-name>` to take this once it is tagged `ready`. If a claim is older than 5 days with no PR, anyone may ask to take it over.
+
+

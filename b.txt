@@ -1,0 +1,40 @@
+**Tags:** `track:ai-handoff` `kind:feature` `area:layout` `milestone:m1` `crate:doc` `crate:engine` `crate:rules` `crate:io` `crate:ui-egui` `conflict:parallel-safe` `size:m` `status:claimed` `ready` `research:n/a` `enrich:done`
+
+Part of #305 (child A of two). Child B (#305B) adds the Flip entry and the View from below toggle in the Layout UI.
+
+## What
+Give a placed footprint a board side and make every consumer honour it:
+- `Footprint` gains `side: Option<Layer>` (absent means top) in crates/doc/src/lib.rs (struct at line 659 of 9f9859a).
+- A typed command `footprint.flip` beside the `"footprint.mirror"` arm (crates/engine/src/lib.rs line 11980): toggles the side, mirrors pad offsets about the footprint's local Y axis, refuses locked footprints and footprints with plated through-hole pads only when the result would change nothing, one undo step.
+- Pad layers are derived, not stored: add `Footprint::pad_layer(&self, pad) -> Layer` (and the F./B. swap of silk, mask and paste names for geometry layers) and switch every reader of `pad.geometry.layers` to it: `copper` in crates/rules/src/lib.rs (line 50), `placement_text` (crates/io/src/lib.rs line 3021, which today infers the side from pad geometry at lines 3034 to 3039), `gerber_files` (line 1870), `step_board` (1434), `vrml_board` (1499), `ipc2581_text` (2384), `odb_package` (925), `bom_csv` side column (2271).
+- `validate_footprint_support` (crates/doc/src/lib.rs line 2640) keeps refusing back-side library definitions; the side is a placement property, so library footprints stay authored on top.
+- `"track.route"` (line 11951) endpoint copper checks use the derived layer.
+- crates/ui-egui/src/canvas.rs `paint_board` (line 1576) draws bottom footprints in the bottom colour with mirrored text, and the mirrored outline when `view_from_below` is set (the flag itself is added by child B; add the field now with a default of false if it lives in canvas-side state).
+
+## Why
+See #305. Surface-mount parts on the bottom are the roadmap M1 gap; the owner also wants dropped parts to adopt the current layer, which needs a side to adopt.
+
+## How
+Line numbers are from 9f9859a (fork branch `feat-unified-layers-tree`, PR #298). Base the branch there; upstream main 3113857 has no `gerber_files`, `placement_text` or `step_board`.
+- Add the field with `#[serde(default, skip_serializing_if = "Option::is_none")]` so old files load unchanged.
+- Mirror rule: pad offset x becomes negative x, pad rotation becomes negative rotation, geometry layer names swap `F.` and `B.` prefixes, `*.Cu` stays.
+- `board.sync` creates footprints on top; child B asks the engine to flip right after sync when the active layer is the bottom.
+
+## Acceptance
+- Unit test: flip a two-pad surface-mount part; `copper()` yields bottom copper for both pads, a top track to a pad is unrouted, a bottom track connects, Undo restores the top and the original offsets.
+- Unit test: `placement_text` writes the bottom side for the flipped part, and `gerber_files` puts its pads in the bottom copper file.
+- Unit test: a locked footprint refuses `footprint.flip` with a plain reason and the document is unchanged.
+- The existing `footprint.mirror` tests still pass.
+
+### Rules for whoever picks this up
+- Work on a branch of your fork; one PR per feature; PRs target tangency-labs/pcbcraft main as a stacked PR on `feat-unified-layers-tree`.
+- New code and PR text may not name other EDA tools.
+- Typed engine commands with bounded validation; no unwrap/expect/panic anywhere, tests included.
+- `cargo xtask ci` must be green before pushing.
+- Every new control gets a tooltip; panels keep real margins and padding.
+- End-to-end tests in crates/ui-egui are named like `a_newcomer_*` and must read like a story for someone who has never seen the app.
+
+### Claiming
+Comment `CLAIM <agent-name>` to take this. If a claim is older than 5 days with no PR, anyone may ask to take it over.
+
+
