@@ -45,7 +45,21 @@ pub(crate) fn levels(copper: u8) -> Vec<Target> {
 
 /// Where a target sits in [`levels`], or none for Edge and user layers.
 pub(crate) fn position(copper: u8, target: Target) -> Option<usize> {
-    levels(copper).iter().position(|t| *t == target)
+    // Worked out directly rather than searching `levels`: the canvas asks
+    // this for every track and pad of every frame, so it must not allocate.
+    let inner = usize::from(copper.max(2));
+    match target {
+        Target::Silk(Side::Top) => Some(0),
+        Target::Mask(Side::Top) => Some(1),
+        Target::Paste(Side::Top) => Some(2),
+        Target::Copper(layer) if usize::from(layer.index()) < inner => {
+            Some(3 + usize::from(layer.index()))
+        }
+        Target::Paste(Side::Bottom) => Some(3 + inner),
+        Target::Mask(Side::Bottom) => Some(4 + inner),
+        Target::Silk(Side::Bottom) => Some(5 + inner),
+        _ => None,
+    }
 }
 
 /// The copper layer a part mounted on `side` has its pads on.
@@ -123,7 +137,7 @@ impl StackView {
 
     /// Paint order key: bigger is farther from the viewer, so paint it first.
     pub(crate) fn far(&self, layer: Layer) -> usize {
-        let n = levels(self.copper).len();
+        let n = usize::from(self.copper.max(2)) + 6;
         let p = position(self.copper, Target::Copper(layer)).unwrap_or(0);
         if self.flipped { n - 1 - p } else { p }
     }
@@ -135,7 +149,7 @@ impl StackView {
         layer_of: impl Fn(&T) -> Layer,
     ) -> Vec<&'a T> {
         let mut list: Vec<&T> = items.collect();
-        list.sort_by_key(|i| std::cmp::Reverse(self.far(layer_of(i))));
+        list.sort_by_cached_key(|i| std::cmp::Reverse(self.far(layer_of(i))));
         list
     }
 }
@@ -192,5 +206,35 @@ mod tests {
         assert_eq!(step(2, Target::Silk(Side::Top), false, true), None);
         let flipped = step(2, Target::Mask(Side::Bottom), true, true);
         assert_eq!(flipped, Some(Target::Silk(Side::Bottom)));
+    }
+}
+
+#[cfg(test)]
+mod position_tests {
+    use super::*;
+
+    /// The direct position agrees with a search of `levels` for every target
+    /// on every board size, and `far` with the length of `levels`.
+    #[test]
+    fn position_matches_the_level_list() {
+        for copper in 0..=12u8 {
+            let all = levels(copper);
+            let mut targets: Vec<Target> = all.clone();
+            targets.extend(
+                (0..16)
+                    .filter_map(|i| Layer::from_index(i).ok())
+                    .map(Target::Copper),
+            );
+            targets.push(Target::Edge);
+            for t in targets {
+                assert_eq!(
+                    position(copper, t),
+                    all.iter().position(|x| *x == t),
+                    "{copper} layers, {t:?}"
+                );
+            }
+            let view = StackView::plain(copper, true);
+            assert_eq!(view.far(Layer::Front), all.len() - 1 - 3, "{copper} layers");
+        }
     }
 }

@@ -2423,29 +2423,48 @@ impl App {
         for f in stack.far_to_near(p.board.footprints.iter(), |f| {
             crate::stack_view::mount_copper(copper_count, f.board_side())
         }) {
+            // A cheap reach first: the part's pads plus a margin for its body
+            // and texts, so parts far off screen cost almost nothing.
+            let reach = f
+                .pads
+                .iter()
+                .map(|pad| pad.offset.x.abs().max(pad.offset.y.abs()))
+                .fold(0.0f64, f64::max)
+                + 6.0;
+            let at = camera.screen(f.position, rect);
+            if !visible(at, at, reach as f32 * camera.zoom + 30.0) {
+                continue;
+            }
             let on_bottom = f.board_side() != Layer::Front;
             let mount = crate::stack_view::mount_copper(copper_count, f.board_side());
             let pad_alpha = stack.copper_alpha(mount);
-            let points = f
-                .drawing_points(p)
-                .into_iter()
-                .map(|point| point.rotate(-f.rotation))
-                .collect::<Vec<_>>();
-            let min = points
-                .iter()
-                .fold(Point::new(f64::INFINITY, f64::INFINITY), |m, p| {
-                    Point::new(m.x.min(p.x), m.y.min(p.y))
-                });
-            let max = points
-                .iter()
-                .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |m, p| {
-                    Point::new(m.x.max(p.x), m.y.max(p.y))
-                });
-            let label_x = (min.x + max.x) / 2.0;
-            let reference_at = camera.screen(f.position.offset(Point::new(label_x, min.y)), rect)
-                - Vec2::new(0.0, 12.0);
-            let value_at = camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
-                + Vec2::new(0.0, 12.0);
+            // Detail that cannot be read at this zoom is not worked out:
+            // courtyards, pad labels and designators need a few pixels per mm.
+            let detail = camera.zoom >= DETAIL_ZOOM || self.selected == Some(f.id);
+            let label_spots = || {
+                let points = f
+                    .drawing_points(p)
+                    .into_iter()
+                    .map(|point| point.rotate(-f.rotation))
+                    .collect::<Vec<_>>();
+                let min = points
+                    .iter()
+                    .fold(Point::new(f64::INFINITY, f64::INFINITY), |m, p| {
+                        Point::new(m.x.min(p.x), m.y.min(p.y))
+                    });
+                let max = points
+                    .iter()
+                    .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |m, p| {
+                        Point::new(m.x.max(p.x), m.y.max(p.y))
+                    });
+                let label_x = (min.x + max.x) / 2.0;
+                (
+                    camera.screen(f.position.offset(Point::new(label_x, min.y)), rect)
+                        - Vec2::new(0.0, 12.0),
+                    camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
+                        + Vec2::new(0.0, 12.0),
+                )
+            };
             let silk_fade = stack.silk_alpha(on_bottom);
             let silk = if on_bottom { art.silk_bottom } else { art.silk };
             let color = if let Some(kind) = self.compare_tint.get(&f.id).copied() {
@@ -2455,17 +2474,21 @@ impl App {
             } else {
                 silk.linear_multiply(silk_fade)
             };
-            let boxes = Self::footprint_boxes(f, rect, camera);
+            let library_art = p
+                .component(f.component)
+                .and_then(|c| c.library_footprint.as_ref());
+            let boxes = if detail || library_art.is_none() {
+                Self::footprint_boxes(f, rect, camera)
+            } else {
+                None
+            };
             let reach = boxes
                 .as_ref()
                 .map_or(Rect::NOTHING, |(_, courtyard)| Rect::from_points(courtyard));
             if reach.is_positive() && !view.intersects(reach.expand(40.0)) {
                 continue;
             }
-            if let Some(library) = p
-                .component(f.component)
-                .and_then(|c| c.library_footprint.as_ref())
-            {
+            if let Some(library) = library_art {
                 for g in library
                     .definition
                     .graphics
@@ -2504,7 +2527,7 @@ impl App {
                     Stroke::new(1.5, color),
                 ));
             }
-            if let Some((_, courtyard)) = &boxes {
+            if let Some((_, courtyard)) = boxes.as_ref().filter(|_| detail) {
                 layout_art::dashed_closed(
                     painter,
                     courtyard,
@@ -2516,25 +2539,36 @@ impl App {
                     let pos = f.pad_world_position(pad);
                     let center = camera.screen(pos, rect);
                     let mechanical = is_mechanical_pad(pad);
-                    if !mechanical {
+                    let fill = self
+                        .copper(
+                            pad.net,
+                            if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
+                                art.multi_layer
+                            } else {
+                                art.copper(mount, copper_count)
+                            },
+                        )
+                        .linear_multiply(pad_alpha);
+                    let size = pad
+                        .geometry
+                        .as_ref()
+                        .map_or(Point::new(pad.diameter, pad.diameter), |g| g.size);
+                    let span = size.x.max(size.y) as f32 * camera.zoom;
+                    if !mechanical && span < 4.0 {
+                        // A pad a few pixels across reads as a dot; its exact
+                        // outline would cost more than it shows.
+                        painter.rect_filled(
+                            Rect::from_center_size(center, Vec2::splat(span.max(1.0))),
+                            0.0,
+                            fill,
+                        );
+                    } else if !mechanical {
                         let outline: Vec<Pos2> = pad
                             .outline_points()
                             .into_iter()
                             .map(|p| camera.screen(f.position.offset(p.rotate(-f.rotation)), rect))
                             .collect();
-                        painter.add(pad_shape(
-                            outline,
-                            pad.outline_is_convex(),
-                            self.copper(
-                                pad.net,
-                                if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
-                                    art.multi_layer
-                                } else {
-                                    art.copper(mount, copper_count)
-                                },
-                            )
-                            .linear_multiply(pad_alpha),
-                        ));
+                        painter.add(pad_shape(outline, pad.outline_is_convex(), fill));
                     }
                     let hole = pad.drill_outline_points();
                     if !hole.is_empty() {
@@ -2552,7 +2586,7 @@ impl App {
                             },
                         ));
                     }
-                    if self.preferences.pad_labels != PadLabels::Off {
+                    if self.preferences.pad_labels != PadLabels::Off && detail {
                         let label = match self.preferences.pad_labels {
                             PadLabels::Net => p.net_name(pad.net.unwrap_or_default()).to_string(),
                             _ => pad.number.clone(),
@@ -2587,8 +2621,8 @@ impl App {
                     }
                 }
             }
-            if let Some(c) = p.component(f.component) {
-                let (above, below) = boxes.as_ref().map_or((reference_at, value_at), |(_, y)| {
+            if let Some(c) = p.component(f.component).filter(|_| detail) {
+                let (above, below) = boxes.as_ref().map_or_else(label_spots, |(_, y)| {
                     let top = y.iter().fold(f32::INFINITY, |m, q| m.min(q.y));
                     let bottom = y.iter().fold(f32::NEG_INFINITY, |m, q| m.max(q.y));
                     let mid = y.iter().map(|q| q.x).sum::<f32>() / y.len().max(1) as f32;
@@ -2650,6 +2684,11 @@ impl App {
 pub(super) fn drawing_font(px: f32) -> FontId {
     FontId::proportional(px)
 }
+
+/// Board zoom, in screen pixels per millimetre, from which part detail is
+/// drawn: courtyards, pad labels and designators. Below it they would be
+/// smaller than a few pixels, and skipping them keeps a large board fast.
+const DETAIL_ZOOM: f32 = 4.0;
 
 /// The layer a library drawing primitive sits on, like `F.SilkS` or `F.Fab`.
 fn graphic_layer(g: &pcbcraft_library::Graphic) -> &str {
