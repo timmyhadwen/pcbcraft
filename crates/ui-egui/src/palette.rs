@@ -101,12 +101,12 @@ pub(crate) fn palette(dark: bool, accent: [u8; 3]) -> ThemeColours {
 fn build(dark: bool, accent: [u8; 3]) -> ThemeColours {
     let (panel, surface, hover, icon_fill, ink, muted, warn, error, link, canvas) = if dark {
         (
-            Color32::from_rgb(17, 24, 36),
-            Color32::from_rgb(20, 29, 43),
-            Color32::from_rgb(37, 53, 73),
-            Color32::from_rgb(28, 40, 56),
-            Color32::from_rgb(225, 234, 247),
-            Color32::from_rgb(140, 157, 182),
+            Color32::from_rgb(33, 34, 37),
+            Color32::from_rgb(28, 29, 32),
+            Color32::from_rgb(58, 60, 65),
+            Color32::from_rgb(46, 48, 52),
+            Color32::from_rgb(236, 238, 241),
+            Color32::from_rgb(163, 168, 176),
             Color32::from_rgb(255, 190, 90),
             Color32::from_rgb(255, 130, 120),
             Color32::from_rgb(110, 190, 255),
@@ -114,12 +114,12 @@ fn build(dark: bool, accent: [u8; 3]) -> ThemeColours {
         )
     } else {
         (
-            Color32::from_rgb(235, 239, 245),
-            Color32::from_rgb(245, 247, 251),
-            Color32::from_rgb(215, 225, 236),
-            Color32::from_rgb(236, 240, 246),
-            Color32::from_rgb(34, 48, 68),
-            Color32::from_rgb(78, 94, 118),
+            Color32::from_rgb(237, 237, 237),
+            Color32::from_rgb(248, 248, 248),
+            Color32::from_rgb(218, 218, 218),
+            Color32::from_rgb(236, 236, 236),
+            Color32::from_rgb(26, 26, 26),
+            Color32::from_rgb(74, 74, 74),
             Color32::from_rgb(138, 78, 0),
             Color32::from_rgb(178, 28, 28),
             Color32::from_rgb(0, 90, 170),

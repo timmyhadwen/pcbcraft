@@ -1550,6 +1550,9 @@ impl App {
         preferences.normalize_keymaps();
         if light {
             preferences.dark = false;
+        } else if capture.is_some() {
+            // A capture image is dark unless asked for light, whatever was saved last.
+            preferences.dark = true;
         }
         if let Some(text) = cc
             .storage
@@ -2815,11 +2818,11 @@ impl App {
         fresh
     }
     fn dock_frame(style: &egui::Style) -> egui::Frame {
-        egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(16, 12))
+        egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(8, 4))
     }
     /// The smallest side of any control a pointer must hit (WCAG 2.5.8).
     const MIN_TARGET: f32 = targets::MIN_TARGET;
-    const APP_BAR_HEIGHT: f32 = 34.0;
+    const APP_BAR_HEIGHT: f32 = 26.0;
     /// Left edge shared by the tab row, the tool strip and the page content.
     const PAGE_GUTTER: f32 = 28.0;
     /// The type scale: page title, section title, body, caption.
@@ -2829,7 +2832,9 @@ impl App {
     fn header(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("app-bar")
             .exact_size(Self::APP_BAR_HEIGHT)
-            .frame(Self::dock_frame(ui.style()))
+            .frame(
+                egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(6, 1)),
+            )
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     let label = egui::RichText::new(t!("app.name"))
