@@ -39,3 +39,38 @@ fn a_newcomer_opens_the_showcase_example() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// Every page of the showcase schematic reads cleanly at a full-HD window:
+/// no text overlaps another and every text sits inside the sheet frame,
+/// measured on the glyphs the canvas actually paints.
+#[test]
+fn the_showcase_schematic_text_is_clear_on_every_page() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    if !app.open_showcase() {
+        return Err(format!("the showcase opens: {}", app.message));
+    }
+    app.change_tab(Tab::Schematic);
+    let pages: Vec<Id> = std::iter::once(0)
+        .chain(app.project.sheets.iter().map(|s| s.id))
+        .collect();
+    let mut problems = Vec::new();
+    for page in pages {
+        app.show_page(page);
+        let (ink, frame) = app.schematic_ink(egui::Vec2::new(1920.0, 1240.0));
+        assert!(ink.len() > 20, "page {page} paints its texts");
+        for (i, (text, rect)) in ink.iter().enumerate() {
+            if !frame.contains_rect(*rect) {
+                problems.push(format!("page {page}: {text:?} leaves the frame"));
+            }
+            for (other, next) in &ink[i + 1..] {
+                if rect.intersects(*next) {
+                    problems.push(format!("page {page}: {text:?} overlaps {other:?}"));
+                }
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    Ok(())
+}

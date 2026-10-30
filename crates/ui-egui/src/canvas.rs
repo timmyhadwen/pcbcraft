@@ -1823,6 +1823,56 @@ impl App {
             );
         }
     }
+    /// Paint the schematic page on screen fitted to a `size` window, as the
+    /// app does, and return the ink box of every text it draws with the sheet
+    /// frame on screen. The ink box is the union of the glyphs' drawn pixels,
+    /// so line spacing above and below a word does not count as overlap.
+    #[cfg(test)]
+    pub(crate) fn schematic_ink(&self, size: Vec2) -> (Vec<(String, Rect)>, Rect) {
+        let page = self.schematic_page();
+        let frame = sheet::sheet_for(&self.project, page);
+        let camera = fit_camera(frame.lo, frame.hi, (size.x, size.y));
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+                ..Default::default()
+            },
+            |ui| {
+                let rect = ui.max_rect();
+                self.paint_schematic(ui.painter(), rect, camera, &self.project);
+            },
+        );
+        output.textures_delta.clear();
+        let rect = Rect::from_min_size(Pos2::ZERO, size);
+        let on_screen =
+            Rect::from_two_pos(camera.screen(frame.lo, rect), camera.screen(frame.hi, rect));
+        let ink = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => {
+                    let mut bounds = Rect::NOTHING;
+                    for placed in &text.galley.rows {
+                        for glyph in &placed.row.glyphs {
+                            let uv = glyph.uv_rect;
+                            if uv.size.x <= 0.0 || uv.size.y <= 0.0 {
+                                continue;
+                            }
+                            let min =
+                                text.pos + placed.pos.to_vec2() + glyph.pos.to_vec2() + uv.offset;
+                            bounds = bounds.union(Rect::from_min_size(min, uv.size));
+                        }
+                    }
+                    bounds
+                        .is_positive()
+                        .then(|| (text.galley.text().to_owned(), bounds))
+                }
+                _ => None,
+            })
+            .collect();
+        (ink, on_screen)
+    }
     /// Colour the sheet draws wires in, so a test can find them on screen.
     #[cfg(test)]
     pub(crate) fn sheet_wire_colour(&self) -> Color32 {
@@ -2075,8 +2125,14 @@ impl App {
             )
         } else if few_pins && body.height() > body.width() {
             (
-                (Pos2::new(body.right() + gap, center.y), Align2::LEFT_BOTTOM),
-                (Pos2::new(body.right() + gap, center.y), Align2::LEFT_TOP),
+                (
+                    Pos2::new(body.right() + gap, center.y - 0.2 * camera.zoom),
+                    Align2::LEFT_BOTTOM,
+                ),
+                (
+                    Pos2::new(body.right() + gap, center.y + 0.2 * camera.zoom),
+                    Align2::LEFT_TOP,
+                ),
             )
         } else if !few_pins {
             (
