@@ -1166,6 +1166,9 @@ pub struct App {
     key_prefix: Option<egui::Key>,
     /// An open schematic note: where it goes and the words typed so far.
     schematic_text: Option<(Point, String)>,
+    /// Turn, in degrees, of the part being placed; Space adds a quarter
+    /// turn and it carries over to the next part placed.
+    place_rotation: f64,
     profile_name_draft: String,
     profile_import_text: String,
     keymap_notice: String,
@@ -1766,6 +1769,7 @@ impl App {
             binding_capture: None,
             key_prefix: None,
             schematic_text: None,
+            place_rotation: 0.0,
             profile_name_draft: String::new(),
             profile_import_text: String::new(),
             keymap_notice: String::new(),
@@ -2608,8 +2612,17 @@ impl App {
                 self.tool = Tool::Move;
             }
             KeyAction::Rotate => {
-                self.select_hover();
-                self.rotate();
+                if matches!(
+                    self.tool,
+                    Tool::Place(_) | Tool::LibraryPlace(..) | Tool::CustomPlace(..)
+                ) {
+                    // A part still being placed turns before it lands.
+                    self.place_rotation = (self.place_rotation + 90.0) % 360.0;
+                    self.message = t!("keys.place_rotation", degrees = self.place_rotation);
+                } else {
+                    self.select_hover();
+                    self.rotate();
+                }
             }
             KeyAction::OpenInspector => {
                 self.select_hover();

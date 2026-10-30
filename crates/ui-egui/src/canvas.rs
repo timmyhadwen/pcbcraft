@@ -665,9 +665,10 @@ impl App {
             let snapped = self.constrained(snap(pos));
             match &self.tool {
                 Tool::Place(kind) => {
-                    if let Some(c) =
+                    if let Some(mut c) =
                         pcbcraft_doc::component_template(kind, 1, "preview".into(), snapped)
                     {
+                        c.rotation = self.place_rotation;
                         self.symbol(&painter, rect, camera, &c, false, true);
                     }
                 }
@@ -680,6 +681,8 @@ impl App {
                         snapped,
                         None,
                     ) {
+                        let mut c = c;
+                        c.rotation = self.place_rotation;
                         for view in c.schematic_views() {
                             self.symbol(&painter, rect, camera, &view, false, true);
                         }
@@ -1453,18 +1456,19 @@ impl App {
                 }
             }
             Tool::Measure => self.measure_click(pos, zoom),
-            Tool::Place(kind) => {
-                self.run("component.add", json!({"kind":kind,"position":snap(pos)}))
-            }
+            Tool::Place(kind) => self.run(
+                "component.add",
+                json!({"kind":kind,"position":snap(pos),"rotation":self.place_rotation}),
+            ),
             Tool::LibraryPlace(path, symbol, _) => {
                 self.run(
                     "component.place_library",
-                    json!({"path":path,"symbol":symbol,"position":snap(pos)}),
+                    json!({"path":path,"symbol":symbol,"position":snap(pos),"rotation":self.place_rotation}),
                 );
             }
             Tool::CustomPlace(name, _) => self.run(
                 "component.place_custom",
-                json!({"name":name,"position":snap(pos)}),
+                json!({"name":name,"position":snap(pos),"rotation":self.place_rotation}),
             ),
             Tool::Move => {
                 if let Some(id) = self.selected {

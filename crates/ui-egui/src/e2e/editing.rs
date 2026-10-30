@@ -350,3 +350,24 @@ fn a_newcomer_cuts_a_part_and_pastes_it_back() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// Space while a part is still on the pointer turns it before it lands, and
+/// the turn carries over to the next part placed.
+#[test]
+fn a_designer_turns_a_part_before_placing_it() -> Result<(), String> {
+    let mut app = sample();
+    app.tab = Tab::Schematic;
+    app.tool = Tool::Place("resistor".into());
+    app.dispatch_shortcut(crate::keymap::KeyAction::Rotate);
+    let before = app.project.components.len();
+    app.canvas_click(Point::new(60.0, 60.0), 4.0);
+    app.refresh();
+    assert_eq!(app.project.components.len(), before + 1, "{}", app.message);
+    let placed = app.project.components.last().ok_or("the new part")?;
+    assert!(
+        (placed.rotation - 90.0).abs() < 1e-9,
+        "it lands a quarter turn round, not {}",
+        placed.rotation
+    );
+    Ok(())
+}
