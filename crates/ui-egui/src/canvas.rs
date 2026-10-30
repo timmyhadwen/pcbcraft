@@ -2519,13 +2519,19 @@ impl App {
                         if !label.is_empty() {
                             if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
                                 // The drill hole fills the middle, so the
-                                // number sits beside the pad.
+                                // number sits beside the pad: past its right
+                                // edge on screen, measured from the pad's own
+                                // centre (the outline is footprint-local).
                                 let reach = pad
                                     .outline_points()
                                     .iter()
-                                    .fold(0.0f64, |m, q| m.max(q.x.abs()))
-                                    as f32
-                                    * camera.zoom;
+                                    .map(|q| {
+                                        camera
+                                            .screen(f.position.offset(q.rotate(-f.rotation)), rect)
+                                            .x
+                                            - center.x
+                                    })
+                                    .fold(0.0f32, f32::max);
                                 painter.text(
                                     center + Vec2::new(reach + 4.0, 0.0),
                                     Align2::LEFT_CENTER,
