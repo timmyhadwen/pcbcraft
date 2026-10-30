@@ -7,6 +7,7 @@ use super::support::*;
 fn a_newcomer_flips_the_view_to_the_bottom_with_the_toggle() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.change_tab(Tab::Pcb);
@@ -46,6 +47,7 @@ use pcbcraft_doc::Layer;
 fn open_layout() -> (App, egui::Context) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.change_tab(Tab::Pcb);

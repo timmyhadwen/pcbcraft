@@ -7,6 +7,7 @@ use super::support::*;
 fn layout_page() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.change_tab(Tab::Pcb);

@@ -566,3 +566,18 @@ pub(crate) fn tap_left(ctx: &egui::Context, app: &mut App, label: &str) -> Resul
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     Ok(())
 }
+
+/// Leave the Layers tab showing in the Schematic and Layout work areas, as a
+/// person who works from the layer tree does. A fresh profile opens on
+/// Projects, so the stories about the tree start here.
+pub(crate) fn layers_open(app: &mut App) {
+    for tab in [Tab::Schematic, Tab::Pcb] {
+        if let Some(ws) = workspace::workspace_for(tab) {
+            app.preferences
+                .layouts
+                .entry(ws.id().to_owned())
+                .or_insert_with(|| ws.default_layout())
+                .left_tab = workspace::LeftTab::Layers.id().to_owned();
+        }
+    }
+}

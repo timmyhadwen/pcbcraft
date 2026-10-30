@@ -177,14 +177,14 @@ impl App {
                 }
             }
             KeyAction::PlaceFootprint => {
-                self.preferences.left_tab = 1;
+                self.show_left_tab(workspace::LeftTab::Components);
                 self.message = t!("keys.place_footprint");
             }
             KeyAction::TextTool => self.arm_hotkey(tool_modifiers::Hotkey::Text),
             KeyAction::CopperLayerNext => self.next_copper_layer(),
             KeyAction::SingleLayerMode => self.toggle_single_layer(),
             KeyAction::LayerPanel => {
-                self.preferences.left_tab = 0;
+                self.show_left_tab(workspace::LeftTab::Layers);
                 self.message = t!("keys.layer_panel");
             }
             KeyAction::CycleCornerMode => {
