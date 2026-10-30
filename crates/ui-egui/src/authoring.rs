@@ -1969,6 +1969,9 @@ pub(crate) mod tests {
         ];
         // Later shapes sit on top of earlier ones, so the last visible
         // copy of a label is the one a real click would land on.
+        // An icon-only button paints no words; a person finds it by the name its
+        // tooltip and screen reader give it, so a pressable node with exactly that
+        // name counts too, when no painted copy of the label exists.
         let find = |output: &egui::FullOutput| -> Option<egui::Pos2> {
             let mut found = None;
             for shape in &output.shapes {
@@ -1981,7 +1984,24 @@ pub(crate) mod tests {
                     }
                 }
             }
-            found
+            let painted_anywhere = output.shapes.iter().any(|shape| {
+                matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == label)
+            });
+            found.or_else(|| {
+                if painted_anywhere {
+                    return None;
+                }
+                let update = output.platform_output.accesskit_update.as_ref()?;
+                update
+                    .nodes
+                    .iter()
+                    .filter(|(_, n)| n.label() == Some(label))
+                    .filter_map(|(_, n)| n.bounds())
+                    // Icon-only controls are small squares; anything wider has
+                    // painted words and is found (or scrolled to) by those.
+                    .find(|b| b.width() <= 32.0 && b.height() <= 32.0)
+                    .map(|b| egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32))
+            })
         };
         // A fingerprint of where the words sit: if it repeats, the wheel
         // is being swallowed here and there is no point turning it more.

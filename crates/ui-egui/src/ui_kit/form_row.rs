@@ -1,8 +1,10 @@
 //! Form row: a label column and a control column with a hairline divider.
 //!
 //! Context: design system 5.9. The label column is 200 wide on pages and dialogs and
-//! 104 in an aside; the control column takes the rest. A row is 40 high (36 in an
-//! aside), with an optional hint under the label and an error under the control.
+//! 104 in an aside; the control column takes the rest. A row is 40 high on a page,
+//! with an optional hint under the label and an error under the control. In an aside
+//! it is a compact property grid: 24 high (the pointer-target minimum), a `muted`
+//! label, and the hint moves into the label's tooltip.
 //! Local rules: the unit goes inside the control, never in the label; the divider is
 //! the `line` colour at 55 percent.
 //!
@@ -23,7 +25,7 @@ use egui::{Layout, Response, Sense, Stroke, Ui, Vec2};
 pub enum FormWidth {
     /// A page or dialog: 200 label column, 40 high.
     Page,
-    /// The right aside: 104 label column, 36 high.
+    /// The right aside: 104 label column, 24 high, hint as a tooltip.
     Aside,
 }
 
@@ -40,7 +42,7 @@ impl FormWidth {
     pub fn row_height(self) -> f32 {
         match self {
             FormWidth::Page => 40.0,
-            FormWidth::Aside => 36.0,
+            FormWidth::Aside => theme::CONTROL_HEIGHT,
         }
     }
 }
@@ -51,7 +53,9 @@ impl FormWidth {
 /// Why: all settings, rules and properties line up the same way.
 ///
 /// # Rules
-/// - The label is 13 `text`; the hint is Caption `muted`; the error is `red` with an icon.
+/// - On a page the label is 13 `text` and the hint is Caption `muted` under it; in an
+///   aside the label is 13 `muted` and the hint is its tooltip.
+/// - The error is `red` with an icon.
 /// - The returned value is whatever `control` returns.
 ///
 /// # Dependencies
@@ -80,7 +84,16 @@ pub fn form_row<R>(
                 Layout::left_to_right(egui::Align::Center),
                 |ui| {
                     ui.set_min_size(Vec2::new(width.label_width(), h));
-                    if let Some(hint) = hint {
+                    if width == FormWidth::Aside {
+                        let label = ui.add(
+                            egui::Label::new(fonts::text(fonts::Role::Body, label).color(t.muted))
+                                .truncate()
+                                .selectable(false),
+                        );
+                        if let Some(hint) = hint {
+                            label.on_hover_text(hint);
+                        }
+                    } else if let Some(hint) = hint {
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.y = 0.0;
                             ui.add_space(4.0);
@@ -182,14 +195,14 @@ mod tests {
     use super::*;
     use crate::ui_kit::testing::{context, frame};
 
-    /// The label column is 200 on pages and 104 in an aside, and rows are 40 or 36 high.
+    /// The label column is 200 on pages and 104 in an aside, and rows are 40 or 24 high.
     #[test]
     fn label_columns_and_row_heights() {
         let ctx = context(true);
         let mut report = Vec::new();
         for (width, label_w, h) in [
             (FormWidth::Page, 200.0, 40.0),
-            (FormWidth::Aside, 104.0, 36.0),
+            (FormWidth::Aside, 104.0, 24.0),
         ] {
             let mut control_x = 0.0;
             let mut y_span = 0.0;

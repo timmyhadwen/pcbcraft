@@ -323,14 +323,14 @@ mod tests {
     /// Every shipped theme: both modes, the default accent, two more, and the
     /// picker extremes.
     const THEMES: [(&str, bool, [u8; 3]); 14] = [
-        ("dark/default", true, [91, 224, 188]),
+        ("dark/default", true, [110, 172, 242]),
         ("dark/orange", true, [255, 120, 60]),
         ("dark/blue", true, [80, 140, 255]),
         ("dark/black", true, [0, 0, 0]),
         ("dark/white", true, [255, 255, 255]),
         ("dark/dim", true, [30, 30, 60]),
         ("dark/red", true, [255, 0, 0]),
-        ("light/default", false, [91, 224, 188]),
+        ("light/default", false, [110, 172, 242]),
         ("light/orange", false, [255, 120, 60]),
         ("light/blue", false, [80, 140, 255]),
         ("light/black", false, [0, 0, 0]),
@@ -411,20 +411,20 @@ mod tests {
         for bg in [t.ground, t.panel, t.raised, t.hover] {
             add("text-on-surface", t.text, bg, TEXT);
             add("muted-on-surface", t.muted, bg, TEXT);
-            add("copper-on-surface", t.copper, bg, TEXT);
+            add("accent-on-surface", t.accent, bg, TEXT);
             add("mask-on-surface", t.mask, bg, TEXT);
             add("gold-on-surface", t.gold, bg, TEXT);
             add("cyan-on-surface", t.cyan, bg, TEXT);
             add("red-on-surface", t.red, bg, TEXT);
         }
-        add("onacc-on-copper", t.onacc, t.copper, TEXT);
-        add("onacc-on-copper-hover", t.onacc, brighten(t.copper), TEXT);
-        add("onacc-on-copper-active", t.onacc, darken(t.copper), TEXT);
+        add("onacc-on-accent", t.onacc, t.accent, TEXT);
+        add("onacc-on-accent-hover", t.onacc, brighten(t.accent), TEXT);
+        add("onacc-on-accent-active", t.onacc, darken(t.accent), TEXT);
         for bg in [t.panel, t.ground] {
             add(
-                "copper-on-copper-tint",
-                t.copper,
-                composite(t.copper_tint, bg),
+                "accent-on-accent-tint",
+                t.accent,
+                composite(t.accent_tint, bg),
                 TEXT,
             );
             add(
@@ -441,16 +441,16 @@ mod tests {
                 TEXT,
             );
             add(
-                "text-on-copper-tint",
+                "text-on-accent-tint",
                 t.text,
-                composite(t.copper_tint, bg),
+                composite(t.accent_tint, bg),
                 TEXT,
             );
         }
         for bg in [t.ground, t.panel, t.raised] {
             add("edge-on-surface", t.edge, bg, NON_TEXT);
         }
-        add("copper-bar-on-panel", t.copper, t.panel, NON_TEXT);
+        add("accent-bar-on-panel", t.accent, t.panel, NON_TEXT);
         add("focus-ring-on-panel", t.text, t.panel, NON_TEXT);
         add("focus-ring-on-ground", t.text, t.ground, NON_TEXT);
         pairs
@@ -498,7 +498,7 @@ mod tests {
             "{lines:?}"
         );
         let mut bad_tint = Tokens::DARK;
-        bad_tint.copper = Color32::from_rgb(90, 60, 40);
+        bad_tint.accent = Color32::from_rgb(90, 60, 40);
         assert!(!token_failures("bad", &bad_tint).is_empty());
     }
 }

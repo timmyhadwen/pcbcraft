@@ -1,10 +1,11 @@
 //! List row, tree row and finding row: the repeating rows of lists, trees and checks.
 //!
 //! Context: design system 5.7 and 5.8. Rows paint their own background (hover on
-//! `raised`, selected copper tint with a 3 px copper bar), a 55 percent `line`
+//! `raised`, selected on the accent tint), a 55 percent `line`
 //! divider, and lay content out through small closures or fixed cells.
 //! Local rules: state is shown by shape and text as well as colour (eye icon plus a
-//! dimmed row, warning triangle plus words); row heights are 36, 28 and 48.
+//! dimmed row, warning triangle plus words); row heights are 28 (list), 24 (tree and compact finding: the pointer-target
+//! minimum, kept dense like a desktop tree) and 48.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/theme.rs
@@ -25,13 +26,13 @@ use egui::{
 };
 
 /// Height of a list row.
-pub const LIST_ROW_HEIGHT: f32 = 36.0;
+pub const LIST_ROW_HEIGHT: f32 = 28.0;
 /// Height of a tree row.
-pub const TREE_ROW_HEIGHT: f32 = 28.0;
+pub const TREE_ROW_HEIGHT: f32 = 24.0;
 /// Height of a finding row.
 pub const FINDING_ROW_HEIGHT: f32 = 48.0;
 /// Height of a compact finding row.
-pub const FINDING_COMPACT_HEIGHT: f32 = 36.0;
+pub const FINDING_COMPACT_HEIGHT: f32 = 24.0;
 /// Indent per tree level.
 pub const TREE_INDENT: f32 = 16.0;
 /// Width of the lock cell and the eye cell.
@@ -40,12 +41,7 @@ pub const CELL: f32 = 24.0;
 fn paint_row_background(ui: &Ui, rect: Rect, selected: bool, hovered: bool, t: &Tokens) {
     let painter = ui.painter();
     if selected {
-        painter.rect_filled(rect, 0.0, t.copper_tint);
-        painter.rect_filled(
-            Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height())),
-            0.0,
-            t.copper,
-        );
+        painter.rect_filled(rect, 0.0, t.accent_tint);
     } else if hovered {
         painter.rect_filled(rect, 0.0, t.raised);
     }
@@ -59,12 +55,12 @@ fn divider(ui: &Ui, rect: Rect, t: &Tokens) {
     );
 }
 
-/// A 36 high list row with free content.
+/// A 28 high list row with free content.
 ///
 /// Why: lists of parts, files and outputs share hover, selection and divider.
 ///
 /// # Rules
-/// - `name` is the accessible name; `selected` draws the copper tint and bar.
+/// - `name` is the accessible name; `selected` draws the accent tint.
 /// - Content runs left to right, vertically centred, inset 12 on both sides.
 ///
 /// # Do not
@@ -133,7 +129,7 @@ pub struct TreeRowResponse {
     pub eye_pressed: bool,
 }
 
-/// A 28 high tree row: indent, chevron, swatch or icon, name, count, lock cell, eye cell.
+/// A 24 high tree row: indent, chevron, swatch or icon, name, count, lock cell, eye cell.
 ///
 /// Why: the Layers tree and the nets list are the centre of the Layout page.
 ///
@@ -318,7 +314,7 @@ pub struct Finding<'a> {
     pub chip: Option<&'a str>,
     /// The row is the current selection.
     pub selected: bool,
-    /// The 36 high one-line variant used in the bottom sheet.
+    /// The 24 high one-line variant used in the bottom sheet.
     pub compact: bool,
 }
 
@@ -340,7 +336,7 @@ pub struct FindingResponse {
 /// Why: check results read the same in the sheet and on a page.
 ///
 /// # Rules
-/// - 48 high, or 36 compact with one line.
+/// - 48 high, or 24 compact with one line.
 /// - Severity is shown by icon shape and by the title text, never by colour alone.
 ///
 /// # Dependencies
@@ -448,7 +444,7 @@ mod tests {
     use super::*;
     use crate::ui_kit::testing::{context, frame};
 
-    /// List rows are 36 high, tree rows 28, finding rows 48 and 36 compact.
+    /// List rows are 28 high, tree rows 24, finding rows 48 and 24 compact.
     #[test]
     fn row_heights() {
         let ctx = context(true);
@@ -490,7 +486,7 @@ mod tests {
                     .height(),
             );
         });
-        assert_eq!(got, vec![36.0, 28.0, 48.0, 36.0]);
+        assert_eq!(got, vec![28.0, 24.0, 48.0, 24.0]);
     }
 
     /// Eye and lock cells are named for the row and reported when pressed.

@@ -1,11 +1,11 @@
 //! Collapsible section: the GENERAL / POSITION / PINS headers of the Properties aside.
 //!
-//! Context: design system 5.6 and the Layout mockup. A 32 high header strip with a
-//! chevron and an uppercase 11 pt caption, a 1 px `line` rule above, and a body that
-//! opens and closes. Open state lives in egui memory under the section's id, so a
+//! Context: design system 5.6 and the Layout mockup. A 24 high header strip (the
+//! pointer-target minimum) with a chevron and an uppercase caption, a 1 px `line` rule
+//! above, and a body that opens and closes. Open state lives in egui memory under the section's id, so a
 //! section keeps its state while the selection changes.
 //! Local rules: the header is a single focusable target with a tooltip and an
-//! accessible name; the body gets 12 pt side padding.
+//! accessible name; the body is flush with the header so labels line up under it.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/theme.rs
@@ -20,7 +20,7 @@ use crate::theme;
 use egui::{Sense, Stroke, Ui, Vec2, WidgetInfo, WidgetType, pos2};
 
 /// Height of the header strip.
-pub const SECTION_HEADER_HEIGHT: f32 = 32.0;
+pub const SECTION_HEADER_HEIGHT: f32 = 24.0;
 
 /// A collapsible section; `body` runs only while it is open.
 ///
@@ -45,7 +45,7 @@ pub fn section(
     let t = theme::tokens(ui.ctx());
     let id = ui.id().with(("kit-section", id_salt));
     let mut open = ui.data_mut(|d| *d.get_persisted_mut_or(id, true));
-    // 16 before a header in all (the row gap already gave 8), but none at the very top.
+    // A small gap before a header, but none at the very top.
     if ui.cursor().min.y > ui.min_rect().min.y + 1.0 {
         ui.add_space(theme::ASIDE_SECTION_GAP - theme::ASIDE_ROW_GAP);
     }
@@ -78,24 +78,21 @@ pub fn section(
         icons::CHEVRON_RIGHT
     };
     let icon_rect = egui::Rect::from_center_size(
-        pos2(rect.min.x + 12.0 + ICON_SIZE / 2.0, rect.center().y),
+        pos2(rect.min.x + ICON_SIZE / 2.0, rect.center().y),
         Vec2::splat(ICON_SIZE),
     );
     (chevron.0)(painter, icon_rect, t.muted);
     let galley = painter.layout_no_wrap(title.to_uppercase(), fonts::Role::Caption.font(), t.muted);
     painter.galley(
         pos2(
-            rect.min.x + 12.0 + ICON_SIZE + 8.0,
+            rect.min.x + ICON_SIZE + 4.0,
             rect.center().y - galley.size().y / 2.0,
         ),
         galley,
         t.muted,
     );
     if open {
-        egui::Frame::NONE
-            .inner_margin(egui::Margin::symmetric(12, 0))
-            .show(ui, body);
-        ui.add_space(theme::SPACE[0]);
+        body(ui);
     }
     response
 }

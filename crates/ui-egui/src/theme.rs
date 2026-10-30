@@ -18,22 +18,22 @@ use egui::{Color32, CornerRadius, Margin, Shadow, Stroke, Vec2};
 /// The 4 px spacing scale: 4, 8, 12, 16, 24, 32.
 pub const SPACE: [f32; 6] = [4.0, 8.0, 12.0, 16.0, 24.0, 32.0];
 
-/// The inner padding of the right aside (Properties and Assistant): 16 left and
-/// right, 12 top and bottom. Applied once by the aside container; content inside
+/// The inner padding of the right aside (Properties and Assistant): 12 left and
+/// right, 8 top and bottom. Applied once by the aside container; content inside
 /// never adds its own side margin, so no widget reaches the panel edge.
 pub fn aside_margin() -> egui::Margin {
     egui::Margin {
-        left: SPACE[3] as i8,
-        right: SPACE[3] as i8,
-        top: SPACE[2] as i8,
-        bottom: SPACE[2] as i8,
+        left: SPACE[2] as i8,
+        right: SPACE[2] as i8,
+        top: SPACE[1] as i8,
+        bottom: SPACE[1] as i8,
     }
 }
 
-/// Space between rows in the right aside (8) and before a section header (16).
-pub const ASIDE_ROW_GAP: f32 = SPACE[1];
-/// Extra space above each section header of the right aside.
-pub const ASIDE_SECTION_GAP: f32 = SPACE[3];
+/// Space between rows in the right aside (0: the rows draw their own hairline).
+pub const ASIDE_ROW_GAP: f32 = 0.0;
+/// Space above each section header of the right aside.
+pub const ASIDE_SECTION_GAP: f32 = SPACE[1];
 /// Corner radius of controls, chips and menus.
 pub const RADIUS_CONTROL: u8 = 4;
 /// Corner radius of cards, windows and floating canvas controls.
@@ -103,8 +103,9 @@ pub struct Tokens {
     pub text: Color32,
     /// Secondary text and idle icons.
     pub muted: Color32,
-    /// Primary action, active tab bar, selection.
-    pub copper: Color32,
+    /// Accent blue: primary action, selection and focus. Active states that are not a
+    /// selection (tools, tabs, segments) use the neutral `hover` fill instead.
+    pub accent: Color32,
     /// Success, no problems.
     pub mask: Color32,
     /// Warning.
@@ -113,10 +114,10 @@ pub struct Tokens {
     pub cyan: Color32,
     /// Error.
     pub red: Color32,
-    /// Text on a copper fill.
+    /// Text on an accent fill.
     pub onacc: Color32,
-    /// Copper tint for selected rows and active tools.
-    pub copper_tint: Color32,
+    /// Accent tint for selected rows.
+    pub accent_tint: Color32,
     /// Gold tint for warning badges.
     pub gold_tint: Color32,
     /// Red tint for error badges.
@@ -149,13 +150,13 @@ impl Tokens {
         edge: rgb(0x7C8189),
         text: rgb(0xE4E6E9),
         muted: rgb(0xA3A8B0),
-        copper: rgb(0xE39A5B),
+        accent: rgb(0x6EACF2),
         mask: rgb(0x4FCB8C),
         gold: rgb(0xE6BE5A),
         cyan: rgb(0x5CC8E8),
         red: rgb(0xFF8A80),
         onacc: rgb(0x1C1D1F),
-        copper_tint: tint(0xE39A5B, 16),
+        accent_tint: tint(0x6EACF2, 16),
         gold_tint: tint(0xE6BE5A, 16),
         red_tint: tint(0xFF8A80, 16),
         mask_tint: tint(0x4FCB8C, 16),
@@ -172,13 +173,13 @@ impl Tokens {
         edge: rgb(0x767676),
         text: rgb(0x1A1A1A),
         muted: rgb(0x4A4A4A),
-        copper: rgb(0x8F4A12),
+        accent: rgb(0x1A5AA0),
         mask: rgb(0x14663F),
         gold: rgb(0x7A5A00),
         cyan: rgb(0x0B6785),
         red: rgb(0xB3261E),
         onacc: rgb(0xFFFFFF),
-        copper_tint: tint(0x8F4A12, 12),
+        accent_tint: tint(0x1A5AA0, 12),
         gold_tint: tint(0x7A5A00, 12),
         red_tint: tint(0xB3261E, 12),
         mask_tint: tint(0x14663F, 12),
@@ -329,8 +330,8 @@ pub fn visuals(t: &Tokens) -> egui::Visuals {
     v.hyperlink_color = t.cyan;
     v.warn_fg_color = t.gold;
     v.error_fg_color = t.red;
-    v.selection.bg_fill = t.copper_tint;
-    v.selection.stroke = Stroke::new(BORDER, t.copper);
+    v.selection.bg_fill = t.accent_tint;
+    v.selection.stroke = Stroke::new(BORDER, t.accent);
     v.window_corner_radius = CornerRadius::same(RADIUS_CARD);
     v.menu_corner_radius = CornerRadius::same(RADIUS_CONTROL);
     v.window_stroke = Stroke::new(BORDER, t.edge);
@@ -360,7 +361,7 @@ pub fn visuals(t: &Tokens) -> egui::Visuals {
 
     w.active.bg_fill = t.raised;
     w.active.weak_bg_fill = t.raised;
-    w.active.bg_stroke = Stroke::new(BORDER, t.copper);
+    w.active.bg_stroke = Stroke::new(BORDER, t.accent);
     w.active.fg_stroke = Stroke::new(BORDER, t.text);
     w.active.corner_radius = control;
 
@@ -452,18 +453,18 @@ mod tests {
                 "{name} muted/panel"
             );
             assert!(
-                contrast_ratio(t.onacc, t.copper) >= TEXT,
-                "{name} onacc/copper"
+                contrast_ratio(t.onacc, t.accent) >= TEXT,
+                "{name} onacc/accent"
             );
         }
     }
 
-    /// Copper text on its own tint over the panel stays readable.
+    /// Accent text on its own tint over the panel stays readable.
     #[test]
-    fn copper_text_on_its_tint_reaches_4_5_to_1() {
+    fn accent_text_on_its_tint_reaches_4_5_to_1() {
         for t in both() {
-            let tinted = composite(t.copper_tint, t.panel);
-            assert!(contrast_ratio(t.copper, tinted) >= TEXT, "{:?}", t.theme);
+            let tinted = composite(t.accent_tint, t.panel);
+            assert!(contrast_ratio(t.accent, tinted) >= TEXT, "{:?}", t.theme);
         }
     }
 

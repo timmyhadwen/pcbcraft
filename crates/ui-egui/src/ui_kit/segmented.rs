@@ -2,7 +2,8 @@
 //! setting or a view (Top and Bottom, mm and mil, 45, 90 and Free).
 //!
 //! Context: design system 5.4. A raised track with a 1 px edge border holds the
-//! items; the selected item is copper with dark text. It is not navigation; page
+//! items; the selected item is a neutral raised chip with full-strength text, so
+//! the accent stays reserved for selection and focus. It is not navigation; page
 //! sections use `./tab_bar.rs`.
 //! Local rules: arrow keys move the selection and the focus together, like a radio
 //! group. Each item is its own focus stop and names itself to assistive tech.
@@ -169,6 +170,12 @@ pub fn segmented(
     outer
 }
 
+/// The fill of the selected item: a step lighter than the track in the dark theme,
+/// the panel white in the light theme, so it reads as raised without the accent.
+fn selected_fill(t: &Tokens) -> Color32 {
+    if t.is_dark() { t.hover } else { t.panel }
+}
+
 fn paint(
     ui: &Ui,
     track: Rect,
@@ -189,13 +196,21 @@ fn paint(
     for (i, ((rect, r), item)) in rects.iter().zip(responses).zip(items).enumerate() {
         let is_selected = i == selected;
         let (fill, ink) = if is_selected {
-            (t.copper, t.onacc)
+            (selected_fill(t), t.text)
         } else if r.hovered() {
-            (t.hover, t.text)
+            (Tokens::faded(t.hover, 0.6), t.text)
         } else {
             (Color32::TRANSPARENT, t.muted)
         };
         painter.rect_filled(*rect, CornerRadius::same(theme::RADIUS_SEGMENT), fill);
+        if is_selected {
+            painter.rect_stroke(
+                *rect,
+                CornerRadius::same(theme::RADIUS_SEGMENT),
+                Stroke::new(theme::BORDER, t.line),
+                StrokeKind::Inside,
+            );
+        }
         let galley = painter.layout_no_wrap(item.label.to_owned(), item_font(is_selected), ink);
         let pos = pos2(
             rect.center().x - galley.size().x / 2.0,

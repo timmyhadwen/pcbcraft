@@ -27,7 +27,7 @@ use egui::{
 /// Which of the four button looks to draw.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// Copper fill, dark text: the one main action of a region.
+    /// Accent fill: the one main action of a region.
     Primary,
     /// Raised fill with an edge border.
     Secondary,
@@ -158,25 +158,25 @@ pub fn paint_button(ui: &Ui, rect: Rect, look: &Look<'_>, state: State, t: &Toke
     let (mut fill, mut border, mut ink) = match look.kind {
         Kind::Primary => {
             let fill = match state {
-                State::Hover => brighten(t.copper),
-                State::Active => darken(t.copper),
-                _ => t.copper,
+                State::Hover => brighten(t.accent),
+                State::Active => darken(t.accent),
+                _ => t.accent,
             };
             (fill, Color32::TRANSPARENT, t.onacc)
         }
         Kind::Secondary => match state {
             State::Hover => (t.hover, t.edge, t.text),
-            State::Active => (t.raised, t.copper, t.text),
+            State::Active => (t.raised, t.accent, t.text),
             _ => (t.raised, t.edge, t.text),
         },
         Kind::Ghost => match state {
             State::Hover => (t.hover, Color32::TRANSPARENT, t.text),
-            State::Active => (t.raised, t.copper, t.text),
+            State::Active => (t.raised, t.accent, t.text),
             _ => (Color32::TRANSPARENT, Color32::TRANSPARENT, t.text),
         },
         Kind::Icon => match state {
             State::Hover => (t.raised, Color32::TRANSPARENT, t.text),
-            State::Active => (Color32::TRANSPARENT, Color32::TRANSPARENT, t.copper),
+            State::Active => (t.hover, Color32::TRANSPARENT, t.text),
             _ => (Color32::TRANSPARENT, Color32::TRANSPARENT, t.muted),
         },
     };
@@ -252,7 +252,7 @@ fn show(ui: &mut Ui, look: Look<'_>, name: &str, tip: &str, enabled: bool) -> Re
     }
 }
 
-/// The main action of a region: copper fill, dark text, 600, 28 high.
+/// The main action of a region: accent fill, 600, 28 high.
 ///
 /// Why: one primary per page header, tool bar or aside footer tells a first-time
 /// user what to press.
@@ -436,7 +436,7 @@ mod tests {
     /// The disabled look is 45 percent opacity.
     #[test]
     fn disabled_fades_to_45_percent() {
-        let faded = Tokens::faded(Tokens::DARK.copper, 0.45);
+        let faded = Tokens::faded(Tokens::DARK.accent, 0.45);
         assert!(faded.a() >= 112 && faded.a() <= 118, "alpha {}", faded.a());
     }
 }

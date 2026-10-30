@@ -34,7 +34,7 @@ pub enum BadgeKind {
     Error,
     /// Success: mask green on its tint.
     Success,
-    /// Active or current item: copper on its tint.
+    /// Active or current item: accent on its tint.
     Accent,
 }
 
@@ -47,7 +47,7 @@ pub fn badge_colors(kind: BadgeKind, t: &Tokens) -> (Color32, Color32) {
         BadgeKind::Warning => (t.gold_tint, t.gold),
         BadgeKind::Error => (t.red_tint, t.red),
         BadgeKind::Success => (t.mask_tint, t.mask),
-        BadgeKind::Accent => (t.copper_tint, t.copper),
+        BadgeKind::Accent => (t.accent_tint, t.accent),
     }
 }
 
