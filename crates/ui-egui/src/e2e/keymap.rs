@@ -347,3 +347,74 @@ fn a_designer_scrolls_the_board_with_the_wheel() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// In the shortcut editor two letters record a two-key shortcut, and a
+/// letter then Enter records the letter alone.
+#[test]
+fn a_designer_records_a_two_key_shortcut() -> Result<(), String> {
+    let session =
+        pcbcraft_mcp::shared(pcbcraft_engine::Session::sample().map_err(|e| e.to_string())?);
+    let mut app = App::create(session, Preferences::default(), None, None);
+    app.refresh();
+    let ctx = egui::Context::default();
+    // A press and its release, so the next press of the same key is not a repeat.
+    let press = |key| {
+        [true, false].map(|pressed| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        })
+    };
+    app.binding_capture = Some(KeyAction::Rotate);
+    frame(
+        &ctx,
+        &mut app,
+        press(Key::P).to_vec(),
+        egui::Modifiers::NONE,
+    );
+    assert!(app.binding_capture.is_some(), "P waits for a second key");
+    frame(
+        &ctx,
+        &mut app,
+        press(Key::K).to_vec(),
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(
+        app.preferences
+            .active_keymap()
+            .sequences_for(KeyAction::Rotate),
+        vec![crate::keymap::KeySequence {
+            first: Key::P,
+            second: Key::K
+        }],
+        "{}",
+        app.keymap_notice
+    );
+    app.binding_capture = Some(KeyAction::Rotate);
+    frame(
+        &ctx,
+        &mut app,
+        press(Key::K).to_vec(),
+        egui::Modifiers::NONE,
+    );
+    frame(
+        &ctx,
+        &mut app,
+        press(Key::Enter).to_vec(),
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(
+        app.preferences.active_keymap().chord_for(KeyAction::Rotate),
+        Some(KeyChord {
+            key: Key::K,
+            ctrl: false,
+            shift: false,
+            alt: false
+        }),
+        "{}",
+        app.keymap_notice
+    );
+    Ok(())
+}

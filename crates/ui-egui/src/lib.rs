@@ -1167,6 +1167,9 @@ pub struct App {
     shortcuts_open: bool,
     shortcuts_settings_open: bool,
     binding_capture: Option<keymap::KeyAction>,
+    /// First key of a shortcut being recorded: a second letter makes it a
+    /// two-key sequence, Enter keeps it a single key.
+    binding_first: Option<egui::Key>,
     /// The first key of a two-key shortcut, waiting for its second key.
     key_prefix: Option<egui::Key>,
     /// An open schematic note: where it goes and the words typed so far.
@@ -1774,6 +1777,7 @@ impl App {
             capture_page: None,
             frames: 0,
             binding_capture: None,
+            binding_first: None,
             key_prefix: None,
             schematic_text: None,
             place_rotation: 0.0,
@@ -2769,6 +2773,7 @@ impl App {
             ctx.input(|i| {
                 if i.key_pressed(egui::Key::Escape) {
                     self.binding_capture = None;
+                    self.binding_first = None;
                     self.keymap_notice = "Rebind cancelled.".into();
                     return;
                 }
@@ -2785,7 +2790,54 @@ impl App {
                     if *key == egui::Key::Escape {
                         continue;
                     }
-                    let chord = keymap::chord_from_input(*key, i.modifiers);
+                    let plain = !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.command;
+                    let letter = |k: egui::Key| {
+                        let name = k.name();
+                        name.len() == 1 && name.chars().all(|c| c.is_ascii_alphabetic())
+                    };
+                    // A plain letter waits for a second key: another letter
+                    // makes a two-key shortcut, Enter keeps the single key.
+                    let chord = match self.binding_first {
+                        None if plain && !i.modifiers.shift && letter(*key) => {
+                            self.binding_first = Some(*key);
+                            self.keymap_notice = format!(
+                                "{}, then a second letter for a two-key shortcut, or Enter for {} alone",
+                                key.name(),
+                                key.name()
+                            );
+                            return;
+                        }
+                        Some(first) if *key == egui::Key::Enter => {
+                            self.binding_first = None;
+                            keymap::chord_from_input(first, egui::Modifiers::NONE)
+                        }
+                        Some(first) if plain && letter(*key) => {
+                            self.binding_first = None;
+                            let sequence = keymap::KeySequence {
+                                first,
+                                second: *key,
+                            };
+                            let mut map = self.preferences.active_keymap_mut().clone();
+                            match map.set_sequence(capture, sequence) {
+                                Ok(()) => {
+                                    *self.preferences.active_keymap_mut() = map;
+                                    self.keymap_notice = format!(
+                                        "{} is now {}",
+                                        keymap::action_label(capture),
+                                        keymap::format_sequence(sequence)
+                                    );
+                                    self.binding_capture = None;
+                                }
+                                Err(err) => self.keymap_notice = err,
+                            }
+                            return;
+                        }
+                        Some(_) => {
+                            self.binding_first = None;
+                            keymap::chord_from_input(*key, i.modifiers)
+                        }
+                        None => keymap::chord_from_input(*key, i.modifiers),
+                    };
                     let mut map = self.preferences.active_keymap_mut().clone();
                     match map.set_binding(capture, chord) {
                         Ok(()) => {
@@ -4335,11 +4387,16 @@ impl App {
                             let waiting = self.binding_capture == Some(action);
                             let change = ui
                                 .button(if waiting { "Press keys…" } else { "Change" })
-                                .on_hover_text("Click then press the new key chord. Esc cancels.");
+                                .on_hover_text(
+                                    "Click, then press the new keys: a key with Ctrl, Shift or Alt, \
+                                     two letters for a two-key shortcut, or a letter then Enter. Esc cancels.",
+                                );
                             if change.clicked() {
                                 self.binding_capture = Some(action);
-                                self.keymap_notice =
-                                    format!("Press a new chord for {label}; Esc cancels.");
+                                self.binding_first = None;
+                                self.keymap_notice = format!(
+                                    "Press the new keys for {label}: two letters for a two-key shortcut; Esc cancels."
+                                );
                             }
                             ui.end_row();
                         }

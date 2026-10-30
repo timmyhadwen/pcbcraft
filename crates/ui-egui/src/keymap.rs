@@ -1031,6 +1031,41 @@ impl Keymap {
         Ok(())
     }
 
+    /// Make `sequence` the two-key shortcut of `action`, replacing its other
+    /// sequences; its chords stay.
+    ///
+    /// # Rules
+    /// - Refused when another action in an overlapping workspace already has
+    ///   the same sequence, or when the first key is a single-key shortcut
+    ///   there (it could then never start a sequence).
+    pub fn set_sequence(&mut self, action: KeyAction, sequence: KeySequence) -> Result<(), String> {
+        if spec(action).is_none_or(|s| !s.rebindable) {
+            return Err("that action cannot be rebound".into());
+        }
+        let scope = action_context(action);
+        for (other, list) in &self.sequences {
+            if *other != action
+                && list.contains(&sequence)
+                && contexts_overlap(action_context(*other), scope)
+            {
+                return Err(format!(
+                    "{} already uses {}",
+                    action_label(*other),
+                    format_sequence(sequence)
+                ));
+            }
+        }
+        if let Some(owner) = self.owner_in_scope(KeyChord::plain(sequence.first), scope, None) {
+            return Err(format!(
+                "{} is the single-key shortcut for {}",
+                key_name(sequence.first),
+                action_label(owner)
+            ));
+        }
+        self.sequences.insert(action, vec![sequence]);
+        Ok(())
+    }
+
     fn owner_in_scope(
         &self,
         chord: KeyChord,
@@ -1464,6 +1499,30 @@ mod tests {
         let map: Keymap = serde_json::from_str(old).map_err(|e| e.to_string())?;
         assert!(map.is_outdated());
         assert!(!Keymap::default_bindings().is_outdated());
+        Ok(())
+    }
+
+    #[test]
+    fn a_two_key_shortcut_can_be_recorded_but_not_twice() -> Result<(), String> {
+        let mut map = Keymap::default_bindings();
+        let pk = KeySequence {
+            first: Key::P,
+            second: Key::K,
+        };
+        map.set_sequence(KeyAction::Rotate, pk)?;
+        assert_eq!(map.sequences_for(KeyAction::Rotate), vec![pk]);
+        assert!(
+            map.set_sequence(KeyAction::MoveTool, pk).is_err(),
+            "the same two keys cannot do two things"
+        );
+        let space_first = KeySequence {
+            first: Key::Space,
+            second: Key::K,
+        };
+        assert!(
+            map.set_sequence(KeyAction::MoveTool, space_first).is_err(),
+            "a single-key shortcut cannot start a sequence"
+        );
         Ok(())
     }
 }
