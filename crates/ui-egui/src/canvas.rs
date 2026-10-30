@@ -140,7 +140,8 @@ pub(crate) fn snap(p: Point) -> Point {
     if crate::tool_modifiers::snap_suspended() {
         return p;
     }
-    Point::new((p.x * 2.0).round() / 2.0, (p.y * 2.0).round() / 2.0)
+    // The step comes from the G key (see snap_grid.rs); 0.5 mm by default.
+    Point::new(crate::snap_grid::round(p.x), crate::snap_grid::round(p.y))
 }
 fn fill_polygon(painter: &egui::Painter, points: &[Pos2], color: Color32, clip: Rect) {
     let points = if points.first() == points.last() {

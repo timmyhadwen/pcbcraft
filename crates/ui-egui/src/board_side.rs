@@ -3,7 +3,7 @@
 //! Context: `lib.rs` keeps the `Camera` (mirror flag and quarter turns) in
 //! `App::pcb`; `canvas.rs` paints with it. This file owns the rest: the
 //! Top | Bottom view side, the rotate and reset buttons' logic, pinned and
-//! hovered layer focus, Page Up and Page Down stepping, the console entry and
+//! hovered layer focus, layer stepping (the + and - keys, see `keymap.rs`), the console entry and
 //! the rule that parts created while the bottom layer is active land on the bottom.
 //! Local rules: the side of a part lives in the document (`Footprint::side`) and
 //! changes only through the engine command `footprint.flip`; the view state is a
@@ -244,7 +244,7 @@ impl App {
     ///
     /// # Rules
     /// - Order: the row under the pointer, then the pinned layer, else none.
-    /// - Page Up and Page Down pin (see `step_layer`).
+    /// - Stepping with + and - pins (see `step_layer`).
     pub(crate) fn focus_target(&mut self) -> Option<crate::draw_target::Target> {
         self.tree.hover_target.take().or(self.pinned_view)
     }
@@ -303,7 +303,7 @@ impl App {
         }
     }
 
-    /// Page Up and Page Down step through the stack; Esc drops a pinned view.
+    /// Esc drops a pinned view. Stepping itself is a keymap action (+ and -).
     ///
     /// # Rules
     /// - Ignored while a text field has the keyboard.
@@ -311,18 +311,7 @@ impl App {
         if ui.ctx().egui_wants_keyboard_input() {
             return;
         }
-        let (up, down, esc) = ui.input(|i| {
-            (
-                i.key_pressed(egui::Key::PageUp),
-                i.key_pressed(egui::Key::PageDown),
-                i.key_pressed(egui::Key::Escape),
-            )
-        });
-        if up {
-            self.step_layer(true);
-        } else if down {
-            self.step_layer(false);
-        }
+        let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
         if esc && self.pinned_view.is_some() {
             self.pinned_view = None;
         }

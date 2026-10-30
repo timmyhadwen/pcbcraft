@@ -286,15 +286,16 @@ fn spilled_text(output: &egui::FullOutput, width: f32) -> Vec<String> {
 /// walk fails on a new spill and on a listed one that no longer happens, so
 /// the list shrinks as the layout is fixed.
 const KNOWN_REFLOW_DEFECTS: [&str; 12] = [
-    // The app bar's Help menu sits past the right edge of a 320 point window
-    // on every page: the menu bar does not wrap or shrink. Needs a follow-up
-    // issue (menu bar reflow at 320 points).
-    "Files: \"Help\" ends at 331",
-    "Schematic: \"Help\" ends at 331",
-    "Pcb: \"Help\" ends at 331",
-    "Board3d: \"Help\" ends at 331",
-    "Rules: \"Help\" ends at 331",
-    "Settings: \"Help\" ends at 331",
+    // The app bar's menus do not wrap or shrink: at 320 points the Place
+    // menu runs past the right edge and the menus after it sit wholly beyond
+    // it, where this scan cannot see them. Needs a follow-up issue (menu bar
+    // reflow at 320 points).
+    "Files: \"Place\" ends at 332",
+    "Schematic: \"Place\" ends at 332",
+    "Pcb: \"Place\" ends at 332",
+    "Board3d: \"Place\" ends at 332",
+    "Rules: \"Place\" ends at 332",
+    "Settings: \"Place\" ends at 332",
     // The Manufacture tab, last in the tab row, runs past the edge on every page (#827).
     "Files: \"Manufacture\" ends at 328",
     "Schematic: \"Manufacture\" ends at 328",
