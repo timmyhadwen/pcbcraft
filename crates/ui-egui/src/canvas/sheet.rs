@@ -616,27 +616,57 @@ pub(super) fn beyond(dir: Point) -> Align2 {
     }
 }
 
-/// The axis direction a drawn wire leaves the point `at` in, pointing at `at`
-/// from the rest of the wire: the way a label or symbol at a stub end faces.
-pub(super) fn stub_direction(p: &Project, page: Id, at: Point) -> Option<Point> {
-    p.drawn_wires
-        .iter()
-        .filter(|w| p.on_schematic_page(page, w.id))
-        .find_map(|w| {
+/// The free ends of the drawn wires on one page and the axis direction each
+/// wire arrives in, pointing at the end from the rest of the wire: the way a
+/// label, port or symbol sitting on that end faces.
+///
+/// Why: every label asks this once per frame, so the wires are gathered once
+/// per page instead of searched for each label.
+pub(super) struct StubEnds(HashMap<(i64, i64), Point>);
+
+impl StubEnds {
+    /// Gather the ends of every drawn wire on `page`; the first wire listed
+    /// wins where two wires end on the same point.
+    pub(super) fn of(p: &Project, page: Id) -> Self {
+        let mut ends = HashMap::new();
+        for w in p
+            .drawn_wires
+            .iter()
+            .filter(|w| p.on_schematic_page(page, w.id))
+        {
             let n = w.points.len();
-            let near = |q: &Point| q.distance(at) < 1e-3;
-            let before = match (w.points.first(), w.points.last()) {
-                (Some(first), _) if n >= 2 && near(first) => w.points.get(1),
-                (_, Some(last)) if n >= 2 && near(last) => w.points.get(n - 2),
-                _ => None,
-            }?;
-            let (dx, dy) = (at.x - before.x, at.y - before.y);
-            Some(if dx.abs() >= dy.abs() {
-                Point::new(dx.signum(), 0.0)
-            } else {
-                Point::new(0.0, dy.signum())
-            })
-        })
+            if n < 2 {
+                continue;
+            }
+            for (end, before) in [
+                (w.points[0], w.points[1]),
+                (w.points[n - 1], w.points[n - 2]),
+            ] {
+                ends.entry(Self::key(end))
+                    .or_insert_with(|| axis(end.x - before.x, end.y - before.y));
+            }
+        }
+        Self(ends)
+    }
+
+    /// The direction of the wire ending at `at`, if one does.
+    pub(super) fn at(&self, at: Point) -> Option<Point> {
+        self.0.get(&Self::key(at)).copied()
+    }
+
+    /// Thousandths of a millimetre: ends closer than that are the same end.
+    fn key(q: Point) -> (i64, i64) {
+        ((q.x * 1000.0).round() as i64, (q.y * 1000.0).round() as i64)
+    }
+}
+
+/// The unit axis vector nearest to the direction (`dx`, `dy`).
+fn axis(dx: f64, dy: f64) -> Point {
+    if dx.abs() >= dy.abs() {
+        Point::new(dx.signum(), 0.0)
+    } else {
+        Point::new(0.0, dy.signum())
+    }
 }
 
 /// Paint a ground symbol at `top` facing `dir` (down unless the stub runs
@@ -885,13 +915,14 @@ pub(super) fn paint_power(
             );
         }
     }
+    let stubs = StubEnds::of(p, page);
     for l in p
         .labels
         .iter()
         .filter(|l| l.kind == "power" && p.on_schematic_page(page, l.id))
     {
         let name = p.net_name(l.net);
-        let facing = stub_direction(p, page, l.position);
+        let facing = stubs.at(l.position);
         match kinds.get(&l.net) {
             Some(PowerKind::Ground) => {
                 let dir = facing.unwrap_or(Point::new(0.0, 1.0));

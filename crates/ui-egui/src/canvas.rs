@@ -1768,6 +1768,7 @@ impl App {
                 );
             }
         }
+        let stubs = sheet::StubEnds::of(p, page);
         for l in p
             .labels
             .iter()
@@ -1794,7 +1795,7 @@ impl App {
                     _ => p.net_name(l.net).to_string(),
                 };
                 // A label at the end of a stub reads outward, clear of the pin.
-                let (at, align) = match sheet::stub_direction(p, page, l.position) {
+                let (at, align) = match stubs.at(l.position) {
                     Some(dir) => (
                         at + Vec2::new(dir.x as f32, dir.y as f32) * (0.5 * camera.zoom),
                         sheet::beyond(dir),
@@ -1811,8 +1812,7 @@ impl App {
             }
         }
         for port in p.ports.iter().filter(|port| port.sheet == page) {
-            let dir =
-                sheet::stub_direction(p, page, port.position).unwrap_or(Point::new(-1.0, 0.0));
+            let dir = stubs.at(port.position).unwrap_or(Point::new(-1.0, 0.0));
             sheet::port_flag(painter, rect, camera, (port.position, dir), &port.name, &sc);
         }
         for f in p.no_connects.iter().filter(|f| on_page(p, page, f.id)) {
@@ -3124,6 +3124,47 @@ mod tests {
         assert!(inner.board.tracks.iter().all(|t| t.layer.index() == 2));
         assert!(inner.board.zones.iter().all(|z| z.layer.index() == 2));
         assert!(!inner.board.zones.is_empty(), "the inner pour shows");
+        Ok(())
+    }
+
+    /// Paint time of each showcase schematic page fitted to a full-HD window.
+    /// Run with
+    /// `cargo test --release -p pcbcraft-ui-egui schematic_paint_time -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing report, run by hand in release"]
+    fn schematic_paint_time() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        if !app.open_showcase() {
+            return Err(app.message.clone());
+        }
+        app.change_tab(Tab::Schematic);
+        let size = Vec2::new(1920.0, 1240.0);
+        let rect = Rect::from_min_size(Pos2::ZERO, size);
+        let ctx = egui::Context::default();
+        let pages: Vec<Id> = std::iter::once(0)
+            .chain(app.project.sheets.iter().map(|s| s.id))
+            .collect();
+        for page in pages {
+            app.show_page(page);
+            let frame = sheet::sheet_for(&app.project, page);
+            let camera = fit_camera(frame.lo, frame.hi, (size.x, size.y));
+            let mut times = Vec::new();
+            for _ in 0..5 {
+                let start = std::time::Instant::now();
+                let _ = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(rect),
+                        ..Default::default()
+                    },
+                    |ui| app.paint_schematic(ui.painter(), rect, camera, &app.project),
+                );
+                times.push(start.elapsed());
+            }
+            times.sort();
+            println!("page {page}: median {:?}, best {:?}", times[2], times[0]);
+        }
         Ok(())
     }
 

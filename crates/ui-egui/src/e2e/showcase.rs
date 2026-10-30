@@ -74,3 +74,58 @@ fn the_showcase_schematic_text_is_clear_on_every_page() -> Result<(), String> {
     assert!(problems.is_empty(), "{}", problems.join("\n"));
     Ok(())
 }
+
+/// Time of a whole window frame (panels, trees, canvas) on each workspace
+/// of the showcase. Run with
+/// `cargo test --release -p pcbcraft-ui-egui whole_frame_time -- --ignored --nocapture`.
+#[test]
+#[ignore = "timing report, run by hand in release"]
+fn whole_frame_time() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    if !app.open_showcase() {
+        return Err(app.message.clone());
+    }
+    let ctx = egui::Context::default();
+    for tab in [Tab::Schematic, Tab::Pcb] {
+        app.change_tab(tab);
+        for _ in 0..3 {
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        }
+        let mut times = Vec::new();
+        for _ in 0..9 {
+            let start = std::time::Instant::now();
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            times.push(start.elapsed());
+        }
+        times.sort();
+        println!("{tab:?}: median {:?}, best {:?}, worst {:?}", times[4], times[0], times[8]);
+    }
+    Ok(())
+}
+
+/// Time of the full checks (connectivity, design rules, airwires) the app
+/// recomputes after every change, on the showcase.
+#[test]
+#[ignore = "timing report, run by hand in release"]
+fn checks_time() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    if !app.open_showcase() {
+        return Err(app.message.clone());
+    }
+    let session = shared.lock().map_err(|_| "session")?;
+    for name in ["erc", "drc", "airwires", "all"] {
+        let start = std::time::Instant::now();
+        match name {
+            "erc" => drop(pcbcraft_rules::erc(&session.project)),
+            "drc" => drop(pcbcraft_rules::drc(&session.project)),
+            "airwires" => drop(pcbcraft_rules::airwires(&session.project)),
+            _ => drop(session.checks()),
+        }
+        println!("{name}: {:?}", start.elapsed());
+    }
+    Ok(())
+}
