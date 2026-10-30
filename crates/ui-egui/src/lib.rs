@@ -2790,7 +2790,7 @@ impl App {
                     if *key == egui::Key::Escape {
                         continue;
                     }
-                    let plain = !i.modifiers.ctrl && !i.modifiers.alt && !i.modifiers.command;
+                    let plain = i.modifiers.is_none();
                     let letter = |k: egui::Key| {
                         let name = k.name();
                         name.len() == 1 && name.chars().all(|c| c.is_ascii_alphabetic())
@@ -2798,7 +2798,7 @@ impl App {
                     // A plain letter waits for a second key: another letter
                     // makes a two-key shortcut, Enter keeps the single key.
                     let chord = match self.binding_first {
-                        None if plain && !i.modifiers.shift && letter(*key) => {
+                        None if plain && letter(*key) => {
                             self.binding_first = Some(*key);
                             self.keymap_notice = format!(
                                 "{}, then a second letter for a two-key shortcut, or Enter for {} alone",
