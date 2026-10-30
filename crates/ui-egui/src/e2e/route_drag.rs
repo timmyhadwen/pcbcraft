@@ -320,3 +320,43 @@ fn a_designer_routes_through_corners_and_takes_one_back() -> Result<(), String> 
     assert!(matches!(app.tool, Tool::Select), "the route tool finishes");
     Ok(())
 }
+
+/// Switching layer while routing drops a via at the last corner: the copper
+/// before it stays on the first layer and the rest goes on the new one.
+#[test]
+fn a_designer_changes_layer_mid_route_through_a_via() -> Result<(), String> {
+    let mut app = board(&[
+        (0, 5.0, 5.0, 1.2),
+        (1, 9.0, 5.0, 1.2),
+        (0, 25.0, 20.0, 1.2),
+        (1, 29.0, 20.0, 1.2),
+    ])?;
+    let (from, from_pad, _) = pad_at(&app, 0)?;
+    let (_, _, end) = pad_at(&app, 2)?;
+    let (tracks, vias) = (app.project.board.tracks.len(), app.project.board.vias.len());
+    app.route_layer = pcbcraft_doc::Layer::Front;
+    app.tool = Tool::Route(Some((from, from_pad)));
+    let corner = Point::new(5.0, 15.0);
+    app.canvas_click(corner, 10.0);
+    app.route_layer = pcbcraft_doc::Layer::Back;
+    app.canvas_click(end, 10.0);
+    app.refresh();
+    assert_eq!(
+        app.project.board.vias.len(),
+        vias + 1,
+        "one via where the layer changes: {}",
+        app.message
+    );
+    let via = app.project.board.vias.last().ok_or("the via")?;
+    assert!(
+        via.position.distance(corner) < 1e-6,
+        "the via sits on the corner"
+    );
+    let laid = &app.project.board.tracks[tracks..];
+    assert!(
+        laid.iter().any(|t| t.layer == pcbcraft_doc::Layer::Front)
+            && laid.iter().any(|t| t.layer != pcbcraft_doc::Layer::Front),
+        "copper on both layers: {laid:?}"
+    );
+    Ok(())
+}

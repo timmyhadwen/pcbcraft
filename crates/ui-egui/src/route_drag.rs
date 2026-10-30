@@ -7,6 +7,7 @@
 use super::*;
 use crate::canvas::snap;
 use egui::Sense;
+use pcbcraft_doc::Layer;
 
 /// Which end of a track a handle drags; matches the `end` parameter of `track.drag`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -31,8 +32,9 @@ pub(crate) struct State {
     /// The track end being dragged.
     end: Option<(Id, End)>,
     /// Corners clicked so far on a route started from a pad, in world
-    /// millimetres; empty for a plain pad-to-pad route.
-    pub(crate) corners: Vec<Point>,
+    /// millimetres, each with the copper layer of the leg that reaches it;
+    /// empty for a plain pad-to-pad route.
+    pub(crate) corners: Vec<(Point, Layer)>,
 }
 impl State {
     /// True while a route or a track end is being dragged.
@@ -92,6 +94,35 @@ pub(crate) fn lay_path(points: &[Point], mode: &str) -> Vec<Point> {
     }
     out
 }
+
+/// The legs of a cornered route and where it changes layer.
+///
+/// `corners` carry the layer of the leg that reaches them; the last leg, to
+/// the end, is on `last`. A via goes at every corner where the leg leaving
+/// it is on another layer than the leg reaching it.
+pub(crate) fn route_legs(
+    start: Point,
+    corners: &[(Point, Layer)],
+    end: Point,
+    last: Layer,
+) -> (Vec<(Point, Point, Layer)>, Vec<Point>) {
+    let mut legs = Vec::new();
+    let mut vias = Vec::new();
+    let mut from = start;
+    for (i, (at, layer)) in corners.iter().enumerate() {
+        legs.push((from, *at, *layer));
+        let next = corners.get(i + 1).map_or(last, |c| c.1);
+        if next != *layer {
+            vias.push(*at);
+        }
+        from = *at;
+    }
+    legs.push((from, end, last));
+    (legs, vias)
+}
+
+/// Pad and drill of a via dropped in a route when the net's class names none.
+const ROUTE_VIA: (f64, f64) = (0.6, 0.3);
 
 /// The status line text naming the current route mode.
 fn mode_label(mode: &str) -> String {
@@ -180,23 +211,37 @@ impl App {
         let (Some(start), Some(end)) = ends else {
             return;
         };
-        let mut points = vec![start];
-        points.extend(self.route_drag.corners.iter().copied());
-        points.push(end);
-        let path = lay_path(&points, self.route_mode());
-        for leg in path.windows(2) {
-            self.run(
-                "track.add",
-                json!({"net": net, "start": leg[0], "end": leg[1], "layer": self.route_layer}),
-            );
+        let corners = std::mem::take(&mut self.route_drag.corners);
+        let (legs, vias) = route_legs(start, &corners, end, self.active_copper());
+        let mode = self.route_mode();
+        for (a, b, layer) in legs {
+            for piece in lay_path(&[a, b], mode).windows(2) {
+                self.run(
+                    "track.add",
+                    json!({"net": net, "start": piece[0], "end": piece[1], "layer": layer}),
+                );
+            }
         }
-        self.route_drag.corners.clear();
+        let sized = self
+            .project
+            .net_class(net)
+            .is_some_and(|c| c.via_diameter.is_some());
+        for at in vias {
+            if sized {
+                self.run("via.place", json!({"net": net, "position": at}));
+            } else {
+                self.run(
+                    "via.place",
+                    json!({"net": net, "position": at, "diameter": ROUTE_VIA.0, "drill": ROUTE_VIA.1}),
+                );
+            }
+        }
         self.tool = Tool::Select;
     }
 
     /// Add a corner to the open route at `at` (already snapped).
     pub(super) fn add_route_corner(&mut self, at: Point) {
-        self.route_drag.corners.push(at);
+        self.route_drag.corners.push((at, self.active_copper()));
         self.message = t!(
             "board.canvas.route_corner_added",
             count = self.route_drag.corners.len()

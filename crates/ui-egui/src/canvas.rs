@@ -723,24 +723,35 @@ impl App {
                         .and_then(|f| f.pad_position(pad))
                     {
                         // The route so far through its corners, then on to
-                        // the pointer, as it will be laid on the active layer.
-                        let mut points = vec![start];
-                        points.extend(self.route_drag.corners.iter().copied());
-                        points.push(snapped);
-                        let path = route_drag::lay_path(&points, self.route_mode());
-                        let colour = self
-                            .art()
-                            .copper(self.active_copper(), self.project.copper_layer_count());
-                        painter.add(egui::Shape::line(
-                            path.iter().map(|q| camera.screen(*q, rect)).collect(),
-                            Stroke::new(3.0, colour.gamma_multiply(0.8)),
-                        ));
-                        for corner in &self.route_drag.corners {
+                        // the pointer, each leg in its layer's colour, with a
+                        // ring where a via will change layer.
+                        let (legs, vias) = route_drag::route_legs(
+                            start,
+                            &self.route_drag.corners,
+                            snapped,
+                            self.active_copper(),
+                        );
+                        let art = self.art();
+                        let count = self.project.copper_layer_count();
+                        for (a, b, layer) in legs {
+                            let path = route_drag::lay_path(&[a, b], self.route_mode());
+                            painter.add(egui::Shape::line(
+                                path.iter().map(|q| camera.screen(*q, rect)).collect(),
+                                Stroke::new(3.0, art.copper(layer, count).gamma_multiply(0.8)),
+                            ));
+                        }
+                        for (corner, _) in &self.route_drag.corners {
                             painter.circle_stroke(
                                 camera.screen(*corner, rect),
                                 4.0,
                                 Stroke::new(1.5, self.accent()),
                             );
+                        }
+                        for at in vias {
+                            let centre = camera.screen(at, rect);
+                            let radius = (0.3 * camera.zoom).max(3.0);
+                            painter.circle_filled(centre, radius, art.multi_layer);
+                            painter.circle_filled(centre, radius * 0.5, art.drill);
                         }
                     }
                 }
