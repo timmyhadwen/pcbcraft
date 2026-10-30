@@ -154,7 +154,7 @@ fn a_newcomer_flips_the_board_and_sees_the_bottom_parts_on_top() -> Result<(), S
     );
     assert_eq!(app.stack.copper_alpha(bottom), 1.0);
     // Stepping to a layer pins it: now the top copper is behind the bottom one.
-    key(&ctx, &mut app, egui::Key::PageDown);
+    key(&ctx, &mut app, egui::Key::Plus);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(app.pinned_view.is_some(), "stepping pins the view");
     Ok(())
@@ -167,18 +167,18 @@ fn a_newcomer_steps_through_the_layers() -> Result<(), String> {
     let opening = app.layer_status();
     assert!(opening.contains("Top copper"), "{opening}");
     authoring::tests::tap(&ctx, &mut app, &opening)?;
-    key(&ctx, &mut app, egui::Key::PageUp);
+    key(&ctx, &mut app, egui::Key::Minus);
     assert_eq!(
         app.current_target(),
         Target::Paste(Side::Top),
-        "Page Up goes one level toward you"
+        "- goes one level toward you"
     );
-    key(&ctx, &mut app, egui::Key::PageDown);
-    key(&ctx, &mut app, egui::Key::PageDown);
+    key(&ctx, &mut app, egui::Key::Plus);
+    key(&ctx, &mut app, egui::Key::Plus);
     assert_eq!(
         app.current_target(),
         Target::Copper(app.bottom_copper()),
-        "Page Down walks the stack"
+        "+ walks the stack"
     );
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(

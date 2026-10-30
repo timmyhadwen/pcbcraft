@@ -40,17 +40,18 @@ pub const RADIUS_CONTROL: u8 = 4;
 pub const RADIUS_CARD: u8 = 6;
 /// Corner radius of the items inside a segmented control.
 pub const RADIUS_SEGMENT: u8 = 2;
-/// Height of a normal control (small 24, large 32).
-pub const CONTROL_HEIGHT: f32 = 28.0;
+/// Height of a normal control (small and normal 24, large 28): dense desktop rows,
+/// never below the 24 px pointer target (WCAG 2.5.8).
+pub const CONTROL_HEIGHT: f32 = 24.0;
 /// Height of a small control.
 pub const CONTROL_HEIGHT_SMALL: f32 = 24.0;
 /// Height of a large control.
-pub const CONTROL_HEIGHT_LARGE: f32 = 32.0;
+pub const CONTROL_HEIGHT_LARGE: f32 = 28.0;
 /// Height of the tab nav, aside tabs and the tool bar.
-pub const BAR_HEIGHT: f32 = 40.0;
+pub const BAR_HEIGHT: f32 = 30.0;
 /// Height of a bottom-sheet tab row and of a panel header.
-pub const SHEET_TAB_HEIGHT: f32 = 36.0;
-/// Height of the status bar.
+pub const SHEET_TAB_HEIGHT: f32 = 28.0;
+/// Height of the status bar; its items are pointer targets, so 24.
 pub const STATUS_HEIGHT: f32 = 24.0;
 /// Width of a 1 px border.
 pub const BORDER: f32 = 1.0;
@@ -140,37 +141,37 @@ impl Tokens {
     /// The dark theme values.
     pub const DARK: Tokens = Tokens {
         theme: Theme::Dark,
-        ground: rgb(0x0A1411),
-        panel: rgb(0x111F1A),
-        raised: rgb(0x182A23),
-        hover: rgb(0x1F352C),
-        line: rgb(0x2C4A3E),
-        edge: rgb(0x5E8576),
-        text: rgb(0xE8F0EB),
-        muted: rgb(0x9DB3A8),
+        ground: rgb(0x1C1D1F),
+        panel: rgb(0x252629),
+        raised: rgb(0x2E3034),
+        hover: rgb(0x3A3C41),
+        line: rgb(0x3A3C40),
+        edge: rgb(0x7C8189),
+        text: rgb(0xE4E6E9),
+        muted: rgb(0xA3A8B0),
         copper: rgb(0xE39A5B),
         mask: rgb(0x4FCB8C),
         gold: rgb(0xE6BE5A),
         cyan: rgb(0x5CC8E8),
         red: rgb(0xFF8A80),
-        onacc: rgb(0x0A1411),
+        onacc: rgb(0x1C1D1F),
         copper_tint: tint(0xE39A5B, 16),
         gold_tint: tint(0xE6BE5A, 16),
         red_tint: tint(0xFF8A80, 16),
         mask_tint: tint(0x4FCB8C, 16),
-        scrim: tint(0x0A1411, 72),
+        scrim: tint(0x1C1D1F, 72),
     };
     /// The light theme values.
     pub const LIGHT: Tokens = Tokens {
         theme: Theme::Light,
-        ground: rgb(0xF4F3EC),
-        panel: rgb(0xFFFFFF),
-        raised: rgb(0xE9E8DF),
-        hover: rgb(0xDEDDD2),
-        line: rgb(0xB9C4BC),
-        edge: rgb(0x667B70),
-        text: rgb(0x101C17),
-        muted: rgb(0x44574E),
+        ground: rgb(0xEDEDED),
+        panel: rgb(0xFAFAFA),
+        raised: rgb(0xE6E6E6),
+        hover: rgb(0xDADADA),
+        line: rgb(0xC6C6C6),
+        edge: rgb(0x767676),
+        text: rgb(0x1A1A1A),
+        muted: rgb(0x4A4A4A),
         copper: rgb(0x8F4A12),
         mask: rgb(0x14663F),
         gold: rgb(0x7A5A00),
@@ -181,7 +182,7 @@ impl Tokens {
         gold_tint: tint(0x7A5A00, 12),
         red_tint: tint(0xB3261E, 12),
         mask_tint: tint(0x14663F, 12),
-        scrim: tint(0x101C17, 40),
+        scrim: tint(0x1A1A1A, 40),
     };
 
     /// The tokens for `Preferences.dark`.
@@ -379,15 +380,16 @@ pub fn visuals(t: &Tokens) -> egui::Visuals {
 /// Set the spacing numbers of the design on a style.
 ///
 /// # Rules
-/// - Item spacing 8 by 4, button padding 12 by 4, interact size 28, indent 16.
+/// - Dense desktop spacing: item spacing 6 by 3, button padding 8 by 2,
+///   interact size 24, indent 14.
 pub fn apply_spacing(style: &mut egui::Style) {
     let s = &mut style.spacing;
-    s.item_spacing = Vec2::new(8.0, 4.0);
-    s.button_padding = Vec2::new(12.0, 4.0);
+    s.item_spacing = Vec2::new(6.0, 3.0);
+    s.button_padding = Vec2::new(8.0, 2.0);
     s.interact_size = Vec2::new(CONTROL_HEIGHT, CONTROL_HEIGHT);
-    s.window_margin = Margin::same(16);
-    s.menu_margin = Margin::same(4);
-    s.indent = 16.0;
+    s.window_margin = Margin::same(8);
+    s.menu_margin = Margin::same(3);
+    s.indent = 14.0;
     s.icon_width = 16.0;
     s.tooltip_width = 360.0;
 }
@@ -476,10 +478,10 @@ mod tests {
             } else {
                 egui::Theme::Light
             });
-            assert_eq!(style.spacing.item_spacing, Vec2::new(8.0, 4.0));
-            assert_eq!(style.spacing.button_padding, Vec2::new(12.0, 4.0));
-            assert_eq!(style.spacing.interact_size, Vec2::new(28.0, 28.0));
-            assert_eq!(style.spacing.indent, 16.0);
+            assert_eq!(style.spacing.item_spacing, Vec2::new(6.0, 3.0));
+            assert_eq!(style.spacing.button_padding, Vec2::new(8.0, 2.0));
+            assert_eq!(style.spacing.interact_size, Vec2::new(24.0, 24.0));
+            assert_eq!(style.spacing.indent, 14.0);
             assert_eq!(style.visuals.panel_fill, t.panel);
             assert_eq!(style.visuals.window_fill, t.panel);
             assert_eq!(style.visuals.extreme_bg_color, t.raised);

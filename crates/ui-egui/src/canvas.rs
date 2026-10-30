@@ -140,7 +140,8 @@ pub(crate) fn snap(p: Point) -> Point {
     if crate::tool_modifiers::snap_suspended() {
         return p;
     }
-    Point::new((p.x * 2.0).round() / 2.0, (p.y * 2.0).round() / 2.0)
+    // The step comes from the G key (see snap_grid.rs); 0.5 mm by default.
+    Point::new(crate::snap_grid::round(p.x), crate::snap_grid::round(p.y))
 }
 fn fill_polygon(painter: &egui::Painter, points: &[Pos2], color: Color32, clip: Rect) {
     let points = if points.first() == points.last() {
@@ -512,7 +513,10 @@ impl App {
                     .offset(Point::new(before.x - after.x, before.y - after.y));
             }
         }
-        if response.dragged_by(egui::PointerButton::Middle) {
+        // Middle- or right-drag pans; a right click without a drag still opens the menu.
+        if response.dragged_by(egui::PointerButton::Middle)
+            || response.dragged_by(egui::PointerButton::Secondary)
+        {
             let d = ui.input(|i| i.pointer.delta());
             ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
             camera.pan_screen(d);

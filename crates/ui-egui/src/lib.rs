@@ -10,6 +10,7 @@ mod bottom_sheet;
 pub mod brand;
 mod browser;
 mod canvas;
+mod classic_menus;
 mod contrast;
 mod datums;
 mod draw_target;
@@ -20,6 +21,7 @@ mod footprint_wizard;
 mod hover_affordance;
 mod icons;
 mod impedance_panel;
+mod key_commands;
 mod keymap;
 mod layers_tree;
 mod library;
@@ -39,6 +41,7 @@ mod reference_panel;
 mod route_drag;
 mod sheet_rows;
 mod showcase;
+mod snap_grid;
 mod sources;
 mod stack_view;
 mod sync_notice;
@@ -719,6 +722,9 @@ struct Preferences {
     /// Remapped tool modifiers and tool hotkeys; empty means classic defaults.
     #[serde(default)]
     modifiers: tool_modifiers::Bindings,
+    /// Show cursor and grid readouts in mils instead of millimetres (Q).
+    #[serde(default)]
+    mil_units: bool,
 }
 fn default_keymap_profile() -> String {
     "Default".into()
@@ -772,6 +778,7 @@ impl Default for Preferences {
             active_keymap_profile: default_keymap_profile(),
             keymap_profiles: default_keymap_profiles(),
             modifiers: Default::default(),
+            mil_units: false,
         }
     }
 }
@@ -817,6 +824,12 @@ impl Preferences {
             .contains_key(&self.active_keymap_profile)
         {
             self.active_keymap_profile = "Default".into();
+        }
+        // A Default profile saved by an older build gets the current classic set.
+        if let Some(map) = self.keymap_profiles.get_mut("Default")
+            && map.is_outdated()
+        {
+            map.reset_to_default();
         }
         for map in self.keymap_profiles.values_mut() {
             map.sanitize();
@@ -1148,6 +1161,8 @@ pub struct App {
     shortcuts_open: bool,
     shortcuts_settings_open: bool,
     binding_capture: Option<keymap::KeyAction>,
+    /// The first key of a two-key shortcut, waiting for its second key.
+    key_prefix: Option<egui::Key>,
     profile_name_draft: String,
     profile_import_text: String,
     keymap_notice: String,
@@ -1535,6 +1550,9 @@ impl App {
         preferences.normalize_keymaps();
         if light {
             preferences.dark = false;
+        } else if capture.is_some() {
+            // A capture image is dark unless asked for light, whatever was saved last.
+            preferences.dark = true;
         }
         if let Some(text) = cc
             .storage
@@ -1743,6 +1761,7 @@ impl App {
             capture_page: None,
             frames: 0,
             binding_capture: None,
+            key_prefix: None,
             profile_name_draft: String::new(),
             profile_import_text: String::new(),
             keymap_notice: String::new(),
@@ -2599,12 +2618,10 @@ impl App {
                 self.needs_zoom_selection = true;
             }
             KeyAction::DeleteSelection => {
-                if let Some(id) = self.selected {
-                    self.run("object.delete", json!({"id": id}));
-                    self.select(None);
-                }
+                self.delete_selection();
             }
             KeyAction::ReturnToSelect => {
+                self.key_prefix = None;
                 self.tool = Tool::Select;
                 self.drag = None;
                 self.palette = false;
@@ -2683,18 +2700,10 @@ impl App {
                 };
             }
             KeyAction::LayerNext => {
-                self.route_layer = match self.route_layer {
-                    pcbcraft_doc::Layer::Front => pcbcraft_doc::Layer::Back,
-                    pcbcraft_doc::Layer::Back => pcbcraft_doc::Layer::Front,
-                    other => other,
-                };
+                self.step_layer(false);
             }
             KeyAction::LayerPrev => {
-                self.route_layer = match self.route_layer {
-                    pcbcraft_doc::Layer::Front => pcbcraft_doc::Layer::Back,
-                    pcbcraft_doc::Layer::Back => pcbcraft_doc::Layer::Front,
-                    other => other,
-                };
+                self.step_layer(true);
             }
             KeyAction::RepeatLastCommand => {
                 if let Some((command, params)) = self.last_repeat.clone() {
@@ -2716,6 +2725,9 @@ impl App {
             }
             KeyAction::ToggleAssistant => {
                 self.assistant_toggle();
+            }
+            other => {
+                self.classic_action(other);
             }
         }
     }
@@ -2770,33 +2782,7 @@ impl App {
         if ctx.egui_wants_keyboard_input() {
             return;
         }
-        let map = self.preferences.active_keymap().clone();
-        let tab = self.tab;
-        let command_open = self.command_open;
-        ctx.input(|i| {
-            for event in &i.events {
-                let egui::Event::Key {
-                    key,
-                    pressed: true,
-                    repeat: false,
-                    ..
-                } = event
-                else {
-                    continue;
-                };
-                let chord = keymap::chord_from_input(*key, i.modifiers);
-                if let Some(action) = map.resolve(chord, tab, command_open)
-                    && !matches!(
-                        action,
-                        keymap::KeyAction::PaletteLineUp
-                            | keymap::KeyAction::PaletteLineDown
-                            | keymap::KeyAction::PaletteRun
-                    )
-                {
-                    self.dispatch_shortcut(action);
-                }
-            }
-        });
+        self.keyboard_commands(ctx);
         ctx.input(|i| {
             let workspace = if self.tab == Tab::Pcb {
                 tool_modifiers::Workspace::Board
@@ -2832,11 +2818,11 @@ impl App {
         fresh
     }
     fn dock_frame(style: &egui::Style) -> egui::Frame {
-        egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(16, 12))
+        egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(8, 4))
     }
     /// The smallest side of any control a pointer must hit (WCAG 2.5.8).
     const MIN_TARGET: f32 = targets::MIN_TARGET;
-    const APP_BAR_HEIGHT: f32 = 34.0;
+    const APP_BAR_HEIGHT: f32 = 26.0;
     /// Left edge shared by the tab row, the tool strip and the page content.
     const PAGE_GUTTER: f32 = 28.0;
     /// The type scale: page title, section title, body, caption.
@@ -2846,7 +2832,9 @@ impl App {
     fn header(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("app-bar")
             .exact_size(Self::APP_BAR_HEIGHT)
-            .frame(Self::dock_frame(ui.style()))
+            .frame(
+                egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(6, 1)),
+            )
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     let label = egui::RichText::new(t!("app.name"))
@@ -2864,9 +2852,16 @@ impl App {
                     }
                     if self.library.editor.mode == 0 {
                         ui.separator();
+                        // Flat menu titles, as a desktop menu bar draws them.
+                        let widgets = &mut ui.visuals_mut().widgets;
+                        widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+                        widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                        ui.spacing_mut().button_padding = Vec2::new(7.0, 2.0);
+                        ui.spacing_mut().item_spacing.x = 0.0;
                         self.file_menu(ui);
                         self.edit_menu(ui);
                         self.view_menu(ui);
+                        self.classic_menus(ui);
                         self.help_menu(ui);
                     }
                 });
@@ -3146,7 +3141,7 @@ impl App {
                 self.home_open = true;
             }
             if ui
-                .button(t!("menu.file.save"))
+                .add(egui::Button::new(t!("menu.file.save")).shortcut_text("Ctrl+S"))
                 .on_hover_text(t!("menu.file.save.tip"))
                 .clicked()
             {
@@ -3196,7 +3191,10 @@ impl App {
                 .map(|s| (s.can_undo(), s.can_redo()))
                 .unwrap_or((false, false));
             if ui
-                .add_enabled(can_undo, egui::Button::new(t!("menu.edit.undo")))
+                .add_enabled(
+                    can_undo,
+                    egui::Button::new(t!("menu.edit.undo")).shortcut_text("Ctrl+Z"),
+                )
                 .on_hover_text(if can_undo {
                     t!("menu.edit.undo.tip")
                 } else {
@@ -3208,7 +3206,10 @@ impl App {
                 self.tool_call("undo", json!({}));
             }
             if ui
-                .add_enabled(can_redo, egui::Button::new(t!("menu.edit.redo")))
+                .add_enabled(
+                    can_redo,
+                    egui::Button::new(t!("menu.edit.redo")).shortcut_text("Ctrl+Y"),
+                )
                 .on_hover_text(t!("menu.edit.redo.tip"))
                 .on_disabled_hover_text(t!("menu.edit.redo.none"))
                 .clicked()
@@ -3217,7 +3218,7 @@ impl App {
             }
             ui.separator();
             if ui
-                .button(t!("menu.edit.copy"))
+                .add(egui::Button::new(t!("menu.edit.copy")).shortcut_text("Ctrl+C"))
                 .on_hover_text(t!("menu.edit.copy.tip"))
                 .clicked()
             {
@@ -3225,12 +3226,15 @@ impl App {
                 self.copy_selection(&ctx);
             }
             if ui
-                .button(t!("menu.edit.paste"))
+                .add(egui::Button::new(t!("menu.edit.paste")).shortcut_text("Ctrl+V"))
                 .on_hover_text(t!("menu.edit.paste.tip"))
                 .clicked()
             {
                 self.paste_last_copy();
             }
+            ui.separator();
+            self.edit_actions(ui);
+            ui.separator();
             if ui
                 .button(t!("menu.edit.preferences"))
                 .on_hover_text(t!("menu.edit.preferences.tip"))
@@ -3338,6 +3342,7 @@ impl App {
     /// The View menu: pages that are not tabs.
     fn view_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.view"), |ui| {
+            self.view_actions(ui);
             for (tab, label, tip) in [
                 (
                     Tab::Checks,
@@ -3366,7 +3371,7 @@ impl App {
     fn help_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.help"), |ui| {
             if ui
-                .button(t!("menu.help.shortcuts"))
+                .add(egui::Button::new(t!("menu.help.shortcuts")).shortcut_text("F1"))
                 .on_hover_text(t!("menu.help.shortcuts.tip"))
                 .clicked()
             {
@@ -4295,12 +4300,12 @@ impl App {
                             let label = keymap::action_label(action);
                             ui.label(label)
                                 .on_hover_text(keymap::action_tooltip(action));
-                            let chord = self
-                                .preferences
-                                .active_keymap()
-                                .chord_for(action)
-                                .map(keymap::format_chord)
-                                .unwrap_or_else(|| "Unassigned".into());
+                            let keys = self.preferences.active_keymap().keys_text(action);
+                            let chord = if keys.is_empty() {
+                                "Unassigned".to_string()
+                            } else {
+                                keys
+                            };
                             ui.label(egui::RichText::new(chord).monospace());
                             let waiting = self.binding_capture == Some(action);
                             let change = ui
@@ -6566,7 +6571,9 @@ impl App {
                     let status =
                         status_item(ui, None, &self.message, &t!("status.message.tip"), false);
                     a11y::announce_status(ui.ctx(), &status, &self.message);
-                    if !self.edit.hint.is_empty() {
+                    if let Some(pending) = self.prefix_hint() {
+                        status_item(ui, None, &pending, &t!("keys.prefix.pending.tip"), true);
+                    } else if !self.edit.hint.is_empty() {
                         status_item(ui, None, &self.edit.hint, &t!("modifier.status.tip"), false);
                     } else if !matches!(self.tool, Tool::Select) {
                         status_item(
@@ -6580,12 +6587,16 @@ impl App {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let zoom_text = t!("board.footer.zoom_pct", zoom_pct = zoom_pct);
                         status_item(ui, None, &zoom_text, &t!("board.footer.zoom_pct.tip"), true);
-                        if let Some(p) = self.cursor {
-                            let text = t!(
-                                "board.footer.x_y_mm",
-                                x = format!("{:.2}", p.x),
-                                y = format!("{:.2}", p.y)
+                        let mil = self.preferences.mil_units;
+                        if matches!(self.tab, Tab::Schematic | Tab::Pcb) {
+                            let grid = t!(
+                                "keys.status.grid",
+                                step = snap_grid::format_length(snap_grid::step(), mil)
                             );
+                            status_item(ui, None, &grid, &t!("keys.status.grid.tip"), true);
+                        }
+                        if let Some(p) = self.cursor {
+                            let text = snap_grid::format_point(p.x, p.y, mil);
                             status_item(ui, None, &text, &t!("board.footer.x_y_mm.tip"), true);
                         }
                         if self.tab == Tab::Pcb {
@@ -6761,22 +6772,25 @@ impl App {
         self.file_dialog_window(ui.ctx());
         if self.shortcuts_open {
             let muted = self.muted();
+            let rows = self.preferences.active_keymap().rows_for_help();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))
                 .open(&mut self.shortcuts_open)
+                .default_size([620.0, 560.0])
                 .show(ui, |ui| {
-                    egui::Grid::new("shortcut-list")
-                        .num_columns(3)
-                        .spacing([16.0, 4.0])
-                        .show(ui, |ui| {
-                            for (keys, action, context) in
-                                self.preferences.active_keymap().rows_for_help()
-                            {
-                                ui.label(egui::RichText::new(keys).monospace().strong());
-                                ui.label(action);
-                                ui.label(egui::RichText::new(context).small().color(muted));
-                                ui.end_row();
-                            }
-                        });
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        egui::Grid::new("shortcut-list")
+                            .num_columns(3)
+                            .spacing([16.0, 2.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for (keys, action, context) in rows {
+                                    ui.label(egui::RichText::new(keys).monospace().strong());
+                                    ui.label(action);
+                                    ui.label(egui::RichText::new(context).small().color(muted));
+                                    ui.end_row();
+                                }
+                            });
+                    });
                 });
         }
     }
@@ -8548,14 +8562,24 @@ mod tests {
         );
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
 
-        // Step 1: press A, pick the first part from the palette, click the sheet.
+        // Step 1: press P then P, pick the first part from the palette, click the sheet.
         frame(
             &ctx,
             &mut app,
-            vec![key(egui::Key::A, egui::Modifiers::NONE)],
+            vec![
+                key(egui::Key::P, egui::Modifiers::NONE),
+                egui::Event::Key {
+                    key: egui::Key::P,
+                    physical_key: None,
+                    pressed: false,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                key(egui::Key::P, egui::Modifiers::NONE),
+            ],
             egui::Modifiers::NONE,
         );
-        assert!(app.palette, "A opens the symbol palette");
+        assert!(app.palette, "P, P opens the symbol palette");
         app.palette = false;
         app.tool = Tool::Place(TEMPLATES[0].kind.into());
         for pressed in [true, false] {
@@ -8693,7 +8717,7 @@ mod tests {
         frame(
             &ctx,
             &mut app,
-            vec![key(egui::Key::R, egui::Modifiers::NONE)],
+            vec![key(egui::Key::Space, egui::Modifiers::NONE)],
             egui::Modifiers::NONE,
         );
         assert_eq!(app.project.footprint(11).map(|f| f.rotation), Some(90.0));

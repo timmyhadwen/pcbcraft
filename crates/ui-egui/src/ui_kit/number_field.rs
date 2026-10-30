@@ -179,8 +179,9 @@ pub fn number_field(
     let (rect, mut outer) =
         ui.allocate_exact_size(Vec2::new(spec.width, theme::CONTROL_HEIGHT), Sense::hover());
     let text_rect = egui::Rect::from_min_max(
-        pos2(rect.min.x + 8.0, rect.min.y + 1.0),
-        pos2(rect.max.x - 8.0 - unit_w, rect.max.y - 1.0),
+        // Full height: the text box is the pointer target and must stay 24 high.
+        pos2(rect.min.x + 8.0, rect.min.y),
+        pos2(rect.max.x - 8.0 - unit_w, rect.max.y),
     );
     let focused = ui.memory(|m| m.has_focus(id));
     // Keys are read before the text box sees them so arrows step instead of moving the cursor.

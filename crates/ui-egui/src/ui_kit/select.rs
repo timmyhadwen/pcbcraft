@@ -77,7 +77,7 @@ mod tests {
 
     /// The box is a combo box with the given name and a bounded height.
     #[test]
-    fn select_is_named_and_28_high() {
+    fn select_is_named_and_24_high() {
         let ctx = context(true);
         let mut sel = 1usize;
         let mut h = 0.0;
@@ -94,7 +94,7 @@ mod tests {
             .rect
             .height();
         });
-        assert!((28.0..=30.0).contains(&h), "{h}");
+        assert!((24.0..=26.0).contains(&h), "{h}");
         let named = out
             .platform_output
             .accesskit_update

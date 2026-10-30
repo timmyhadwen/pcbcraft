@@ -174,17 +174,17 @@ fn a_newcomer_routes_at_45_degrees_by_holding_shift() -> Result<(), String> {
         &ctx,
         &mut app,
         vec![Event::Key {
-            key: egui::Key::X,
-            physical_key: Some(egui::Key::X),
+            key: egui::Key::W,
+            physical_key: Some(egui::Key::W),
             pressed: true,
             repeat: false,
-            modifiers: Modifiers::NONE,
+            modifiers: Modifiers::CTRL,
         }],
-        Modifiers::NONE,
+        Modifiers::CTRL,
     );
     assert!(
         matches!(app.tool, Tool::Route(None)),
-        "X arms the Route tool"
+        "Ctrl+W arms the Route tool"
     );
     {
         let target = at(&app, fa, &pa)?;

@@ -395,11 +395,11 @@ mod tests {
 
     /// Heights follow the three size classes.
     #[test]
-    fn heights_are_24_28_and_32() -> Result<(), String> {
+    fn heights_are_24_24_and_28() -> Result<(), String> {
         for (size, h) in [
             (Size::Small, 24.0),
-            (Size::Normal, 28.0),
-            (Size::Large, 32.0),
+            (Size::Normal, 24.0),
+            (Size::Large, 28.0),
         ] {
             let r =
                 run(move |ui| primary_button(ui, None, "Save", "Save the project", size, true))?;
@@ -421,7 +421,7 @@ mod tests {
                 true,
             )
         })?;
-        assert_eq!(r.rect.size(), Vec2::splat(28.0));
+        assert_eq!(r.rect.size(), Vec2::splat(24.0));
         Ok(())
     }
 

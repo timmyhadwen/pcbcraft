@@ -263,9 +263,9 @@ mod tests {
     fn heights_follow_the_three_sizes() {
         let ctx = context(true);
         for (size, h) in [
-            (TabSize::Nav, 40.0),
-            (TabSize::Aside, 40.0),
-            (TabSize::Sheet, 36.0),
+            (TabSize::Nav, 30.0),
+            (TabSize::Aside, 30.0),
+            (TabSize::Sheet, 28.0),
         ] {
             let mut cur = 0usize;
             let mut got = 0.0;
