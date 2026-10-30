@@ -933,16 +933,26 @@ impl App {
         vec![a, Point::new(mid, a.y), Point::new(mid, b.y), b]
     }
 
-    /// The wheel: pan sideways with Shift, zoom in fine steps with Ctrl.
+    /// The wheel: pan sideways with Shift, zoom in fine steps with Ctrl. With
+    /// the "wheel scrolls" preference the wheel pans instead (Shift sideways)
+    /// and only Ctrl+wheel zooms.
     ///
-    /// Returns the zoom factor exponent source and the horizontal pan in
-    /// screen points for this frame.
-    pub(crate) fn wheel_plan(&self, ui: &egui::Ui, held: Held) -> (f32, f32, f32) {
+    /// Returns the zoom amount, the horizontal pan, the zoom scale and the
+    /// vertical pan in screen points for this frame.
+    pub(crate) fn wheel_plan(&self, ui: &egui::Ui, held: Held) -> (f32, f32, f32, f32) {
+        if self.preferences.wheel_scrolls {
+            let zoom = ui.input(|i| i.zoom_delta().ln()) * 300.0;
+            if zoom.abs() > 0.01 {
+                return (zoom, 0.0, 1.0, 0.0);
+            }
+            let pan = ui.input(|i| i.smooth_scroll_delta);
+            return (0.0, pan.x, 1.0, pan.y);
+        }
         let plan = tm::wheel_plan(&self.preferences.modifiers, self.tool.kind(), held);
         let scroll = motion::wheel_zoom_delta(ui, self.preferences.reduced_motion);
         if plan.pan_horizontal {
             let sideways = ui.input(|i| i.smooth_scroll_delta.x + i.smooth_scroll_delta.y);
-            return (0.0, sideways, 1.0);
+            return (0.0, sideways, 1.0, 0.0);
         }
         let ctrl_zoom = ui.input(|i| i.zoom_delta().ln()) * 300.0;
         let amount = if scroll.abs() > 0.01 {
@@ -950,7 +960,7 @@ impl App {
         } else {
             ctrl_zoom
         };
-        (amount, 0.0, plan.zoom_scale)
+        (amount, 0.0, plan.zoom_scale, 0.0)
     }
 
     /// Via tool click: put a via on the net of the track or pad under the pointer.

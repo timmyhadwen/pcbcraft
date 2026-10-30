@@ -302,3 +302,48 @@ fn a_newcomer_pans_the_board_with_a_right_drag() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// With "wheel scrolls" on, the wheel moves the view instead of zooming it.
+#[test]
+fn a_designer_scrolls_the_board_with_the_wheel() -> Result<(), String> {
+    let session =
+        pcbcraft_mcp::shared(pcbcraft_engine::Session::sample().map_err(|e| e.to_string())?);
+    let mut app = App::create(session, Preferences::default(), None, None);
+    app.refresh();
+    app.change_tab(Tab::Pcb);
+    app.preferences.wheel_scrolls = true;
+    let ctx = egui::Context::default();
+    let over = egui::Pos2::new(700.0, 450.0);
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(over)],
+        egui::Modifiers::NONE,
+    );
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let before = app.pcb;
+    for _ in 0..20 {
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -40.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            egui::Modifiers::NONE,
+        );
+    }
+    assert!(
+        (app.pcb.zoom - before.zoom).abs() < 1e-6,
+        "the wheel does not zoom: {} to {}",
+        before.zoom,
+        app.pcb.zoom
+    );
+    assert!(
+        (app.pcb.center.y - before.center.y).abs() > 1e-3,
+        "the wheel moves the view"
+    );
+    Ok(())
+}

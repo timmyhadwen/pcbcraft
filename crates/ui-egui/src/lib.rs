@@ -686,6 +686,10 @@ struct Preferences {
     /// Turn off fades, collapses and glided zoom. Dragging is unaffected.
     #[serde(default)]
     reduced_motion: bool,
+    /// The wheel scrolls the view (Shift sideways) and Ctrl+wheel zooms,
+    /// instead of the wheel zooming about the pointer.
+    #[serde(default)]
+    wheel_scrolls: bool,
     /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
     #[serde(default = "default_ui_scale")]
     ui_scale: f32,
@@ -766,6 +770,7 @@ impl Default for Preferences {
             language: default_language(),
             recent_files: Default::default(),
             reduced_motion: motion::os_prefers_reduced_motion(),
+            wheel_scrolls: false,
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
             route_shove: false,
@@ -4430,6 +4435,11 @@ impl App {
             t!("settings.settings_tab.reduce_motion"),
         )
         .on_hover_text(t!("settings.settings_tab.reduce_motion.tip"));
+        ui.checkbox(
+            &mut self.preferences.wheel_scrolls,
+            t!("settings.settings_tab.wheel_scrolls"),
+        )
+        .on_hover_text(t!("settings.settings_tab.wheel_scrolls.tip"));
         self.language_menu(ui);
         ui.label(
             egui::RichText::new(t!(

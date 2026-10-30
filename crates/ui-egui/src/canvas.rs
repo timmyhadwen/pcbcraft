@@ -499,9 +499,9 @@ impl App {
         }
         let held = crate::tool_modifiers::held_now(ui.ctx());
         if response.hovered() {
-            let (scroll, sideways, scale) = self.wheel_plan(ui, held);
-            if sideways.abs() > 0.01 {
-                camera.pan_screen(Vec2::new(sideways, 0.0));
+            let (scroll, sideways, scale, upward) = self.wheel_plan(ui, held);
+            if sideways.abs() > 0.01 || upward.abs() > 0.01 {
+                camera.pan_screen(Vec2::new(sideways, upward));
             }
             if scroll.abs() > 0.01
                 && let Some(mouse) = ui.input(|i| i.pointer.hover_pos())
