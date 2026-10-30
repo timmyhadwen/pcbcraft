@@ -513,7 +513,10 @@ impl App {
                     .offset(Point::new(before.x - after.x, before.y - after.y));
             }
         }
-        if response.dragged_by(egui::PointerButton::Middle) {
+        // Middle- or right-drag pans; a right click without a drag still opens the menu.
+        if response.dragged_by(egui::PointerButton::Middle)
+            || response.dragged_by(egui::PointerButton::Secondary)
+        {
             let d = ui.input(|i| i.pointer.delta());
             ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
             camera.pan_screen(d);

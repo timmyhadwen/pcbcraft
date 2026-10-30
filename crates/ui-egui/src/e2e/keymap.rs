@@ -257,3 +257,48 @@ fn a_newcomer_isolates_the_top_copper_with_shift_s_and_opens_help_with_f1() -> R
     assert!(app.shortcuts_open, "F1 opens the shortcut list");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_pans_the_board_with_a_right_drag() -> Result<(), String> {
+    let (ctx, mut app) = sample_app(Tab::Pcb)?;
+    let start = app.canvas_rect.center();
+    let before = app.pcb.center;
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Secondary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(start), button(start, true)],
+        egui::Modifiers::NONE,
+    );
+    for step in 1..=4 {
+        let at = start + egui::Vec2::new(30.0 * step as f32, 0.0);
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(at)],
+            egui::Modifiers::NONE,
+        );
+    }
+    let end = start + egui::Vec2::new(120.0, 0.0);
+    frame(
+        &ctx,
+        &mut app,
+        vec![button(end, false)],
+        egui::Modifiers::NONE,
+    );
+    assert!(
+        (app.pcb.center.x - before.x).abs() > 1.0,
+        "a right drag moves the view: {before:?} to {:?}",
+        app.pcb.center
+    );
+    assert!(
+        app.canvas_menu.is_none(),
+        "a right drag does not open the canvas menu"
+    );
+    Ok(())
+}
