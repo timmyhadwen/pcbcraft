@@ -1671,7 +1671,7 @@ impl App {
             );
         }
         if row_shown("power") {
-            sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"));
+            sheet::paint_power(painter, rect, camera, p, page, &kinds, &sc, shown("Wires"));
         }
         for w in p
             .drawn_wires
@@ -1728,14 +1728,8 @@ impl App {
             if l.kind == "junction" {
                 painter.circle_filled(at, 4.5, sc.wire);
             } else if l.kind == "power" {
+                // The power symbol drawn by `paint_power` carries the name.
                 painter.circle_filled(at, 3.0, sc.wire);
-                painter.text(
-                    at + egui::vec2(6.0, 0.0),
-                    Align2::LEFT_CENTER,
-                    p.net_name(l.net),
-                    crate::fonts::Role::Mono.font(),
-                    sc.wire,
-                );
             } else {
                 let text = match l.kind.as_str() {
                     "global" => format!("{{{}}}", p.net_name(l.net)),
@@ -1792,7 +1786,7 @@ impl App {
                 false,
             );
         }
-        let outlines = sheet::hit_outlines(p, rect, camera, &kinds);
+        let outlines = sheet::hit_outlines(p, rect, camera, page, &kinds);
         sheet::hover_outline(painter, &outlines, sc.select);
         if p.components.iter().all(|c| c.sheet != page) {
             painter.text(

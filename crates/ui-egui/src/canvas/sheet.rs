@@ -688,6 +688,7 @@ pub(super) fn paint_power(
     rect: Rect,
     camera: Camera,
     p: &Project,
+    page: Id,
     kinds: &HashMap<Id, PowerKind>,
     sc: &SheetColours,
     show_wires: bool,
@@ -696,7 +697,11 @@ pub(super) fn paint_power(
     let mut ends: HashMap<(i64, i64), usize> = HashMap::new();
     let key = |q: Point| ((q.x * 100.0).round() as i64, (q.y * 100.0).round() as i64);
     let mut ruled: Vec<Id> = Vec::new();
-    for w in p.wires.iter().filter(|_| show_wires) {
+    for w in p
+        .wires
+        .iter()
+        .filter(|w| show_wires && p.on_schematic_page(page, w.id))
+    {
         match kinds.get(&w.net) {
             Some(PowerKind::Ground) => {
                 let name = p.net_name(w.net);
@@ -758,7 +763,11 @@ pub(super) fn paint_power(
             );
         }
     }
-    for l in p.labels.iter().filter(|l| l.kind == "power") {
+    for l in p
+        .labels
+        .iter()
+        .filter(|l| l.kind == "power" && p.on_schematic_page(page, l.id))
+    {
         let name = p.net_name(l.net);
         match kinds.get(&l.net) {
             Some(PowerKind::Ground) => ground_symbol(painter, rect, camera, l.position, name, sc),
@@ -831,13 +840,19 @@ pub(super) fn hit_outlines(
     p: &Project,
     rect: Rect,
     camera: Camera,
+    page: Id,
     kinds: &HashMap<Id, PowerKind>,
 ) -> Vec<HitOutline> {
     let mut out = Vec::new();
     let dot = |at: Point, half: f32| {
         Rect::from_center_size(camera.screen(at, rect), Vec2::splat(half * 2.0))
     };
-    for c in p.components.iter().flat_map(|c| c.schematic_views()) {
+    for c in p
+        .components
+        .iter()
+        .filter(|c| c.sheet == page)
+        .flat_map(|c| c.schematic_views())
+    {
         let mut lo = c.position;
         let mut hi = c.position;
         for pin in &c.pins {
@@ -855,7 +870,7 @@ pub(super) fn hit_outlines(
             bounds: body.expand2(Vec2::new(4.0, 2.5 * camera.zoom)),
         });
     }
-    for w in &p.wires {
+    for w in p.wires.iter().filter(|w| p.on_schematic_page(page, w.id)) {
         if kinds.get(&w.net) == Some(&PowerKind::Ground) {
             continue;
         }
@@ -871,7 +886,7 @@ pub(super) fn hit_outlines(
             });
         }
     }
-    for l in &p.labels {
+    for l in p.labels.iter().filter(|l| p.on_schematic_page(page, l.id)) {
         let kind = if l.kind == "junction" {
             HitKind::Junction
         } else {
