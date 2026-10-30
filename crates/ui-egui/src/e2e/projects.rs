@@ -147,3 +147,27 @@ fn the_layer_and_footprint_keys_open_their_left_tabs() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn the_left_dock_tabs_fit_the_narrowest_dock() -> Result<(), String> {
+    let (ctx, mut app) = three_pages();
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The tab row sits just under the tool bar; the last label is Layers.
+    let right = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(t) if t.galley.text() == "Layers" && t.pos.y < 140.0 => {
+                Some(t.pos.x + t.galley.size().x)
+            }
+            _ => None,
+        })
+        .reduce(f32::max)
+        .ok_or("the Layers tab is on screen")?;
+    // Its side padding is 14; the narrowest dock is 272 wide.
+    assert!(
+        right + 14.0 <= 272.0,
+        "the Layers tab ends at {right}, past the narrowest dock"
+    );
+    Ok(())
+}

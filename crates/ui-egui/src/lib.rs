@@ -3457,16 +3457,21 @@ impl App {
     fn narrow_window(ctx: &egui::Context) -> bool {
         ctx.content_rect().width() < NARROW_WINDOW
     }
-    /// The left aside: tabs Layers (the unified tree, default) and Library.
-    /// Context: the only panel left of the drawing; the Layers tree lives in
-    /// `layers_tree.rs`, the Library tab keeps the parts list and part picker.
+    /// The left aside: the tabs the workspace lists, in the drawing work
+    /// areas Projects (default), Components and Layers.
+    /// Context: the only panel left of the drawing; the tabs are named in
+    /// `workspace.rs` (`LeftTab`), the Projects tree lives in
+    /// `projects_panel.rs`, the Layers tree in `layers_tree.rs`.
+    ///
+    /// # Rules
+    /// The narrowest dock still shows all three tab labels whole.
     fn browser(&mut self, ui: &mut egui::Ui) {
         if Self::narrow_window(ui.ctx()) {
             return;
         }
         egui::Panel::left("left-aside")
             .default_size(320.0)
-            .min_size(240.0)
+            .min_size(272.0)
             .frame(egui::Frame::NONE.fill(ui.style().visuals.panel_fill))
             .show(ui, |ui| {
                 self.left_aside_tabs(ui);
