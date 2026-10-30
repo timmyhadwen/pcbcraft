@@ -3,14 +3,19 @@
 //! Context: the Layout mockup. A header (reference, kind), then collapsible sections
 //! GENERAL, POSITION, PINS and MANUFACTURING for a part, a GENERAL section for other
 //! objects and a BOARD / STACKUP pair for the board root, with the action buttons last.
+//! With nothing selected it shows the document options of the canvas on screen (sheet
+//! or board, snap grid, units, rules) in the same compact grid.
 //! Local rules: every edit goes through an engine command (`component.value`,
 //! `footprint.move`, `footprint.rotate`, `footprint.flip`, `footprint.set_locked`,
-//! `board.resize`); a field commits on Enter or when it loses focus; every control has
-//! a tooltip from the catalog.
+//! `board.resize`, `schematic.set_page_setting`); a field commits on Enter or when it
+//! loses focus; every control has a tooltip from the catalog. Values with no typed
+//! command (copper layer count, clearance) are shown read-only.
 //!
 //! # Dependencies
-//! - crates/ui-egui/src/ui_kit/section.rs, form_row.rs, number_field.rs, segmented.rs
+//! - crates/ui-egui/src/ui_kit/section.rs, form_row.rs, number_field.rs, segmented.rs, select.rs
 //! - crates/ui-egui/src/lib.rs (`run`, `duplicate_selection`, `delete_selection`)
+//! - crates/ui-egui/src/snap_grid.rs (`step`, `set_step`, `STEPS`, `SHEET_STEPS`)
+//! - crates/ui-egui/src/sheet_rows.rs (`SIZES`, `set_page_setting`)
 //!
 //! # Do not
 //! - Keep state of the document here; read it from `App::project` each frame.
@@ -24,6 +29,7 @@ use crate::ui_kit::{
     number_field::{NumberSpec, number_field},
     section::section,
     segmented::{Segment, segmented},
+    select::select,
 };
 
 const ROW: FormWidth = FormWidth::Aside;
@@ -35,17 +41,21 @@ fn value_text(ui: &mut egui::Ui, text: &str) {
 }
 
 impl App {
-    /// The header of the Properties aside: reference or name, then a caption line.
+    /// The header of the Properties aside: reference or name, then its caption, on one line.
     pub(crate) fn properties_header(&self, ui: &mut egui::Ui, title: &str, caption: &str) {
         let t = theme::tokens(ui.ctx());
         egui::Frame::NONE
             .inner_margin(egui::Margin::ZERO)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(fonts::title(title).color(t.text));
-                if !caption.is_empty() {
-                    ui.label(fonts::caption(caption).color(t.muted));
-                }
+                ui.horizontal(|ui| {
+                    ui.set_min_height(theme::CONTROL_HEIGHT);
+                    ui.spacing_mut().item_spacing.x = theme::SPACE[1];
+                    ui.label(fonts::strong(title).color(t.text));
+                    if !caption.is_empty() {
+                        ui.add(egui::Label::new(fonts::caption(caption).color(t.muted)).truncate());
+                    }
+                });
             });
     }
 
@@ -257,26 +267,39 @@ impl App {
                     if side != usize::from(bottom) {
                         self.run("footprint.flip", json!({"id": id}));
                     }
-                    ui.label(
-                        fonts::caption(t!("board.inspector.dock_to_board_edge")).color(t.muted),
-                    )
-                    .on_hover_text(t!("board.inspector.for_an_edge_connector_the"));
-                    ui.horizontal_wrapped(|ui| {
-                        for edge in ["left", "right", "top", "bottom"] {
-                            if secondary_button(
-                                ui,
-                                None,
-                                &t!("board.inspector.dock_edge", edge = edge),
-                                &t!("board.inspector.dock_edge.tip", edge = edge),
-                                Size::Small,
-                                true,
-                            )
-                            .clicked()
-                            {
-                                self.run("footprint.dock_edge", json!({"id": id, "edge": edge}));
+                    let dock_hint = t!("board.inspector.for_an_edge_connector_the");
+                    form_row(
+                        ui,
+                        ROW,
+                        &t!("board.inspector.dock_to_board_edge"),
+                        Some(&dock_hint),
+                        None,
+                        |ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            for (edge, label) in [
+                                ("left", t!("props.dock.left")),
+                                ("right", t!("props.dock.right")),
+                                ("top", t!("props.dock.top")),
+                                ("bottom", t!("props.dock.bottom")),
+                            ] {
+                                if ghost_button(
+                                    ui,
+                                    None,
+                                    &label,
+                                    &t!("board.inspector.dock_edge.tip", edge = edge),
+                                    Size::Small,
+                                    true,
+                                )
+                                .clicked()
+                                {
+                                    self.run(
+                                        "footprint.dock_edge",
+                                        json!({"id": id, "edge": edge}),
+                                    );
+                                }
                             }
-                        }
-                    });
+                        },
+                    );
                 }
             },
         );
@@ -347,16 +370,18 @@ impl App {
                 });
             },
         );
+        ui.add_space(theme::SPACE[1]);
         egui::Frame::NONE
             .inner_margin(egui::Margin::ZERO)
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                     if secondary_button(
                         ui,
                         None,
                         &t!("board.inspector.rotate_90_r"),
                         &command_tip("component.rotate"),
-                        Size::Normal,
+                        Size::Small,
                         true,
                     )
                     .clicked()
@@ -368,7 +393,7 @@ impl App {
                         None,
                         &t!("board.inspector.duplicate"),
                         &t!("board.inspector.duplicate.tip"),
-                        Size::Normal,
+                        Size::Small,
                         true,
                     )
                     .clicked()
@@ -380,7 +405,7 @@ impl App {
                         None,
                         &t!("board.inspector.assign_footprint_in_libraries"),
                         &t!("board.inspector.assign_footprint_in_libraries.tip"),
-                        Size::Normal,
+                        Size::Small,
                         true,
                     )
                     .clicked()
@@ -398,7 +423,7 @@ impl App {
                         None,
                         &t!("board.inspector.delete_del"),
                         &command_tip("object.delete"),
-                        Size::Normal,
+                        Size::Small,
                         true,
                     )
                     .clicked()
@@ -532,5 +557,210 @@ impl App {
                 self.fiducials_section(ui);
                 self.via_spans_section(ui);
             });
+    }
+
+    /// Document options: what Properties shows with nothing selected.
+    ///
+    /// Why: the aside is never empty; it carries the settings of the document on
+    /// screen, the way a desktop editor's inspector does.
+    ///
+    /// # Rules
+    /// - Schematic: page name, sheet size (`schematic.set_page_setting`), snap grid, units.
+    /// - Layout: board size (`board.resize`), copper layers and clearance read-only,
+    ///   snap grid, units.
+    /// - The snap grid is view state (`snap_grid::set_step`); units are
+    ///   `Preferences::mil_units`. Neither is part of the document or its undo history.
+    ///
+    /// # Do not
+    /// - Add an editor for a value that has no typed engine command; show it read-only.
+    pub(crate) fn document_options(&mut self, ui: &mut egui::Ui) {
+        let schematic = self.tab == Tab::Schematic;
+        self.properties_header(
+            ui,
+            &t!("props.doc.title"),
+            &if schematic {
+                t!("props.doc.schematic.caption")
+            } else {
+                t!("props.doc.layout.caption")
+            },
+        );
+        if schematic {
+            self.document_sheet(ui);
+        } else {
+            self.document_board(ui);
+        }
+        self.document_grid_units(ui, schematic);
+    }
+
+    /// The Sheet section of the document options: the page on screen and its size.
+    fn document_sheet(&mut self, ui: &mut egui::Ui) {
+        let page = self.schematic_page();
+        let name = self.page_name(page);
+        let current = self.project.page_settings_of(page).size;
+        section(
+            ui,
+            "doc-sheet",
+            &t!("props.doc.sheet"),
+            &t!("props.doc.sheet.tip"),
+            |ui| {
+                form_row(ui, ROW, &t!("props.doc.page"), None, None, |ui| {
+                    value_text(ui, &name);
+                });
+                let auto = t!("props.sheet.size.auto");
+                let mut options: Vec<&str> = vec![auto.as_str()];
+                options.extend(crate::sheet_rows::SIZES);
+                let mut index = crate::sheet_rows::SIZES
+                    .iter()
+                    .position(|s| *s == current)
+                    .map_or(0, |i| i + 1);
+                let before = index;
+                form_row(ui, ROW, &t!("props.sheet.field.size"), None, None, |ui| {
+                    select(
+                        ui,
+                        ("doc-sheet-size", page),
+                        &mut index,
+                        &options,
+                        &t!("props.sheet.field.size"),
+                        &t!("props.sheet.field.size.tip"),
+                        120.0,
+                    );
+                });
+                if index != before {
+                    let value = index
+                        .checked_sub(1)
+                        .and_then(|i| crate::sheet_rows::SIZES.get(i))
+                        .copied()
+                        .unwrap_or("");
+                    self.set_page_setting(page, "size", value);
+                }
+            },
+        );
+    }
+
+    /// The Board section of the document options: size, copper layers, clearance.
+    fn document_board(&mut self, ui: &mut egui::Ui) {
+        let (w, h) = (self.project.board.width, self.project.board.height);
+        let clearance = self.project.board.clearance;
+        let copper = self.project.copper_layer_count();
+        let mil = self.preferences.mil_units;
+        section(
+            ui,
+            "doc-board",
+            &t!("props.doc.board"),
+            &t!("props.doc.board.tip"),
+            |ui| {
+                let spec = NumberSpec {
+                    min: 1.0,
+                    max: 2000.0,
+                    step: 0.5,
+                    width: 110.0,
+                    ..NumberSpec::default()
+                };
+                let (mut nw, mut nh) = (w, h);
+                let cw = form_row(ui, ROW, &t!("props.width"), None, None, |ui| {
+                    number_field(
+                        ui,
+                        "doc-board-w",
+                        &mut nw,
+                        &spec,
+                        "Board width",
+                        &t!("settings.settings_tab.how_wide_the_board_is.tip"),
+                    )
+                    .changed()
+                });
+                let ch = form_row(ui, ROW, &t!("props.height"), None, None, |ui| {
+                    number_field(
+                        ui,
+                        "doc-board-h",
+                        &mut nh,
+                        &spec,
+                        "Board height",
+                        &t!("settings.settings_tab.how_tall_the_board_is.tip"),
+                    )
+                    .changed()
+                });
+                if cw || ch {
+                    self.width = nw;
+                    self.height = nh;
+                    self.run("board.resize", json!({"width": nw, "height": nh}));
+                }
+                form_row(ui, ROW, &t!("props.copper_layers"), None, None, |ui| {
+                    value_text(ui, &copper.to_string());
+                });
+                form_row(
+                    ui,
+                    ROW,
+                    &t!("props.clearance"),
+                    Some(&t!("props.clearance.hint")),
+                    None,
+                    |ui| {
+                        value_text(ui, &snap_grid::format_length(clearance, mil));
+                    },
+                );
+            },
+        );
+    }
+
+    /// The Grid and units section of the document options.
+    ///
+    /// # Rules
+    /// - The steps offered are the canvas's own (`SHEET_STEPS` on the schematic,
+    ///   `STEPS` on the board); a step set by G that is not in the list shows the first.
+    fn document_grid_units(&mut self, ui: &mut egui::Ui, schematic: bool) {
+        let mil = self.preferences.mil_units;
+        let steps: &[f64] = if schematic {
+            &snap_grid::SHEET_STEPS
+        } else {
+            &snap_grid::STEPS
+        };
+        let now = snap_grid::step();
+        let labels: Vec<String> = steps
+            .iter()
+            .map(|s| snap_grid::format_length(*s, mil))
+            .collect();
+        let names: Vec<&str> = labels.iter().map(String::as_str).collect();
+        let mut grid = steps
+            .iter()
+            .position(|s| (s - now).abs() < 1e-9)
+            .unwrap_or(0);
+        let grid_before = grid;
+        let (mm, mils) = (t!("unit.mm"), t!("unit.mil"));
+        let mut units = usize::from(mil);
+        section(
+            ui,
+            "doc-grid",
+            &t!("props.doc.grid_units"),
+            &t!("props.doc.grid_units.tip"),
+            |ui| {
+                form_row(ui, ROW, &t!("props.doc.grid"), None, None, |ui| {
+                    select(
+                        ui,
+                        ("doc-grid", schematic),
+                        &mut grid,
+                        &names,
+                        &t!("props.doc.grid"),
+                        &t!("props.doc.grid.tip"),
+                        120.0,
+                    );
+                });
+                form_row(ui, ROW, &t!("props.doc.units"), None, None, |ui| {
+                    select(
+                        ui,
+                        "doc-units",
+                        &mut units,
+                        &[mm.as_str(), mils.as_str()],
+                        &t!("props.doc.units"),
+                        &t!("props.doc.units.tip"),
+                        120.0,
+                    );
+                });
+            },
+        );
+        if grid != grid_before
+            && let Some(step) = steps.get(grid)
+        {
+            snap_grid::set_step(*step);
+        }
+        self.preferences.mil_units = units == 1;
     }
 }

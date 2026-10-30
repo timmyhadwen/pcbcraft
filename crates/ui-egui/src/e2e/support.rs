@@ -329,39 +329,52 @@ fn control_center_within(
 /// Screen row below which nothing belongs to the tool bar.
 const TOOL_BAR_BOTTOM: f32 = 120.0;
 
-/// Click a tool in the tool bar under the tabs. A tool that does not fit the
-/// row lives in the "More" menu, so a person opens More and picks it by name.
+/// The tool bar's icon ids and the plain names their buttons carry.
+const STRIP_TOOLS: [(&str, &str); 18] = [
+    ("tool-select", "Select"),
+    ("tool-move", "Move"),
+    ("tool-place-part", "Place part"),
+    ("tool-wire", "Wire"),
+    ("tool-noconnect", "No connect"),
+    ("tool-route", "Route"),
+    ("tool-via", "Via"),
+    ("tool-keepout", "Keepout"),
+    ("tool-line", "Line"),
+    ("tool-box", "Box"),
+    ("tool-circle", "Circle"),
+    ("tool-outline", "Outline"),
+    ("tool-words", "Text"),
+    ("tool-draw-shape", "Draw shape"),
+    ("tool-cutout", "Cutout"),
+    ("tool-hole", "Mounting hole"),
+    ("tool-fiducial", "Assembly mark"),
+    ("tool-measure", "Measure"),
+];
+
+/// Click a tool in the tool bar under the tabs, by its icon id (`icon:tool-route`)
+/// or its name (`button:Cutout`). The row shows icon-only buttons named after the
+/// tool; a tool that does not fit the row lives in the "More" menu, so a person
+/// opens More and picks it by name.
 pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     frame(ctx, app, vec![], egui::Modifiers::NONE);
-    if let Ok(pos) = control_center_within(ctx, app, id, 0.0, TOOL_BAR_BOTTOM) {
-        return tap_at(ctx, app, pos);
-    }
     let label = match id.strip_prefix("icon:") {
-        Some(icon) => match icon {
-            "tool-select" => "Select",
-            "tool-move" => "Move",
-            "tool-place-part" => "Place part",
-            "tool-wire" => "Wire",
-            "tool-noconnect" => "No connect",
-            "tool-route" => "Route",
-            "tool-via" => "Via",
-            "tool-keepout" => "Keepout",
-            "tool-line" => "Line",
-            "tool-box" => "Box",
-            "tool-circle" => "Circle",
-            "tool-outline" => "Outline",
-            "tool-words" => "Text",
-            "tool-draw-shape" => "Draw shape",
-            "tool-cutout" => "Cutout",
-            "tool-hole" => "Mounting hole",
-            "tool-fiducial" => "Assembly mark",
-            "tool-measure" => "Measure",
-            other => return Err(format!("{other} has no known name")),
-        }
-        .to_owned(),
+        Some(icon) => STRIP_TOOLS
+            .iter()
+            .find(|(i, _)| *i == icon)
+            .map(|(_, l)| (*l).to_owned())
+            .ok_or_else(|| format!("{icon} has no known name"))?,
         None => id.split_once(':').map_or(id, |(_, label)| label).to_owned(),
     };
+    let icon = STRIP_TOOLS
+        .iter()
+        .find(|(_, l)| *l == label)
+        .map(|(i, _)| format!("icon:{i}"));
+    for candidate in std::iter::once(id.to_owned()).chain(icon) {
+        if let Ok(pos) = control_center_within(ctx, app, &candidate, 0.0, TOOL_BAR_BOTTOM) {
+            return tap_at(ctx, app, pos);
+        }
+    }
     authoring::tests::tap(ctx, app, "More")?;
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(ctx, app, &label)

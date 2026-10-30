@@ -756,7 +756,7 @@ fn paint_row<T>(
         Vec2::splat(ICON_SIZE),
     );
     if checked == Some(true) {
-        (icons::CHECK.0)(painter, slot, fade(t.copper));
+        (icons::CHECK.0)(painter, slot, fade(t.accent));
     } else if let Some(icon) = icon {
         (icon.0)(painter, slot, glyph);
     }

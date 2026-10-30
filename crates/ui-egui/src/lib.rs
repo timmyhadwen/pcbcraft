@@ -760,7 +760,7 @@ impl Default for Preferences {
         Self {
             dark: true,
             grid: true,
-            accent: [91, 224, 188],
+            accent: [110, 172, 242],
             pad_labels: PadLabels::Number,
             hidden_layers: Vec::new(),
             aside_split: default_aside_split(),
@@ -6683,12 +6683,7 @@ impl App {
                                 });
                         }
                     } else {
-                        egui::Frame::NONE
-                            .inner_margin(egui::Margin::ZERO)
-                            .show(ui, |ui| {
-                                ui.heading(t!("board.inspector.nothing_selected"));
-                                ui.label(t!("board.inspector.select_an_item_on_the"));
-                            });
+                        self.document_options(ui);
                     }
                 }
                 padded.end(ui);

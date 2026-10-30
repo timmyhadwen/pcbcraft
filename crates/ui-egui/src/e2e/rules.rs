@@ -121,7 +121,7 @@ fn a_newcomer_opens_rules_from_the_top() -> Result<(), String> {
         "the board settings that used to crowd the aside now live on the Settings tab"
     );
     assert!(
-        paints_text(&ctx, &mut app, "Nothing selected")?,
+        paints_text(&ctx, &mut app, "Document options")?,
         "the aside no longer holds the project settings"
     );
     authoring::tests::tap(&ctx, &mut app, "Dark")?;

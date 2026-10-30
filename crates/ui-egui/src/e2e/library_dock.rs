@@ -79,8 +79,8 @@ fn a_newcomer_reads_the_properties_tab_beside_the_drawing() -> Result<(), String
     let (ctx, mut app) = library_open();
     tap_id(&ctx, &mut app, "tab:Properties")?;
     assert!(
-        paints_text(&ctx, &mut app, "Nothing selected")?,
-        "with nothing chosen the Properties tab says so"
+        paints_text(&ctx, &mut app, "Document options")?,
+        "with nothing chosen the Properties tab shows the document options"
     );
     Ok(())
 }

@@ -2,7 +2,7 @@
 //!
 //! Context: the Properties panel of the design (Include in parts list, Lock position).
 //! The label lives in the form row; the box carries the accessible name.
-//! Local rules: unchecked is a raised box with an edge border; checked is copper with
+//! Local rules: unchecked is a raised box with an edge border; checked is accent with
 //! a dark tick. The click target is 28 by 28 so it meets the target-size rule.
 //!
 //! # Dependencies
@@ -49,7 +49,7 @@ pub fn checkbox(ui: &mut Ui, checked: &mut bool, name: &str, tip: &str) -> Respo
     let radius = CornerRadius::same(theme::RADIUS_CONTROL);
     let painter = ui.painter();
     if value {
-        painter.rect_filled(rect, radius, t.copper);
+        painter.rect_filled(rect, radius, t.accent);
         (icons::CHECK.0)(
             painter,
             icon_rect(Rect::from_center_size(

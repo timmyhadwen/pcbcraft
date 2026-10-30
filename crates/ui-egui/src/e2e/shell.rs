@@ -384,8 +384,8 @@ fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
     app.refresh();
     let ctx = egui::Context::default();
     assert!(
-        paints_text(&ctx, &mut app, "Settings")?,
-        "the app opens in English and the top bar says Settings"
+        paints_text(&ctx, &mut app, "File")?,
+        "the app opens in English and the top bar says File"
     );
     assert!(
         !paints_text(&ctx, &mut app, "Paramètres")?,
@@ -651,7 +651,7 @@ fn a_newcomer_sees_a_slim_bar_with_only_the_brand_and_the_menus() -> Result<(), 
         assert!(paints_text(&ctx, &mut app, needle)?, "Help lists {needle}");
     }
     authoring::tests::tap(&ctx, &mut app, "File")?;
-    for needle in ["New", "Open", "Save", "Settings", "Export", "Copy picture"] {
+    for needle in ["New", "Open", "Save", "Export", "Copy picture"] {
         assert!(paints_text(&ctx, &mut app, needle)?, "File lists {needle}");
     }
     Ok(())
@@ -682,19 +682,31 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    for word in ["Select", "Move", "Route", "Line", "Box", "Circle", "More"] {
-        assert!(paints_text(&ctx, &mut app, word)?, "the strip says {word}");
+    // The strip is icon-only; each button still carries the tool's plain name
+    // for the tooltip and the screen reader, and the whole set fits the row.
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let names: Vec<String> = output
+        .platform_output
+        .accesskit_update
+        .map(|u| {
+            u.nodes
+                .iter()
+                .filter_map(|(_, n)| n.label().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    for word in [
+        "Select", "Move", "Route", "Line", "Box", "Circle", "Outline", "Text",
+    ] {
+        assert!(
+            names.iter().any(|n| n == word),
+            "the strip names a button {word}"
+        );
     }
-    // What does not fit the row waits in the More menu, under its plain name.
-    authoring::tests::tap(&ctx, &mut app, "More")?;
-    for word in ["Outline", "Text"] {
-        assert!(paints_text(&ctx, &mut app, word)?, "More lists {word}");
-    }
-    frame(
-        &ctx,
-        &mut app,
-        vec![key(egui::Key::Escape)],
-        egui::Modifiers::NONE,
+    assert!(
+        !paints_text(&ctx, &mut app, "More")?,
+        "every board tool fits the row, so no More menu is needed"
     );
     tap_strip(&ctx, &mut app, "icon:tool-words")?;
     assert!(

@@ -5,7 +5,7 @@
 //! [`Env`] from the app each frame, calls [`show`] and applies the returned
 //! [`Action`]s. The tree never edits the document and never reads `App`.
 //! Look: the approved mockups in `app-design/` (design-system.md section 5.7):
-//! 28-point rows, 16-point indent, colour swatch, name, Active badge, count,
+//! 24-point rows (the pointer-target minimum), 16-point indent, colour swatch, name, Active badge, count,
 //! lock cell and eye cell in a right-aligned column.
 //! Local rules: rows are built lazily (only expanded branches), cached by a
 //! cheap signature, and drawn virtualized, so a 2,000-part board stays
@@ -22,7 +22,7 @@ use pcbcraft_text::t;
 use std::collections::BTreeSet;
 
 /// Height of one tree row in points; also the smallest target size.
-pub(crate) const ROW_HEIGHT: f32 = 28.0;
+pub(crate) const ROW_HEIGHT: f32 = 24.0;
 /// Horizontal step of one nesting level in points.
 const INDENT: f32 = 16.0;
 /// Width of the eye and lock cells.
@@ -2358,12 +2358,7 @@ fn paint_row(
     let dim = if hidden || r.dim { 0.45 } else { 1.0 };
     let painter = ui.painter().clone();
     if selected {
-        painter.rect_filled(rect, 0.0, colours.accent.gamma_multiply(0.16));
-        painter.rect_filled(
-            Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height())),
-            0.0,
-            colours.accent,
-        );
+        painter.rect_filled(rect, 0.0, crate::theme::tokens(ui.ctx()).accent_tint);
     } else if resp.hovered() && !is_section {
         painter.rect_filled(rect, 0.0, colours.hover);
     }
@@ -2419,8 +2414,8 @@ fn paint_row(
     // Right column: eye, lock, count (design-system 5.7).
     let mut right = rect.right() - PAD;
     let eye_cell = Rect::from_min_size(
-        Pos2::new(right - CELL, rect.top() + 2.0),
-        Vec2::new(CELL, ROW_HEIGHT - 4.0),
+        Pos2::new(right - CELL, rect.top()),
+        Vec2::new(CELL, ROW_HEIGHT),
     );
     let lock_cell = eye_cell.translate(Vec2::new(-CELL, 0.0));
     let focus_cell = lock_cell.translate(Vec2::new(-CELL, 0.0));

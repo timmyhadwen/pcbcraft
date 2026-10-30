@@ -63,6 +63,15 @@ pub(crate) struct SheetState {
     pub(crate) filter: SeverityFilter,
 }
 
+/// The left edges of the findings table's columns, in screen points.
+struct FindingColumns {
+    class: f32,
+    code: f32,
+    message: f32,
+    objects: f32,
+    actions: f32,
+}
+
 /// One finding flattened for display.
 struct Row {
     key: &'static str,
@@ -78,6 +87,10 @@ impl App {
     const SHEET_STRIP: f32 = 36.0;
     /// Height of the sheet when open.
     const SHEET_OPEN: f32 = 232.0;
+    /// Height of the findings table's column header.
+    const FINDING_HEADER: f32 = 22.0;
+    /// Width of the findings table's action column (Show, Hide, Mute).
+    const FINDING_ACTIONS: f32 = 150.0;
 
     /// Opens the sheet on a tab.
     ///
@@ -288,6 +301,9 @@ impl App {
         }
         let filter = self.sheet.filter;
         self.checks_view(ui);
+        if !rows.is_empty() {
+            self.sheet_table_header(ui);
+        }
         for (i, row) in rows.into_iter().enumerate() {
             let keep = match filter {
                 SeverityFilter::All => true,
@@ -303,8 +319,87 @@ impl App {
         self.library_checks_section(ui);
     }
 
+    /// The header of the findings table: Class, Code, Message, Objects.
+    ///
+    /// # Rules
+    /// - Column x positions come from `finding_columns`, shared with `sheet_row`.
+    fn sheet_table_header(&self, ui: &mut egui::Ui) {
+        let t = crate::theme::tokens(ui.ctx());
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), Self::FINDING_HEADER),
+            egui::Sense::hover(),
+        );
+        let cols = Self::finding_columns(rect);
+        let painter = ui.painter();
+        let font = crate::fonts::Role::Caption.font();
+        for (x, label) in [
+            (cols.class, t!("sheet.col.class")),
+            (cols.code, t!("sheet.col.code")),
+            (cols.message, t!("sheet.col.message")),
+            (cols.objects, t!("sheet.col.objects")),
+        ] {
+            painter.text(
+                egui::pos2(x, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                label,
+                font.clone(),
+                t.muted,
+            );
+        }
+        painter.hline(
+            rect.x_range(),
+            rect.max.y - 0.5,
+            egui::Stroke::new(crate::theme::BORDER, t.line),
+        );
+    }
+
+    /// The left edges of the findings table's columns inside `row`.
+    fn finding_columns(row: egui::Rect) -> FindingColumns {
+        let class = row.min.x + 6.0;
+        let code = class + 92.0;
+        let message = code + 168.0;
+        let actions = row.max.x - Self::FINDING_ACTIONS;
+        let objects = (actions - 180.0).max(message + 120.0);
+        FindingColumns {
+            class,
+            code,
+            message,
+            objects,
+            actions,
+        }
+    }
+
+    /// The names of a finding's objects: part references or net names, at most three.
+    fn finding_objects(&self, row: &Row) -> String {
+        let mut names: Vec<String> = row
+            .objects
+            .iter()
+            .take(3)
+            .map(|id| {
+                if let Some(c) = self.project.component(*id) {
+                    c.reference.clone()
+                } else {
+                    let net = self.project.net_name(*id);
+                    if net == "unassigned" {
+                        format!("#{id}")
+                    } else {
+                        net.to_owned()
+                    }
+                }
+            })
+            .collect();
+        if row.objects.len() > 3 {
+            names.push(format!("+{}", row.objects.len() - 3));
+        }
+        names.join(", ")
+    }
+
+    /// One finding as a table row: class, code, message, objects, then Show, Hide and
+    /// Mute. Clicking the row selects and zooms to its first object; right-click opens
+    /// the same actions as a menu.
     fn sheet_row(&mut self, ui: &mut egui::Ui, row: Row) {
-        // The whole row answers a right click; the buttons inside sit above it.
+        let t = crate::theme::tokens(ui.ctx());
+        // The whole row answers a click and a right click; the buttons sit above it.
         let (area, area_response) = ui.allocate_exact_size(
             egui::vec2(
                 ui.available_width(),
@@ -312,6 +407,35 @@ impl App {
             ),
             egui::Sense::click(),
         );
+        let (icon, colour, word) = match row.rank {
+            0 => (crate::ui_kit::icons::ERROR, t.red, t!("sheet.class_error")),
+            1 => (
+                crate::ui_kit::icons::WARNING,
+                t.gold,
+                t!("sheet.class_warning"),
+            ),
+            _ => (crate::ui_kit::icons::OK, t.muted, t!("sheet.class_note")),
+        };
+        crate::a11y::name_control(&area_response, &row.message, None);
+        let area_response = area_response.on_hover_text(format!(
+            "{} {}\n{}",
+            match row.rank {
+                0 => t!("sheet.severity_error"),
+                1 => t!("sheet.severity_warning"),
+                _ => t!("sheet.severity_note"),
+            },
+            custom_heading(&self.project, &row.code),
+            t!("sheet.show.tip")
+        ));
+        if area_response.hovered() {
+            ui.painter().rect_filled(area, 0.0, t.raised);
+        }
+        ui.painter().hline(
+            area.x_range(),
+            area.max.y - 0.5,
+            egui::Stroke::new(crate::theme::BORDER, t.line.gamma_multiply(0.55)),
+        );
+        let clicked = area_response.clicked();
         if let Some(act) =
             crate::ui_kit::menu::context(&area_response, "finding", || Self::finding_menu(&row))
         {
@@ -324,95 +448,83 @@ impl App {
                 FindingAct::Mute => self.mute_area(&row),
             }
         }
+        let cols = Self::finding_columns(area);
+        let cy = area.center().y;
+        let painter = ui.painter().clone();
+        let icon_rect =
+            egui::Rect::from_center_size(egui::pos2(cols.class + 7.0, cy), egui::Vec2::splat(14.0));
+        (icon.0)(&painter, icon_rect, colour);
+        let cell = |x0: f32, x1: f32, text: &str, font: egui::FontId, ink: Color32| {
+            let clip = egui::Rect::from_min_max(
+                egui::pos2(x0, area.min.y),
+                egui::pos2((x1 - 8.0).max(x0), area.max.y),
+            );
+            painter.with_clip_rect(clip.intersect(ui.clip_rect())).text(
+                egui::pos2(x0, cy),
+                egui::Align2::LEFT_CENTER,
+                text,
+                font,
+                ink,
+            );
+        };
+        let body = crate::fonts::Role::Body.font();
+        let mono = crate::fonts::Role::Mono.font();
+        cell(cols.class + 20.0, cols.code, &word, body.clone(), t.text);
+        cell(cols.code, cols.message, &row.code, mono.clone(), t.muted);
+        cell(cols.message, cols.objects, &row.message, body, t.text);
+        let objects = self.finding_objects(&row);
+        cell(cols.objects, cols.actions, &objects, mono, t.muted);
         let mut inner = ui.new_child(
             egui::UiBuilder::new()
-                .max_rect(area)
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                .max_rect(egui::Rect::from_min_max(
+                    egui::pos2(cols.actions, area.min.y),
+                    area.max,
+                ))
+                .layout(egui::Layout::right_to_left(egui::Align::Center)),
         );
         let ui = &mut inner;
+        ui.spacing_mut().item_spacing.x = 2.0;
+        let has = !row.objects.is_empty();
+        use crate::ui_kit::button::{Size, ghost_button};
+        if ghost_button(
+            ui,
+            None,
+            &t!("sheet.mute"),
+            &t!("sheet.mute.tip"),
+            Size::Small,
+            has,
+        )
+        .clicked()
         {
-            let (colour, word) = match row.rank {
-                0 => (self.accent(), t!("sheet.severity_error")),
-                1 => (
-                    Color32::from_rgb(230, 170, 60),
-                    t!("sheet.severity_warning"),
-                ),
-                _ => (self.muted(), t!("sheet.severity_note")),
-            };
-            let (dot, response) =
-                ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
-            ui.painter().circle_filled(dot.center(), 5.0, colour);
-            response.on_hover_text(format!(
-                "{word} {}",
-                custom_heading(&self.project, &row.code)
-            ));
-            if ui
-                .add(
-                    egui::Button::new(crate::fonts::text(
-                        crate::fonts::Role::Body,
-                        row.message.clone(),
-                    ))
-                    .frame(false),
-                )
-                .on_hover_text(t!("sheet.show.tip"))
-                .clicked()
-            {
-                self.show_finding(&row);
-            }
-            if let Some(&first) = row.objects.first() {
-                let net = self.project.net_name(first);
-                if net != "unassigned" {
-                    ui.label(
-                        egui::RichText::new(net)
-                            .size(Self::CAPTION)
-                            .background_color(self.colours().icon_fill),
-                    )
-                    .on_hover_text(t!("sheet.net_chip.tip"));
-                }
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let has = !row.objects.is_empty();
-                use crate::ui_kit::button::{Size, ghost_button, secondary_button};
-                if ghost_button(
-                    ui,
-                    None,
-                    &t!("sheet.mute"),
-                    &t!("sheet.mute.tip"),
-                    Size::Small,
-                    has,
-                )
-                .clicked()
-                {
-                    self.mute_area(&row);
-                }
-                if ghost_button(
-                    ui,
-                    None,
-                    &t!("sheet.hide"),
-                    &t!("sheet.hide.tip"),
-                    Size::Small,
-                    has,
-                )
-                .clicked()
-                {
-                    self.run(
-                        "rules.exclude",
-                        json!({"code": row.code, "ids": row.objects.clone()}),
-                    );
-                }
-                if secondary_button(
-                    ui,
-                    None,
-                    &t!("sheet.show"),
-                    &t!("sheet.show.tip"),
-                    Size::Small,
-                    has,
-                )
-                .clicked()
-                {
-                    self.show_finding(&row);
-                }
-            });
+            self.mute_area(&row);
+        }
+        if ghost_button(
+            ui,
+            None,
+            &t!("sheet.hide"),
+            &t!("sheet.hide.tip"),
+            Size::Small,
+            has,
+        )
+        .clicked()
+        {
+            self.run(
+                "rules.exclude",
+                json!({"code": row.code, "ids": row.objects.clone()}),
+            );
+        }
+        if ghost_button(
+            ui,
+            None,
+            &t!("sheet.show"),
+            &t!("sheet.show.tip"),
+            Size::Small,
+            has,
+        )
+        .clicked()
+            || clicked
+        {
+            self.show_finding(&row);
         }
     }
 

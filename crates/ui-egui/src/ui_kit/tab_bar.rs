@@ -2,10 +2,11 @@
 //!
 //! Context: design system 5.5. The tab itself is `craft_ui::tabs::Tab` (the shared
 //! component that gives each tab the Tab role and a selected state); this file
-//! adds the design's sizes, colours, copper bar, optional icon and count badge, and
+//! adds the design's sizes, colours, active bar, optional icon and count badge, and
 //! arrow-key movement between tabs.
 //! Local rules: irrelevant tabs are not passed in, never shown disabled. Active
-//! text is 600 and carries a 2 px copper bar inset from the bottom corners.
+//! text is 600 and carries a 2 px neutral `muted` bar inset from the bottom corners;
+//! the accent is kept for selection and focus.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/theme.rs
@@ -183,7 +184,7 @@ pub fn tab_bar(
                 if let Some(icon) = item.icon {
                     let r =
                         Rect::from_min_size(pos2(cx, cy - ICON_SIZE / 2.0), Vec2::splat(ICON_SIZE));
-                    (icon.0)(ui.painter(), r, if active { t.copper } else { ink });
+                    (icon.0)(ui.painter(), r, ink);
                     cx += ICON_SIZE + 6.0;
                 }
                 ui.painter()
@@ -200,7 +201,7 @@ pub fn tab_bar(
                         pos2(rect.max.x - 8.0, rect.max.y),
                     );
                     ui.painter()
-                        .rect_filled(bar_rect, CornerRadius::same(1), t.copper);
+                        .rect_filled(bar_rect, CornerRadius::same(1), t.muted);
                 }
             });
         if response.clicked() {

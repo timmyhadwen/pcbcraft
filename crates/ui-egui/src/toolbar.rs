@@ -1,10 +1,12 @@
 //! The tool bar row under the tab nav: tool buttons, the Layer and Corners options and
 //! the schematic update button, drawn with the kit and never clipped.
 //!
-//! Context: design system 5.14 and the Layout mockup. One 40 high row; tools that do not
-//! fit the width move into a "More" menu, so the row never scrolls or cuts a label.
+//! Context: design system 5.14 and the Layout mockup. One row of compact icon-only
+//! buttons (16 point glyphs in 24 point targets) grouped by thin dividers; tools that
+//! do not fit the width move into a "More" menu, so the row never scrolls or clips.
 //! Local rules: the items are data (`Item`), the same list feeds the row and the menu;
-//! every control has a tooltip from the catalog; the active tool wears the copper tint.
+//! every button names itself with the tool's label, and its tooltip leads with that
+//! label and the shortcut; the active tool wears a neutral raised fill, never the accent.
 //!
 //! # Dependencies
 //! - crates/ui-egui/src/theme.rs
@@ -53,8 +55,11 @@ struct Item {
 }
 
 const PAD: f32 = 10.0;
-const ICON_GAP: f32 = 6.0;
-const GROUP_GAP: f32 = 8.0;
+const GROUP_GAP: f32 = 6.0;
+/// Side of one tool button: the 24 point pointer-target minimum.
+const BUTTON: f32 = 24.0;
+/// Side of the glyph inside a tool button.
+const GLYPH: f32 = 16.0;
 
 fn label_width(ui: &egui::Ui, text: &str) -> f32 {
     ui.painter()
@@ -68,73 +73,58 @@ fn label_width(ui: &egui::Ui, text: &str) -> f32 {
 }
 
 impl Item {
-    fn width(&self, ui: &egui::Ui) -> f32 {
-        let icon = 16.0 + ICON_GAP;
+    /// Width the item takes in the row, with the divider before it.
+    fn width(&self) -> f32 {
         let gap = if self.divider {
             2.0 * GROUP_GAP + 1.0
         } else {
             0.0
         };
-        2.0 * PAD + icon + label_width(ui, &self.label) + 4.0 + gap
+        BUTTON + gap
+    }
+
+    /// The tooltip: the tool's name (and menu shortcut, when it has one) on the first
+    /// line, then what it does.
+    fn tooltip(&self) -> String {
+        format!("{}: {}", self.label, self.tip)
     }
 }
 
 impl App {
-    /// The toolbar button look: copper tint when active, raised on hover.
+    /// One icon-only tool button: a neutral raised fill when active, a lighter one on
+    /// hover; the glyph is `muted` at rest and `text` when active or hovered.
     fn toolbar_button(&self, ui: &mut egui::Ui, item: &Item) -> egui::Response {
         let t = theme::tokens(ui.ctx());
-        let size = Vec2::new(
-            item.width(ui)
-                - if item.divider {
-                    2.0 * GROUP_GAP + 1.0
-                } else {
-                    0.0
-                },
-            theme::CONTROL_HEIGHT,
-        );
-        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+        let (rect, response) = ui.allocate_exact_size(Vec2::splat(BUTTON), Sense::click());
         let radius = CornerRadius::same(theme::RADIUS_CONTROL);
         let painter = ui.painter();
         let ink = if item.armed {
-            painter.rect_filled(rect, radius, t.copper_tint);
+            painter.rect_filled(rect, radius, t.hover);
             painter.rect_stroke(
                 rect,
                 radius,
-                Stroke::new(theme::BORDER, t.copper),
+                Stroke::new(theme::BORDER, t.line),
                 StrokeKind::Inside,
             );
-            t.copper
-        } else {
-            if response.hovered() {
-                painter.rect_filled(rect, radius, t.raised);
-            }
             t.text
-        };
-        let mut x = rect.min.x + PAD;
-        let r = Rect::from_min_size(pos2(x, rect.center().y - 8.0), Vec2::splat(16.0));
-        crate::icons::icon_at(ui, r, item.icon, ink);
-        x += 16.0 + ICON_GAP;
-        let font = if item.armed {
-            Role::Strong.font()
+        } else if response.hovered() {
+            painter.rect_filled(rect, radius, t.raised);
+            t.text
         } else {
-            Role::Button.font()
+            t.muted
         };
-        let galley = ui.painter().layout_no_wrap(item.label.clone(), font, ink);
-        ui.painter().galley(
-            pos2(x, rect.center().y - galley.size().y / 2.0),
-            galley,
-            ink,
-        );
+        let r = Rect::from_center_size(rect.center(), Vec2::splat(GLYPH));
+        crate::icons::icon_at(ui, r, item.icon, ink);
         crate::a11y::name_control(&response, &item.label, Some(item.armed));
         if response.has_focus() {
             crate::ui_kit::focus::paint_ring(ui.painter(), rect, theme::RADIUS_CONTROL, &t);
         }
-        response.on_hover_text(&item.tip)
+        response.on_hover_text(item.tooltip())
     }
 
     fn toolbar_divider(ui: &mut egui::Ui, t: &Tokens) {
         ui.add_space(GROUP_GAP);
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 20.0), Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(1.0, 16.0), Sense::hover());
         ui.painter().rect_filled(rect, 0.0, t.line);
         ui.add_space(GROUP_GAP);
     }
@@ -172,10 +162,13 @@ impl App {
             "tool-move",
             "move",
             t!("board.tool_strip.move"),
-            self.tool_tip(
-                t!("board.tool_strip.move_tool_drop_the_selection"),
-                ToolKind::Move,
-                None,
+            self.with_menu_key(
+                self.tool_tip(
+                    t!("board.tool_strip.move_tool_drop_the_selection"),
+                    ToolKind::Move,
+                    None,
+                ),
+                crate::keymap::KeyAction::MoveTool,
             ),
             matches!(self.tool, Tool::Move),
             Act::Move,
@@ -361,6 +354,23 @@ impl App {
         out
     }
 
+    /// `tip` with the menu shortcut of `action` added as a last line, when it has one.
+    ///
+    /// Why: a tool without a `Hotkey` still has a key in the active keymap; an
+    /// icon-only button must say it, since there is no label to learn it from.
+    fn with_menu_key(&self, tip: String, action: crate::keymap::KeyAction) -> String {
+        match self.preferences.active_keymap().menu_keys(action) {
+            Some(keys) if !keys.is_empty() => {
+                format!(
+                    "{tip}
+{}",
+                    t!("modifier.tip.key", key = keys)
+                )
+            }
+            _ => tip,
+        }
+    }
+
     fn toolbar_apply(&mut self, act: Act) {
         match act {
             Act::Select => self.tool = Tool::Select,
@@ -423,7 +433,7 @@ impl App {
         let mut used = 0.0;
         let mut shown = items.len();
         for (i, item) in items.iter().enumerate() {
-            used += item.width(ui) + 2.0;
+            used += item.width() + 2.0;
             let reserve = if i + 1 < items.len() { more_w } else { 0.0 };
             if used + reserve > avail {
                 shown = i;
@@ -473,7 +483,7 @@ impl App {
                         let label = item.label.clone();
                         if ui
                             .selectable_label(item.armed, fonts::text(Role::Body, label))
-                            .on_hover_text(&item.tip)
+                            .on_hover_text(item.tooltip())
                             .clicked()
                         {
                             action = Some(item.act);
