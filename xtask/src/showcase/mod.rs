@@ -481,7 +481,35 @@ pub fn build(g: &mut Gen) -> Res<()> {
     Ok(())
 }
 
-/// Draw wires, power and net labels, ports and the LED bus on the pages.
+/// Length of the stub from a signal pin to its label or port, in millimetres.
+const STUB: f64 = 5.08;
+/// Length of a power stub and of the riser up or down to its symbol.
+const SHORT: f64 = 2.54;
+
+/// The page index of a part, from the design table.
+fn page_of(reference: &str) -> usize {
+    PARTS
+        .iter()
+        .find(|p| p.reference == reference)
+        .map(|p| p.sheet)
+        .unwrap_or(0)
+}
+
+/// `at` moved `d` millimetres along the unit vector `dir`.
+fn step(at: Point, dir: Point, d: f64) -> Point {
+    Point::new(at.x + dir.x * d, at.y + dir.y * d)
+}
+
+/// Draw wires, power symbols, net labels and page ports on the pages.
+///
+/// # Rules
+/// - Every wire and label names its page, so nothing is placed by guesswork.
+/// - Signal pins get a stub and a label; the first pin of a net that crosses
+///   pages gets a port instead, so each page shows where the net leaves it.
+/// - Power pins of one part on one side share a symbol: their stubs meet on
+///   a common wire with junction dots, and one riser carries the symbol.
+///   Ground hangs down and supplies stand up, unless the riser would cross
+///   the part's other pins; then the symbol faces out from the pin.
 fn draw_schematic(g: &mut Gen, sheet_ids: &[u64]) -> Res<()> {
     let direct: Vec<(&str, &str)> = DIRECT
         .iter()
@@ -494,8 +522,23 @@ fn draw_schematic(g: &mut Gen, sheet_ids: &[u64]) -> Res<()> {
             json!({"from": {"component": a, "pin": pa}, "to": {"component": b, "pin": pb}}),
         )?;
     }
+    // Nets that reach more than one page.
+    let mut pages_of: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+    for (r, pins) in PINS {
+        for (_, net) in *pins {
+            let v = pages_of.entry(net).or_default();
+            if !v.contains(&page_of(r)) {
+                v.push(page_of(r));
+            }
+        }
+    }
+    let mut ported: Vec<(&str, usize)> = Vec::new();
+    // Power pins grouped by part, unit, net and the side they leave on.
+    type Side = (&'static str, u32, &'static str, (i64, i64));
+    let mut power: BTreeMap<Side, Vec<Point>> = BTreeMap::new();
     for (r, pins) in PINS {
         let id = g.id_of(r)?;
+        let sheet = sheet_ids[page_of(r)];
         for (n, net) in *pins {
             if direct.contains(&(*r, *n)) {
                 continue;
@@ -504,57 +547,108 @@ fn draw_schematic(g: &mut Gen, sheet_ids: &[u64]) -> Res<()> {
             let Some(at) = c.pin_position(n) else {
                 continue;
             };
+            let unit = c.pins.iter().find(|p| p.number == *n).map_or(1, |p| p.unit);
             let dir = outward(g, r, n)?;
-            let end = Point::new(at.x + dir.x * 5.08, at.y + dir.y * 5.08);
+            if POWER_NETS.contains(net) {
+                let side = (*r, unit, *net, (dir.x as i64, dir.y as i64));
+                power.entry(side).or_default().push(at);
+                continue;
+            }
+            let end = step(at, dir, STUB);
             let net_id = g.nets[*net];
             g.cmd(
                 "wire.draw",
-                json!({"points": [pt(at), pt(end)], "net": net_id}),
+                json!({"points": [pt(at), pt(end)], "net": net_id, "sheet": sheet}),
             )?;
-            let kind = if POWER_NETS.contains(net) {
-                "power"
+            let crosses = pages_of.get(net).is_some_and(|v| v.len() > 1);
+            if crosses && !ported.contains(&(*net, page_of(r))) {
+                ported.push((*net, page_of(r)));
+                g.cmd(
+                    "schematic.place_port",
+                    json!({"name": net, "net": net_id, "sheet": sheet, "position": pt(end)}),
+                )?;
             } else {
-                "label"
-            };
-            let rotation = if dir.y != 0.0 { 90.0 } else { 0.0 };
-            g.cmd(
-                "label.place",
-                json!({"kind": kind, "net": net_id, "position": pt(end), "rotation": rotation}),
-            )?;
-        }
-    }
-    // Hierarchy ports for every net that crosses pages.
-    let mut sheets_of: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
-    for (r, pins) in PINS {
-        let page = PARTS
-            .iter()
-            .find(|p| p.reference == *r)
-            .map(|p| p.sheet)
-            .unwrap_or(0);
-        for (_, net) in *pins {
-            let v = sheets_of.entry(net).or_default();
-            if !v.contains(&page) {
-                v.push(page);
+                let rotation = if dir.y != 0.0 { 90.0 } else { 0.0 };
+                g.cmd(
+                    "label.place",
+                    json!({"kind": "label", "net": net_id, "position": pt(end), "rotation": rotation, "sheet": sheet}),
+                )?;
             }
         }
     }
-    let mut row = [0_u32; 3];
-    for (net, pages) in &sheets_of {
-        if pages.len() < 2 || net.starts_with("LED") {
-            continue;
+    for ((r, unit, net, (dx, dy)), mut ats) in power {
+        let id = g.id_of(r)?;
+        let sheet = sheet_ids[page_of(r)];
+        let net_id = g.nets[net];
+        let dir = Point::new(dx as f64, dy as f64);
+        let ground = net == "GND";
+        let natural = Point::new(0.0, if ground { 1.0 } else { -1.0 });
+        // Order the pins along the side, so the join runs end to end.
+        ats.sort_by(|a, b| (a.x + a.y).total_cmp(&(b.x + b.y)));
+        let ends: Vec<Point> = ats.iter().map(|at| step(*at, dir, SHORT)).collect();
+        for (at, end) in ats.iter().zip(&ends) {
+            g.cmd(
+                "wire.draw",
+                json!({"points": [pt(*at), pt(*end)], "net": net_id, "sheet": sheet}),
+            )?;
         }
-        for page in pages {
-            let net_id = g.nets[*net];
-            let y = 12.7 + f64::from(row[*page]) * 5.08;
-            row[*page] += 1;
-            g.cmd("schematic.place_port", json!({"name": net, "net": net_id, "sheet": sheet_ids[*page], "position": {"x": 7.62, "y": y}}))?;
+        if ends.len() > 1 {
+            let points: Vec<Value> = ends.iter().map(|q| pt(*q)).collect();
+            g.cmd(
+                "wire.draw",
+                json!({"points": points, "net": net_id, "sheet": sheet}),
+            )?;
+        }
+        // Where the riser starts and which way the symbol faces.
+        let (from, facing) = if dir.x == 0.0 {
+            // Pins leaving up or down: the riser leaves the middle of the join.
+            (ends[ends.len() / 2], dir)
+        } else {
+            // Pins leaving sideways: the riser leaves the end nearest its
+            // symbol, unless another pin of the part is in the way.
+            let first = ends.first().copied().ok_or("power side")?;
+            let last = ends.last().copied().ok_or("power side")?;
+            let extreme = if ground { last } else { first };
+            let c = g.s.project.component(id).ok_or("component")?;
+            let blocked = c.pins.iter().any(|p| {
+                p.unit == unit
+                    && c.pin_position(&p.number).is_some_and(|q| {
+                        (q.x - ats[0].x).abs() < 1e-6
+                            && if ground {
+                                q.y > ats[ats.len() - 1].y + 1e-6
+                            } else {
+                                q.y < ats[0].y - 1e-6
+                            }
+                    })
+            });
+            if blocked {
+                (extreme, dir)
+            } else {
+                (extreme, natural)
+            }
+        };
+        let symbol = step(from, facing, SHORT);
+        g.cmd(
+            "wire.draw",
+            json!({"points": [pt(from), pt(symbol)], "net": net_id, "sheet": sheet}),
+        )?;
+        g.cmd(
+            "label.place",
+            json!({"kind": "power", "net": net_id, "position": pt(symbol), "sheet": sheet}),
+        )?;
+        // A dot wherever three or more wires meet: the stub, the join on
+        // either side and the riser.
+        for (i, end) in ends.iter().enumerate() {
+            let join = usize::from(i > 0) + usize::from(i + 1 < ends.len());
+            let riser = usize::from(*end == from);
+            if 1 + join + riser >= 3 {
+                g.cmd(
+                    "label.place",
+                    json!({"kind": "junction", "net": net_id, "position": pt(*end), "sheet": sheet}),
+                )?;
+            }
         }
     }
-    // The LED lines travel between pages as one bus.
-    g.cmd(
-        "wire.draw_bus",
-        json!({"points": [{"x": 133.35, "y": 33.0}, {"x": 133.35, "y": 96.0}], "name": "LED*6"}),
-    )?;
     Ok(())
 }
 

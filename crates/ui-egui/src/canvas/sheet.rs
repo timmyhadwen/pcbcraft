@@ -603,66 +603,152 @@ fn pin_outward(p: &Project, r: &pcbcraft_doc::PinRef) -> Option<Point> {
     })
 }
 
-/// Paint a ground symbol hanging from `top`: three bars, shortest at the
-/// bottom, with the net name under them.
+/// Where text set beyond the end of a line pointing along `dir` anchors.
+pub(super) fn beyond(dir: Point) -> Align2 {
+    if dir.x > 0.5 {
+        Align2::LEFT_CENTER
+    } else if dir.x < -0.5 {
+        Align2::RIGHT_CENTER
+    } else if dir.y > 0.5 {
+        Align2::CENTER_TOP
+    } else {
+        Align2::CENTER_BOTTOM
+    }
+}
+
+/// The axis direction a drawn wire leaves the point `at` in, pointing at `at`
+/// from the rest of the wire: the way a label or symbol at a stub end faces.
+pub(super) fn stub_direction(p: &Project, page: Id, at: Point) -> Option<Point> {
+    p.drawn_wires
+        .iter()
+        .filter(|w| p.on_schematic_page(page, w.id))
+        .find_map(|w| {
+            let n = w.points.len();
+            let near = |q: &Point| q.distance(at) < 1e-3;
+            let before = match (w.points.first(), w.points.last()) {
+                (Some(first), _) if n >= 2 && near(first) => w.points.get(1),
+                (_, Some(last)) if n >= 2 && near(last) => w.points.get(n - 2),
+                _ => None,
+            }?;
+            let (dx, dy) = (at.x - before.x, at.y - before.y);
+            Some(if dx.abs() >= dy.abs() {
+                Point::new(dx.signum(), 0.0)
+            } else {
+                Point::new(0.0, dy.signum())
+            })
+        })
+}
+
+/// Paint a ground symbol at `top` facing `dir` (down unless the stub runs
+/// another way): three bars, shortest last. Only a ground other than plain
+/// GND is named, since the bars already say it.
 fn ground_symbol(
     painter: &egui::Painter,
     rect: Rect,
     camera: Camera,
-    top: Point,
+    (top, dir): (Point, Point),
     name: &str,
     sc: &SheetColours,
 ) {
     let stroke = Stroke::new(stroke_width(camera, WIRE_MM), sc.wire);
+    let across = Point::new(dir.y, dir.x);
+    let along = |d: f64, w: f64| {
+        camera.screen(
+            Point::new(
+                top.x + dir.x * d + across.x * w,
+                top.y + dir.y * d + across.y * w,
+            ),
+            rect,
+        )
+    };
     for (i, half) in [1.8, 1.2, 0.6].into_iter().enumerate() {
-        let y = top.y + 0.9 * i as f64;
-        painter.line_segment(
-            [
-                camera.screen(Point::new(top.x - half, y), rect),
-                camera.screen(Point::new(top.x + half, y), rect),
-            ],
-            stroke,
+        let d = 0.9 * i as f64;
+        painter.line_segment([along(d, -half), along(d, half)], stroke);
+    }
+    if !name.eq_ignore_ascii_case("GND") {
+        painter.text(
+            along(2.4, 0.0),
+            beyond(dir),
+            name,
+            font(camera, TEXT_MM),
+            sc.wire,
         );
     }
+}
+
+/// Paint a supply symbol at `base` facing `dir` (up unless the stub runs
+/// another way): a short stem, a bar across it and the net name beyond.
+fn rail_symbol(
+    painter: &egui::Painter,
+    rect: Rect,
+    camera: Camera,
+    (base, dir): (Point, Point),
+    name: &str,
+    sc: &SheetColours,
+) {
+    let stroke = Stroke::new(stroke_width(camera, WIRE_MM), sc.wire);
+    let across = Point::new(dir.y, dir.x);
+    let along = |d: f64, w: f64| {
+        camera.screen(
+            Point::new(
+                base.x + dir.x * d + across.x * w,
+                base.y + dir.y * d + across.y * w,
+            ),
+            rect,
+        )
+    };
+    painter.line_segment([along(0.0, 0.0), along(2.54, 0.0)], stroke);
+    painter.line_segment([along(2.54, -1.6), along(2.54, 1.6)], stroke);
     painter.text(
-        camera.screen(Point::new(top.x, top.y + 2.4), rect),
-        Align2::CENTER_TOP,
+        along(3.1, 0.0),
+        beyond(dir),
         name,
         font(camera, TEXT_MM),
         sc.wire,
     );
 }
 
-/// Paint a supply symbol standing on `base`: a stem up, a bar across it and
-/// the net name above.
-fn rail_symbol(
+/// Paint a page port at the end of a stub: a flag pointing on along `dir`
+/// with the net name inside, so a net leaving the page is plain to see.
+pub(super) fn port_flag(
     painter: &egui::Painter,
     rect: Rect,
     camera: Camera,
-    base: Point,
+    (at, dir): (Point, Point),
     name: &str,
     sc: &SheetColours,
 ) {
-    let stroke = Stroke::new(stroke_width(camera, WIRE_MM), sc.wire);
-    let top = Point::new(base.x, base.y - 5.0);
-    painter.line_segment(
-        [camera.screen(base, rect), camera.screen(top, rect)],
-        stroke,
-    );
-    painter.line_segment(
-        [
-            camera.screen(Point::new(top.x - 1.6, top.y), rect),
-            camera.screen(Point::new(top.x + 1.6, top.y), rect),
-        ],
-        stroke,
-    );
-    painter.text(
-        camera.screen(Point::new(top.x, top.y - 0.8), rect),
-        Align2::CENTER_BOTTOM,
-        name,
-        font(camera, TEXT_MM),
-        sc.wire,
-    );
+    let galley = painter.layout_no_wrap(name.to_owned(), font(camera, TEXT_MM), sc.wire);
+    let half = 1.0;
+    let length = if dir.x == 0.0 {
+        f64::from(galley.size().y / camera.zoom) + 1.0
+    } else {
+        f64::from(galley.size().x / camera.zoom) + 1.2
+    };
+    let across = Point::new(dir.y, dir.x);
+    let corner = |d: f64, w: f64| {
+        camera.screen(
+            Point::new(
+                at.x + dir.x * d + across.x * w,
+                at.y + dir.y * d + across.y * w,
+            ),
+            rect,
+        )
+    };
+    let outline = vec![
+        corner(0.0, -half),
+        corner(length, -half),
+        corner(length + half, 0.0),
+        corner(length, half),
+        corner(0.0, half),
+    ];
+    painter.add(egui::Shape::convex_polygon(
+        outline,
+        sc.sheet,
+        Stroke::new(stroke_width(camera, BODY_MM), sc.wire),
+    ));
+    let middle = corner(length / 2.0, 0.0);
+    painter.galley(middle - galley.size() / 2.0, galley, sc.wire);
 }
 
 /// A filled junction dot where three or more wire ends meet.
@@ -751,7 +837,7 @@ pub(super) fn paint_power(
                         path.iter().map(|q| camera.screen(*q, rect)).collect(),
                         stub,
                     ));
-                    ground_symbol(painter, rect, camera, end, name, sc);
+                    ground_symbol(painter, rect, camera, (end, Point::new(0.0, 1.0)), name, sc);
                 }
             }
             Some(PowerKind::Rail) => {
@@ -767,7 +853,14 @@ pub(super) fn paint_power(
                 {
                     ruled.push(w.net);
                     let at = run_point(run, 0.45);
-                    rail_symbol(painter, rect, camera, at, p.net_name(w.net), sc);
+                    rail_symbol(
+                        painter,
+                        rect,
+                        camera,
+                        (at, Point::new(0.0, -1.0)),
+                        p.net_name(w.net),
+                        sc,
+                    );
                     junction(painter, rect, camera, at, sc);
                 }
             }
@@ -798,9 +891,16 @@ pub(super) fn paint_power(
         .filter(|l| l.kind == "power" && p.on_schematic_page(page, l.id))
     {
         let name = p.net_name(l.net);
+        let facing = stub_direction(p, page, l.position);
         match kinds.get(&l.net) {
-            Some(PowerKind::Ground) => ground_symbol(painter, rect, camera, l.position, name, sc),
-            _ => rail_symbol(painter, rect, camera, l.position, name, sc),
+            Some(PowerKind::Ground) => {
+                let dir = facing.unwrap_or(Point::new(0.0, 1.0));
+                ground_symbol(painter, rect, camera, (l.position, dir), name, sc);
+            }
+            _ => {
+                let dir = facing.unwrap_or(Point::new(0.0, -1.0));
+                rail_symbol(painter, rect, camera, (l.position, dir), name, sc);
+            }
         }
     }
 }

@@ -651,6 +651,10 @@ pub struct Label {
     /// kind. A bus label names a group of nets, so it carries no single net.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub text: String,
+    /// Schematic page the label was placed on. None in files written before
+    /// labels kept their page; the page is then inferred from the nearest pin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<Id>,
 }
 impl Label {
     pub const KINDS: [&'static str; 6] = [
@@ -691,6 +695,10 @@ pub struct DrawnWire {
     pub net: Option<Id>,
     /// Vertices in draw order, in millimetres.
     pub points: Vec<Point>,
+    /// Schematic page the wire was drawn on. None in files written before
+    /// wires kept their page; the page is then inferred from the nearest pin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<Id>,
 }
 /// A free-standing drawing primitive for schematic annotations and board
 /// graphics. Shapes are explicit; nothing is inferred from geometry.
@@ -4082,6 +4090,9 @@ impl Project {
     /// The page a label shows on: the page of the nearest part pin or port on its net,
     /// the Main page when none is found.
     pub fn schematic_label_page(&self, label: &Label) -> Id {
+        if let Some(sheet) = label.sheet {
+            return sheet;
+        }
         if label.kind == "junction" {
             for wire in &self.wires {
                 if wire.net != label.net {
@@ -4121,6 +4132,9 @@ impl Project {
         best.1
     }
     fn schematic_drawn_wire_page(&self, wire: &DrawnWire) -> Id {
+        if let Some(sheet) = wire.sheet {
+            return sheet;
+        }
         let Some(net) = wire.net else {
             return 0;
         };

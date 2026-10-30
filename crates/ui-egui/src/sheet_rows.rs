@@ -144,7 +144,7 @@ impl App {
         );
         self.tool_call(
             "label.place",
-            json!({"kind": "power", "net": net, "position": {"x": at.x, "y": at.y}}),
+            json!({"kind": "power", "net": net, "position": {"x": at.x, "y": at.y}, "sheet": page}),
         );
     }
 

@@ -1628,6 +1628,15 @@ impl App {
         underlay::paint(painter, rect, camera, p, "schematic");
         let kinds = sheet::power_nets(p);
         let wire = Stroke::new(sheet::stroke_width(camera, sheet::WIRE_MM), sc.wire);
+        // A net is named once per page, and not at all when a label or power
+        // symbol already names it.
+        let mut named: std::collections::HashSet<Id> = p
+            .labels
+            .iter()
+            .filter(|l| on_page(p, page, l.id))
+            .map(|l| l.net)
+            .chain(kinds.keys().copied())
+            .collect();
         for w in p
             .wires
             .iter()
@@ -1650,12 +1659,10 @@ impl App {
             let Some(run) = sheet::longest_run(&path) else {
                 continue;
             };
-            let fraction = if kinds.contains_key(&w.net) {
-                0.72
-            } else {
-                0.5
-            };
-            let at = camera.screen(sheet::run_point(run, fraction), rect);
+            if !named.insert(w.net) {
+                continue;
+            }
+            let at = camera.screen(sheet::run_point(run, 0.5), rect);
             let vertical = (run.0.x - run.1.x).abs() < 1e-6;
             let (anchor, offset) = if vertical {
                 (Align2::LEFT_CENTER, Vec2::new(7.0, 0.0))
@@ -1745,9 +1752,17 @@ impl App {
                     "bus" => l.text.clone(),
                     _ => p.net_name(l.net).to_string(),
                 };
+                // A label at the end of a stub reads outward, clear of the pin.
+                let (at, align) = match sheet::stub_direction(p, page, l.position) {
+                    Some(dir) => (
+                        at + Vec2::new(dir.x as f32, dir.y as f32) * (0.5 * camera.zoom),
+                        sheet::beyond(dir),
+                    ),
+                    None => (at, Align2::CENTER_BOTTOM),
+                };
                 painter.text(
                     at,
-                    Align2::CENTER_BOTTOM,
+                    align,
                     text,
                     sheet::font(camera, sheet::TEXT_MM),
                     sc.wire,
@@ -1755,14 +1770,9 @@ impl App {
             }
         }
         for port in p.ports.iter().filter(|port| port.sheet == page) {
-            let at = camera.screen(port.position, rect);
-            painter.text(
-                at,
-                Align2::CENTER_CENTER,
-                format!("[{}]", port.name),
-                sheet::font(camera, sheet::TEXT_MM),
-                sc.wire,
-            );
+            let dir =
+                sheet::stub_direction(p, page, port.position).unwrap_or(Point::new(-1.0, 0.0));
+            sheet::port_flag(painter, rect, camera, (port.position, dir), &port.name, &sc);
         }
         for f in p.no_connects.iter().filter(|f| on_page(p, page, f.id)) {
             if let Some(anchor) = p.pin_position(&f.pin) {
@@ -2050,11 +2060,14 @@ impl App {
         let body = c
             .drawing_points()
             .iter()
+            .chain(c.pins.iter().map(|pin| &pin.offset))
             .fold(Rect::from_center_size(center, Vec2::ZERO), |r, p| {
                 r.union(Rect::from_center_size(at(*p), Vec2::ZERO))
             });
         // A small upright part takes its texts on the right, as on a printed
-        // sheet; anything else takes the reference above and the value below.
+        // sheet; a small level part takes the reference above and the value
+        // below; a larger part stacks both above, clear of its pins' wiring.
+        let line = sheet::TEXT_MM * 1.3 * camera.zoom;
         let ((ref_at, ref_align), (value_at, value_align)) = if c.library_symbol.is_none() {
             (
                 (center - Vec2::new(0.0, label_offset), Align2::CENTER_BOTTOM),
@@ -2064,6 +2077,14 @@ impl App {
             (
                 (Pos2::new(body.right() + gap, center.y), Align2::LEFT_BOTTOM),
                 (Pos2::new(body.right() + gap, center.y), Align2::LEFT_TOP),
+            )
+        } else if !few_pins {
+            (
+                (
+                    Pos2::new(center.x, body.top() - gap - line),
+                    Align2::CENTER_BOTTOM,
+                ),
+                (Pos2::new(center.x, body.top() - gap), Align2::CENTER_BOTTOM),
             )
         } else {
             (

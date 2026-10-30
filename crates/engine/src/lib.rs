@@ -628,9 +628,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "wire.draw",
-            "Draw a free-form schematic wire with explicit vertices, optionally bound to a net",
+            "Draw a free-form schematic wire with explicit vertices, optionally bound to a net and placed on a page (sheet id, 0 for Main)",
             schema(
-                json!({"points":{"type":"array","items":point_schema(),"minItems":2,"maxItems":256},"net":id_schema()}),
+                json!({"points":{"type":"array","items":point_schema(),"minItems":2,"maxItems":256},"net":id_schema(),"sheet":{"type":"integer","minimum":0}}),
                 &["points"],
             ),
         ),
@@ -845,9 +845,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "label.place",
-            "Place a local, global, hierarchical or power label, or a junction, naming an existing net",
+            "Place a local, global, hierarchical or power label, or a junction, naming an existing net, optionally on a page (sheet id, 0 for Main)",
             schema(
-                json!({"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema(),"position":point_schema(),"rotation":{"type":"number","minimum":-360000.0,"maximum":360000.0}}),
+                json!({"kind":{"type":"string","enum":["label","global","hierarchical","power","junction"]},"net":id_schema(),"position":point_schema(),"rotation":{"type":"number","minimum":-360000.0,"maximum":360000.0},"sheet":{"type":"integer","minimum":0}}),
                 &["kind", "net", "position"],
             ),
         ),
@@ -3603,6 +3603,9 @@ struct WireParams {
 struct DrawnWireParams {
     points: Vec<Point>,
     net: Option<Id>,
+    /// Schematic page to draw on; inferred from the nearest pin when absent.
+    #[serde(default)]
+    sheet: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3744,6 +3747,9 @@ struct LabelParams {
     position: Point,
     #[serde(default)]
     rotation: f64,
+    /// Schematic page to place on; inferred from the nearest pin when absent.
+    #[serde(default)]
+    sheet: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -9921,9 +9927,15 @@ fn run_command(
             if a.net.is_some_and(|net| !p.nets.iter().any(|n| n.id == net)) {
                 return Err(missing());
             }
+            if a.sheet
+                .is_some_and(|s| s != 0 && !p.sheets.iter().any(|sheet| sheet.id == s))
+            {
+                return Err(missing());
+            }
             let id = allocate(next)?;
             let vertices = a.points.len();
             p.drawn_wires.push(DrawnWire {
+                sheet: a.sheet,
                 id,
                 net: a.net,
                 points: a.points,
@@ -9954,13 +9966,14 @@ fn run_command(
                     )
                 })?;
             let id = allocate(next)?;
-            let net = wire.net;
+            let (net, sheet) = (wire.net, wire.sheet);
             let mut head = wire.points[..=segment].to_vec();
             head.push(a.at);
             let mut tail = vec![a.at];
             tail.extend_from_slice(&wire.points[segment + 1..]);
             p.drawn_wires[index].points = head;
             p.drawn_wires.push(DrawnWire {
+                sheet,
                 id,
                 net,
                 points: tail,
@@ -11715,7 +11728,13 @@ fn run_command(
                     "place bus labels with label.place_bus".into(),
                 ));
             }
+            if a.sheet
+                .is_some_and(|s| s != 0 && !p.sheets.iter().any(|sheet| sheet.id == s))
+            {
+                return Err(missing());
+            }
             p.labels.push(pcbcraft_doc::Label {
+                sheet: a.sheet,
                 id,
                 kind: a.kind,
                 net: a.net,
@@ -11740,12 +11759,14 @@ fn run_command(
             let (members, created) = bus_members(p, &stem, count, next)?;
             let id = allocate(next)?;
             p.drawn_wires.push(DrawnWire {
+                sheet: None,
                 id,
                 net: None,
                 points: a.points.clone(),
             });
             let label = allocate(next)?;
             p.labels.push(pcbcraft_doc::Label {
+                sheet: None,
                 id: label,
                 kind: "bus".into(),
                 net: 0,
@@ -11767,6 +11788,7 @@ fn run_command(
             let (members, created) = bus_members(p, &stem, count, next)?;
             let id = allocate(next)?;
             p.labels.push(pcbcraft_doc::Label {
+                sheet: None,
                 id,
                 kind: "bus".into(),
                 net: 0,

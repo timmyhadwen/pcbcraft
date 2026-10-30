@@ -6986,6 +6986,7 @@ mod tests {
             component: None,
         });
         project.drawn_wires.push(pcbcraft_doc::DrawnWire {
+            sheet: None,
             id: 104,
             net: None,
             points: vec![Point::new(10.0, 5.0), Point::new(20.0, 5.0)],
@@ -6996,6 +6997,7 @@ mod tests {
             ..Default::default()
         });
         project.labels.push(pcbcraft_doc::Label {
+            sheet: None,
             id: 105,
             kind: "global".into(),
             net: 1,
@@ -7532,6 +7534,7 @@ mod tests {
             component: None,
         });
         project.drawn_wires.push(pcbcraft_doc::DrawnWire {
+            sheet: None,
             id: 104,
             net: None,
             points: vec![Point::new(10.0, 5.0), Point::new(20.0, 5.0)],
@@ -7542,6 +7545,7 @@ mod tests {
             ..Default::default()
         });
         project.labels.push(pcbcraft_doc::Label {
+            sheet: None,
             id: 105,
             kind: "global".into(),
             net: 1,
@@ -8255,6 +8259,7 @@ mod tests {
     fn drawn_wires_render_in_the_schematic_preview_without_components() -> Result<(), String> {
         let mut project = Project::default();
         project.drawn_wires.push(pcbcraft_doc::DrawnWire {
+            sheet: None,
             id: 1,
             net: None,
             points: vec![
@@ -11171,11 +11176,13 @@ mod tests {
             fields: vec![],
         });
         project.drawn_wires.push(pcbcraft_doc::DrawnWire {
+            sheet: None,
             id: 2,
             net: Some(1),
             points: vec![Point::new(10.0, 5.0), Point::new(20.0, 5.0)],
         });
         project.labels.push(pcbcraft_doc::Label {
+            sheet: None,
             id: 4,
             kind: "global".into(),
             net: 1,
@@ -11184,6 +11191,7 @@ mod tests {
             text: String::new(),
         });
         project.labels.push(pcbcraft_doc::Label {
+            sheet: None,
             id: 5,
             kind: "junction".into(),
             net: 1,
