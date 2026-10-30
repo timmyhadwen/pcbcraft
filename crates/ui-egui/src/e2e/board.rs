@@ -1647,12 +1647,12 @@ fn a_newcomer_wires_two_pins_and_measures() -> Result<(), String> {
 fn a_newcomer_zooms_out_and_fits_the_whole_design() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Schematic);
     let before = app.schematic.zoom;
-    tap_id(&ctx, &mut app, "icon:canvas-zoom-out")?;
-    assert!(app.schematic.zoom < before, "the minus button zooms out");
+    menu_item(&ctx, &mut app, "View", "Zoom out")?;
+    assert!(app.schematic.zoom < before, "View > Zoom out zooms out");
     let zoomed_out = app.schematic.zoom;
-    tap_id(&ctx, &mut app, "icon:canvas-zoom-in")?;
-    assert!(app.schematic.zoom > zoomed_out, "the plus button zooms in");
-    tap_id(&ctx, &mut app, "icon:canvas-fit")?;
+    menu_item(&ctx, &mut app, "View", "Zoom in")?;
+    assert!(app.schematic.zoom > zoomed_out, "View > Zoom in zooms in");
+    menu_item(&ctx, &mut app, "View", "Fit document")?;
     assert!(
         app.needs_fit || app.schematic.zoom > 0.0,
         "Fit frames the design"

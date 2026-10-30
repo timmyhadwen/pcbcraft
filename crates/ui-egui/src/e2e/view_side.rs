@@ -17,7 +17,7 @@ fn a_newcomer_flips_the_view_to_the_bottom_with_the_toggle() -> Result<(), Strin
     assert!(!app.pcb.mirror, "the board opens from the top");
     assert_eq!(app.route_layer, pcbcraft_doc::Layer::Front);
 
-    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
+    menu_item(&ctx, &mut app, "View", "Flip board")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(app.pcb.mirror, "Bottom mirrors the view");
     assert_eq!(
@@ -29,10 +29,10 @@ fn a_newcomer_flips_the_view_to_the_bottom_with_the_toggle() -> Result<(), Strin
     app.set_target(crate::draw_target::Target::Silk(
         crate::draw_target::Side::Top,
     ));
-    authoring::tests::tap(&ctx, &mut app, "Top")?;
+    menu_item(&ctx, &mut app, "View", "Flip board")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(!app.pcb.mirror, "Top is the normal view again");
-    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
+    menu_item(&ctx, &mut app, "View", "Flip board")?;
     assert_eq!(
         app.target,
         crate::draw_target::Target::Silk(crate::draw_target::Side::Bottom),
@@ -112,7 +112,7 @@ fn a_newcomer_rotates_the_board_view() -> Result<(), String> {
         b.x > a.x && (b.y - a.y).abs() < 0.5,
         "the board starts upright"
     );
-    tap_named(&ctx, &mut app, "Rotate right.")?;
+    menu_item(&ctx, &mut app, "View", "Rotate view right")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(app.pcb.turns, 1, "one tap is one quarter turn");
     let rect = app.canvas_rect;
@@ -126,10 +126,10 @@ fn a_newcomer_rotates_the_board_view() -> Result<(), String> {
         (back.x - wide.x).abs() < 1e-3,
         "a click maps back to the same board point"
     );
-    tap_named(&ctx, &mut app, "Rotate left.")?;
-    tap_named(&ctx, &mut app, "Rotate left.")?;
+    menu_item(&ctx, &mut app, "View", "Rotate view left")?;
+    menu_item(&ctx, &mut app, "View", "Rotate view left")?;
     assert_eq!(app.pcb.turns, 3, "left turns count back round");
-    tap_named(&ctx, &mut app, "Reset view.")?;
+    menu_item(&ctx, &mut app, "View", "Reset view")?;
     assert_eq!(app.pcb.turns, 0, "Reset view turns it upright");
     Ok(())
 }
@@ -143,7 +143,7 @@ fn a_newcomer_flips_the_board_and_sees_the_bottom_parts_on_top() -> Result<(), S
         app.stack.far(bottom) > app.stack.far(Layer::Front),
         "from the top, the bottom copper is the far side and paints first"
     );
-    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
+    menu_item(&ctx, &mut app, "View", "Flip board")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.stack.far(bottom) < app.stack.far(Layer::Front),
@@ -286,15 +286,15 @@ fn a_newcomer_clicks_a_sublayer_and_the_view_stays() -> Result<(), String> {
 #[test]
 fn a_newcomer_flips_the_board_in_3d_and_looks_from_below() -> Result<(), String> {
     let (mut app, ctx) = open_layout();
-    authoring::tests::tap(&ctx, &mut app, "3D")?;
+    menu_item(&ctx, &mut app, "View", "3D view")?;
     assert!(app.view3d.pitch > 0.0, "3D opens above the board");
-    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
+    menu_item(&ctx, &mut app, "View", "Flip board")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.view3d.pitch < 0.0,
         "Bottom puts the camera under the board"
     );
-    authoring::tests::tap(&ctx, &mut app, "Top")?;
+    menu_item(&ctx, &mut app, "View", "Flip board")?;
     assert!(app.view3d.pitch > 0.0, "Top brings it back");
     Ok(())
 }

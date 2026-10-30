@@ -206,6 +206,19 @@ impl App {
         }
         ui.separator();
         for action in [
+            KeyAction::View2d,
+            KeyAction::View3d,
+            KeyAction::FlipBoardView,
+            KeyAction::RotateViewLeft,
+            KeyAction::RotateViewRight,
+            KeyAction::ResetView,
+        ] {
+            self.action_item(ui, action);
+        }
+        ui.separator();
+        self.view_toggles(ui);
+        ui.separator();
+        for action in [
             KeyAction::CycleGrid,
             KeyAction::ToggleUnits,
             KeyAction::LayerNext,
@@ -216,6 +229,38 @@ impl App {
             self.action_item(ui, action);
         }
         ui.separator();
+    }
+
+    /// The View menu's switches for what the canvas draws over the design:
+    /// the heads-up readout, the rulers and the board dimension arrows.
+    ///
+    /// # Rules
+    /// - Each switch is a saved preference, the same one Settings shows.
+    fn view_toggles(&mut self, ui: &mut egui::Ui) {
+        let keys = self
+            .preferences
+            .active_keymap()
+            .menu_keys(KeyAction::ToggleHud)
+            .unwrap_or_default();
+        let prefs = &mut self.preferences.canvas;
+        let hud_tip = format!("{}\n{}", keymap::action_tooltip(KeyAction::ToggleHud), keys);
+        for (on, label, tip) in [
+            (&mut prefs.hud, t!("menu.view.hud"), hud_tip),
+            (
+                &mut prefs.rulers,
+                t!("menu.view.rulers"),
+                t!("menu.view.rulers.tip"),
+            ),
+            (
+                &mut prefs.dimensions,
+                t!("menu.view.dimensions"),
+                t!("menu.view.dimensions.tip"),
+            ),
+        ] {
+            if ui.checkbox(on, label).on_hover_text(tip).clicked() {
+                ui.close();
+            }
+        }
     }
 
     /// The Edit menu's selection items, below Undo and Redo.

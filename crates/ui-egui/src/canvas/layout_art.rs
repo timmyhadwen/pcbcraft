@@ -43,6 +43,12 @@ pub(super) struct BoardArt {
     pub drill: Color32,
     pub silk: Color32,
     pub silk_bottom: Color32,
+    /// Solder mask openings on the top and the bottom side.
+    pub mask_top: Color32,
+    pub mask_bottom: Color32,
+    /// Solder paste on the top and the bottom side.
+    pub paste_top: Color32,
+    pub paste_bottom: Color32,
     /// Assembly drawing of a part's body, faint so it never hides copper.
     pub fab: Color32,
     pub courtyard: Color32,
@@ -51,6 +57,10 @@ pub(super) struct BoardArt {
     pub text: Color32,
     pub muted: Color32,
     pub on_copper: Color32,
+    /// The crosshair cursor: neutral, so it never reads as a layer.
+    pub cursor: Color32,
+    /// Translucent card behind the heads-up readout.
+    pub hud_fill: Color32,
 }
 
 impl BoardArt {
@@ -79,6 +89,10 @@ impl BoardArt {
                 drill: c(0x0A, 0x0B, 0x0D),
                 silk: c(0xF0, 0xE0, 0x6A),
                 silk_bottom: c(0x9E, 0x9A, 0x52),
+                mask_top: c(0x78, 0xC8, 0x8C),
+                mask_bottom: c(0x5A, 0x96, 0x78),
+                paste_top: c(0xA8, 0xAE, 0xB6),
+                paste_bottom: c(0x7C, 0x82, 0x8A),
                 fab: Color32::from_rgba_unmultiplied(0x8A, 0x92, 0x9C, 0x50),
                 courtyard: c(0xB5, 0x8A, 0xE0),
                 ratsnest: Color32::from_rgba_unmultiplied(0xE6, 0xEA, 0xEE, 0xB3),
@@ -86,6 +100,8 @@ impl BoardArt {
                 text: c(0xE8, 0xEA, 0xED),
                 muted: c(0x9A, 0xA3, 0xAD),
                 on_copper: c(0xFF, 0xFF, 0xFF),
+                cursor: c(0xD0, 0xD4, 0xD9),
+                hud_fill: Color32::from_rgba_unmultiplied(0x15, 0x18, 0x1C, 0xD8),
             }
         } else {
             Self {
@@ -109,6 +125,10 @@ impl BoardArt {
                 drill: c(0xF1, 0xF0, 0xE6),
                 silk: c(0x2A, 0x2A, 0x24),
                 silk_bottom: c(0x6A, 0x68, 0x40),
+                mask_top: c(0x2E, 0x7A, 0x46),
+                mask_bottom: c(0x3E, 0x6A, 0x52),
+                paste_top: c(0x5E, 0x64, 0x6C),
+                paste_bottom: c(0x80, 0x86, 0x8E),
                 fab: Color32::from_rgba_unmultiplied(0x50, 0x56, 0x5E, 0x50),
                 courtyard: c(0x8A, 0x52, 0xB8),
                 ratsnest: c(0x3A, 0x4A, 0x42),
@@ -116,6 +136,8 @@ impl BoardArt {
                 text: c(0x10, 0x1C, 0x17),
                 muted: c(0x44, 0x57, 0x4E),
                 on_copper: c(0xFF, 0xFF, 0xFF),
+                cursor: c(0x30, 0x36, 0x3C),
+                hud_fill: Color32::from_rgba_unmultiplied(0xF6, 0xF5, 0xEE, 0xE0),
             }
         }
     }
@@ -442,7 +464,7 @@ impl App {
     pub(super) fn paint_axis_glyph(&self, painter: &egui::Painter, rect: Rect, camera: Camera) {
         let art = self.art();
         let stroke = Stroke::new(1.2, art.muted);
-        let o = Pos2::new(rect.left() + RULER + 26.0, rect.bottom() - 40.0);
+        let o = Pos2::new(rect.left() + RULER + 26.0, rect.bottom() - 52.0);
         // World +x and +y as the camera shows them, so the glyph turns with the view.
         let (ux, uy) = camera.axes();
         let font = crate::fonts::Role::Mono.font();
@@ -552,33 +574,39 @@ impl App {
         Some((boxed(0.3), boxed(0.9)))
     }
 
-    /// Selection box with corner handles and the rotate handle above it.
+    /// Selection box: a faint wash over the part, a thin solid outline in
+    /// the selection colour and a small square grip on each corner. Moving
+    /// is a drag and turning is Space, so no handle glyphs are drawn.
     pub(super) fn paint_selection_box(&self, painter: &egui::Painter, courtyard: &[Pos2]) {
         let art = self.art();
-        let Some(first) = courtyard.first() else {
+        if courtyard.is_empty() {
             return;
-        };
-        let mut bounds = Rect::from_min_max(*first, *first);
-        for q in courtyard {
-            bounds.extend_with(*q);
         }
-        let bounds = bounds.expand(3.0);
-        let stroke = Stroke::new(1.5, art.selection);
-        painter.rect_stroke(bounds, 0.0, stroke, egui::StrokeKind::Middle);
-        for corner in [
-            bounds.left_top(),
-            bounds.right_top(),
-            bounds.right_bottom(),
-            bounds.left_bottom(),
-        ] {
-            let h = Rect::from_center_size(corner, Vec2::splat(7.0));
-            painter.rect_filled(h, 0.0, art.bg);
-            painter.rect_stroke(h, 0.0, stroke, egui::StrokeKind::Middle);
-        }
-        let stem = Pos2::new(bounds.center().x, bounds.top() - 16.0);
-        painter.line_segment([Pos2::new(bounds.center().x, bounds.top()), stem], stroke);
-        painter.circle_filled(stem, 4.0, art.bg);
-        painter.circle_stroke(stem, 4.0, stroke);
+        let bounds = Rect::from_points(courtyard).expand(2.0);
+        selection_frame(painter, bounds, art.selection, art.bg);
+    }
+}
+
+/// The selection look both canvases share: a translucent wash, a 1 px solid
+/// outline and 5 px square grips at the corners filled with `ground`.
+pub(super) fn selection_frame(
+    painter: &egui::Painter,
+    bounds: Rect,
+    colour: Color32,
+    ground: Color32,
+) {
+    painter.rect_filled(bounds, 0.0, colour.gamma_multiply(0.10));
+    let stroke = Stroke::new(1.0, colour);
+    painter.rect_stroke(bounds, 0.0, stroke, egui::StrokeKind::Middle);
+    for corner in [
+        bounds.left_top(),
+        bounds.right_top(),
+        bounds.right_bottom(),
+        bounds.left_bottom(),
+    ] {
+        let grip = Rect::from_center_size(corner, Vec2::splat(5.0));
+        painter.rect_filled(grip, 0.0, ground);
+        painter.rect_stroke(grip, 0.0, stroke, egui::StrokeKind::Inside);
     }
 }
 

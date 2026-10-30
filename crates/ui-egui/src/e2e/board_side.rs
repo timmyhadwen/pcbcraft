@@ -90,7 +90,7 @@ fn a_newcomer_looks_at_the_board_from_below() -> Result<(), String> {
         left_before < right_before,
         "the top view runs left to right"
     );
-    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
+    menu_item(&ctx, &mut app, "View", "Flip board")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(app.pcb.mirror, "the Bottom choice is on");
     let rect = app.canvas_rect;
@@ -120,7 +120,7 @@ fn a_newcomer_looks_at_the_board_from_below() -> Result<(), String> {
         upright,
         "the reference text {reference} stays upright and readable"
     );
-    authoring::tests::tap(&ctx, &mut app, "Top")?;
+    menu_item(&ctx, &mut app, "View", "Flip board")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(!app.pcb.mirror, "Top returns");
     let back = app

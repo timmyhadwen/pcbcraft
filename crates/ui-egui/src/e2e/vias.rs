@@ -87,9 +87,9 @@ fn a_newcomer_moves_the_end_of_a_via_with_the_layer_picker() -> Result<(), Strin
         "the inspector offers an end layer: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "L4")?;
+    tap_beside_board(&ctx, &mut app, "L4")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "L2")?;
+    tap_beside_board(&ctx, &mut app, "L2")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let via = app
         .project
@@ -171,4 +171,25 @@ fn a_newcomer_allows_and_removes_a_buried_via_span() -> Result<(), String> {
         app.message
     );
     Ok(())
+}
+
+/// Click the words `label` in the Properties column, not the layer tab of
+/// the same name under the board.
+fn tap_beside_board(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let right = app.canvas_rect.right();
+    let at = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(t) if t.galley.text() == label => {
+                let c = t.pos + t.galley.size() / 2.0;
+                (c.x > right && shape.clip_rect.contains(c)).then_some(c)
+            }
+            _ => None,
+        })
+        .next_back()
+        .ok_or_else(|| format!("{label} is not beside the board"))?;
+    tap_at(ctx, app, at)
 }

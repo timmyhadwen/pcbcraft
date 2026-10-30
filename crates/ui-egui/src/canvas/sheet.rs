@@ -68,6 +68,10 @@ pub(super) struct SheetColours {
     pub text: Color32,
     pub muted: Color32,
     pub select: Color32,
+    /// The crosshair cursor.
+    pub cursor: Color32,
+    /// Translucent card behind the heads-up readout.
+    pub hud_fill: Color32,
 }
 
 impl SheetColours {
@@ -83,6 +87,8 @@ impl SheetColours {
         text: Color32::from_rgb(0xE8, 0xEA, 0xED),
         muted: Color32::from_rgb(0x9A, 0xA3, 0xAD),
         select: Color32::from_rgb(0x5C, 0xC8, 0xE8),
+        cursor: Color32::from_rgb(0xC8, 0xCC, 0xD2),
+        hud_fill: Color32::from_rgba_premultiplied(0x10, 0x12, 0x14, 0xD8),
     };
     const LIGHT: Self = Self {
         backdrop: Color32::from_rgb(0xE4, 0xE5, 0xE7),
@@ -96,6 +102,8 @@ impl SheetColours {
         text: Color32::from_rgb(0x10, 0x14, 0x18),
         muted: Color32::from_rgb(0x4A, 0x4D, 0x52),
         select: Color32::from_rgb(0x0B, 0x67, 0x85),
+        cursor: Color32::from_rgb(0x30, 0x34, 0x3A),
+        hud_fill: Color32::from_rgba_premultiplied(0xEE, 0xEB, 0xE2, 0xF0),
     };
 
     /// The colour set for the dark or the light theme.
@@ -936,32 +944,11 @@ pub(super) fn paint_power(
     }
 }
 
-/// Paint the selection box around a symbol: a dashed outline and a square
-/// handle on each corner. `bounds` is the screen rectangle to enclose.
+/// Paint the selection box around a symbol: a faint wash, a thin solid
+/// outline and a small square grip on each corner, the same look as on the
+/// board. `bounds` is the screen rectangle to enclose.
 pub(super) fn paint_selection(painter: &egui::Painter, bounds: Rect, sc: &SheetColours) {
-    let stroke = Stroke::new(1.5, sc.select);
-    painter.add(egui::Shape::dashed_line(
-        &[
-            bounds.left_top(),
-            bounds.right_top(),
-            bounds.right_bottom(),
-            bounds.left_bottom(),
-            bounds.left_top(),
-        ],
-        stroke,
-        6.0,
-        4.0,
-    ));
-    for corner in [
-        bounds.left_top(),
-        bounds.right_top(),
-        bounds.right_bottom(),
-        bounds.left_bottom(),
-    ] {
-        let handle = Rect::from_center_size(corner, Vec2::splat(9.0));
-        painter.rect_filled(handle, 0.0, sc.sheet);
-        painter.rect_stroke(handle, 0.0, stroke, egui::StrokeKind::Inside);
-    }
+    super::layout_art::selection_frame(painter, bounds, sc.select, sc.sheet);
 }
 
 /// What a hit outline belongs to.

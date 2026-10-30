@@ -11,6 +11,7 @@ mod board;
 mod board3d;
 mod board_side;
 mod builds;
+mod canvas_view;
 mod checks;
 mod compare;
 mod context_menus;

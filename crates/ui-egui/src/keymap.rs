@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 /// Version of the factory keymap; see the `# Rules` above.
-pub const CLASSIC_SCHEME: u32 = 1;
+pub const CLASSIC_SCHEME: u32 = 2;
 
 /// Stable action id stored in profiles and used for dispatch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -91,6 +91,13 @@ pub enum KeyAction {
     LayerPanel,
     CycleCornerMode,
     CycleRouteMode,
+    View2d,
+    View3d,
+    FlipBoardView,
+    RotateViewLeft,
+    RotateViewRight,
+    ResetView,
+    ToggleHud,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -207,6 +214,8 @@ pub enum ShortcutContext {
     Anywhere,
     Schematic,
     Pcb,
+    /// The Layout workspace in 2D or 3D.
+    Layout,
     CommandPalette,
 }
 
@@ -623,6 +632,76 @@ const SPECS: &[ActionSpec] = &[
         sequences: &[],
     },
     ActionSpec {
+        action: KeyAction::View2d,
+        name: "2D layout",
+        label: "Show the board flat in 2D",
+        tooltip: "Switch the Layout view to the flat board drawing.",
+        context: ShortcutContext::Layout,
+        rebindable: true,
+        chords: &[KeyChord::plain(Key::Num2)],
+        sequences: &[],
+    },
+    ActionSpec {
+        action: KeyAction::View3d,
+        name: "3D view",
+        label: "Show the board and its parts in 3D",
+        tooltip: "Switch the Layout view to the three-dimensional board.",
+        context: ShortcutContext::Layout,
+        rebindable: true,
+        chords: &[KeyChord::plain(Key::Num3)],
+        sequences: &[],
+    },
+    ActionSpec {
+        action: KeyAction::FlipBoardView,
+        name: "Flip board",
+        label: "Look at the board from below, or from the top again",
+        tooltip: "Mirror the view to the other side; drawing moves to that side's layers.",
+        context: ShortcutContext::Layout,
+        rebindable: true,
+        chords: &[],
+        sequences: &[(Key::V, Key::B)],
+    },
+    ActionSpec {
+        action: KeyAction::RotateViewLeft,
+        name: "Rotate view left",
+        label: "Turn the board view a quarter turn to the left",
+        tooltip: "Only the view turns; the board and its coordinates do not change.",
+        context: ShortcutContext::Pcb,
+        rebindable: true,
+        chords: &[],
+        sequences: &[],
+    },
+    ActionSpec {
+        action: KeyAction::RotateViewRight,
+        name: "Rotate view right",
+        label: "Turn the board view a quarter turn to the right",
+        tooltip: "Only the view turns; the board and its coordinates do not change.",
+        context: ShortcutContext::Pcb,
+        rebindable: true,
+        chords: &[],
+        sequences: &[],
+    },
+    ActionSpec {
+        action: KeyAction::ResetView,
+        name: "Reset view",
+        label: "Fit the board upright, seen from the top",
+        tooltip: "Fit the board, turn it upright, look from the top and drop a pinned layer view.",
+        context: ShortcutContext::Pcb,
+        rebindable: true,
+        chords: &[],
+        sequences: &[],
+    },
+    ActionSpec {
+        action: KeyAction::ToggleHud,
+        name: "Heads-up display",
+        label: "Show or hide the readout beside the cursor",
+        tooltip: "Toggle the cursor position, distance and layer readout on the canvas.",
+        context: ShortcutContext::Anywhere,
+        rebindable: true,
+        chords: &[KeyChord::shift(Key::H)],
+        sequences: &[],
+    },
+    ActionSpec {
         action: KeyAction::ToggleAutoSync,
         name: "Automatic board sync",
         label: "Turn automatic board sync on or off",
@@ -757,6 +836,7 @@ fn context_name(context: ShortcutContext) -> &'static str {
         ShortcutContext::Anywhere => "anywhere",
         ShortcutContext::Schematic => "schematic tab",
         ShortcutContext::Pcb => "pcb tab",
+        ShortcutContext::Layout => "layout 2D or 3D",
         ShortcutContext::CommandPalette => "command palette",
     }
 }
@@ -1217,6 +1297,7 @@ pub fn context_matches(action_ctx: ShortcutContext, tab: Tab, command_open: bool
         ShortcutContext::Anywhere => !command_open,
         ShortcutContext::Schematic => !command_open && tab == Tab::Schematic,
         ShortcutContext::Pcb => !command_open && tab == Tab::Pcb,
+        ShortcutContext::Layout => !command_open && matches!(tab, Tab::Pcb | Tab::Board3d),
         ShortcutContext::CommandPalette => command_open,
     }
 }
@@ -1233,7 +1314,8 @@ fn contexts_overlap(a: ShortcutContext, b: ShortcutContext) -> bool {
     if a == ShortcutContext::CommandPalette || b == ShortcutContext::CommandPalette {
         return false;
     }
-    a == ShortcutContext::Anywhere || b == ShortcutContext::Anywhere
+    let layout = |c: ShortcutContext| matches!(c, ShortcutContext::Pcb | ShortcutContext::Layout);
+    a == ShortcutContext::Anywhere || b == ShortcutContext::Anywhere || (layout(a) && layout(b))
 }
 
 pub fn chord_from_input(key: Key, input: egui::Modifiers) -> KeyChord {

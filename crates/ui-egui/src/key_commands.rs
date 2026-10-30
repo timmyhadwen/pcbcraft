@@ -212,9 +212,44 @@ impl App {
                     t!("keys.route_mode.stop")
                 };
             }
+            KeyAction::View2d => self.show_layout_view(false),
+            KeyAction::View3d => self.show_layout_view(true),
+            KeyAction::FlipBoardView => self.flip_board_view(),
+            KeyAction::RotateViewLeft => self.rotate_view(-1),
+            KeyAction::RotateViewRight => self.rotate_view(1),
+            KeyAction::ResetView => self.reset_view(),
+            KeyAction::ToggleHud => {
+                let on = !self.preferences.canvas.hud;
+                self.preferences.canvas.hud = on;
+                self.message = if on {
+                    t!("keys.hud.on")
+                } else {
+                    t!("keys.hud.off")
+                };
+            }
             _ => return false,
         }
         true
+    }
+
+    /// Switch the Layout workspace between the flat board and the 3D view.
+    ///
+    /// # Rules
+    /// - Keeps the layout region's 2D or 3D flag in step, as the tab change
+    ///   alone would not remember it.
+    pub(super) fn show_layout_view(&mut self, three_d: bool) {
+        self.region().view_3d = three_d;
+        self.change_tab(if three_d { Tab::Board3d } else { Tab::Pcb });
+    }
+
+    /// Look at the other side of the board: in 2D the view mirrors and the
+    /// drawing target moves to that side, in 3D the camera goes below.
+    pub(super) fn flip_board_view(&mut self) {
+        if self.tab == Tab::Board3d {
+            self.view3d.pitch = if self.view3d.pitch < 0.0 { 0.6 } else { -0.6 };
+        } else {
+            self.toggle_view_from_below();
+        }
     }
 
     /// Zoom the active canvas by `factor`, keeping the point under the cursor

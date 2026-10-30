@@ -256,7 +256,7 @@ impl Workspace for LayoutWorkspace {
         } else {
             app.canvas(ui);
         }
-        app.layout_view_toggles(ui.ctx(), rect);
+        app.layout_notices(ui.ctx(), rect);
     }
     fn default_layout(&self) -> RegionLayout {
         RegionLayout::new(LeftTab::Projects.id(), "findings")
@@ -389,126 +389,23 @@ impl App {
             });
     }
 
-    /// The 2D | 3D and Top | Bottom toggles, a floating kit card just inside the
-    /// canvas, below the top ruler and right of the left ruler.
+    /// The notice over the board when it is behind the schematic, with its
+    /// Update button, centred under the top edge of the canvas.
+    ///
+    /// The 2D and 3D switch, the board side and the view turns live in the
+    /// View menu and on keys (`crates/ui-egui/src/classic_menus.rs`); a pinned
+    /// layer view shows at the end of the layer tabs
+    /// (`crates/ui-egui/src/canvas/layer_tabs.rs`).
     ///
     /// # Dependencies
-    /// - crates/ui-egui/src/ui_kit/segmented.rs
     /// - crates/ui-egui/src/canvas.rs (`RULER_SIZE`)
     ///
     /// # Do not
-    /// - Place it at the canvas corner; the rulers draw labels there.
-    fn layout_view_toggles(&mut self, ctx: &egui::Context, rect: Rect) {
-        use crate::ui_kit::segmented::{Segment, segmented};
-        let view_3d = self.tab == Tab::Board3d;
-        let bottom = if view_3d {
-            self.view3d.pitch < 0.0
-        } else {
-            self.pcb.mirror
-        };
-        let (mut view_idx, mut side_idx) = (usize::from(view_3d), usize::from(bottom));
-        let (was_view, was_side) = (view_idx, side_idx);
-        let (view_2d_label, view_3d_label) = (t!("workspace.view_2d"), t!("workspace.view_3d"));
-        let (view_2d_tip, view_3d_tip) = (t!("workspace.view_2d.tip"), t!("workspace.view_3d.tip"));
-        let (top_label, bottom_label) = (t!("workspace.side_top"), t!("workspace.side_bottom"));
-        let (top_tip, bottom_tip) = (
-            t!("workspace.side_top.tip"),
-            t!("workspace.side_bottom.tip"),
-        );
-        let (rotate_left_tip, rotate_right_tip, reset_tip) = (
-            t!("view.rotate_left.tip"),
-            t!("view.rotate_right.tip"),
-            t!("view.reset.tip"),
-        );
-        let (mut turn, mut reset, mut unpin) = (0i8, false, false);
-        let pinned_name = self.pinned_view.map(|target| {
-            let saved = std::mem::replace(&mut self.target, target);
-            let name = self.target_label();
-            self.target = saved;
-            name
-        });
+    /// - Bring back floating view buttons over the canvas; the canvas is for
+    ///   the design.
+    fn layout_notices(&mut self, ctx: &egui::Context, rect: Rect) {
         let tokens = crate::theme::tokens(ctx);
         let inset = crate::canvas::RULER_SIZE + crate::theme::SPACE[2];
-        egui::Area::new(egui::Id::new("layout-view-toggles"))
-            .fixed_pos(rect.left_top() + egui::vec2(inset, inset))
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                egui::Frame::NONE
-                    .fill(tokens.panel)
-                    .stroke(Stroke::new(crate::theme::BORDER, tokens.edge))
-                    .corner_radius(egui::CornerRadius::same(crate::theme::RADIUS_CARD))
-                    .inner_margin(egui::Margin::same(4))
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = crate::theme::SPACE[1];
-                            segmented(
-                                ui,
-                                "layout-view-2d3d",
-                                &mut view_idx,
-                                &[
-                                    Segment {
-                                        label: &view_2d_label,
-                                        tip: &view_2d_tip,
-                                    },
-                                    Segment {
-                                        label: &view_3d_label,
-                                        tip: &view_3d_tip,
-                                    },
-                                ],
-                            );
-                            segmented(
-                                ui,
-                                "layout-view-side",
-                                &mut side_idx,
-                                &[
-                                    Segment {
-                                        label: &top_label,
-                                        tip: &top_tip,
-                                    },
-                                    Segment {
-                                        label: &bottom_label,
-                                        tip: &bottom_tip,
-                                    },
-                                ],
-                            );
-                            if view_idx == 0 {
-                                if crate::icons::icon_button(
-                                    ui,
-                                    "rotate-ccw",
-                                    &rotate_left_tip,
-                                    false,
-                                )
-                                .clicked()
-                                {
-                                    turn = -1;
-                                }
-                                if crate::icons::icon_button(ui, "rotate", &rotate_right_tip, false)
-                                    .clicked()
-                                {
-                                    turn = 1;
-                                }
-                                if crate::icons::icon_button(ui, "fit", &reset_tip, false).clicked()
-                                {
-                                    reset = true;
-                                }
-                                if let Some(pinned) = pinned_name.as_deref() {
-                                    let chip = t!("view.viewing", layer = pinned);
-                                    ui.label(crate::fonts::caption(chip).color(tokens.muted));
-                                    if crate::icons::icon_button(
-                                        ui,
-                                        "close",
-                                        &t!("view.unpin"),
-                                        false,
-                                    )
-                                    .clicked()
-                                    {
-                                        unpin = true;
-                                    }
-                                }
-                            }
-                        });
-                    });
-            });
         if self.tab == Tab::Pcb && self.board_behind() {
             let mut update = false;
             egui::Area::new(egui::Id::new("layout-sync-notice"))
@@ -540,34 +437,6 @@ impl App {
                 });
             if update {
                 self.run("board.sync", json!({}));
-            }
-        }
-        if turn != 0 {
-            self.rotate_view(turn);
-        }
-        if reset {
-            self.reset_view();
-        }
-        if unpin {
-            self.pinned_view = None;
-        }
-        if view_idx != was_view || side_idx != was_side {
-            let r = self.region();
-            r.view_3d = view_idx == 1;
-            if side_idx != was_side {
-                if view_idx == 1 {
-                    // In 3D, the other side means the camera goes below the board.
-                    self.view3d.pitch = if side_idx == 1 { -0.6 } else { 0.6 };
-                } else {
-                    self.set_view_side(side_idx == 1);
-                }
-            }
-            if view_idx != was_view {
-                self.change_tab(if view_idx == 1 {
-                    Tab::Board3d
-                } else {
-                    Tab::Pcb
-                });
             }
         }
     }

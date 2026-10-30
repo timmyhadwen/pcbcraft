@@ -742,12 +742,12 @@ fn a_newcomer_draws_from_the_tool_strip() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_narrows_the_window_and_the_canvas_buttons_stay_inside() -> Result<(), String> {
+fn a_newcomer_narrows_the_window_and_the_layer_tabs_stay_inside() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     app.tool_call("sample_design", json!({}));
-    app.select(Some(app.project.components[0].id));
+    app.change_tab(Tab::Pcb);
     for width in [1440.0_f32, 1000.0] {
         let ctx = egui::Context::default();
         for _ in 0..4 {
@@ -763,23 +763,17 @@ fn a_newcomer_narrows_the_window_and_the_canvas_buttons_stay_inside() -> Result<
             );
             output.textures_delta.clear();
         }
-        let ids: &[&str] = if width >= 1440.0 {
-            &["canvas-fit", "handle-rotate"]
-        } else {
-            &["canvas-fit"]
-        };
-        for id in ids.iter().copied() {
-            let rect = app
-                .icon_rects
-                .get(id)
-                .copied()
-                .ok_or_else(|| format!("{id} was not drawn at width {width}"))?;
-            let aside = if width >= 1440.0 { 280.0 } else { 0.0 };
-            assert!(
-                rect.min.x >= 0.0 && rect.max.x <= width - aside,
-                "{id} stays on the canvas at width {width}: {rect:?}"
-            );
-        }
+        let id = "layer-tabs-ls";
+        let rect = app
+            .icon_rects
+            .get(id)
+            .copied()
+            .ok_or_else(|| format!("{id} was not drawn at width {width}"))?;
+        let aside = if width >= 1440.0 { 280.0 } else { 0.0 };
+        assert!(
+            rect.min.x >= 0.0 && rect.max.x <= width - aside,
+            "{id} stays on the canvas at width {width}: {rect:?}"
+        );
     }
     Ok(())
 }
@@ -1060,16 +1054,14 @@ fn preferences_ui_scale_clamps_and_persists() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_with_a_screen_reader_finds_the_fit_move_and_rotate_buttons_by_name()
--> Result<(), String> {
+fn a_newcomer_with_a_screen_reader_finds_the_layer_tabs_by_name() -> Result<(), String> {
     let (ctx, mut app) = practice_app();
     app.change_tab(Tab::Pcb);
-    // Move and Rotate appear beside a selected part.
-    app.select(Some(app.project.components[0].id));
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let nodes = a11y::audit::interactive_nodes(&out);
-    for name in ["Fit", "Move", "Rotate"] {
+    let top = app.project.layer_name(pcbcraft_doc::Layer::Front);
+    for name in ["Single layer mode", top.as_str(), "Top silk"] {
         assert!(
             nodes
                 .iter()

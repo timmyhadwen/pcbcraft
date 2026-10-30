@@ -728,6 +728,9 @@ struct Preferences {
     /// Show cursor and grid readouts in mils instead of millimetres (Q).
     #[serde(default)]
     mil_units: bool,
+    /// Canvas cursor, heads-up readout, rulers and dimension arrows.
+    #[serde(default)]
+    canvas: canvas::CanvasPrefs,
 }
 fn default_keymap_profile() -> String {
     "Default".into()
@@ -782,6 +785,7 @@ impl Default for Preferences {
             keymap_profiles: default_keymap_profiles(),
             modifiers: Default::default(),
             mil_units: false,
+            canvas: canvas::CanvasPrefs::default(),
         }
     }
 }
@@ -4553,6 +4557,7 @@ impl App {
             t!("settings.settings_tab.wheel_scrolls"),
         )
         .on_hover_text(t!("settings.settings_tab.wheel_scrolls.tip"));
+        self.canvas_view_settings(ui);
         self.language_menu(ui);
         ui.label(
             egui::RichText::new(t!(
@@ -7818,7 +7823,8 @@ mod tests {
     }
 
     #[test]
-    fn selection_grows_handles_and_the_old_button_bar_is_gone() -> Result<(), String> {
+    fn selection_draws_grips_without_buttons_and_the_old_button_bar_is_gone() -> Result<(), String>
+    {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.refresh();
@@ -7833,30 +7839,21 @@ mod tests {
             !paints_text(&ctx, &mut app, "Sync to PCB >")?,
             "sync moved into the Edit menu"
         );
-        let fit = app
-            .icon_rects
-            .get("canvas-fit")
-            .copied()
-            .ok_or("a floating Fit icon sits in the work area")?;
         assert!(
-            fit.max.x <= 1440.0 - 280.0 && fit.min.x >= LEFT_ASIDE && fit.min.y > 60.0,
-            "the Fit icon stays inside the canvas between the asides: {fit:?}"
+            !app.icon_rects.contains_key("canvas-fit"),
+            "fit and zoom live in the View menu, not over the drawing"
         );
         let first = app.project.components[0].id;
         let before = app.project.components[0].rotation;
         app.select(Some(first));
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let handle = app
-            .icon_rects
-            .get("handle-rotate")
-            .copied()
-            .ok_or("a selected part grows a Rotate handle beside it")?;
         assert!(
-            handle.max.x <= 1440.0 - 280.0 && handle.min.x >= LEFT_ASIDE,
-            "the handle stays inside the canvas: {handle:?}"
+            !app.icon_rects.contains_key("handle-rotate")
+                && !app.icon_rects.contains_key("handle-move"),
+            "a selected part grows no glyph buttons"
         );
-        authoring::tests::tap_icon(&ctx, &mut app, "handle-rotate")?;
+        app.dispatch_shortcut(keymap::KeyAction::Rotate);
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let after = app
             .project
@@ -7865,7 +7862,7 @@ mod tests {
             .unwrap_or(before);
         assert!(
             (after - before).abs() > 1e-6,
-            "the handle turns the part: {before} -> {after}"
+            "Space still turns the part: {before} -> {after}"
         );
         Ok(())
     }

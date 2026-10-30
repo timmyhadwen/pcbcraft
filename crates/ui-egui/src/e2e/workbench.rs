@@ -1,7 +1,7 @@
 //! Stories for the left aside, the workspace layouts, the library dock, the datasheet action and the
 //! breathing room around every dock and tab body.
 use super::super::*;
-use super::support::{frame, paints_text, scrolled_to};
+use super::support::{frame, menu_item, paints_text, scrolled_to};
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 
@@ -139,13 +139,13 @@ fn a_newcomer_switches_the_layout_between_2d_and_3d_and_it_is_remembered() -> Re
     let ctx = egui::Context::default();
     app.change_tab(Tab::Pcb);
     settled(&ctx, &mut app);
-    authoring::tests::tap(&ctx, &mut app, "3D")?;
+    menu_item(&ctx, &mut app, "View", "3D view")?;
     assert_eq!(app.tab, Tab::Board3d, "3D swaps the center");
     assert!(app.region().view_3d, "the Layout workspace remembers 3D");
     authoring::tests::tap(&ctx, &mut app, "Files")?;
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
     assert_eq!(app.tab, Tab::Board3d, "coming back to Layout restores 3D");
-    authoring::tests::tap(&ctx, &mut app, "2D")?;
+    menu_item(&ctx, &mut app, "View", "2D layout")?;
     assert_eq!(app.tab, Tab::Pcb, "2D brings the board back");
     Ok(())
 }

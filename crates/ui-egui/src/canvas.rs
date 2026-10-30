@@ -5,7 +5,10 @@ use pcbcraft_geom::point_segment;
 mod board_art;
 mod context;
 pub(crate) mod gestures;
+mod hud;
+mod layer_tabs;
 mod layout_art;
+pub(crate) use hud::CanvasPrefs;
 
 /// Side of the ruler strips at the canvas top and left, shared with the floating
 /// view controls so they sit inside the margin the rulers leave.
@@ -232,96 +235,6 @@ pub(crate) fn polygon_contains(points: &[Point], pos: Point) -> bool {
     }
     inside
 }
-/// The small pictures drawn on the floating canvas controls.
-#[derive(Clone, Copy)]
-enum CanvasIcon {
-    Fit,
-    Move,
-    Rotate,
-    ZoomIn,
-    ZoomOut,
-}
-impl App {
-    /// One square icon button over the canvas. Its rectangle is published for
-    /// the tests under `id`.
-    fn canvas_icon(
-        &mut self,
-        ui: &mut egui::Ui,
-        id: &str,
-        icon: CanvasIcon,
-        tip: &str,
-    ) -> egui::Response {
-        let (rect, response) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
-        let response = response.on_hover_text(tip);
-        let name = match icon {
-            CanvasIcon::Fit => "Fit",
-            CanvasIcon::Move => "Move",
-            CanvasIcon::Rotate => "Rotate",
-            CanvasIcon::ZoomIn => "Zoom in",
-            CanvasIcon::ZoomOut => "Zoom out",
-        };
-        crate::a11y::name_control(&response, name, None);
-        self.record_icon(id, rect);
-        let ink = if response.hovered() {
-            self.accent()
-        } else {
-            self.ink()
-        };
-        let fill = self.colours().icon_fill;
-        let painter = ui.painter();
-        painter.rect_filled(rect, 6.0, fill);
-        painter.rect_stroke(
-            rect,
-            6.0,
-            Stroke::new(1.0, self.ink().gamma_multiply(0.35)),
-            egui::StrokeKind::Inside,
-        );
-        let stroke = Stroke::new(1.6, ink);
-        let c = rect.center();
-        let at = |x: f32, y: f32| egui::pos2(c.x + x, c.y + y);
-        match icon {
-            CanvasIcon::Fit => {
-                // A frame: four corner brackets.
-                for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
-                    let corner = at(sx * 7.0, sy * 7.0);
-                    painter.line_segment([corner, at(sx * 7.0, sy * 3.0)], stroke);
-                    painter.line_segment([corner, at(sx * 3.0, sy * 7.0)], stroke);
-                }
-            }
-            CanvasIcon::ZoomIn | CanvasIcon::ZoomOut => {
-                painter.circle_stroke(at(-1.5, -1.5), 5.5, stroke);
-                painter.line_segment([at(2.5, 2.5), at(7.0, 7.0)], stroke);
-                painter.line_segment([at(-4.0, -1.5), at(1.0, -1.5)], stroke);
-                if matches!(icon, CanvasIcon::ZoomIn) {
-                    painter.line_segment([at(-1.5, -4.0), at(-1.5, 1.0)], stroke);
-                }
-            }
-            CanvasIcon::Move => {
-                painter.line_segment([at(-7.0, 0.0), at(7.0, 0.0)], stroke);
-                painter.line_segment([at(0.0, -7.0), at(0.0, 7.0)], stroke);
-                for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
-                    let tip = at(dx * 7.0, dy * 7.0);
-                    let back =
-                        |a: f32, b: f32| at(dx * (7.0 - a) + dy * b, dy * (7.0 - a) + dx * b);
-                    painter.line_segment([tip, back(3.0, 2.5)], stroke);
-                    painter.line_segment([tip, back(3.0, -2.5)], stroke);
-                }
-            }
-            CanvasIcon::Rotate => {
-                let mut points = Vec::new();
-                for step in 0..=10 {
-                    let a = -0.3 + step as f32 * 0.5;
-                    points.push(at(7.0 * a.cos(), 7.0 * a.sin()));
-                }
-                painter.add(egui::Shape::line(points, stroke));
-                let tip = at(7.0 * (-0.3_f32).cos(), 7.0 * (-0.3_f32).sin());
-                painter.line_segment([tip, tip + Vec2::new(-4.0, -1.0)], stroke);
-                painter.line_segment([tip, tip + Vec2::new(1.0, 4.5)], stroke);
-            }
-        }
-        response
-    }
-}
 impl App {
     /// Copper colour for one net under the current spotlight: the lit net
     /// glows in the accent colour, other copper fades away.
@@ -451,8 +364,14 @@ impl App {
         if self.tab == Tab::Schematic {
             self.page_switcher(ui);
         }
+        // The board keeps a strip of layer tabs along its bottom edge.
+        let strip = if self.tab == Tab::Pcb {
+            layer_tabs::LAYER_TABS_HEIGHT
+        } else {
+            0.0
+        };
         let (response, painter) = ui.allocate_painter(
-            ui.available_size(),
+            (ui.available_size() - Vec2::new(0.0, strip)).max(Vec2::ZERO),
             Sense::click_and_drag().union(Sense::hover()),
         );
         let rect = response.rect;
@@ -872,6 +791,12 @@ impl App {
                 self.click_dispatch(pos, camera.zoom, held);
             }
         }
+        self.note_hud_anchor(
+            ui.ctx(),
+            cursor
+                .filter(|_| response.clicked())
+                .map(|p| self.constrained(p)),
+        );
         if response.double_clicked()
             && let Some(pos) = cursor
         {
@@ -901,125 +826,14 @@ impl App {
                 self.open_canvas_menu(screen, pos, camera.zoom);
             }
         }
-        // Fit and zoom stay on the canvas; board/schematic tools live in the strip under the tabs.
-        egui::Area::new(egui::Id::new("fit-fab"))
-            .pivot(Align2::RIGHT_BOTTOM)
-            .fixed_pos(rect.right_bottom() + Vec2::new(-16.0, -16.0))
-            .constrain_to(rect)
-            .order(egui::Order::Foreground)
-            .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style())
-                    .inner_margin(egui::Margin::same(4))
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            let zoom_now = camera.zoom;
-                            let step = |app: &mut App, factor: f32| {
-                                let zoom = if app.tab == Tab::Pcb {
-                                    &mut app.pcb.zoom
-                                } else {
-                                    &mut app.schematic.zoom
-                                };
-                                *zoom = (*zoom * factor).clamp(0.02, 100.0);
-                            };
-                            if self
-                                .canvas_icon(
-                                    ui,
-                                    "canvas-zoom-out",
-                                    CanvasIcon::ZoomOut,
-                                    &t!("board.canvas.text2.tip"),
-                                )
-                                .clicked()
-                            {
-                                step(self, 1.0 / 1.15);
-                            }
-                            let base = if self.tab == Tab::Schematic {
-                                15.0
-                            } else {
-                                11.0
-                            };
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "{}%",
-                                    (zoom_now / base * 100.0).round() as i32
-                                ))
-                                .size(12.0),
-                            )
-                            .on_hover_text(t!("board.footer.zoom_pct.tip"));
-                            if self
-                                .canvas_icon(
-                                    ui,
-                                    "canvas-zoom-in",
-                                    CanvasIcon::ZoomIn,
-                                    &t!("board.canvas.text.tip"),
-                                )
-                                .clicked()
-                            {
-                                step(self, 1.15);
-                            }
-                            if self
-                                .canvas_icon(
-                                    ui,
-                                    "canvas-fit",
-                                    CanvasIcon::Fit,
-                                    &t!("board.canvas.fit_zoom_the_view_so"),
-                                )
-                                .clicked()
-                            {
-                                self.needs_fit = true;
-                            }
-                        });
-                    });
-            });
-        if matches!(self.tab, Tab::Schematic | Tab::Pcb)
-            && let Some(id) = self.selected
-        {
-            let world = self
-                .project
-                .component(id)
-                .and_then(|c| c.unit_placement(self.selected_unit).map(|p| p.0))
-                .or_else(|| self.project.footprint(id).map(|f| f.position));
-            if let Some(at) = world {
-                let screen = camera.screen(at, rect);
-                if rect.contains(screen) {
-                    let flip_left = screen.x > rect.right() - 72.0;
-                    let (pivot, fixed) = if flip_left {
-                        (Align2::RIGHT_BOTTOM, screen + Vec2::new(-12.0, -34.0))
-                    } else {
-                        (Align2::LEFT_BOTTOM, screen + Vec2::new(12.0, -34.0))
-                    };
-                    egui::Area::new(egui::Id::new("selection-handles"))
-                        .pivot(pivot)
-                        .fixed_pos(fixed)
-                        .constrain_to(rect)
-                        .order(egui::Order::Foreground)
-                        .show(ui.ctx(), |ui| {
-                            ui.horizontal(|ui| {
-                                if self
-                                    .canvas_icon(
-                                        ui,
-                                        "handle-move",
-                                        CanvasIcon::Move,
-                                        &t!("board.canvas.move_drop_the_selected_object"),
-                                    )
-                                    .clicked()
-                                {
-                                    self.tool = Tool::Move;
-                                }
-                                if self
-                                    .canvas_icon(
-                                        ui,
-                                        "handle-rotate",
-                                        CanvasIcon::Rotate,
-                                        &command_tip("component.rotate"),
-                                    )
-                                    .clicked()
-                                {
-                                    self.rotate();
-                                }
-                            });
-                        });
-                }
-            }
+        let pointer = cursor.map(|pos| self.constrained(snap(pos)));
+        self.paint_cursor_and_hud(ui, &painter, rect, camera, pointer, response.hovered());
+        if self.tab == Tab::Pcb {
+            let band = Rect::from_min_max(
+                Pos2::new(rect.left(), rect.bottom()),
+                Pos2::new(rect.right(), rect.bottom() + strip),
+            );
+            self.layer_tabs(ui, band);
         }
         if let Some((screen, kind)) = self.canvas_menu.take() {
             self.show_canvas_menu(ui.ctx(), screen, kind);
@@ -1073,18 +887,23 @@ impl App {
         }
     }
 
+    /// The colour a drawn layer of `kind` takes on the board and its tab.
+    pub(crate) fn user_layer_colour(&self, kind: pcbcraft_doc::ArtKind) -> Color32 {
+        match kind {
+            pcbcraft_doc::ArtKind::Cut => self.colours().canvas.front,
+            pcbcraft_doc::ArtKind::Perforation => self.colours().canvas.pad,
+            pcbcraft_doc::ArtKind::Silk => self.ink(),
+            pcbcraft_doc::ArtKind::Mask => self.colours().canvas.mask,
+            pcbcraft_doc::ArtKind::Other => self.ink().linear_multiply(0.55),
+        }
+    }
+
     fn draw_user_layers(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
         for layer in &p.board.user_layers {
             if !layer.visible {
                 continue;
             }
-            let colour = match layer.kind {
-                pcbcraft_doc::ArtKind::Cut => self.colours().canvas.front,
-                pcbcraft_doc::ArtKind::Perforation => self.colours().canvas.pad,
-                pcbcraft_doc::ArtKind::Silk => self.ink(),
-                pcbcraft_doc::ArtKind::Mask => self.colours().canvas.mask,
-                pcbcraft_doc::ArtKind::Other => self.ink().linear_multiply(0.55),
-            };
+            let colour = self.user_layer_colour(layer.kind);
             let stroke = Stroke::new(1.2, colour);
             let dotted = layer.dotted;
             for shape in &layer.shapes {
@@ -2768,9 +2587,15 @@ impl App {
         }
         self.draw_user_layers(painter, rect, camera, p);
         self.paint_board_graphics(painter, rect, camera, p);
-        self.paint_board_dimensions(painter, rect, camera, p);
+        // Rulers and dimension arrows are view options (View menu), off by
+        // default: a dimension worth keeping is a placed object.
+        if self.preferences.canvas.dimensions {
+            self.paint_board_dimensions(painter, rect, camera, p);
+        }
         self.paint_axis_glyph(painter, rect, camera);
-        self.paint_rulers(painter, rect, camera);
+        if self.preferences.canvas.rulers {
+            self.paint_rulers(painter, rect, camera);
+        }
     }
 }
 

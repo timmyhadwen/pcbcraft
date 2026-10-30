@@ -11,12 +11,13 @@ impl App {
         camera: Camera,
         p: &Project,
     ) {
+        let art = self.art();
         for g in p.graphics.iter().filter(|g| g.layer == "board") {
             let color = match g.sublayer.as_str() {
                 "F.SilkS" => Color32::from_rgb(240, 236, 200),
                 "B.SilkS" => Color32::from_rgb(150, 190, 240),
-                "F.Mask" => Color32::from_rgb(120, 200, 140),
-                "B.Mask" => Color32::from_rgb(90, 150, 120),
+                "F.Mask" => art.mask_top,
+                "B.Mask" => art.mask_bottom,
                 _ => self.accent(),
             };
             if let Some(outline) = g.outline() {

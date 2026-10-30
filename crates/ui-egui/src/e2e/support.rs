@@ -408,6 +408,22 @@ pub(crate) fn flips_to(
 /// Screen column right of which the Properties dock sits.
 const PROPERTIES_LEFT: f32 = 1000.0;
 
+/// Open the menu `menu` in the menu bar and click its item `item`.
+pub(crate) fn menu_item(
+    ctx: &egui::Context,
+    app: &mut App,
+    menu: &str,
+    item: &str,
+) -> Result<(), String> {
+    authoring::tests::tap(ctx, app, menu)?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(ctx, app, item)?;
+    // The hand leaves the closed menu, so nothing under it stays hovered.
+    frame(ctx, app, vec![egui::Event::PointerGone], egui::Modifiers::NONE);
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
 /// Click the control the gate calls `id`, like a person pressing it.
 pub(crate) fn tap_id(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
     let _tall = TallScope::enter();
