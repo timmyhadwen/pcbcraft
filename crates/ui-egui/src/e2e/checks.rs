@@ -406,3 +406,34 @@ fn a_newcomer_reads_the_showcase_findings() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// The board outlines what the checks found, red for errors and amber for
+/// warnings, and T,M clears the outlines and brings them back.
+#[test]
+fn a_designer_sees_violations_outlined_on_the_board() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/showcase-with-findings.pcbcraft");
+    app.tool_call("open", json!({"path": path.to_string_lossy()}));
+    app.change_tab(Tab::Pcb);
+    let ctx = egui::Context::default();
+    let outlined = |app: &mut App, ctx: &egui::Context| {
+        let colour = app.colours().error;
+        frame(ctx, app, vec![], egui::Modifiers::NONE)
+            .shapes
+            .iter()
+            .any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.stroke.color == colour))
+    };
+    assert!(
+        outlined(&mut app, &ctx),
+        "the error is outlined: {}",
+        app.message
+    );
+    app.classic_action(crate::keymap::KeyAction::ToggleMarkers);
+    assert!(!outlined(&mut app, &ctx), "T,M clears the outlines");
+    app.classic_action(crate::keymap::KeyAction::ToggleMarkers);
+    assert!(outlined(&mut app, &ctx), "and T,M brings them back");
+    Ok(())
+}

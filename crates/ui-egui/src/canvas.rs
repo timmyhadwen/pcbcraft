@@ -603,6 +603,9 @@ impl App {
         } else {
             self.paint_board(&painter, rect, camera, &visible);
         }
+        if self.show_markers {
+            self.paint_violation_markers(&painter, rect, camera);
+        }
         self.paint_edit_overlay(&painter, rect, camera);
         self.paint_affordance(&painter, rect, camera);
         let text = match &self.tool {
@@ -1919,6 +1922,55 @@ impl App {
                 .unwrap_or(Layer::Back)
         } else {
             self.route_layer
+        }
+    }
+    /// Outline every object a check finding names: design rule findings on
+    /// the board, connectivity findings on the schematic page on screen.
+    /// Errors are red, warnings amber; notes are not marked.
+    ///
+    /// # Dependencies
+    /// - `self.checks` from the engine's `Session::checks` (`erc`, `drc`),
+    ///   `crates/ui-egui/src/editing.rs` `bounds_of`.
+    fn paint_violation_markers(&self, painter: &egui::Painter, rect: Rect, camera: Camera) {
+        let (key, page) = if self.tab == Tab::Schematic {
+            ("erc", Some(self.schematic_page()))
+        } else {
+            ("drc", None)
+        };
+        let Some(findings) = self.checks.get(key).and_then(Value::as_array) else {
+            return;
+        };
+        for f in findings {
+            let colour = match f.get("severity").and_then(Value::as_str) {
+                Some("error") => self.colours().error,
+                Some("warning") => self.colours().warn,
+                _ => continue,
+            };
+            let ids = f
+                .get("objects")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten();
+            for id in ids.filter_map(Value::as_u64) {
+                if page.is_some_and(|page| !self.project.on_schematic_page(page, id)) {
+                    continue;
+                }
+                let Some((lo, hi)) = self.bounds_of(id) else {
+                    continue;
+                };
+                let area = Rect::from_two_pos(camera.screen(lo, rect), camera.screen(hi, rect))
+                    .expand(3.0);
+                if !rect.intersects(area) {
+                    continue;
+                }
+                painter.rect_filled(area, 2.0, colour.gamma_multiply(0.12));
+                painter.rect_stroke(
+                    area,
+                    2.0,
+                    Stroke::new(1.5, colour),
+                    egui::StrokeKind::Outside,
+                );
+            }
         }
     }
     /// Colour the board draws a copper layer in, so a test can find it on screen.

@@ -161,6 +161,14 @@ impl App {
             KeyAction::PlaceNetLabel => self.place_label_at_cursor("label"),
             KeyAction::PlaceJunction => self.place_label_at_cursor("junction"),
             KeyAction::SchematicText => self.begin_schematic_text(),
+            KeyAction::ToggleMarkers => {
+                self.show_markers = !self.show_markers;
+                self.message = if self.show_markers {
+                    t!("keys.markers.shown")
+                } else {
+                    t!("keys.markers.hidden")
+                };
+            }
             KeyAction::PlacePowerPort => {
                 if self.net_under_cursor().is_some() {
                     self.place_label_at_cursor("power");

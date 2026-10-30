@@ -21,7 +21,7 @@ fn a_newcomer_rebinds_rotate_to_another_key() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.binding_capture = Some(KeyAction::Rotate);
     let t = KeyChord {
-        key: Key::T,
+        key: Key::K,
         ctrl: false,
         shift: false,
         alt: false,
@@ -42,7 +42,7 @@ fn a_newcomer_rebinds_rotate_to_another_key() -> Result<(), String> {
     frame(
         &ctx,
         &mut app,
-        vec![key(Key::T, egui::Modifiers::NONE)],
+        vec![key(Key::K, egui::Modifiers::NONE)],
         egui::Modifiers::NONE,
     );
     assert_eq!(

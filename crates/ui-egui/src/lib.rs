@@ -1169,6 +1169,8 @@ pub struct App {
     /// Turn, in degrees, of the part being placed; Space adds a quarter
     /// turn and it carries over to the next part placed.
     place_rotation: f64,
+    /// Violation markers are drawn on the canvas; T,M hides or shows them.
+    show_markers: bool,
     profile_name_draft: String,
     profile_import_text: String,
     keymap_notice: String,
@@ -1770,6 +1772,7 @@ impl App {
             key_prefix: None,
             schematic_text: None,
             place_rotation: 0.0,
+            show_markers: true,
             profile_name_draft: String::new(),
             profile_import_text: String::new(),
             keymap_notice: String::new(),

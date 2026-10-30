@@ -73,6 +73,7 @@ pub enum KeyAction {
     ToggleAutoSync,
     UpdateBoardFromSchematic,
     ToggleAssistant,
+    ToggleMarkers,
     ZoomIn,
     ZoomOut,
     Redraw,
@@ -640,6 +641,16 @@ const SPECS: &[ActionSpec] = &[
         rebindable: true,
         chords: &[KeyChord::ctrl(Key::B)],
         sequences: &[],
+    },
+    ActionSpec {
+        action: KeyAction::ToggleMarkers,
+        name: "Violation markers",
+        label: "Hide or show the check violation markers on the canvas",
+        tooltip: "Outline every object a check finding names, or clear the outlines.",
+        context: ShortcutContext::Anywhere,
+        rebindable: true,
+        chords: &[],
+        sequences: &[(Key::T, Key::M)],
     },
     ActionSpec {
         action: KeyAction::ToggleAssistant,
@@ -1432,7 +1443,8 @@ mod tests {
     #[test]
     fn keymap_import_export_round_trip() -> Result<(), String> {
         let mut map = Keymap::default_bindings();
-        let t = KeyChord::plain(Key::T);
+        // K is free; T starts the T,M sequence.
+        let t = KeyChord::plain(Key::K);
         map.set_binding(KeyAction::Rotate, t)?;
         let file = KeymapProfileFile::from_keymap("Custom".into(), &map);
         let json = serde_json::to_string(&file).map_err(|e| e.to_string())?;
