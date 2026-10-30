@@ -69,14 +69,15 @@ fn finding_counts_split_by_loudness() {
 }
 
 #[test]
-fn a_newcomer_switches_the_left_aside_between_layers_and_library() -> Result<(), String> {
+fn a_newcomer_switches_the_left_aside_between_projects_components_and_layers() -> Result<(), String>
+{
     let mut app = fresh();
     app.tool_call("sample_design", json!({}));
     app.refresh();
     let ctx = egui::Context::default();
     app.change_tab(Tab::Schematic);
     settled(&ctx, &mut app);
-    for word in ["Layers", "Library"] {
+    for word in ["Projects", "Components", "Layers"] {
         assert!(
             paints_text(&ctx, &mut app, word)?,
             "the left aside offers {word}"
@@ -88,15 +89,19 @@ fn a_newcomer_switches_the_left_aside_between_layers_and_library() -> Result<(),
             egui::Shape::Text(t) if t.galley.text() == "Hide")),
         "the left aside has no Hide button"
     );
-    authoring::tests::tap(&ctx, &mut app, "Library")?;
-    assert_eq!(app.region().left_tab, "library", "Library shows the parts");
+    authoring::tests::tap(&ctx, &mut app, "Components")?;
+    assert_eq!(
+        app.region().left_tab,
+        "library",
+        "Components shows the parts"
+    );
     authoring::tests::tap(&ctx, &mut app, "Layers")?;
     assert_eq!(app.region().left_tab, "layers", "Layers comes back");
     authoring::tests::tap(&ctx, &mut app, "Place part")?;
     assert_eq!(
         app.region().left_tab,
         "library",
-        "Place part in the tool bar opens the Library tab"
+        "Place part in the tool bar opens the Components tab"
     );
     app.change_tab(Tab::PlotFiles);
     settled(&ctx, &mut app);
@@ -119,7 +124,7 @@ fn a_newcomer_resets_the_layout_from_the_view_menu() -> Result<(), String> {
     authoring::tests::tap(&ctx, &mut app, "Reset layout")?;
     assert_eq!(
         app.region().left_tab,
-        "layers",
+        "projects",
         "the default left tab returns"
     );
     assert!(!app.region().bottom_open, "the sheet collapses again");

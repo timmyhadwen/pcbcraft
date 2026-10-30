@@ -4,6 +4,7 @@ use super::support::*;
 fn open_3d() -> Result<(egui::Context, App, Id), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.refresh();

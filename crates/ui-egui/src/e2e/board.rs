@@ -5,6 +5,7 @@ use super::support::*;
 fn a_newcomer_adds_a_part_and_finds_it_on_the_board() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.run(
         "component.add",
@@ -38,6 +39,7 @@ fn a_newcomer_adds_a_part_and_finds_it_on_the_board() -> Result<(), String> {
 fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
@@ -90,6 +92,7 @@ fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), Stri
 fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
@@ -161,6 +164,7 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
 fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
@@ -218,6 +222,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
 fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.tool_call(
@@ -274,6 +279,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
 fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     let before = app.project.board.texts.len();
@@ -349,6 +355,7 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
 fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     let before = app.project.board.rule_areas.len();
@@ -422,6 +429,7 @@ fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
 fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
@@ -462,6 +470,7 @@ fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
 fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.tool_call(
@@ -506,6 +515,7 @@ fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
 fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.tab = Tab::Pcb;
@@ -579,6 +589,7 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
 fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.change_tab(Tab::Pcb);
@@ -671,6 +682,7 @@ fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
 fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     // The sample board has no vias, so the story places one in the middle
@@ -766,6 +778,7 @@ pub(super) fn right_click(ctx: &egui::Context, app: &mut App, screen: egui::Pos2
 fn sample_board_app() -> App {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.change_tab(Tab::Pcb);
@@ -894,6 +907,7 @@ fn a_newcomer_right_clicks_a_part_to_rotate_lock_or_delete_it() -> Result<(), St
 fn a_newcomer_right_clicks_a_wire_and_assigns_its_layer() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.tool_call(
@@ -948,6 +962,7 @@ fn a_newcomer_right_clicks_a_wire_and_assigns_its_layer() -> Result<(), String> 
 fn a_newcomer_right_clicks_a_wire_and_cuts_it() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.tool_call(
@@ -1018,6 +1033,7 @@ fn a_newcomer_right_clicks_a_wire_and_cuts_it() -> Result<(), String> {
 fn routed_wire_app() -> Result<(App, Point), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.tool_call(
@@ -1197,6 +1213,7 @@ fn a_newcomer_right_clicks_a_wire_and_opens_its_properties() -> Result<(), Strin
 fn sample_schematic_pin(ctx: &egui::Context) -> Result<(App, Id, String, egui::Pos2), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.change_tab(Tab::Schematic);
@@ -1270,6 +1287,7 @@ fn a_newcomer_right_clicks_a_pin_and_opens_its_properties() -> Result<(), String
 fn fresh_board_app() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
@@ -1556,6 +1574,7 @@ fn a_newcomer_copies_a_part_and_pastes_it_from_the_right_click_menu() -> Result<
 fn sample_on(tab: Tab) -> (App, egui::Context) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
@@ -1645,6 +1664,7 @@ fn a_newcomer_zooms_out_and_fits_the_whole_design() -> Result<(), String> {
 fn a_newcomer_touches_every_stackup_control() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();

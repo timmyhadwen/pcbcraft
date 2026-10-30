@@ -36,6 +36,7 @@ mod pages;
 mod palette;
 mod plot_viewer;
 mod pour_panel;
+mod projects_panel;
 mod properties;
 mod reference_panel;
 mod route_drag;
@@ -668,9 +669,6 @@ struct Preferences {
     /// Lower right-aside tab: 0 = Properties, 1 = Assistant.
     #[serde(default)]
     aside_lower_tab: u8,
-    /// Left aside tab: 0 = Layers tree, 1 = Library.
-    #[serde(default)]
-    left_tab: u8,
     /// Library cards the person starred, by card key.
     #[serde(default)]
     library_favourites: Vec<String>,
@@ -760,7 +758,6 @@ impl Default for Preferences {
             hidden_layers: Vec::new(),
             aside_split: default_aside_split(),
             aside_lower_tab: 0,
-            left_tab: 0,
             library_favourites: Vec::new(),
             layouts: std::collections::BTreeMap::new(),
             language: default_language(),
@@ -1493,23 +1490,16 @@ impl App {
     pub fn with_capture_search(mut self, query: Option<String>) -> Self {
         if let Some(q) = query {
             self.part_search = q;
-            self.preferences.left_tab = 1;
+            self.show_left_tab(workspace::LeftTab::Components);
         }
         self
     }
-    /// Open the left aside on its Library tab (`library`) or its Layers tab
-    /// (`layers`), so a `--capture` image can show either.
+    /// Open the left aside on its Projects tab (`projects`), its Components
+    /// tab (`components`, or the older `library`) or its Layers tab
+    /// (`layers`), so a `--capture` image can show any of them.
     pub fn with_left_tab(mut self, tab: Option<String>) -> Self {
-        match tab.as_deref() {
-            Some("library") => {
-                self.preferences.left_tab = 1;
-                self.region().left_tab = "library".to_owned();
-            }
-            Some("layers") => {
-                self.preferences.left_tab = 0;
-                self.region().left_tab = "layers".to_owned();
-            }
-            _ => {}
+        if let Some(tab) = tab.as_deref().and_then(workspace::LeftTab::from_option) {
+            self.show_left_tab(tab);
         }
         self
     }
@@ -3485,9 +3475,9 @@ impl App {
                 self.workspace().left_body(self, &tab, ui);
             });
     }
-    /// Opens the Library tab with the part search focused.
+    /// Opens the Components tab with the part search focused.
     fn open_part_search(&mut self) {
-        self.region().left_tab = "library".to_owned();
+        self.show_left_tab(workspace::LeftTab::Components);
         self.palette = true;
         self.part_search_focus = true;
     }
@@ -7665,6 +7655,7 @@ mod tests {
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
         app.change_tab(Tab::Schematic);
+        app.show_left_tab(workspace::LeftTab::Layers);
         // The Nets row of the schematic tree carries the eye for the wires.
         assert!(
             paints_text(&ctx, &mut app, "Nets")?,

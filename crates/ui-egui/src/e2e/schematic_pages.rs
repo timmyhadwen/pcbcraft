@@ -8,6 +8,7 @@ use super::support::*;
 fn start() -> App {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tab = Tab::Schematic;
     app
@@ -365,6 +366,7 @@ fn a_newcomer_sees_which_pages_a_highlighted_connection_reaches() -> Result<(), 
 fn a_designer_types_a_note_on_the_second_page() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
+    layers_open(&mut app);
     app.refresh();
     app.tool_call("sample_design", json!({}));
     app.change_tab(Tab::Schematic);

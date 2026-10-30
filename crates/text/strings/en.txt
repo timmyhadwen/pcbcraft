@@ -782,8 +782,8 @@ library.browser.lib.tip = Show or hide the component library.
 library.browser.library = Library
 library.browser.tab_layers = Layers
 library.browser.tab_layers.tip = Show the parts and the layer tree.
-library.browser.tab_library = Library
-library.browser.tab_library.tip = Search the parts you can place.
+library.browser.tab_library = Components
+library.browser.tab_library.tip = Search the components you can place.
 library.browser.place_part = Place part
 library.browser.place_part.tip = Search for a part to place on the schematic.
 library.browser.hide = Hide
@@ -2018,7 +2018,29 @@ sheet.menu.no_objects.tip = This finding does not point at an object on the draw
 sheet.output_summary = Last run: {errors} errors, {warnings} warnings, {notes} notes.
 sheet.console_revision = Design version {revision}
 
+# projects_panel.rs
+projects.untitled = Untitled design
+projects.root.tip = The open design. Click a document below to open it.
+projects.root.unsaved = {name} *
+projects.root.unsaved.tip = The open design. It has changes that are not saved yet.
+projects.documents = Source documents
+projects.documents.tip = The schematic pages and the board of this design.
+projects.page.tip = Open this page of the schematic.
+projects.board = Board
+projects.board.tip = Open the board in Layout.
+projects.libraries = Libraries
+projects.libraries.tip = The libraries this design keeps its parts in.
+projects.project_library = Project library
+projects.project_library.tip = The symbols and footprints saved in this design. Opens Components.
+projects.outputs = Outputs
+projects.outputs.tip = The output jobs of this design.
+projects.output_job.tip = Open Manufacture, where this output job runs.
+projects.no_outputs = No output jobs yet
+projects.no_outputs.tip = Open Manufacture to make files from this design.
+
 # workspace.rs
+workspace.tab_projects = Projects
+workspace.tab_projects.tip = The open design: its pages, board, libraries and outputs.
 workspace.tab_properties = Properties
 workspace.tab_properties.tip = The details of what is selected.
 workspace.tab_assistant = Assistant

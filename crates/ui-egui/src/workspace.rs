@@ -9,8 +9,8 @@
 //! region tabs and its default [`RegionLayout`].
 //!
 //! Local rules: other branches plug in by adding a body arm for their region
-//! tab id (`layers_tree.rs` under `"layers"`, `library_dock_body` under
-//! `"library"`); they never edit the shell. A user's layout is stored per
+//! tab id (`projects_panel.rs` under `"projects"`, `library_dock_body` under
+//! `"library"`, `layers_tree.rs` under `"layers"`); they never edit the shell. A user's layout is stored per
 //! workspace in Preferences and View > Reset layout restores the defaults.
 
 use super::*;
@@ -96,19 +96,67 @@ const BOTTOM_TABS: [RegionTab; 3] = [
         tip: || t!("sheet.tab_console.tip"),
     },
 ];
-const LAYERS_TAB: RegionTab = RegionTab {
-    id: "layers",
-    label: || t!("library.browser.tab_layers"),
-    tip: || t!("library.browser.tab_layers.tip"),
+/// The tabs of the left dock that the drawing work areas share, in the
+/// order they show: Projects, Components, Layers.
+///
+/// # Rules
+/// - The ids are what Preferences store per work area. Components keeps the
+///   id `library` it had before it was renamed, so a layout saved by an older
+///   build still opens it; an id no work area lists falls back to the first
+///   tab (`App::left_aside_tabs`).
+///
+/// # Do not
+/// - Write a tab id or index by hand; name the tab here and call `App::show_left_tab`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LeftTab {
+    /// The open design as a tree of documents (`projects_panel.rs`).
+    Projects,
+    /// Search and place parts (`library_dock.rs`).
+    Components,
+    /// The unified layer tree (`layers_tree.rs`).
+    Layers,
+}
+
+impl LeftTab {
+    /// The stable id stored in Preferences.
+    pub(crate) const fn id(self) -> &'static str {
+        match self {
+            Self::Projects => "projects",
+            Self::Components => "library",
+            Self::Layers => "layers",
+        }
+    }
+
+    /// The tab a `--left` capture option names; `library` is the old name of Components.
+    pub(crate) fn from_option(name: &str) -> Option<Self> {
+        match name {
+            "projects" => Some(Self::Projects),
+            "components" | "library" => Some(Self::Components),
+            "layers" => Some(Self::Layers),
+            _ => None,
+        }
+    }
+}
+
+const PROJECTS_TAB: RegionTab = RegionTab {
+    id: LeftTab::Projects.id(),
+    label: || t!("workspace.tab_projects"),
+    tip: || t!("workspace.tab_projects.tip"),
 };
-const LIBRARY_TAB: RegionTab = RegionTab {
-    id: "library",
+const COMPONENTS_TAB: RegionTab = RegionTab {
+    id: LeftTab::Components.id(),
     label: || t!("library.browser.tab_library"),
     tip: || t!("library.browser.tab_library.tip"),
 };
-const DRAWING_TABS: [RegionTab; 2] = [LAYERS_TAB, LIBRARY_TAB];
-const LIBRARY_ONLY: [RegionTab; 1] = [LIBRARY_TAB];
-const MANUFACTURE_TABS: [RegionTab; 2] = [
+const LAYERS_TAB: RegionTab = RegionTab {
+    id: LeftTab::Layers.id(),
+    label: || t!("library.browser.tab_layers"),
+    tip: || t!("library.browser.tab_layers.tip"),
+};
+const DRAWING_TABS: [RegionTab; 3] = [PROJECTS_TAB, COMPONENTS_TAB, LAYERS_TAB];
+const FILES_TABS: [RegionTab; 2] = [PROJECTS_TAB, COMPONENTS_TAB];
+const MANUFACTURE_TABS: [RegionTab; 3] = [
+    PROJECTS_TAB,
     RegionTab {
         id: "outputs",
         label: || t!("workspace.tab_outputs"),
@@ -124,8 +172,9 @@ const MANUFACTURE_TABS: [RegionTab; 2] = [
 /// Left bodies shared by the drawing workspaces.
 fn drawing_left(app: &mut App, tab: &str, ui: &mut egui::Ui) {
     match tab {
-        "layers" => app.left_layers_tab(ui),
+        "projects" => app.projects_tab(ui),
         "library" => app.left_library_tab(ui),
+        "layers" => app.left_layers_tab(ui),
         _ => {}
     }
 }
@@ -146,7 +195,7 @@ impl Workspace for FilesWorkspace {
     }
     fn toolbar(&self, _app: &mut App, _ui: &mut egui::Ui) {}
     fn left_tabs(&self) -> &'static [RegionTab] {
-        &LIBRARY_ONLY
+        &FILES_TABS
     }
     fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
         drawing_left(app, tab, ui);
@@ -155,7 +204,7 @@ impl Workspace for FilesWorkspace {
         egui::ScrollArea::vertical().show(ui, |ui| App::padded(ui, |ui| app.files_tab(ui)));
     }
     fn default_layout(&self) -> RegionLayout {
-        RegionLayout::new("library", "findings")
+        RegionLayout::new(LeftTab::Projects.id(), "findings")
     }
 }
 
@@ -177,7 +226,7 @@ impl Workspace for SchematicWorkspace {
         app.canvas(ui);
     }
     fn default_layout(&self) -> RegionLayout {
-        RegionLayout::new("layers", "findings")
+        RegionLayout::new(LeftTab::Projects.id(), "findings")
     }
 }
 
@@ -210,7 +259,7 @@ impl Workspace for LayoutWorkspace {
         app.layout_view_toggles(ui.ctx(), rect);
     }
     fn default_layout(&self) -> RegionLayout {
-        RegionLayout::new("layers", "findings")
+        RegionLayout::new(LeftTab::Projects.id(), "findings")
     }
 }
 
@@ -224,6 +273,10 @@ impl Workspace for ManufactureWorkspace {
         &MANUFACTURE_TABS
     }
     fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
+        if tab == LeftTab::Projects.id() {
+            app.projects_tab(ui);
+            return;
+        }
         let words = match tab {
             "outputs" => t!("workspace.outputs_hint"),
             "machines" => t!("workspace.machines_hint"),
@@ -288,6 +341,21 @@ impl App {
             .layouts
             .entry(ws.id().to_owned())
             .or_insert_with(|| ws.default_layout())
+    }
+
+    /// Show `tab` in the left dock. False, and nothing changes, when the
+    /// current work area does not list it (Manufacture has no Layers).
+    pub(crate) fn show_left_tab(&mut self, tab: LeftTab) -> bool {
+        if !self
+            .workspace()
+            .left_tabs()
+            .iter()
+            .any(|t| t.id == tab.id())
+        {
+            return false;
+        }
+        self.region().left_tab = tab.id().to_owned();
+        true
     }
 
     /// View > Reset layout: forget every saved region layout.

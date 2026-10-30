@@ -135,16 +135,17 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "Library")?,
-        "the left dock is the library browser: {}",
-        app.message
-    );
-    assert!(
-        paints_text(&ctx, &mut app, "Layers")?,
-        "the left aside leads with the layers tree: {}",
-        app.message
-    );
+    for (word, place) in [
+        ("Projects", "the left dock leads with the project tree"),
+        ("Components", "the left dock offers the component browser"),
+        ("Layers", "the left dock offers the layers tree"),
+    ] {
+        assert!(
+            paints_text(&ctx, &mut app, word)?,
+            "{place}: {}",
+            app.message
+        );
+    }
     assert!(
         paints_text(&ctx, &mut app, "Properties")?,
         "object details sit in the lower right tab: {}",
