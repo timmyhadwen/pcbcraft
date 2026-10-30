@@ -486,23 +486,26 @@ impl App {
         }
     }
 
-    /// Copy, paste, select all and the measure key.
+    /// Copy, cut, paste, select all and the measure key.
     pub(super) fn edit_events(&mut self, ctx: &egui::Context) {
         if ctx.egui_wants_keyboard_input() || ctx.current_pass_index() > 0 {
             return;
         }
-        let (copy, paste, select_all, measure) = ctx.input(|i| {
+        let (copy, cut, paste, select_all, measure) = ctx.input(|i| {
             let mut copy = false;
+            let mut cut = false;
             let mut paste: Option<String> = None;
             for event in &i.events {
                 match event {
                     egui::Event::Copy => copy = true,
+                    egui::Event::Cut => cut = true,
                     egui::Event::Paste(text) => paste = Some(text.clone()),
                     _ => {}
                 }
             }
             (
                 copy,
+                cut,
                 paste,
                 i.modifiers.command && i.key_pressed(egui::Key::A),
                 !i.modifiers.command && i.key_pressed(egui::Key::U),
@@ -510,6 +513,16 @@ impl App {
         });
         if copy {
             self.copy_selection(ctx);
+        }
+        // Cut is a copy followed by a delete, so Ctrl+V brings the parts back.
+        if cut && matches!(self.tab, Tab::Schematic | Tab::Pcb) && !self.selection().is_empty() {
+            self.copy_selection(ctx);
+            if self.edit.clip.is_some() {
+                // The copy moved the session on a revision; pick that up so
+                // the delete is not refused as stale.
+                self.refresh();
+                self.delete_selection();
+            }
         }
         if let Some(text) = paste
             && !self.paste_text(&text)

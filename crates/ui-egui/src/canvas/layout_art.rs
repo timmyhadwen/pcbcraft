@@ -233,7 +233,16 @@ impl App {
     /// - Capped at 1600 by 1000 dots so a deep zoom-out stays cheap.
     pub(super) fn paint_layout_grid(&self, painter: &egui::Painter, rect: Rect, camera: Camera) {
         let art = self.art();
-        let grid = if camera.zoom < 5.0 { 5.0 } else { 1.0 };
+        // The dots sit on the snap grid (G cycles it); when they would crowd
+        // closer than 6 px they thin out by 2, 5, 10... times the snap step.
+        let snap = crate::snap_grid::step() as f32;
+        let grid = [
+            1.0f32, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0,
+        ]
+        .into_iter()
+        .map(|m| snap * m)
+        .find(|g| g * camera.zoom >= 6.0)
+        .unwrap_or(snap * 1000.0);
         let step = grid * camera.zoom;
         if step < 3.0 {
             return;
@@ -243,7 +252,8 @@ impl App {
         let ny = ((rect.height() / step) as usize + 2).min(1000);
         let first_x = ((rect.left() - zero.x) / step).floor() as i64;
         let first_y = ((rect.top() - zero.y) / step).floor() as i64;
-        let per_major = (10.0 / grid) as i64;
+        // A major dot about every 10 mm, never a zero divisor on coarse grids.
+        let per_major = ((10.0 / grid).round() as i64).max(1);
         for i in 0..nx as i64 {
             for j in 0..ny as i64 {
                 let (gx, gy) = (first_x + i, first_y + j);

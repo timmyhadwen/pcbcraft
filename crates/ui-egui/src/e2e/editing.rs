@@ -309,3 +309,44 @@ fn array_dialog_bounds_match_the_engine() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_cuts_a_part_and_pastes_it_back() -> Result<(), String> {
+    let mut app = sample();
+    app.tab = Tab::Schematic;
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let (first, _) = two_parts(&app)?;
+    let before = app.project.components.len();
+    app.set_selection(vec![first]);
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::Cut],
+        egui::Modifiers::NONE,
+    );
+    assert!(
+        app.project.component(first).is_none(),
+        "Ctrl+X removes the part: {}",
+        app.message
+    );
+    assert_eq!(app.project.components.len(), before - 1);
+    let text = app
+        .edit
+        .clip
+        .clone()
+        .ok_or("Ctrl+X should copy the part first")?;
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::Paste(text)],
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(
+        app.project.components.len(),
+        before,
+        "Ctrl+V brings the cut part back: {}",
+        app.message
+    );
+    Ok(())
+}
