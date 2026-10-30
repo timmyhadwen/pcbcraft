@@ -160,6 +160,7 @@ impl App {
             KeyAction::Measure => self.arm_measure(),
             KeyAction::PlaceNetLabel => self.place_label_at_cursor("label"),
             KeyAction::PlaceJunction => self.place_label_at_cursor("junction"),
+            KeyAction::SchematicText => self.begin_schematic_text(),
             KeyAction::PlacePowerPort => {
                 if self.net_under_cursor().is_some() {
                     self.place_label_at_cursor("power");

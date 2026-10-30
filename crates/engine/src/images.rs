@@ -297,6 +297,7 @@ fn trace(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error>
             for poly in placed {
                 let id = allocate(next)?;
                 p.graphics.push(pcbcraft_doc::Graphic {
+                    sheet: None,
                     id,
                     layer: "board".into(),
                     shape: "polygon".into(),

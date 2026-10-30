@@ -724,6 +724,11 @@ pub struct Graphic {
     /// Stroke colour as `#rrggbb`; empty draws in the theme's default ink.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub color: String,
+    /// Schematic page a schematic graphic sits on. None is the Main page,
+    /// which is also where graphics from files written before pages kept them
+    /// appear. Board graphics leave it empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<Id>,
 }
 /// Fabrication sublayer names a board graphic may carry.
 pub const GRAPHIC_SUBLAYERS: [&str; 4] = ["F.SilkS", "B.SilkS", "F.Mask", "B.Mask"];
@@ -4197,7 +4202,7 @@ impl Project {
                 .is_some_and(|c| c.sheet == page);
         }
         if let Some(graphic) = self.graphics.iter().find(|g| g.id == object) {
-            return graphic.layer == "schematic" && page == 0;
+            return graphic.layer == "schematic" && graphic.sheet.unwrap_or(0) == page;
         }
         false
     }

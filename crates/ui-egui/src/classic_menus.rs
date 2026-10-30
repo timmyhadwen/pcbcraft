@@ -86,6 +86,7 @@ impl App {
                 KeyAction::PlaceNetLabel,
                 KeyAction::PlacePowerPort,
                 KeyAction::PlaceJunction,
+                KeyAction::SchematicText,
             ];
             let board = [
                 KeyAction::RouteTool,

@@ -675,7 +675,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "graphic.add",
             "Add a free-standing schematic or board graphic: line, rect, circle, arc, polygon or text",
             schema(
-                json!({"layer":{"type":"string","enum":["schematic","board"]},"shape":{"type":"string","enum":["line","rect","circle","arc","polygon","text"]},"points":{"type":"array","items":point_schema(),"minItems":1,"maxItems":256},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000,"description":"required on a board graphic; a schematic graphic that omits it takes the page's default line width"},"text":{"type":"string","maxLength":1024},"sublayer":{"type":"string","enum":["F.SilkS","B.SilkS","F.Mask","B.Mask"],"description":"board graphics only: the silkscreen or solder mask side the figure belongs to"},"color":{"type":"string","description":"stroke colour as #rrggbb; omit for the theme ink"}}),
+                json!({"layer":{"type":"string","enum":["schematic","board"]},"shape":{"type":"string","enum":["line","rect","circle","arc","polygon","text"]},"points":{"type":"array","items":point_schema(),"minItems":1,"maxItems":256},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000,"description":"required on a board graphic; a schematic graphic that omits it takes the page's default line width"},"text":{"type":"string","maxLength":1024},"sublayer":{"type":"string","enum":["F.SilkS","B.SilkS","F.Mask","B.Mask"],"description":"board graphics only: the silkscreen or solder mask side the figure belongs to"},"color":{"type":"string","description":"stroke colour as #rrggbb; omit for the theme ink"},"sheet":{"type":"integer","minimum":0,"description":"schematic graphics only: the page (sheet id, 0 for Main)"}}),
                 &["layer", "shape", "points"],
             ),
         ),
@@ -3693,6 +3693,9 @@ struct GraphicParams {
     /// Stroke colour as `#rrggbb`; empty is the theme ink.
     #[serde(default)]
     color: String,
+    /// Schematic page of a schematic graphic; Main when absent.
+    #[serde(default)]
+    sheet: Option<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -9439,6 +9442,7 @@ fn run_command(
                 match &e.shape {
                     pcbcraft_io::DxfShape::Line { start, end } => push(
                         pcbcraft_doc::Graphic {
+                            sheet: None,
                             id: allocate(next)?,
                             layer: "board".into(),
                             shape: "line".into(),
@@ -9458,6 +9462,7 @@ fn run_command(
                         }
                         push(
                             pcbcraft_doc::Graphic {
+                                sheet: None,
                                 id: allocate(next)?,
                                 layer: "board".into(),
                                 shape: "circle".into(),
@@ -9490,6 +9495,7 @@ fn run_command(
                         if a1 - a0 < 1e-9 {
                             push(
                                 pcbcraft_doc::Graphic {
+                                    sheet: None,
                                     id: allocate(next)?,
                                     layer: "board".into(),
                                     shape: "circle".into(),
@@ -9510,6 +9516,7 @@ fn run_command(
                             ];
                             push(
                                 pcbcraft_doc::Graphic {
+                                    sheet: None,
                                     id: allocate(next)?,
                                     layer: "board".into(),
                                     shape: "arc".into(),
@@ -9534,6 +9541,7 @@ fn run_command(
                                 points.iter().copied().map(shift).collect();
                             push(
                                 pcbcraft_doc::Graphic {
+                                    sheet: None,
                                     id: allocate(next)?,
                                     layer: "board".into(),
                                     shape: "polygon".into(),
@@ -9549,6 +9557,7 @@ fn run_command(
                             for pair in points.windows(2) {
                                 push(
                                     pcbcraft_doc::Graphic {
+                                        sheet: None,
                                         id: allocate(next)?,
                                         layer: "board".into(),
                                         shape: "line".into(),
@@ -9576,6 +9585,7 @@ fn run_command(
                         }
                         push(
                             pcbcraft_doc::Graphic {
+                                sheet: None,
                                 id: allocate(next)?,
                                 layer: "board".into(),
                                 shape: "text".into(),
@@ -9724,6 +9734,7 @@ fn run_command(
                 match &e.shape {
                     pcbcraft_io::SvgShape::Line { start, end } => push(
                         pcbcraft_doc::Graphic {
+                            sheet: None,
                             id: allocate(next)?,
                             layer: "board".into(),
                             shape: "line".into(),
@@ -9743,6 +9754,7 @@ fn run_command(
                         }
                         push(
                             pcbcraft_doc::Graphic {
+                                sheet: None,
                                 id: allocate(next)?,
                                 layer: "board".into(),
                                 shape: "circle".into(),
@@ -9766,6 +9778,7 @@ fn run_command(
                                 points.iter().copied().map(shift).collect();
                             push(
                                 pcbcraft_doc::Graphic {
+                                    sheet: None,
                                     id: allocate(next)?,
                                     layer: "board".into(),
                                     shape: "polygon".into(),
@@ -9781,6 +9794,7 @@ fn run_command(
                             for pair in points.windows(2) {
                                 push(
                                     pcbcraft_doc::Graphic {
+                                        sheet: None,
                                         id: allocate(next)?,
                                         layer: "board".into(),
                                         shape: "line".into(),
@@ -9806,6 +9820,7 @@ fn run_command(
                         }
                         push(
                             pcbcraft_doc::Graphic {
+                                sheet: None,
                                 id: allocate(next)?,
                                 layer: "board".into(),
                                 shape: "text".into(),
@@ -10184,7 +10199,13 @@ fn run_command(
                 return Err(Error::Invalid("graphic colour must be #rrggbb".into()));
             }
             let id = allocate(next)?;
+            if a.sheet
+                .is_some_and(|s| s != 0 && !p.sheets.iter().any(|sheet| sheet.id == s))
+            {
+                return Err(missing());
+            }
             p.graphics.push(pcbcraft_doc::Graphic {
+                sheet: a.sheet.filter(|_| a.layer == "schematic"),
                 id,
                 layer: a.layer,
                 shape: a.shape,
@@ -10497,6 +10518,7 @@ fn run_command(
                 }
                 let id = allocate(next)?;
                 p.graphics.push(pcbcraft_doc::Graphic {
+                    sheet: None,
                     id,
                     layer: a.layer.clone(),
                     shape: shape.into(),
@@ -10576,6 +10598,7 @@ fn run_command(
                 }
                 let id = allocate(next)?;
                 p.graphics.push(pcbcraft_doc::Graphic {
+                    sheet: None,
                     id,
                     layer: a.layer.clone(),
                     shape: shape.into(),
@@ -11402,6 +11425,7 @@ fn run_command(
                 vias += usize::from(shape == "circle");
                 texts += usize::from(shape == "text");
                 p.graphics.push(pcbcraft_doc::Graphic {
+                    sheet: None,
                     id,
                     layer: "schematic".into(),
                     shape,
@@ -11548,6 +11572,7 @@ fn run_command(
             for (cx, w) in bars {
                 let id = allocate(next)?;
                 p.graphics.push(pcbcraft_doc::Graphic {
+                    sheet: None,
                     id,
                     layer: layer.clone(),
                     shape: "line".into(),
@@ -11627,6 +11652,7 @@ fn run_command(
              -> Result<(), Error> {
                 let id = allocate(next)?;
                 p.graphics.push(pcbcraft_doc::Graphic {
+                    sheet: None,
                     id,
                     layer: "schematic".into(),
                     shape: shape.into(),

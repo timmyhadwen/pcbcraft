@@ -10052,6 +10052,7 @@ mod tests {
             covering: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
+            sheet: None,
             id: 12,
             layer: "board".into(),
             shape: "arc".into(),
@@ -10066,6 +10067,7 @@ mod tests {
             color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
+            sheet: None,
             id: 13,
             layer: "schematic".into(),
             shape: "line".into(),
@@ -10195,6 +10197,7 @@ mod tests {
     fn dxf_entities_reads_the_paired_export_format_with_layers() -> Result<(), String> {
         let mut project = Project::default();
         project.graphics.push(pcbcraft_doc::Graphic {
+            sheet: None,
             id: 1,
             layer: "board".into(),
             shape: "line".into(),
@@ -11226,6 +11229,7 @@ mod tests {
     fn graphics_render_outlines_and_text_in_previews() -> Result<(), String> {
         let mut project = Project::default();
         project.graphics.push(pcbcraft_doc::Graphic {
+            sheet: None,
             id: 1,
             layer: "schematic".into(),
             shape: "rect".into(),
@@ -11236,6 +11240,7 @@ mod tests {
             color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
+            sheet: None,
             id: 2,
             layer: "schematic".into(),
             shape: "text".into(),
@@ -11246,6 +11251,7 @@ mod tests {
             color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
+            sheet: None,
             id: 3,
             layer: "board".into(),
             shape: "circle".into(),

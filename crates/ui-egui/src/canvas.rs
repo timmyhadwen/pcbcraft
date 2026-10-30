@@ -445,6 +445,7 @@ impl App {
     }
     pub(super) fn canvas(&mut self, ui: &mut egui::Ui) {
         self.route_backspace(ui.ctx());
+        self.schematic_text_box(ui.ctx());
         if self.tab == Tab::Schematic {
             self.page_switcher(ui);
         }
@@ -1730,11 +1731,12 @@ impl App {
                     Stroke::new((g.width as f32 * camera.zoom).clamp(1.6, 12.0), ink),
                 ));
             } else if let Some(anchor) = g.points.first() {
+                // A note's width is its text height in millimetres.
                 painter.text(
                     camera.screen(*anchor, rect),
                     Align2::LEFT_TOP,
                     &g.text,
-                    FontId::proportional(g.width as f32),
+                    sheet::font(camera, g.width as f32),
                     sc.text,
                 );
             }

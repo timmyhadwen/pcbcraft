@@ -39,6 +39,7 @@ mod pour_panel;
 mod properties;
 mod reference_panel;
 mod route_drag;
+mod schematic_text;
 mod sheet_rows;
 mod showcase;
 mod snap_grid;
@@ -1163,6 +1164,8 @@ pub struct App {
     binding_capture: Option<keymap::KeyAction>,
     /// The first key of a two-key shortcut, waiting for its second key.
     key_prefix: Option<egui::Key>,
+    /// An open schematic note: where it goes and the words typed so far.
+    schematic_text: Option<(Point, String)>,
     profile_name_draft: String,
     profile_import_text: String,
     keymap_notice: String,
@@ -1762,6 +1765,7 @@ impl App {
             frames: 0,
             binding_capture: None,
             key_prefix: None,
+            schematic_text: None,
             profile_name_draft: String::new(),
             profile_import_text: String::new(),
             keymap_notice: String::new(),

@@ -1004,6 +1004,7 @@ mod tests {
             component: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
+            sheet: None,
             id: 7,
             layer: "board".into(),
             shape: "line".into(),

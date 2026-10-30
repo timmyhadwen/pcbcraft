@@ -358,3 +358,58 @@ fn a_newcomer_sees_which_pages_a_highlighted_connection_reaches() -> Result<(), 
     );
     Ok(())
 }
+
+/// P,T on the second page opens a note box at the cursor; the typed words
+/// land on that page and nowhere else.
+#[test]
+fn a_designer_types_a_note_on_the_second_page() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Schematic);
+    app.run("schematic.new_sheet", json!({"name": "Notes"}));
+    let page = app
+        .project
+        .sheets
+        .last()
+        .map(|s| s.id)
+        .ok_or("a new page")?;
+    app.show_page(page);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.cursor = Some(Point::new(40.0, 40.0));
+    app.classic_action(crate::keymap::KeyAction::SchematicText);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::Text("Check C5 value".into())],
+        egui::Modifiers::NONE,
+    );
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
+    app.refresh();
+    let note = app
+        .project
+        .graphics
+        .iter()
+        .find(|g| g.text == "Check C5 value")
+        .ok_or(format!("the note is placed: {}", app.message))?;
+    assert!(
+        app.project.on_schematic_page(page, note.id),
+        "on the page typed on"
+    );
+    assert!(!app.project.on_schematic_page(0, note.id), "not on Main");
+    Ok(())
+}
