@@ -1023,6 +1023,11 @@ pub struct App {
     assistant: assistant::State,
     project: Project,
     revision: u64,
+    /// Checks run on a worker thread so a large board never freezes the
+    /// window; off in tests and on the web, where they run inline.
+    background_checks: bool,
+    /// The checks being worked out, for which revision, if any.
+    checks_job: Option<(u64, std::sync::mpsc::Receiver<Value>)>,
     checks: Value,
     tab: Tab,
     tool: Tool,
@@ -1584,6 +1589,8 @@ impl App {
         }
         let show_home = capture.is_none();
         let mut app = Self::create(session, preferences, capture, tab);
+        // A capture image must show its findings, so it checks inline.
+        app.background_checks = !cfg!(target_arch = "wasm32") && app.capture.is_none();
         app.home_open = show_home && app.project.components.is_empty();
         app
     }
@@ -1608,6 +1615,8 @@ impl App {
             assistant: assistant::State::default(),
             project,
             revision: u64::MAX,
+            background_checks: false,
+            checks_job: None,
             checks: json!({}),
             tab: match tab {
                 Some("pcb" | "layout") => Tab::Pcb,
@@ -1801,9 +1810,11 @@ impl App {
         }
     }
     fn refresh(&mut self) {
+        let background = self.background_checks;
         let snapshot = self.session.lock().ok().and_then(|s| {
             if s.revision != self.revision {
-                Some((s.project.clone(), s.revision, s.checks()))
+                let checks = (!background).then(|| s.checks());
+                Some((s.project.clone(), s.revision, checks))
             } else {
                 None
             }
@@ -1811,7 +1822,10 @@ impl App {
         if let Some((p, r, checks)) = snapshot {
             self.project = p;
             self.revision = r;
-            self.checks = checks;
+            match checks {
+                Some(checks) => self.checks = checks,
+                None => self.start_checks(),
+            }
             if self
                 .selected
                 .is_some_and(|id| !self.project.ids().any(|present| present == id))
@@ -1823,6 +1837,53 @@ impl App {
             self.load_properties();
         }
     }
+    /// Start working out the checks of the current revision on a worker
+    /// thread, unless a job is already running; `poll_checks` starts the next
+    /// one when it ends, so a burst of edits costs one run, not one per edit.
+    fn start_checks(&mut self) {
+        if self.checks_job.is_some() {
+            return;
+        }
+        let (send, receive) = std::sync::mpsc::channel();
+        let project = self.project.clone();
+        let revision = self.revision;
+        let spawned = std::thread::Builder::new()
+            .name("checks".into())
+            .spawn(move || {
+                let _ = send.send(pcbcraft_engine::checks_of(&project, revision));
+            });
+        match spawned {
+            Ok(_) => self.checks_job = Some((revision, receive)),
+            Err(_) => {
+                if let Ok(session) = self.session.lock() {
+                    self.checks = session.checks();
+                }
+            }
+        }
+    }
+
+    /// Take finished checks, and start again if the design moved on meanwhile.
+    fn poll_checks(&mut self, ctx: &egui::Context) {
+        let Some((revision, receive)) = &self.checks_job else {
+            return;
+        };
+        match receive.try_recv() {
+            Ok(checks) => {
+                let current = *revision == self.revision;
+                self.checks = checks;
+                self.checks_job = None;
+                if !current {
+                    self.start_checks();
+                }
+                ctx.request_repaint();
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.checks_job = None,
+        }
+    }
+
     fn execute_palette_params(&mut self) {
         match serde_json::from_str(&self.params.clone()) {
             Ok(v) => {
@@ -7276,6 +7337,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
+        self.poll_checks(&ctx);
         icons::install(&ctx);
         a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
         self.assistant_frame(&ctx);

@@ -100,7 +100,10 @@ fn whole_frame_time() -> Result<(), String> {
             times.push(start.elapsed());
         }
         times.sort();
-        println!("{tab:?}: median {:?}, best {:?}, worst {:?}", times[4], times[0], times[8]);
+        println!(
+            "{tab:?}: median {:?}, best {:?}, worst {:?}",
+            times[4], times[0], times[8]
+        );
     }
     Ok(())
 }
