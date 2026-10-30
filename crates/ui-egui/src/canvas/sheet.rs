@@ -22,7 +22,7 @@ pub(super) const TEXT_MM: f32 = 1.27;
 /// # Rules
 /// - Rounded to half pixels so zooming does not fill the glyph atlas with sizes.
 pub(super) fn font(camera: Camera, mm: f32) -> FontId {
-    FontId::proportional(((mm * camera.zoom * 2.0).round() / 2.0).clamp(3.0, 64.0))
+    super::drawing_font(((mm * camera.zoom * 2.0).round() / 2.0).clamp(3.0, 64.0))
 }
 
 /// Wire and power symbol line width in millimetres.

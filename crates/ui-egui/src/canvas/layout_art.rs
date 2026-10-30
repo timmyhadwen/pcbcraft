@@ -34,7 +34,17 @@ pub(super) struct BoardArt {
     pub substrate: Color32,
     pub edge: Color32,
     pub top_copper: Color32,
+    pub bottom_copper: Color32,
+    /// Inner copper layers, in order down the stack; the cycle repeats.
+    pub inner_copper: [Color32; 6],
+    /// Copper that passes through every layer: through-hole pads and vias.
+    pub multi_layer: Color32,
+    /// Inside of a drilled hole.
+    pub drill: Color32,
     pub silk: Color32,
+    pub silk_bottom: Color32,
+    /// Assembly drawing of a part's body, faint so it never hides copper.
+    pub fab: Color32,
     pub courtyard: Color32,
     pub ratsnest: Color32,
     pub selection: Color32,
@@ -49,20 +59,33 @@ impl BoardArt {
         let c = Color32::from_rgb;
         if dark {
             Self {
-                bg: c(0x07, 0x10, 0x0D),
-                ruler: c(0x0A, 0x14, 0x11),
-                grid_minor: c(0x1C, 0x32, 0x28),
-                grid_major: c(0x2A, 0x47, 0x3A),
-                substrate: c(0x0E, 0x3B, 0x2D),
-                edge: c(0xE6, 0xBE, 0x5A),
-                top_copper: c(0xE8, 0x83, 0x4A),
-                silk: c(0xED, 0xEB, 0xDD),
+                bg: c(0x0D, 0x0F, 0x12),
+                ruler: c(0x15, 0x18, 0x1C),
+                grid_minor: c(0x22, 0x26, 0x2B),
+                grid_major: c(0x34, 0x3A, 0x42),
+                substrate: c(0x17, 0x1C, 0x21),
+                edge: c(0xD8, 0xC0, 0x78),
+                top_copper: c(0xD6, 0x4B, 0x3E),
+                bottom_copper: c(0x3E, 0x72, 0xE4),
+                inner_copper: [
+                    c(0xE2, 0xA2, 0x32),
+                    c(0x46, 0xB8, 0x6C),
+                    c(0x3A, 0xB4, 0xC8),
+                    c(0xB2, 0x66, 0xD4),
+                    c(0xC8, 0x6A, 0x98),
+                    c(0x8C, 0xA8, 0x3C),
+                ],
+                multi_layer: c(0xB9, 0xBE, 0xC5),
+                drill: c(0x0A, 0x0B, 0x0D),
+                silk: c(0xF0, 0xE0, 0x6A),
+                silk_bottom: c(0x9E, 0x9A, 0x52),
+                fab: Color32::from_rgba_unmultiplied(0x8A, 0x92, 0x9C, 0x50),
                 courtyard: c(0xB5, 0x8A, 0xE0),
-                ratsnest: Color32::from_rgba_unmultiplied(0xE8, 0xF0, 0xEB, 0xB3),
+                ratsnest: Color32::from_rgba_unmultiplied(0xE6, 0xEA, 0xEE, 0xB3),
                 selection: c(0x5C, 0xC8, 0xE8),
-                text: c(0xE8, 0xF0, 0xEB),
-                muted: c(0x9D, 0xB3, 0xA8),
-                on_copper: c(0x0A, 0x14, 0x11),
+                text: c(0xE8, 0xEA, 0xED),
+                muted: c(0x9A, 0xA3, 0xAD),
+                on_copper: c(0xFF, 0xFF, 0xFF),
             }
         } else {
             Self {
@@ -73,7 +96,20 @@ impl BoardArt {
                 substrate: c(0xCF, 0xE3, 0xD6),
                 edge: c(0x7A, 0x5A, 0x00),
                 top_copper: c(0xC2, 0x57, 0x1A),
+                bottom_copper: c(0x1C, 0x5C, 0xB0),
+                inner_copper: [
+                    c(0xA8, 0x70, 0x00),
+                    c(0x1E, 0x84, 0x48),
+                    c(0x10, 0x80, 0x94),
+                    c(0x7E, 0x3A, 0xA6),
+                    c(0x9C, 0x3A, 0x6C),
+                    c(0x5C, 0x74, 0x1C),
+                ],
+                multi_layer: c(0x6E, 0x74, 0x7C),
+                drill: c(0xF1, 0xF0, 0xE6),
                 silk: c(0x2A, 0x2A, 0x24),
+                silk_bottom: c(0x6A, 0x68, 0x40),
+                fab: Color32::from_rgba_unmultiplied(0x50, 0x56, 0x5E, 0x50),
                 courtyard: c(0x8A, 0x52, 0xB8),
                 ratsnest: c(0x3A, 0x4A, 0x42),
                 selection: c(0x0B, 0x67, 0x85),
@@ -82,6 +118,58 @@ impl BoardArt {
                 on_copper: c(0xFF, 0xFF, 0xFF),
             }
         }
+    }
+}
+
+impl BoardArt {
+    /// Colour of copper layer `layer` on a board with `count` copper layers:
+    /// top red, bottom blue, and each inner layer its own colour in a fixed
+    /// cycle, so a layer reads the same on every board and in every view.
+    pub(super) fn copper(&self, layer: Layer, count: u8) -> Color32 {
+        let last = count.saturating_sub(1).max(1);
+        match layer.index() {
+            0 => self.top_copper,
+            i if i >= last => self.bottom_copper,
+            i => self.inner_copper[(usize::from(i) - 1) % self.inner_copper.len()],
+        }
+    }
+}
+
+/// Write each net's name along its tracks on the active layer, inside the
+/// copper, where the track is wide and long enough on screen to hold it.
+///
+/// # Rules
+/// - `tracks` holds screen ends, screen width and net of each drawn segment.
+/// - Text reads left to right or bottom to top, never upside down.
+pub(super) fn track_names(
+    painter: &egui::Painter,
+    p: &Project,
+    tracks: &[(Pos2, Pos2, f32, Id)],
+    art: &BoardArt,
+) {
+    for (a, b, width, net) in tracks {
+        let size = width * 0.7;
+        if size < 7.0 {
+            continue;
+        }
+        let name = p.net_name(*net);
+        if name.is_empty() {
+            continue;
+        }
+        let galley = painter.layout_no_wrap(name.to_owned(), drawing_font(size), art.on_copper);
+        let along = *b - *a;
+        if galley.size().x > along.length() * 0.8 {
+            continue;
+        }
+        let mut angle = along.y.atan2(along.x);
+        if !(-FRAC_PI_2 - 1e-3..=FRAC_PI_2 + 1e-3).contains(&angle) {
+            angle += std::f32::consts::PI;
+        }
+        let middle = *a + along * 0.5;
+        let half = galley.size() / 2.0;
+        let rot = egui::emath::Rot2::from_angle(angle);
+        let pos = middle - rot * half;
+        painter.add(TextShape::new(pos, galley, art.on_copper).with_angle(angle));
     }
 }
 
@@ -133,8 +221,10 @@ pub(super) fn dashed_closed(painter: &egui::Painter, pts: &[Pos2], stroke: Strok
 
 impl App {
     /// The theme's board art colours.
+    /// The board drawing is dark in both themes, as on a working PCB bench:
+    /// layer colours need a dark field to read apart.
     pub(super) fn art(&self) -> BoardArt {
-        BoardArt::new(self.colours().dark)
+        BoardArt::new(true)
     }
 
     /// Subtle grid dots: minor at the working grid, major every tenth line.

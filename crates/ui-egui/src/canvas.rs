@@ -1873,6 +1873,11 @@ impl App {
             .collect();
         (ink, on_screen)
     }
+    /// Colour the board draws a copper layer in, so a test can find it on screen.
+    #[cfg(test)]
+    pub(crate) fn board_copper_colour(&self, layer: Layer) -> Color32 {
+        self.art().copper(layer, self.project.copper_layer_count())
+    }
     /// Colour the sheet draws wires in, so a test can find them on screen.
     #[cfg(test)]
     pub(crate) fn sheet_wire_colour(&self) -> Color32 {
@@ -2224,18 +2229,20 @@ impl App {
     fn paint_board(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
         let shown = |name: &str| self.layer_shown(name);
         let art = self.art();
+        let copper_count = p.copper_layer_count();
+        // Only what can reach the window is drawn, so a large board pans and
+        // zooms as smoothly as a small one.
+        let view = rect.expand(4.0);
+        let visible =
+            |a: Pos2, b: Pos2, reach: f32| view.expand(reach).intersects(Rect::from_two_pos(a, b));
         self.paint_board_body(painter, rect, camera, p);
         underlay::paint(painter, rect, camera, p, "pcb");
         for fid in &p.board.fiducials {
             let center = camera.screen(fid.position, rect);
             let radius = ((fid.diameter / 2.0) as f32 * camera.zoom).max(1.5);
-            let color = if fid.layer == Layer::Front {
-                self.colours().canvas.front
-            } else {
-                self.colours().canvas.back
-            };
+            let color = art.copper(fid.layer, copper_count);
             painter.circle_filled(center, radius, color);
-            painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
+            painter.circle_stroke(center, radius, Stroke::new(1.0, art.text));
         }
         for h in &p.board.holes {
             let radius = ((h.diameter / 2.0) as f32 * camera.zoom).max(1.5);
@@ -2247,17 +2254,17 @@ impl App {
                 let dir = (b - a).normalized();
                 let side = egui::vec2(-dir.y, dir.x) * radius;
                 let (a2, b2) = (a + dir * radius, b - dir * radius);
-                painter.line_segment([a, b], Stroke::new(radius * 2.0, self.surface()));
-                painter.circle_filled(a, radius, self.surface());
-                painter.circle_filled(b, radius, self.surface());
-                let ink = Stroke::new(1.0, self.ink());
+                painter.line_segment([a, b], Stroke::new(radius * 2.0, art.drill));
+                painter.circle_filled(a, radius, art.drill);
+                painter.circle_filled(b, radius, art.drill);
+                let ink = Stroke::new(1.0, art.edge);
                 painter.line_segment([a2 + side, b2 + side], ink);
                 painter.line_segment([a2 - side, b2 - side], ink);
                 painter.circle_stroke(a, radius, ink);
                 painter.circle_stroke(b, radius, ink);
             } else {
                 let center = camera.screen(h.position, rect);
-                painter.circle_filled(center, radius, art.bg);
+                painter.circle_filled(center, radius, art.drill);
                 painter.circle_stroke(center, radius, Stroke::new(1.5, art.edge));
                 self.paint_keepout_ring(painter, center, radius);
             }
@@ -2274,7 +2281,12 @@ impl App {
         // Paint far to near as the viewer sees the stack; layers nearer than the
         // focused one are see-through and those behind it are dimmed.
         let stack = &self.stack;
-        let copper_count = p.copper_layer_count();
+        // The layer being worked on paints last, over the others.
+        let active = if self.route_layer == Layer::Back {
+            Layer::from_index(copper_count.saturating_sub(1)).unwrap_or(Layer::Back)
+        } else {
+            self.route_layer
+        };
         for z in stack.far_to_near(
             p.board.zones.iter().filter(|_| shown("Copper zones")),
             |z| z.layer,
@@ -2284,17 +2296,14 @@ impl App {
                 .iter()
                 .map(|pt| camera.screen(*pt, rect))
                 .collect();
-            let zone_colour = if z.layer == Layer::Front {
-                self.colours().canvas.front
-            } else {
-                self.colours().canvas.back
-            };
+            let zone_colour = art.copper(z.layer, copper_count);
             let rgb = [zone_colour.r(), zone_colour.g(), zone_colour.b()];
             let far = stack.copper_alpha(z.layer);
             let fill = if self.selected == Some(z.id) {
                 self.accent().linear_multiply(0.35)
             } else {
-                Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(0.07 * far)
+                Color32::from_rgb(rgb[0], rgb[1], rgb[2])
+                    .linear_multiply(if z.layer == active { 0.2 } else { 0.06 } * far)
             };
             if z.filled || self.selected == Some(z.id) {
                 painter.add(egui::Shape::convex_polygon(
@@ -2315,7 +2324,7 @@ impl App {
                     cut.iter().map(|pt| camera.screen(*pt, rect)).collect();
                 painter.add(egui::Shape::convex_polygon(
                     cut_screen.clone(),
-                    Color32::from_rgb(25, 58, 54),
+                    art.substrate,
                     Stroke::NONE,
                 ));
                 painter.add(egui::Shape::closed_line(
@@ -2324,7 +2333,7 @@ impl App {
                 ));
             }
         }
-        for t in stack.far_to_near(
+        let mut tracks = stack.far_to_near(
             p.board.tracks.iter().filter(|t| {
                 shown(if t.layer == pcbcraft_doc::Layer::Front {
                     "Top copper"
@@ -2333,26 +2342,38 @@ impl App {
                 })
             }),
             |t| t.layer,
-        ) {
+        );
+        tracks.sort_by_key(|t| t.layer == active);
+        let mut named = Vec::new();
+        for t in tracks {
+            let (a, b) = (camera.screen(t.start, rect), camera.screen(t.end, rect));
+            let width = (t.width as f32 * camera.zoom).max(1.0);
+            if !visible(a, b, width) {
+                continue;
+            }
             painter.line_segment(
-                [camera.screen(t.start, rect), camera.screen(t.end, rect)],
+                [a, b],
                 Stroke::new(
-                    (t.width as f32 * camera.zoom).max(1.0),
+                    width,
                     if self.selected == Some(t.id) {
                         self.accent()
-                    } else if t.layer == Layer::Front {
-                        self.copper(Some(t.net), self.colours().canvas.front)
-                            .linear_multiply(stack.copper_alpha(t.layer))
                     } else {
-                        self.copper(Some(t.net), self.colours().canvas.back)
+                        self.copper(Some(t.net), art.copper(t.layer, copper_count))
                             .linear_multiply(stack.copper_alpha(t.layer))
                     },
                 ),
             );
+            if t.layer == active {
+                named.push((a, b, width, t.net));
+            }
         }
+        layout_art::track_names(painter, p, &named, &art);
         for v in p.board.vias.iter().filter(|_| shown("Vias")) {
             let at = camera.screen(v.position, rect);
             let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
+            if !visible(at, at, radius) {
+                continue;
+            }
             let through = (0..copper_count)
                 .filter_map(|i| Layer::from_index(i).ok())
                 .map(|l| stack.copper_alpha(l))
@@ -2360,7 +2381,7 @@ impl App {
             let base = if self.selected == Some(v.id) {
                 self.accent()
             } else {
-                self.copper(Some(v.net), self.colours().canvas.front)
+                self.copper(Some(v.net), art.multi_layer)
                     .linear_multiply(through)
             };
             if via_on_layer(p, v, self.route_layer) {
@@ -2371,11 +2392,7 @@ impl App {
                 painter.circle_stroke(at, radius, Stroke::new(1.0, base.linear_multiply(0.35)));
             }
             if v.drill > 0.0 && via_on_layer(p, v, self.route_layer) {
-                painter.circle_filled(
-                    at,
-                    (v.drill as f32 / 2.0 * camera.zoom).max(1.0),
-                    Color32::from_rgb(19, 28, 41),
-                );
+                painter.circle_filled(at, (v.drill as f32 / 2.0 * camera.zoom).max(1.0), art.drill);
             }
         }
         for t in &p.board.netties {
@@ -2426,14 +2443,21 @@ impl App {
             let value_at = camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
                 + Vec2::new(0.0, 12.0);
             let silk_fade = stack.silk_alpha(on_bottom);
+            let silk = if on_bottom { art.silk_bottom } else { art.silk };
             let color = if let Some(kind) = self.compare_tint.get(&f.id).copied() {
                 self.compare_kind_color(kind)
             } else if let Some(kind) = self.compare_tint.get(&f.component).copied() {
                 self.compare_kind_color(kind)
             } else {
-                art.silk.linear_multiply(silk_fade)
+                silk.linear_multiply(silk_fade)
             };
             let boxes = Self::footprint_boxes(f, rect, camera);
+            let reach = boxes
+                .as_ref()
+                .map_or(Rect::NOTHING, |(_, courtyard)| Rect::from_points(courtyard));
+            if reach.is_positive() && !view.intersects(reach.expand(40.0)) {
+                continue;
+            }
             if let Some(library) = p
                 .component(f.component)
                 .and_then(|c| c.library_footprint.as_ref())
@@ -2455,7 +2479,20 @@ impl App {
                     } else {
                         g
                     };
-                    self.paint_graphic(painter, rect, camera, g, (f.position, f.rotation), color);
+                    // Each piece of artwork takes its own layer's colour:
+                    // silkscreen as silk, the assembly drawing as a faint
+                    // body, copper as copper. Courtyards draw separately.
+                    let layer = graphic_layer(g);
+                    let ink = if layer.contains("CrtYd") {
+                        continue;
+                    } else if layer.contains("Fab") {
+                        art.fab.linear_multiply(silk_fade)
+                    } else if layer.contains("Cu") {
+                        art.copper(mount, copper_count).linear_multiply(pad_alpha)
+                    } else {
+                        color
+                    };
+                    self.paint_graphic(painter, rect, camera, g, (f.position, f.rotation), ink);
                 }
             } else if let Some((silk, _)) = &boxes {
                 painter.add(egui::Shape::closed_line(
@@ -2467,7 +2504,7 @@ impl App {
                 layout_art::dashed_closed(
                     painter,
                     courtyard,
-                    Stroke::new(1.0, art.courtyard.gamma_multiply(0.6)),
+                    Stroke::new(1.0, art.courtyard.gamma_multiply(0.3)),
                 );
             }
             for pad in f.pads.iter().filter(|_| shown("Pads")) {
@@ -2486,10 +2523,10 @@ impl App {
                             pad.outline_is_convex(),
                             self.copper(
                                 pad.net,
-                                if on_bottom {
-                                    self.colours().canvas.back
+                                if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
+                                    art.multi_layer
                                 } else {
-                                    art.top_copper
+                                    art.copper(mount, copper_count)
                                 },
                             )
                             .linear_multiply(pad_alpha),
@@ -2503,7 +2540,7 @@ impl App {
                                     camera.screen(f.position.offset(p.rotate(-f.rotation)), rect)
                                 })
                                 .collect(),
-                            art.bg,
+                            art.drill,
                             if mechanical {
                                 Stroke::new(1.0, color)
                             } else {
@@ -2517,34 +2554,28 @@ impl App {
                             _ => pad.number.clone(),
                         };
                         if !label.is_empty() {
-                            if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
-                                // The drill hole fills the middle, so the
-                                // number sits beside the pad: past its right
-                                // edge on screen, measured from the pad's own
-                                // centre (the outline is footprint-local).
-                                let reach = pad
-                                    .outline_points()
+                            // The label fits the pad: as tall as half its short
+                            // side and no wider than the pad, so it grows with
+                            // zoom and disappears when it could not be read.
+                            let pad_box = Rect::from_points(
+                                &pad.outline_points()
                                     .iter()
                                     .map(|q| {
                                         camera
                                             .screen(f.position.offset(q.rotate(-f.rotation)), rect)
-                                            .x
-                                            - center.x
                                     })
-                                    .fold(0.0f32, f32::max);
-                                painter.text(
-                                    center + Vec2::new(reach + 4.0, 0.0),
-                                    Align2::LEFT_CENTER,
-                                    label,
-                                    FontId::monospace(10.0),
-                                    art.silk,
-                                );
-                            } else {
+                                    .collect::<Vec<_>>(),
+                            );
+                            let chars = label.chars().count().max(1) as f32;
+                            let size = (pad_box.width().min(pad_box.height()) * 0.5)
+                                .min(pad_box.width() * 0.9 / (chars * 0.6))
+                                .min(28.0);
+                            if size >= 6.0 {
                                 painter.text(
                                     center,
                                     Align2::CENTER_CENTER,
                                     label,
-                                    crate::fonts::Role::Mono.font(),
+                                    drawing_font(size),
                                     art.on_copper,
                                 );
                             }
@@ -2559,20 +2590,25 @@ impl App {
                     let mid = y.iter().map(|q| q.x).sum::<f32>() / y.len().max(1) as f32;
                     (Pos2::new(mid, top - 5.0), Pos2::new(mid, bottom + 4.0))
                 });
-                painter.text(
-                    above,
-                    Align2::CENTER_BOTTOM,
-                    &c.reference,
-                    FontId::proportional(13.0),
-                    art.text.linear_multiply(stack.silk_alpha(on_bottom)),
-                );
-                painter.text(
-                    below,
-                    Align2::CENTER_TOP,
-                    &c.value,
-                    FontId::proportional(10.5),
-                    art.muted.linear_multiply(stack.silk_alpha(on_bottom)),
-                );
+                // Designators are silkscreen text, 1 mm tall on the board, so
+                // they keep their place among the parts at every zoom.
+                let size = (1.0 * camera.zoom).clamp(0.0, 40.0);
+                if size >= 5.0 {
+                    painter.text(
+                        above,
+                        Align2::CENTER_BOTTOM,
+                        &c.reference,
+                        drawing_font(size),
+                        silk.linear_multiply(stack.silk_alpha(on_bottom)),
+                    );
+                    painter.text(
+                        below,
+                        Align2::CENTER_TOP,
+                        &c.value,
+                        drawing_font(size * 0.8),
+                        art.muted.linear_multiply(stack.silk_alpha(on_bottom)),
+                    );
+                }
             }
             if self.selected == Some(f.id)
                 && let Some((_, courtyard)) = &boxes
@@ -2583,9 +2619,9 @@ impl App {
         for t in &p.board.texts {
             let at = camera.screen(t.position, rect);
             let color = if t.layer == pcbcraft_doc::Layer::Front {
-                self.ink()
+                art.silk
             } else {
-                self.ink().gamma_multiply(0.75)
+                art.silk_bottom
             };
             painter.text(
                 at,
@@ -2600,6 +2636,29 @@ impl App {
         self.paint_board_dimensions(painter, rect, camera, p);
         self.paint_axis_glyph(painter, rect, camera);
         self.paint_rulers(painter, rect, camera);
+    }
+}
+
+/// A font for text drawn on the board or sheet at `px` screen pixels.
+///
+/// Why: drawing text scales with zoom like the copper it labels, so it cannot
+/// use the fixed type scale of the window chrome (`crate::fonts`).
+pub(super) fn drawing_font(px: f32) -> FontId {
+    FontId::proportional(px)
+}
+
+/// The layer a library drawing primitive sits on, like `F.SilkS` or `F.Fab`.
+fn graphic_layer(g: &pcbcraft_library::Graphic) -> &str {
+    use pcbcraft_library::Graphic;
+    match g {
+        Graphic::Line { layer, .. }
+        | Graphic::Rectangle { layer, .. }
+        | Graphic::Circle { layer, .. }
+        | Graphic::Arc { layer, .. }
+        | Graphic::Polyline { layer, .. }
+        | Graphic::Text { layer, .. } => layer,
+        #[allow(unreachable_patterns)]
+        _ => "",
     }
 }
 

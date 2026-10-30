@@ -29,7 +29,7 @@ fn painted_in(ctx: &egui::Context, app: &mut App, colour: egui::Color32) -> bool
 #[test]
 fn a_newcomer_flips_a_part_to_the_bottom() -> Result<(), String> {
     let (mut app, ctx) = open_practice_board()?;
-    let back = app.colours().canvas.back;
+    let back = app.board_copper_colour(pcbcraft_doc::Layer::Back);
     assert!(
         !painted_in(&ctx, &mut app, back),
         "on the top no pad is drawn in the bottom colour"
