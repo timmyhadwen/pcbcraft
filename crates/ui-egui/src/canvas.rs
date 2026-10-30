@@ -140,7 +140,8 @@ pub(crate) fn snap(p: Point) -> Point {
     if crate::tool_modifiers::snap_suspended() {
         return p;
     }
-    // The step comes from the G key (see snap_grid.rs); 0.5 mm by default.
+    // The step comes from the G key (see snap_grid.rs): 0.5 mm on the board and
+    // 2.54 mm on the schematic by default.
     Point::new(crate::snap_grid::round(p.x), crate::snap_grid::round(p.y))
 }
 fn fill_polygon(painter: &egui::Painter, points: &[Pos2], color: Color32, clip: Rect) {
@@ -444,6 +445,7 @@ impl App {
         }
     }
     pub(super) fn canvas(&mut self, ui: &mut egui::Ui) {
+        crate::snap_grid::set_sheet(self.tab == Tab::Schematic);
         self.route_backspace(ui.ctx());
         self.schematic_text_box(ui.ctx());
         if self.tab == Tab::Schematic {

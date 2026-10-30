@@ -25,31 +25,59 @@ pub const DEFAULT_STEP: f64 = 0.5;
 /// Millimetres in one mil (a thousandth of an inch).
 const MM_PER_MIL: f64 = 0.0254;
 
+/// Schematic snap steps: half, whole and double the 100 mil pin pitch, so a
+/// part dropped on the sheet keeps its pins on the grid wires join on.
+pub const SHEET_STEPS: [f64; 3] = [1.27, 2.54, 5.08];
+/// The schematic step a new session starts with: 100 mil.
+pub const SHEET_DEFAULT_STEP: f64 = 2.54;
+
 thread_local! {
     static STEP: Cell<f64> = const { Cell::new(DEFAULT_STEP) };
+    static SHEET_STEP: Cell<f64> = const { Cell::new(SHEET_DEFAULT_STEP) };
+    /// True while the schematic is the canvas on screen.
+    static ON_SHEET: Cell<bool> = const { Cell::new(false) };
 }
 
-/// The current snap step in millimetres.
+/// Say which canvas is on screen; the schematic keeps a grid of its own.
+pub fn set_sheet(on_sheet: bool) {
+    ON_SHEET.with(|s| s.set(on_sheet));
+}
+
+/// The current snap step in millimetres, for the canvas on screen.
 pub fn step() -> f64 {
-    STEP.with(Cell::get)
-}
-
-/// Set the snap step; non-finite or non-positive values are ignored.
-pub fn set_step(mm: f64) {
-    if mm.is_finite() && mm > 0.0 {
-        STEP.with(|s| s.set(mm));
+    if ON_SHEET.with(Cell::get) {
+        SHEET_STEP.with(Cell::get)
+    } else {
+        STEP.with(Cell::get)
     }
 }
 
-/// Move to the next step in [`STEPS`], wrapping, and return it.
+/// Set the snap step of the canvas on screen; non-finite or non-positive
+/// values are ignored.
+pub fn set_step(mm: f64) {
+    if mm.is_finite() && mm > 0.0 {
+        if ON_SHEET.with(Cell::get) {
+            SHEET_STEP.with(|s| s.set(mm));
+        } else {
+            STEP.with(|s| s.set(mm));
+        }
+    }
+}
+
+/// Move to the next step of the canvas on screen, wrapping, and return it.
 pub fn cycle() -> f64 {
+    let steps: &[f64] = if ON_SHEET.with(Cell::get) {
+        &SHEET_STEPS
+    } else {
+        &STEPS
+    };
     let now = step();
-    let at = STEPS
+    let at = steps
         .iter()
         .position(|s| (s - now).abs() < 1e-9)
-        .map_or(0, |i| (i + 1) % STEPS.len());
-    set_step(STEPS[at]);
-    STEPS[at]
+        .map_or(0, |i| (i + 1) % steps.len());
+    set_step(steps[at]);
+    steps[at]
 }
 
 /// Round a coordinate in millimetres to the current step.
@@ -98,5 +126,26 @@ mod tests {
         assert_eq!(format_length(1.0, false), "1.00 mm");
         set_step(-1.0);
         assert!(step() > 0.0);
+    }
+
+    #[test]
+    fn the_schematic_keeps_its_own_grid() {
+        set_sheet(false);
+        set_step(DEFAULT_STEP);
+        set_sheet(true);
+        set_step(SHEET_DEFAULT_STEP);
+        assert!(
+            (round(3.9) - 5.08).abs() < 1e-9,
+            "parts land on the 100 mil grid"
+        );
+        assert!((cycle() - 5.08).abs() < 1e-9, "G walks the sheet steps");
+        set_sheet(false);
+        assert!(
+            (step() - DEFAULT_STEP).abs() < 1e-9,
+            "the board grid is untouched"
+        );
+        set_sheet(true);
+        set_step(SHEET_DEFAULT_STEP);
+        set_sheet(false);
     }
 }
