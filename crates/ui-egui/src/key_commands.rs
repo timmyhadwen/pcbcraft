@@ -340,7 +340,13 @@ impl App {
         }
         let key = match self.current_target() {
             Target::Copper(l) if l == pcbcraft_doc::Layer::Front => Some("copper:front".into()),
-            Target::Copper(l) if l == pcbcraft_doc::Layer::Back => Some("copper:back".into()),
+            Target::Copper(l)
+                if l == pcbcraft_doc::Layer::Back
+                    || l.index() + 1 >= self.project.copper_layer_count() =>
+            {
+                Some("copper:back".into())
+            }
+            Target::Copper(l) => Some(format!("copper:{}", l.index())),
             Target::User(id) => self
                 .project
                 .board

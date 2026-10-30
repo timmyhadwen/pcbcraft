@@ -638,6 +638,9 @@ impl App {
             let label = match focus.as_str() {
                 "copper:front" => "Top copper".to_owned(),
                 "copper:back" => "Bottom copper".to_owned(),
+                inner if inner.starts_with("copper:") => {
+                    format!("Inner copper {}", inner.trim_start_matches("copper:"))
+                }
                 _ => focus.trim_start_matches("art:").to_owned(),
             };
             painter.text(
@@ -1020,22 +1023,39 @@ impl App {
     /// Keep only what a focused tree row points at: one copper face or one
     /// drawn machine layer. Everything else falls back to plain board colour.
     fn apply_layer_focus(p: &mut Project, focus: &str) {
-        let board = &mut p.board;
-        match focus.strip_prefix("copper:") {
-            Some("front") => {
-                board.tracks.retain(|t| t.layer == Layer::Front);
-                board.zones.retain(|z| z.layer == Layer::Front);
-                board.texts.retain(|t| t.layer == Layer::Front);
-                board.vias.clear();
-            }
-            Some("back") => {
-                board.tracks.retain(|t| t.layer == Layer::Back);
-                board.zones.retain(|z| z.layer == Layer::Back);
-                board.texts.retain(|t| t.layer == Layer::Back);
-                board.vias.clear();
-            }
-            _ => {}
+        // The copper layer a focus key names: front, back (the last copper
+        // layer, also stored as the two-layer `Back`), or an inner index.
+        let last = p.copper_layer_count().saturating_sub(1);
+        let keep: Option<Box<dyn Fn(Layer) -> bool>> = match focus.strip_prefix("copper:") {
+            Some("front") => Some(Box::new(|l: Layer| l == Layer::Front)),
+            Some("back") => Some(Box::new(move |l: Layer| {
+                l == Layer::Back || l.index() == last
+            })),
+            Some(index) => index
+                .parse::<u8>()
+                .ok()
+                .map(|i| Box::new(move |l: Layer| l.index() == i) as Box<dyn Fn(Layer) -> bool>),
+            None => None,
+        };
+        if let Some(keep) = keep {
+            // Vias stay when they have copper on the focused layer.
+            let through: Vec<Id> = p
+                .board
+                .vias
+                .iter()
+                .filter(|v| {
+                    let (a, b) = p.via_span(v);
+                    (a.index()..=b.index()).any(|i| Layer::from_index(i).is_ok_and(&keep))
+                })
+                .map(|v| v.id)
+                .collect();
+            let board = &mut p.board;
+            board.tracks.retain(|t| keep(t.layer));
+            board.zones.retain(|z| keep(z.layer));
+            board.texts.retain(|t| keep(t.layer));
+            board.vias.retain(|v| through.contains(&v.id));
         }
+        let board = &mut p.board;
         if let Some(name) = focus.strip_prefix("art:") {
             board.tracks.clear();
             board.zones.clear();
@@ -3019,6 +3039,39 @@ mod tests {
                 times[0]
             );
         }
+        Ok(())
+    }
+
+    /// Single-layer mode on a four-layer board: an inner layer keeps only its
+    /// own copper, "back" keeps the bottom layer's, and vias stay.
+    #[test]
+    fn single_layer_focus_reaches_inner_and_bottom_copper() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        if !app.open_showcase() {
+            return Err(app.message.clone());
+        }
+        assert_eq!(app.project.copper_layer_count(), 4);
+        let mut bottom = app.project.clone();
+        App::apply_layer_focus(&mut bottom, "copper:back");
+        assert!(!bottom.board.tracks.is_empty(), "the bottom routing shows");
+        assert!(
+            bottom
+                .board
+                .tracks
+                .iter()
+                .all(|t| t.layer.index() == 3 || t.layer == Layer::Back)
+        );
+        assert!(
+            !bottom.board.vias.is_empty(),
+            "vias through the bottom stay"
+        );
+        let mut inner = app.project.clone();
+        App::apply_layer_focus(&mut inner, "copper:2");
+        assert!(inner.board.tracks.iter().all(|t| t.layer.index() == 2));
+        assert!(inner.board.zones.iter().all(|z| z.layer.index() == 2));
+        assert!(!inner.board.zones.is_empty(), "the inner pour shows");
         Ok(())
     }
 
