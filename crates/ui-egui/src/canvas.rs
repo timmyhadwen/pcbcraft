@@ -444,6 +444,7 @@ impl App {
         }
     }
     pub(super) fn canvas(&mut self, ui: &mut egui::Ui) {
+        self.route_backspace(ui.ctx());
         if self.tab == Tab::Schematic {
             self.page_switcher(ui);
         }
@@ -721,14 +722,26 @@ impl App {
                         .footprint(*id)
                         .and_then(|f| f.pad_position(pad))
                     {
-                        self.path(
-                            &painter,
-                            rect,
-                            camera,
-                            start,
-                            snapped,
-                            Stroke::new(3.0, self.colours().canvas.front),
-                        );
+                        // The route so far through its corners, then on to
+                        // the pointer, as it will be laid on the active layer.
+                        let mut points = vec![start];
+                        points.extend(self.route_drag.corners.iter().copied());
+                        points.push(snapped);
+                        let path = route_drag::lay_path(&points, self.route_mode());
+                        let colour = self
+                            .art()
+                            .copper(self.active_copper(), self.project.copper_layer_count());
+                        painter.add(egui::Shape::line(
+                            path.iter().map(|q| camera.screen(*q, rect)).collect(),
+                            Stroke::new(3.0, colour.gamma_multiply(0.8)),
+                        ));
+                        for corner in &self.route_drag.corners {
+                            painter.circle_stroke(
+                                camera.screen(*corner, rect),
+                                4.0,
+                                Stroke::new(1.5, self.accent()),
+                            );
+                        }
                     }
                 }
                 Tool::DrawLayer => {
@@ -1475,8 +1488,12 @@ impl App {
                     if let Some((from, from_pad)) = start {
                         self.finish_route(from, &from_pad, id, &pad);
                     } else {
+                        self.route_drag.corners.clear();
                         self.tool = Tool::Route(Some((id, pad)));
                     }
+                } else if start.is_some() {
+                    // A click on open board while routing sets a corner.
+                    self.add_route_corner(snap(pos));
                 } else {
                     self.message = t!("board.canvas_click.pick_a_pad_to_start");
                 }
@@ -1587,26 +1604,6 @@ impl App {
                 }
             }
         }
-    }
-    fn path(
-        &self,
-        painter: &egui::Painter,
-        rect: Rect,
-        camera: Camera,
-        a: Point,
-        b: Point,
-        stroke: Stroke,
-    ) {
-        let mid = (a.x + b.x) / 2.0;
-        painter.add(egui::Shape::line(
-            vec![
-                camera.screen(a, rect),
-                camera.screen(Point::new(mid, a.y), rect),
-                camera.screen(Point::new(mid, b.y), rect),
-                camera.screen(b, rect),
-            ],
-            stroke,
-        ));
     }
     pub(crate) fn paint_schematic(
         &self,
@@ -1876,6 +1873,16 @@ impl App {
             })
             .collect();
         (ink, on_screen)
+    }
+    /// The copper layer being worked on, by its place in the stack: the
+    /// "Bottom" choice always means the last copper layer of the board.
+    pub(super) fn active_copper(&self) -> Layer {
+        if self.route_layer == Layer::Back {
+            Layer::from_index(self.project.copper_layer_count().saturating_sub(1))
+                .unwrap_or(Layer::Back)
+        } else {
+            self.route_layer
+        }
     }
     /// Colour the board draws a copper layer in, so a test can find it on screen.
     #[cfg(test)]
@@ -2286,11 +2293,7 @@ impl App {
         // focused one are see-through and those behind it are dimmed.
         let stack = &self.stack;
         // The layer being worked on paints last, over the others.
-        let active = if self.route_layer == Layer::Back {
-            Layer::from_index(copper_count.saturating_sub(1)).unwrap_or(Layer::Back)
-        } else {
-            self.route_layer
-        };
+        let active = self.active_copper();
         for z in stack.far_to_near(
             p.board.zones.iter().filter(|_| shown("Copper zones")),
             |z| z.layer,

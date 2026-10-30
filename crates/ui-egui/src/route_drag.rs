@@ -30,6 +30,9 @@ pub(crate) struct State {
     route: Option<(Id, String)>,
     /// The track end being dragged.
     end: Option<(Id, End)>,
+    /// Corners clicked so far on a route started from a pad, in world
+    /// millimetres; empty for a plain pad-to-pad route.
+    pub(crate) corners: Vec<Point>,
 }
 impl State {
     /// True while a route or a track end is being dragged.
@@ -58,6 +61,38 @@ pub(crate) fn route_mode(prefs: &Preferences) -> &'static str {
     }
 }
 
+/// The path through `points` as the route mode lays copper: each leg is a
+/// diagonal then a straight run (octilinear), or across then along
+/// (orthogonal). Repeated points are dropped.
+///
+/// # Rules
+/// - The first and last points are kept exactly; bends are added between.
+pub(crate) fn lay_path(points: &[Point], mode: &str) -> Vec<Point> {
+    let mut out: Vec<Point> = Vec::new();
+    let push = |q: Point, out: &mut Vec<Point>| {
+        if out.last().is_none_or(|last| last.distance(q) > 1e-6) {
+            out.push(q);
+        }
+    };
+    for leg in points.windows(2) {
+        let (a, b) = (leg[0], leg[1]);
+        push(a, &mut out);
+        let (dx, dy) = (b.x - a.x, b.y - a.y);
+        let bend = if mode == "orthogonal" {
+            Point::new(b.x, a.y)
+        } else {
+            let d = dx.abs().min(dy.abs());
+            Point::new(a.x + dx.signum() * d, a.y + dy.signum() * d)
+        };
+        push(bend, &mut out);
+        push(b, &mut out);
+    }
+    if let [only] = points {
+        push(*only, &mut out);
+    }
+    out
+}
+
 /// The status line text naming the current route mode.
 fn mode_label(mode: &str) -> String {
     match mode {
@@ -83,6 +118,10 @@ impl App {
     /// # Do not
     /// - Pick the mode here from anything but `route_mode`.
     pub(super) fn finish_route(&mut self, from: Id, from_pad: &str, id: Id, pad: &str) {
+        if !self.route_drag.corners.is_empty() {
+            self.finish_cornered_route(from, from_pad, id, pad);
+            return;
+        }
         let mode = self.route_mode();
         if let Some((mate_from, mate_to)) = self.pair_mates(from, from_pad, id, pad) {
             self.run(
@@ -103,6 +142,85 @@ impl App {
             );
         }
         self.tool = Tool::Select;
+    }
+
+    /// Lay a route through the corners clicked since the first pad: one track
+    /// per leg on the active layer, bent the way the route mode lays copper.
+    ///
+    /// Why: a working route follows the path the designer picks, corner by
+    /// corner, not only the shortest bend between two pads.
+    ///
+    /// # Rules
+    /// - Both pads must be on the same net; otherwise nothing is laid and the
+    ///   route stays open so another end pad can be picked.
+    ///
+    /// # Dependencies
+    /// - Engine command `track.add` in `crates/engine/src/lib.rs`.
+    fn finish_cornered_route(&mut self, from: Id, from_pad: &str, id: Id, pad: &str) {
+        let pad_net = |app: &Self, f: Id, n: &str| {
+            app.project
+                .footprint(f)
+                .and_then(|fp| fp.pads.iter().find(|p| p.number == n).and_then(|p| p.net))
+        };
+        let (Some(net), Some(end_net)) = (pad_net(self, from, from_pad), pad_net(self, id, pad))
+        else {
+            self.message = t!("board.canvas.route_needs_a_net");
+            return;
+        };
+        if net != end_net {
+            self.message = t!("board.canvas.route_end_on_another_net");
+            return;
+        }
+        let ends = (
+            self.project
+                .footprint(from)
+                .and_then(|f| f.pad_position(from_pad)),
+            self.project.footprint(id).and_then(|f| f.pad_position(pad)),
+        );
+        let (Some(start), Some(end)) = ends else {
+            return;
+        };
+        let mut points = vec![start];
+        points.extend(self.route_drag.corners.iter().copied());
+        points.push(end);
+        let path = lay_path(&points, self.route_mode());
+        for leg in path.windows(2) {
+            self.run(
+                "track.add",
+                json!({"net": net, "start": leg[0], "end": leg[1], "layer": self.route_layer}),
+            );
+        }
+        self.route_drag.corners.clear();
+        self.tool = Tool::Select;
+    }
+
+    /// Add a corner to the open route at `at` (already snapped).
+    pub(super) fn add_route_corner(&mut self, at: Point) {
+        self.route_drag.corners.push(at);
+        self.message = t!(
+            "board.canvas.route_corner_added",
+            count = self.route_drag.corners.len()
+        );
+    }
+
+    /// Backspace on an open route takes back its last corner.
+    ///
+    /// # Do not
+    /// - Take the key while a text field has focus.
+    pub(super) fn route_backspace(&mut self, ctx: &egui::Context) {
+        if !matches!(self.tool, Tool::Route(Some(_)))
+            || self.route_drag.corners.is_empty()
+            || ctx.egui_wants_keyboard_input()
+        {
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)) {
+            self.route_drag.corners.pop();
+            self.message = t!(
+                "board.canvas.route_corner_removed",
+                count = self.route_drag.corners.len()
+            );
+        }
     }
 
     /// Start whichever drag the press at `pos` begins. Returns true when it
@@ -291,4 +409,40 @@ pub(super) fn shove_checkbox(app: &mut App, ui: &mut egui::Ui) {
         .on_disabled_hover_text(tip.clone())
         .on_hover_text(tip);
     a11y::name_control(&r, &label, Some(app.preferences.route_shove));
+}
+
+#[cfg(test)]
+mod lay_path_tests {
+    use super::*;
+
+    #[test]
+    fn a_leg_bends_once_at_45_degrees_or_square() {
+        let pts = [Point::new(0.0, 0.0), Point::new(10.0, 4.0)];
+        assert_eq!(
+            lay_path(&pts, "octilinear"),
+            vec![
+                Point::new(0.0, 0.0),
+                Point::new(4.0, 4.0),
+                Point::new(10.0, 4.0)
+            ]
+        );
+        assert_eq!(
+            lay_path(&pts, "orthogonal"),
+            vec![
+                Point::new(0.0, 0.0),
+                Point::new(10.0, 0.0),
+                Point::new(10.0, 4.0)
+            ]
+        );
+        // A straight leg adds no bend, and repeated points collapse.
+        let line = [
+            Point::new(0.0, 0.0),
+            Point::new(5.0, 0.0),
+            Point::new(5.0, 0.0),
+        ];
+        assert_eq!(
+            lay_path(&line, "octilinear"),
+            vec![Point::new(0.0, 0.0), Point::new(5.0, 0.0)]
+        );
+    }
 }

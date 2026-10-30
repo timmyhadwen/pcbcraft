@@ -700,6 +700,7 @@ const GESTURE_ROWS: &[(&str, &str, &str)] = &[
     ("Ctrl+C", "Copy the selection", "canvas"),
     ("Ctrl+X", "Cut the selection", "canvas"),
     ("Ctrl+V", "Paste the last copy", "canvas"),
+    ("Backspace", "Take back the last corner of a route", "board"),
     ("Middle-drag", "Pan the view", "canvas"),
     ("Right-drag", "Pan the view", "canvas"),
     ("Scroll", "Zoom the view about the cursor", "canvas"),

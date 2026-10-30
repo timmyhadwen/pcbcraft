@@ -262,3 +262,61 @@ fn a_newcomer_drags_a_track_end() -> Result<(), String> {
     assert_eq!(t.end, Point::new(10.0, 15.0), "one undo restores it");
     Ok(())
 }
+
+/// A designer routes through two corners of their own, takes one back with
+/// Backspace, and finishes on the end pad: the copper follows the corners.
+#[test]
+fn a_designer_routes_through_corners_and_takes_one_back() -> Result<(), String> {
+    // Two parts; pad 0 and pad 2 share net 0.
+    let mut app = board(&[
+        (0, 5.0, 5.0, 1.2),
+        (1, 9.0, 5.0, 1.2),
+        (0, 25.0, 20.0, 1.2),
+        (1, 29.0, 20.0, 1.2),
+    ])?;
+    let (from, from_pad, _) = pad_at(&app, 0)?;
+    let (_, _, end) = pad_at(&app, 2)?;
+    let before = app.project.board.tracks.len();
+    app.tool = Tool::Route(Some((from, from_pad)));
+    app.canvas_click(Point::new(5.0, 15.0), 10.0);
+    app.canvas_click(Point::new(15.0, 25.0), 10.0);
+    assert_eq!(
+        app.route_drag.corners.len(),
+        2,
+        "two corners: {}",
+        app.message
+    );
+    let ctx = egui::Context::default();
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::Backspace,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(app.route_drag.corners.len(), 1, "Backspace takes one back");
+    app.canvas_click(end, 10.0);
+    app.refresh();
+    let laid: Vec<_> = app.project.board.tracks[before..].to_vec();
+    assert!(
+        laid.len() >= 2,
+        "a leg to the corner and on to the pad: {}",
+        app.message
+    );
+    let corner = Point::new(5.0, 15.0);
+    assert!(
+        laid.iter().any(|t| t.end.distance(corner) < 1e-6),
+        "the copper turns at the clicked corner"
+    );
+    assert!(
+        laid.iter().any(|t| t.end.distance(end) < 1e-6),
+        "the route ends on the end pad"
+    );
+    assert!(matches!(app.tool, Tool::Select), "the route tool finishes");
+    Ok(())
+}
