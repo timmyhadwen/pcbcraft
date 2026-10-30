@@ -112,11 +112,11 @@ fn a_newcomer_docks_a_part_flush_to_the_board_edge() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        scrolled_to(&ctx, &mut app, "Dock left")?,
+        scrolled_to(&ctx, &mut app, "Dock to edge")?,
         "a chosen footprint offers to sit flush to an edge: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "Dock left")?;
+    tap_properties(&ctx, &mut app, "button:Left")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     let after = app

@@ -29,7 +29,8 @@ use crate::ui_kit::{
 };
 
 const ROW: FormWidth = FormWidth::Aside;
-const SIZES: [&str; 8] = ["A7", "A6", "A5", "A4", "A3", "A2", "A1", "A0"];
+/// The paper sizes a page can take, smallest first; empty means Auto.
+pub(crate) const SIZES: [&str; 8] = ["A7", "A6", "A5", "A4", "A3", "A2", "A1", "A0"];
 
 impl App {
     /// The objects the fixed row `row` of page `page` stands for.
