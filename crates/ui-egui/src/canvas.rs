@@ -2882,6 +2882,83 @@ mod library_render_tests {
 mod tests {
     use super::*;
 
+    /// Paint time of a large board: the showcase tiled six by six (about
+    /// 8 000 tracks, 6 000 vias and 2 000 parts), whole board in view and
+    /// zoomed in on one corner. Run with
+    /// `cargo test --release -p pcbcraft-ui-egui large_board -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing report, run by hand in release"]
+    fn large_board_paint_time() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        if !app.open_showcase() {
+            return Err(app.message.clone());
+        }
+        let board = app.project.board.clone();
+        let (w, h) = (board.width + 8.0, board.height + 8.0);
+        for i in 0..6 {
+            for j in 0..6 {
+                if i == 0 && j == 0 {
+                    continue;
+                }
+                let d = Point::new(f64::from(i) * w, f64::from(j) * h);
+                let b = &mut app.project.board;
+                b.tracks.extend(board.tracks.iter().map(|t| {
+                    let mut t = t.clone();
+                    t.start = t.start.offset(d);
+                    t.end = t.end.offset(d);
+                    t
+                }));
+                b.vias.extend(board.vias.iter().map(|v| {
+                    let mut v = v.clone();
+                    v.position = v.position.offset(d);
+                    v
+                }));
+                b.footprints.extend(board.footprints.iter().map(|f| {
+                    let mut f = f.clone();
+                    f.position = f.position.offset(d);
+                    f
+                }));
+            }
+        }
+        app.project.board.width = w * 6.0;
+        app.project.board.height = h * 6.0;
+        app.project.board.outline = None;
+        let size = Vec2::new(1920.0, 1240.0);
+        let rect = Rect::from_min_size(Pos2::ZERO, size);
+        let (lo, hi) = view_bounds(&app.project, true);
+        let whole = fit_camera(lo, hi, (size.x, size.y));
+        let corner = Camera {
+            zoom: 12.0,
+            center: Point::new(20.0, 20.0),
+            ..whole
+        };
+        let ctx = egui::Context::default();
+        for (name, camera) in [("whole board", whole), ("zoomed corner", corner)] {
+            let mut times = Vec::new();
+            for _ in 0..5 {
+                let start = std::time::Instant::now();
+                let _ = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(rect),
+                        ..Default::default()
+                    },
+                    |ui| app.paint_board(ui.painter(), rect, camera, &app.project),
+                );
+                times.push(start.elapsed());
+            }
+            times.sort();
+            println!(
+                "{name}: {} tracks, median {:?}, best {:?}",
+                app.project.board.tracks.len(),
+                times[2],
+                times[0]
+            );
+        }
+        Ok(())
+    }
+
     #[test]
     fn a_fresh_view_frames_the_whole_board_instead_of_a_corner_of_it() -> Result<(), String> {
         let mut s = pcbcraft_engine::Session::default();
