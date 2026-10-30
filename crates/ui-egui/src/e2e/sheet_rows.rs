@@ -141,14 +141,14 @@ fn a_newcomer_cannot_pick_what_a_locked_or_hidden_row_holds() -> Result<(), Stri
 #[test]
 fn a_newcomer_hides_drawing_and_power_ports_on_the_page() -> Result<(), String> {
     let (ctx, mut app) = practice();
-    let gnd = power_net(&app, "GND");
+    let vcc = power_net(&app, "VCC");
     app.tool_call(
         "graphic.add",
         json!({"layer":"schematic","shape":"text","points":[{"x":20.0,"y":20.0}],"text":"NOTE ABOUT BOARD","width":3.0}),
     );
     app.tool_call(
         "label.place",
-        json!({"kind":"power","net":gnd,"position":{"x":30.0,"y":30.0}}),
+        json!({"kind":"power","net":vcc,"position":{"x":30.0,"y":30.0}}),
     );
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(canvas_text(&app).iter().any(|t| t == "NOTE ABOUT BOARD"));
@@ -157,9 +157,9 @@ fn a_newcomer_hides_drawing_and_power_ports_on_the_page() -> Result<(), String> 
         !canvas_text(&app).iter().any(|t| t == "NOTE ABOUT BOARD"),
         "hidden drawing is not drawn"
     );
-    let ports_before = canvas_text(&app).iter().filter(|t| *t == "GND").count();
+    let ports_before = canvas_text(&app).iter().filter(|t| *t == "VCC").count();
     tap_id(&ctx, &mut app, "button:Hide Power ports")?;
-    let ports_after = canvas_text(&app).iter().filter(|t| *t == "GND").count();
+    let ports_after = canvas_text(&app).iter().filter(|t| *t == "VCC").count();
     assert!(
         ports_after < ports_before,
         "hidden power ports are not drawn ({ports_before} to {ports_after})"
