@@ -271,7 +271,7 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
         "the right aside is at least 280 px wide: starts at {aside}"
     );
     for (words, left, right, top) in texts(&out) {
-        if words.trim().is_empty() || top < 80.0 || top > 900.0 {
+        if words.trim().is_empty() || !(80.0..=900.0).contains(&top) {
             continue;
         }
         if left > rail && left < dock {
@@ -295,7 +295,7 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
         app.change_tab(tab);
         let out = settled(&ctx, &mut app);
         for (words, left, _, top) in texts(&out) {
-            if words.trim().is_empty() || top < 110.0 || top > 900.0 {
+            if words.trim().is_empty() || !(110.0..=900.0).contains(&top) {
                 continue;
             }
             if left > dock && left < SCREEN.x - 280.0 - 40.0 {

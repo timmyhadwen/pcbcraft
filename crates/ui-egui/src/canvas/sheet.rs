@@ -5,13 +5,41 @@
 //! Local rules: every colour of the schematic picture is a named constant in
 //! `SheetColours` (the approved Schematic page of the design system); no other
 //! file in `canvas` holds a schematic colour literal. Lengths are millimetres
-//! in the world and pixels only for text and handle sizes.
+//! in the world, text included (`font`), and pixels only for handle sizes.
 //!
 //! Dependencies: `crates/ui-egui/src/canvas.rs` calls in from `paint_schematic`
 //! and `symbol`; `crates/doc/src/lib.rs` supplies `Project`, `Wire`, `Label`.
 use super::*;
 use egui::{Align2, Color32, FontId};
 use std::collections::HashMap;
+
+/// Height of schematic text in millimetres (50 mil, the usual drawing size).
+pub(super) const TEXT_MM: f32 = 1.27;
+
+/// A schematic font `mm` tall at this zoom, so text keeps its size relative
+/// to the symbols the way it does on a printed sheet.
+///
+/// # Rules
+/// - Rounded to half pixels so zooming does not fill the glyph atlas with sizes.
+pub(super) fn font(camera: Camera, mm: f32) -> FontId {
+    FontId::proportional(((mm * camera.zoom * 2.0).round() / 2.0).clamp(3.0, 64.0))
+}
+
+/// Wire and power symbol line width in millimetres.
+pub(super) const WIRE_MM: f32 = 0.25;
+/// Symbol body and pin line width in millimetres.
+pub(super) const BODY_MM: f32 = 0.2;
+
+/// A line `mm` wide at this zoom, never thinner than a pixel so a whole page
+/// stays visible.
+pub(super) fn stroke_width(camera: Camera, mm: f32) -> f32 {
+    (mm * camera.zoom).clamp(1.0, 8.0)
+}
+
+/// Radius of a junction dot: 0.9 mm across, at least big enough to read.
+pub(super) fn dot_radius(camera: Camera) -> f32 {
+    (0.45 * camera.zoom).clamp(2.0, 12.0)
+}
 
 /// Every colour of the schematic picture for one theme.
 ///
@@ -585,7 +613,7 @@ fn ground_symbol(
     name: &str,
     sc: &SheetColours,
 ) {
-    let stroke = Stroke::new(2.5, sc.wire);
+    let stroke = Stroke::new(stroke_width(camera, WIRE_MM), sc.wire);
     for (i, half) in [1.8, 1.2, 0.6].into_iter().enumerate() {
         let y = top.y + 0.9 * i as f64;
         painter.line_segment(
@@ -600,7 +628,7 @@ fn ground_symbol(
         camera.screen(Point::new(top.x, top.y + 2.4), rect),
         Align2::CENTER_TOP,
         name,
-        FontId::monospace(12.0),
+        font(camera, TEXT_MM),
         sc.wire,
     );
 }
@@ -615,7 +643,7 @@ fn rail_symbol(
     name: &str,
     sc: &SheetColours,
 ) {
-    let stroke = Stroke::new(2.5, sc.wire);
+    let stroke = Stroke::new(stroke_width(camera, WIRE_MM), sc.wire);
     let top = Point::new(base.x, base.y - 5.0);
     painter.line_segment(
         [camera.screen(base, rect), camera.screen(top, rect)],
@@ -632,14 +660,14 @@ fn rail_symbol(
         camera.screen(Point::new(top.x, top.y - 0.8), rect),
         Align2::CENTER_BOTTOM,
         name,
-        FontId::monospace(12.0),
+        font(camera, TEXT_MM),
         sc.wire,
     );
 }
 
 /// A filled junction dot where three or more wire ends meet.
 fn junction(painter: &egui::Painter, rect: Rect, camera: Camera, at: Point, sc: &SheetColours) {
-    painter.circle_filled(camera.screen(at, rect), 4.5, sc.wire);
+    painter.circle_filled(camera.screen(at, rect), dot_radius(camera), sc.wire);
 }
 
 /// The longest horizontal run of a path, or the longest run when none is
@@ -681,19 +709,20 @@ pub(super) fn run_point(run: (Point, Point), fraction: f64) -> Point {
 /// - `crates/ui-egui/src/canvas/sheet.rs` (`power_nets`) for the classification and
 ///   `crates/doc/src/lib.rs` (`Project::wire_path`) for the run a supply symbol attaches to.
 ///
+/// `page` is the schematic page on screen; nothing from another page is drawn.
+///
 /// # Do not
 /// - Draw a wire the caller still paints.
 pub(super) fn paint_power(
     painter: &egui::Painter,
     rect: Rect,
     camera: Camera,
-    p: &Project,
-    page: Id,
+    (p, page): (&Project, Id),
     kinds: &HashMap<Id, PowerKind>,
     sc: &SheetColours,
     show_wires: bool,
 ) {
-    let stub = Stroke::new(2.5, sc.wire);
+    let stub = Stroke::new(stroke_width(camera, WIRE_MM), sc.wire);
     let mut ends: HashMap<(i64, i64), usize> = HashMap::new();
     let key = |q: Point| ((q.x * 100.0).round() as i64, (q.y * 100.0).round() as i64);
     let mut ruled: Vec<Id> = Vec::new();

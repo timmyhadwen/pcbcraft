@@ -1627,7 +1627,7 @@ impl App {
         );
         underlay::paint(painter, rect, camera, p, "schematic");
         let kinds = sheet::power_nets(p);
-        let wire = Stroke::new(2.5, sc.wire);
+        let wire = Stroke::new(sheet::stroke_width(camera, sheet::WIRE_MM), sc.wire);
         for w in p
             .wires
             .iter()
@@ -1666,12 +1666,20 @@ impl App {
                 at + offset,
                 anchor,
                 p.net_name(w.net),
-                FontId::monospace(12.0),
+                sheet::font(camera, sheet::TEXT_MM),
                 sc.wire,
             );
         }
         if row_shown("power") {
-            sheet::paint_power(painter, rect, camera, p, page, &kinds, &sc, shown("Wires"));
+            sheet::paint_power(
+                painter,
+                rect,
+                camera,
+                (p, page),
+                &kinds,
+                &sc,
+                shown("Wires"),
+            );
         }
         for w in p
             .drawn_wires
@@ -1726,10 +1734,10 @@ impl App {
         {
             let at = camera.screen(l.position, rect);
             if l.kind == "junction" {
-                painter.circle_filled(at, 4.5, sc.wire);
+                painter.circle_filled(at, sheet::dot_radius(camera), sc.wire);
             } else if l.kind == "power" {
                 // The power symbol drawn by `paint_power` carries the name.
-                painter.circle_filled(at, 3.0, sc.wire);
+                painter.circle_filled(at, sheet::dot_radius(camera) * 0.7, sc.wire);
             } else {
                 let text = match l.kind.as_str() {
                     "global" => format!("{{{}}}", p.net_name(l.net)),
@@ -1741,7 +1749,7 @@ impl App {
                     at,
                     Align2::CENTER_BOTTOM,
                     text,
-                    FontId::monospace(12.0),
+                    sheet::font(camera, sheet::TEXT_MM),
                     sc.wire,
                 );
             }
@@ -1752,7 +1760,7 @@ impl App {
                 at,
                 Align2::CENTER_CENTER,
                 format!("[{}]", port.name),
-                FontId::monospace(12.0),
+                sheet::font(camera, sheet::TEXT_MM),
                 sc.wire,
             );
         }
@@ -1805,6 +1813,11 @@ impl App {
             );
         }
     }
+    /// Colour the sheet draws wires in, so a test can find them on screen.
+    #[cfg(test)]
+    pub(crate) fn sheet_wire_colour(&self) -> Color32 {
+        sheet::SheetColours::for_theme(self.colours().dark).wire
+    }
     pub(super) fn symbol(
         &self,
         painter: &egui::Painter,
@@ -1824,8 +1837,19 @@ impl App {
             sc.body
         };
         let text_colour = if ghost { self.accent() } else { sc.text };
-        let stroke = Stroke::new(2.2, color);
+        let stroke = Stroke::new(sheet::stroke_width(camera, sheet::BODY_MM), color);
         let is_connector = c.library_symbol.is_none() && c.kind == "connector";
+        // Two-pin parts (resistors, capacitors, diodes) carry no pin names or numbers.
+        let pin_count = match &c.library_symbol {
+            Some(library) => library
+                .definition
+                .pins
+                .iter()
+                .filter(|p| p.unit == 0 || p.unit == library.unit)
+                .count(),
+            None => c.pins.len(),
+        };
+        let few_pins = pin_count <= 2;
         // Half extent of the body across the pin axis, in millimetres.
         let half_height = match c.kind.as_str() {
             "connector" => 2.5,
@@ -1873,18 +1897,14 @@ impl App {
                         }
                     }
                 }
-                if pin.name != "~" && !pin.name.is_empty() {
-                    let label_at = if pin.visible {
-                        pin.stem_end()
-                    } else {
-                        pin.position
-                    };
-                    painter.text(
-                        at(label_at) + Vec2::new(3.0, -3.0),
-                        Align2::LEFT_BOTTOM,
-                        &pin.name,
-                        FontId::monospace(10.0),
-                        sc.muted,
+                if pin.visible && !few_pins {
+                    self.pin_text(
+                        painter,
+                        camera,
+                        (at(pin.position), at(pin.stem_end())),
+                        pin,
+                        text_colour,
+                        &sc,
                     );
                 }
             }
@@ -1977,7 +1997,7 @@ impl App {
             }
         }
         let center = camera.screen(c.position, rect);
-        for pin in &c.pins {
+        for pin in c.pins.iter().filter(|_| c.library_symbol.is_none()) {
             let position = at(pin.offset);
             painter.circle_filled(position, 3.5, sc.sheet);
             painter.circle_stroke(position, 3.5, Stroke::new(1.6, sc.pin));
@@ -2026,31 +2046,103 @@ impl App {
         } else {
             (5.0 * sine.abs() + half_height * cosine.abs() + 1.5) as f32 * camera.zoom
         };
-        painter.text(
-            center - Vec2::new(0.0, label_offset),
-            Align2::CENTER_BOTTOM,
+        let gap = 0.8 * camera.zoom;
+        let body = c
+            .drawing_points()
+            .iter()
+            .fold(Rect::from_center_size(center, Vec2::ZERO), |r, p| {
+                r.union(Rect::from_center_size(at(*p), Vec2::ZERO))
+            });
+        // A small upright part takes its texts on the right, as on a printed
+        // sheet; anything else takes the reference above and the value below.
+        let ((ref_at, ref_align), (value_at, value_align)) = if c.library_symbol.is_none() {
+            (
+                (center - Vec2::new(0.0, label_offset), Align2::CENTER_BOTTOM),
+                (center + Vec2::new(0.0, label_offset), Align2::CENTER_TOP),
+            )
+        } else if few_pins && body.height() > body.width() {
+            (
+                (Pos2::new(body.right() + gap, center.y), Align2::LEFT_BOTTOM),
+                (Pos2::new(body.right() + gap, center.y), Align2::LEFT_TOP),
+            )
+        } else {
+            (
+                (Pos2::new(center.x, body.top() - gap), Align2::CENTER_BOTTOM),
+                (Pos2::new(center.x, body.bottom() + gap), Align2::CENTER_TOP),
+            )
+        };
+        let reference = painter.text(
+            ref_at,
+            ref_align,
             &c.reference,
-            FontId::monospace(15.0),
+            sheet::font(camera, sheet::TEXT_MM),
             text_colour,
         );
-        if !ghost {
+        let value = if ghost {
+            reference
+        } else {
             painter.text(
-                center + Vec2::new(0.0, label_offset),
-                Align2::CENTER_TOP,
+                value_at,
+                value_align,
                 &c.value,
-                FontId::monospace(12.0),
-                text_colour,
-            );
-        }
+                sheet::font(camera, sheet::TEXT_MM),
+                sc.muted,
+            )
+        };
         if selected && !ghost {
             let mut bounds = Rect::from_center_size(center, Vec2::ZERO);
             for pin in &c.pins {
                 bounds.extend_with(at(pin.offset));
             }
-            bounds.extend_with(center - Vec2::new(0.0, label_offset + 22.0));
-            bounds.extend_with(center + Vec2::new(0.0, label_offset + 20.0));
-            sheet::paint_selection(painter, bounds.expand(9.0), &sc);
+            let bounds = bounds.union(body).union(reference).union(value);
+            sheet::paint_selection(painter, bounds.expand(0.8 * camera.zoom), &sc);
         }
+    }
+    /// Paint a library pin's name just inside the body and its number over the
+    /// stem, each on the side the pin points to, so neither crosses the wire.
+    ///
+    /// `stem` is the connection point and the inner end of the stem, on screen.
+    fn pin_text(
+        &self,
+        painter: &egui::Painter,
+        camera: Camera,
+        stem: (Pos2, Pos2),
+        pin: &pcbcraft_library::SymbolPin,
+        text_colour: Color32,
+        sc: &sheet::SheetColours,
+    ) {
+        let (tip, base) = stem;
+        let inward = (base - tip).normalized();
+        let across = inward.x.abs() >= inward.y.abs();
+        let gap = 0.5 * camera.zoom;
+        if pin.name != "~" && !pin.name.is_empty() && pin.name != pin.number {
+            let align = match (across, inward.x > 0.0, inward.y > 0.0) {
+                (true, true, _) => Align2::LEFT_CENTER,
+                (true, false, _) => Align2::RIGHT_CENTER,
+                (false, _, true) => Align2::CENTER_TOP,
+                (false, _, false) => Align2::CENTER_BOTTOM,
+            };
+            painter.text(
+                base + inward * gap,
+                align,
+                &pin.name,
+                sheet::font(camera, sheet::TEXT_MM),
+                text_colour,
+            );
+        }
+        let middle = tip + (base - tip) * 0.5;
+        let (spot, align) = if across {
+            (
+                middle - Vec2::new(0.0, 0.25 * camera.zoom),
+                Align2::CENTER_BOTTOM,
+            )
+        } else {
+            (
+                middle - Vec2::new(0.25 * camera.zoom, 0.0),
+                Align2::RIGHT_CENTER,
+            )
+        };
+        painter.text(spot, align, &pin.number, sheet::font(camera, 1.0), sc.pin);
     }
     fn paint_board(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
         let shown = |name: &str| self.layer_shown(name);

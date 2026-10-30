@@ -1168,6 +1168,8 @@ pub struct App {
     capture_menu_tag: Option<String>,
     /// Capture option: open the bottom sheet on its Findings tab.
     capture_sheet: bool,
+    /// Capture option: schematic page to show, 1 for Main, 2 for the first added page.
+    capture_page: Option<usize>,
     frames: u32,
     library: library::Browser,
     pub(crate) compare_open: bool,
@@ -1458,6 +1460,11 @@ impl App {
         self.capture_sheet = open;
         self
     }
+    /// Capture option: show schematic page `page` (1 is Main). Ignored outside capture mode.
+    pub fn with_capture_page(mut self, page: Option<usize>) -> Self {
+        self.capture_page = page;
+        self
+    }
     /// Fill the Library tab's search box and open that tab, so a `--capture`
     /// image can show a search result.
     pub fn with_capture_search(mut self, query: Option<String>) -> Self {
@@ -1733,6 +1740,7 @@ impl App {
             capture_menu: false,
             capture_menu_tag: None,
             capture_sheet: false,
+            capture_page: None,
             frames: 0,
             binding_capture: None,
             profile_name_draft: String::new(),
@@ -6883,6 +6891,17 @@ impl App {
             self.open_sheet(bottom_sheet::SheetTab::Findings);
         }
         if self.frames == 3
+            && let Some(page) = self.capture_page.take()
+        {
+            let id = match page {
+                0 | 1 => Some(0),
+                n => self.project.sheets.get(n - 2).map(|s| s.id),
+            };
+            if let Some(id) = id {
+                self.show_page(id);
+            }
+        }
+        if self.frames == 3
             && let Some(row) = self
                 .capture_select
                 .as_deref()
@@ -7595,6 +7614,7 @@ mod tests {
             session.revision
         };
         let wire_count = |app: &mut App, ctx: &egui::Context| -> Result<usize, String> {
+            let wire = egui::epaint::ColorMode::Solid(app.sheet_wire_colour());
             let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
             Ok(output
                 .shapes
@@ -7602,7 +7622,7 @@ mod tests {
                 .filter(|shape| {
                     matches!(
                         &shape.shape,
-                        egui::Shape::Path(path) if (path.stroke.width - 2.5).abs() < 0.01
+                        egui::Shape::Path(path) if path.stroke.color == wire
                     )
                 })
                 .count())

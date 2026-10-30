@@ -73,6 +73,7 @@ fn main() -> eframe::Result {
     let menu_tag = option("--menu");
     let show = option("--show");
     let sheet = args.iter().any(|a| a == "--sheet");
+    let page = option("--page").and_then(|p| p.parse::<usize>().ok());
     let target = option("--target");
     let search = option("--search");
     let view3d = option("--view3d");
@@ -97,6 +98,7 @@ fn main() -> eframe::Result {
                     .with_capture_view(context_menu)
                     .with_capture_menu(menu_tag)
                     .with_capture_sheet(sheet)
+                    .with_capture_page(page)
                     .with_capture_show(show)
                     .with_capture_target(target)
                     .with_capture_search(search)
