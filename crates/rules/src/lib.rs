@@ -56,6 +56,49 @@ struct Hole {
     radius: f64,
 }
 
+thread_local! {
+    /// Zone fills already poured in the current shared run, by zone id.
+    static FILLS: std::cell::RefCell<Option<std::collections::HashMap<Id, Result<pcbcraft_doc::ZoneFill, String>>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `checks` with each zone poured once and the fill reused by every rule
+/// that needs it, instead of poured again by each.
+///
+/// Why: pouring is the slowest step of the checks (over a second for the
+/// showcase), and design rules and airwires each poured every zone again.
+///
+/// # Rules
+/// - The design must not change inside `checks`; the fills are dropped when
+///   it returns, so nothing is reused across edits.
+pub fn with_shared_fills<R>(checks: impl FnOnce() -> R) -> R {
+    let outer = FILLS.with(|cell| cell.replace(Some(std::collections::HashMap::new())));
+    let result = checks();
+    FILLS.with(|cell| *cell.borrow_mut() = outer);
+    result
+}
+
+/// Pour `zone`, or take its fill from the shared run when one is active.
+fn zone_fill(
+    project: &Project,
+    zone: &pcbcraft_doc::CopperZone,
+) -> Result<pcbcraft_doc::ZoneFill, String> {
+    if let Some(found) = FILLS.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .and_then(|fills| fills.get(&zone.id).cloned())
+    }) {
+        return found;
+    }
+    let fill = pcbcraft_doc::zone_fill(project, zone);
+    FILLS.with(|cell| {
+        if let Some(fills) = cell.borrow_mut().as_mut() {
+            fills.insert(zone.id, fill.clone());
+        }
+    });
+    fill
+}
+
 /// Filled copper of one zone as (outer ring, holes, anchor). A zone whose fill
 /// refuses, because the board is beyond the pour bounds, is reported inside
 /// `drc` and checked by its bare outline here.
@@ -65,7 +108,7 @@ fn zone_pieces(
     project: &Project,
     zone: &pcbcraft_doc::CopperZone,
 ) -> Result<Vec<ZonePiece>, String> {
-    let fill = pcbcraft_doc::zone_fill(project, zone)?;
+    let fill = zone_fill(project, zone)?;
     Ok(fill
         .pieces
         .iter()
@@ -591,16 +634,90 @@ fn root(parent: &[usize], mut node: usize) -> usize {
     }
     node
 }
+/// Box around everything an item could touch or come near: its capsule at
+/// the larger of its copper and contact radius, and its outline.
+fn item_box(c: &Copper) -> (Point, Point) {
+    let r = c.radius.max(c.contact_radius).max(0.0);
+    let mut lo = Point::new(c.start.x.min(c.end.x) - r, c.start.y.min(c.end.y) - r);
+    let mut hi = Point::new(c.start.x.max(c.end.x) + r, c.start.y.max(c.end.y) + r);
+    if let Some(points) = &c.outline {
+        let e = c.outline_error.max(0.0);
+        for p in points {
+            lo = Point::new(lo.x.min(p.x - e), lo.y.min(p.y - e));
+            hi = Point::new(hi.x.max(p.x + e), hi.y.max(p.y + e));
+        }
+    }
+    (lo, hi)
+}
+
+/// Every pair of items, as (lower index, higher index) in ascending order,
+/// whose boxes come within `reach` of each other: the only pairs a distance
+/// test of at most `reach` can match.
+///
+/// Why: checking every pair grows with the square of the copper count and
+/// took seconds on a real board; a sweep along x keeps only near pairs.
+fn near_pairs(items: &[Copper], reach: f64) -> Vec<(usize, usize)> {
+    let boxes: Vec<(Point, Point)> = items.iter().map(item_box).collect();
+    let mut order: Vec<usize> = (0..items.len()).collect();
+    order.sort_by(|a, b| boxes[*a].0.x.total_cmp(&boxes[*b].0.x));
+    let mut pairs = Vec::new();
+    for (k, &i) in order.iter().enumerate() {
+        let (lo, hi) = boxes[i];
+        for &j in &order[k + 1..] {
+            let (other_lo, other_hi) = boxes[j];
+            if other_lo.x > hi.x + reach {
+                break;
+            }
+            if other_lo.y > hi.y + reach || lo.y > other_hi.y + reach {
+                continue;
+            }
+            pairs.push((i.min(j), i.max(j)));
+        }
+    }
+    pairs.sort_unstable();
+    pairs
+}
+
+/// The largest clearance any rule or part asks for, plus a hair: no pair
+/// farther apart than this can break a clearance rule.
+fn clearance_ceiling(project: &Project, items: &[Copper]) -> f64 {
+    let rules = project
+        .net_classes
+        .iter()
+        .map(|c| c.clearance)
+        .chain(project.class_pairs.iter().map(|r| r.clearance))
+        .chain(project.board.pair_rules.iter().map(|r| r.clearance))
+        .chain(project.board.rule_areas.iter().map(|a| a.clearance))
+        .chain(items.iter().filter_map(|c| c.clearance));
+    rules.fold(project.board.clearance, f64::max) + 1e-3
+}
+
 fn copper_components(items: &[Copper]) -> Vec<usize> {
     let mut parents: Vec<_> = (0..items.len()).collect();
-    for (i, a) in items.iter().enumerate() {
-        for (j, b) in items.iter().enumerate().skip(i + 1) {
-            if touching(a, b) {
-                let ra = root(&parents, i);
-                let rb = root(&parents, j);
-                if let Some(p) = parents.get_mut(rb) {
-                    *p = ra;
-                }
+    // Near pairs, plus the pads of each net tie, which touch wherever they
+    // sit. Joined in index order, as a full scan of every pair would.
+    let mut pairs = near_pairs(items, 1e-3);
+    let mut ties: BTreeMap<&(Id, String), Vec<usize>> = BTreeMap::new();
+    for (i, c) in items.iter().enumerate() {
+        if let Some(bridge) = &c.bridge {
+            ties.entry(bridge).or_default().push(i);
+        }
+    }
+    for members in ties.values() {
+        for (k, &i) in members.iter().enumerate() {
+            for &j in &members[k + 1..] {
+                pairs.push((i, j));
+            }
+        }
+    }
+    pairs.sort_unstable();
+    pairs.dedup();
+    for (i, j) in pairs {
+        if touching(&items[i], &items[j]) {
+            let ra = root(&parents, i);
+            let rb = root(&parents, j);
+            if let Some(p) = parents.get_mut(rb) {
+                *p = ra;
             }
         }
     }
@@ -1052,8 +1169,13 @@ fn copper_findings(
     let mut result = vec![];
     let board = &project.board;
     let wanted = |id: Id| only.is_none_or(|set| set.contains(&id));
+    // Only pairs within the largest clearance of each other can break one.
+    let mut near: Vec<Vec<usize>> = vec![Vec::new(); items.len()];
+    for (i, j) in near_pairs(items, clearance_ceiling(project, items)) {
+        near[i].push(j);
+    }
     for (i, a) in items.iter().enumerate() {
-        for b in items.iter().skip(i + 1) {
+        for b in near[i].iter().map(|&j| &items[j]) {
             if !wanted(a.id) && !wanted(b.id) {
                 continue;
             }
@@ -1499,7 +1621,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         if !zone.filled {
             continue;
         }
-        let fill = match pcbcraft_doc::zone_fill(project, zone) {
+        let fill = match zone_fill(project, zone) {
             Ok(fill) => fill,
             Err(message) => {
                 result.push(Finding {
@@ -3895,5 +4017,54 @@ mod pour_tests {
         assert!(!f.contains(Point::new(20.0, 20.0)));
         assert!(f.contains(Point::new(20.0, 28.0)));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod sweep_tests {
+    use super::*;
+
+    fn item(id: Id, net: Id, a: (f64, f64), b: (f64, f64), radius: f64) -> Copper {
+        Copper {
+            id,
+            net,
+            start: Point::new(a.0, a.1),
+            end: Point::new(b.0, b.1),
+            radius,
+            contact_radius: radius,
+            conservative: false,
+            outline: None,
+            outline_error: 0.0,
+            layer: Layer::Front,
+            pad: false,
+            clearance: None,
+            bridge: None,
+            hole: None,
+            cutouts: Vec::new(),
+        }
+    }
+
+    /// Every pair a full scan would test within `reach` is kept by the sweep.
+    #[test]
+    fn near_pairs_keeps_every_pair_within_reach() {
+        let mut items = Vec::new();
+        let mut id = 1;
+        for x in 0..12 {
+            for y in 0..9 {
+                let (fx, fy) = (f64::from(x) * 1.7, f64::from(y) * 2.3);
+                items.push(item(id, id % 5, (fx, fy), (fx + 1.1, fy + 0.4), 0.15));
+                id += 1;
+            }
+        }
+        let reach = 0.5;
+        let found = near_pairs(&items, reach);
+        for (i, a) in items.iter().enumerate() {
+            for (j, b) in items.iter().enumerate().skip(i + 1) {
+                let d = segment_distance(a.start, a.end, b.start, b.end) - a.radius - b.radius;
+                if d <= reach {
+                    assert!(found.binary_search(&(i, j)).is_ok(), "pair {i},{j} at {d}");
+                }
+            }
+        }
     }
 }

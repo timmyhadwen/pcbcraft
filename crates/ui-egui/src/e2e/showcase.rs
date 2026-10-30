@@ -132,3 +132,30 @@ fn checks_time() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Write the checks of both showcase files to `PCBCRAFT_CHECKS_DUMP`, so two
+/// builds of the rules can be compared byte for byte.
+#[test]
+#[ignore = "comparison dump, run by hand"]
+fn dump_checks() -> Result<(), String> {
+    let Ok(out) = std::env::var("PCBCRAFT_CHECKS_DUMP") else {
+        return Ok(());
+    };
+    let mut text = String::new();
+    for name in ["showcase.pcbcraft", "showcase-with-findings.pcbcraft"] {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+        app.refresh();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples")
+            .join(name);
+        app.tool_call("open", json!({"path": path.to_string_lossy()}));
+        let session = shared.lock().map_err(|_| "session")?;
+        let mut checks = session.checks();
+        if let Some(map) = checks.as_object_mut() {
+            map.remove("revision");
+        }
+        text.push_str(&serde_json::to_string_pretty(&checks).map_err(|e| e.to_string())?);
+    }
+    std::fs::write(out, text).map_err(|e| e.to_string())
+}
