@@ -602,7 +602,8 @@ impl App {
                 {
                     self.move_selection(at.x - origin.x, at.y - origin.y);
                 } else {
-                    let mut params = json!({"id":id,"position":at});
+                    // A drag keeps the part's wires and tracks attached.
+                    let mut params = json!({"id":id,"position":at,"drag":true});
                     if self.project.component(id).is_some() {
                         params["unit"] = json!(self.selected_unit);
                     }

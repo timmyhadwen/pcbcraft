@@ -159,3 +159,103 @@ fn dump_checks() -> Result<(), String> {
     }
     std::fs::write(out, text).map_err(|e| e.to_string())
 }
+
+/// Dragging a part keeps what is wired to it: every drawn wire end that was
+/// on one of its pins, and every track end on one of its pads, is still on
+/// it after the move.
+#[test]
+fn a_designer_drags_parts_and_their_wiring_comes_along() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    if !app.open_showcase() {
+        return Err(app.message.clone());
+    }
+    let id_of = |app: &App, r: &str| {
+        app.project
+            .components
+            .iter()
+            .find(|c| c.reference == r)
+            .map(|c| c.id)
+            .ok_or(format!("{r} exists"))
+    };
+    // Schematic: R5 has a stub on each pin.
+    let r5 = id_of(&app, "R5")?;
+    let pins = |app: &App| pcbcraft_engine::drag::anchors(&app.project, r5);
+    let ends = |app: &App| -> Vec<Point> {
+        app.project
+            .drawn_wires
+            .iter()
+            .flat_map(|w| [w.points.first().copied(), w.points.last().copied()])
+            .flatten()
+            .collect()
+    };
+    let on = |points: &[Point], at: Point| points.iter().any(|q| q.distance(at) < 1e-6);
+    let wired = pins(&app)
+        .iter()
+        .filter_map(|(at, _)| *at)
+        .filter(|at| on(&ends(&app), *at))
+        .count();
+    assert!(wired >= 2, "R5 starts wired");
+    let to = app
+        .project
+        .component(r5)
+        .ok_or("R5")?
+        .position
+        .offset(Point::new(5.08, 2.54));
+    app.run(
+        "component.move",
+        json!({"id": r5, "position": to, "drag": true}),
+    );
+    let after = ends(&app);
+    let still = pins(&app)
+        .iter()
+        .filter_map(|(at, _)| *at)
+        .filter(|at| on(&after, *at))
+        .count();
+    assert_eq!(
+        still, wired,
+        "every wired pin keeps its wire: {}",
+        app.message
+    );
+    // Board: U3's pads carry tracks.
+    let u3 = app
+        .project
+        .board
+        .footprints
+        .iter()
+        .find(|f| Some(f.component) == id_of(&app, "U3").ok())
+        .map(|f| (f.id, f.position))
+        .ok_or("U3 footprint")?;
+    let pads = |app: &App| pcbcraft_engine::drag::anchors(&app.project, u3.0);
+    let track_ends = |app: &App| -> Vec<Point> {
+        app.project
+            .board
+            .tracks
+            .iter()
+            .flat_map(|t| [t.start, t.end])
+            .collect()
+    };
+    let routed = pads(&app)
+        .iter()
+        .filter_map(|(at, _)| *at)
+        .filter(|at| on(&track_ends(&app), *at))
+        .count();
+    assert!(routed > 4, "U3 starts routed");
+    app.run(
+        "footprint.move",
+        json!({"id": u3.0, "position": u3.1.offset(Point::new(1.0, 0.5)), "drag": true}),
+    );
+    let after = track_ends(&app);
+    let still = pads(&app)
+        .iter()
+        .filter_map(|(at, _)| *at)
+        .filter(|at| on(&after, *at))
+        .count();
+    assert_eq!(
+        still, routed,
+        "every routed pad keeps its track: {}",
+        app.message
+    );
+    Ok(())
+}

@@ -320,7 +320,7 @@ impl App {
         for id in ids {
             if let Some(c) = self.project.component(id) {
                 let to = Point::new(c.position.x + dx, c.position.y + dy);
-                self.run("component.move", json!({"id":id,"position":to}));
+                self.run("component.move", json!({"id":id,"position":to,"drag":true}));
             } else {
                 self.run("object.nudge", json!({"id":id,"dx":dx,"dy":dy}));
             }

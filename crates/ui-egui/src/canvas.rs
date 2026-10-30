@@ -549,6 +549,7 @@ impl App {
         }
         let mut visible = self.project.clone();
         if let Some((id, pos)) = self.drag {
+            let before = pcbcraft_engine::drag::anchors(&visible, id);
             if let Some(c) = visible.components.iter_mut().find(|c| c.id == id) {
                 if self.selected_unit == 1 {
                     c.position = pos;
@@ -560,6 +561,8 @@ impl App {
             if let Some(f) = visible.board.footprints.iter_mut().find(|f| f.id == id) {
                 f.position = pos;
             }
+            // The preview drags the wires and tracks the way the drop will.
+            pcbcraft_engine::drag::follow(&mut visible, id, &before);
         }
         self.press_preview(&mut visible);
         let focus = if self.tab == Tab::Pcb {

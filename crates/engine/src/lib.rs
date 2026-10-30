@@ -1,6 +1,7 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod artifacts;
 mod authoring;
+pub mod drag;
 mod dry_run;
 mod images;
 pub mod library;
@@ -292,9 +293,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "component.move",
-            "Move a schematic component; connected wire endpoints follow",
+            "Move a schematic component; connected wire endpoints follow, and with drag the drawn wires ending on its pins follow too",
             schema(
-                json!({"id":id_schema(),"position":point_schema(),"unit":{"type":"integer","minimum":1,"maximum":32}}),
+                json!({"id":id_schema(),"position":point_schema(),"unit":{"type":"integer","minimum":1,"maximum":32},"drag":{"type":"boolean"}}),
                 &["id", "position"],
             ),
         ),
@@ -1261,9 +1262,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "footprint.move",
-            "Move a board footprint; existing routed tracks stay fixed",
+            "Move a board footprint; routed tracks stay fixed unless drag is set, when track ends on its pads follow",
             schema(
-                json!({"id":id_schema(),"position":point_schema()}),
+                json!({"id":id_schema(),"position":point_schema(),"drag":{"type":"boolean"}}),
                 &["id", "position"],
             ),
         ),
@@ -3490,6 +3491,9 @@ struct Move {
     id: Id,
     position: Point,
     unit: Option<u32>,
+    /// Bring along the wire or track ends on the part's pins or pads.
+    #[serde(default)]
+    drag: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -7965,6 +7969,11 @@ fn run_command(
         }
         "component.move" => {
             let a: Move = parse(params)?;
+            let before = if a.drag {
+                drag::anchors(p, a.id)
+            } else {
+                Vec::new()
+            };
             let c = p
                 .components
                 .iter_mut()
@@ -7978,6 +7987,9 @@ fn run_command(
                     .find(|u| Some(u.unit) == a.unit)
                     .ok_or_else(missing)?
                     .position = a.position;
+            }
+            if a.drag {
+                drag::follow(p, a.id, &before);
             }
             Ok(json!({"id":a.id,"unit":a.unit.unwrap_or(1)}))
         }
@@ -16299,12 +16311,20 @@ fn run_command(
                     "that footprint is locked against placement changes".into(),
                 ));
             }
+            let before = if a.drag {
+                drag::anchors(p, a.id)
+            } else {
+                Vec::new()
+            };
             p.board
                 .footprints
                 .iter_mut()
                 .find(|f| f.id == a.id)
                 .ok_or_else(missing)?
                 .position = a.position;
+            if a.drag {
+                drag::follow(p, a.id, &before);
+            }
             Ok(json!({"id":a.id}))
         }
         "footprint.rotate" => {
